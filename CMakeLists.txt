@@ -7,10 +7,10 @@ cmake_minimum_required(VERSION 3.28)
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING
         "Build type (Release by default per the lean-build rule)" FORCE)
-    message(STATUS "ff6-cpp: CMAKE_BUILD_TYPE defaulted to Release.")
+    message(STATUS "ostinato-vi: CMAKE_BUILD_TYPE defaulted to Release.")
 endif()
 
-project(ff6-cpp
+project(ostinato-vi
     VERSION 0.0.1
     DESCRIPTION "Final Fantasy VI — modern C++ port on the Retro++ engine"
     LANGUAGES CXX)
@@ -19,16 +19,16 @@ project(ff6-cpp
 # Compiler floor (C++20; matches the engine's stated minimums). A too-old
 # compiler fails at configure with a clear message, not mid-build.
 # ---------------------------------------------------------------------------
-set(_ff6_id  "${CMAKE_CXX_COMPILER_ID}")
-set(_ff6_ver "${CMAKE_CXX_COMPILER_VERSION}")
-if(_ff6_id STREQUAL "GNU" AND _ff6_ver VERSION_LESS 13)
-    message(FATAL_ERROR "ff6-cpp requires GCC 13+ (found ${_ff6_ver}).")
-elseif(_ff6_id STREQUAL "Clang" AND _ff6_ver VERSION_LESS 16)
-    message(FATAL_ERROR "ff6-cpp requires Clang 16+ (found ${_ff6_ver}).")
-elseif(_ff6_id STREQUAL "AppleClang" AND _ff6_ver VERSION_LESS 15)
-    message(FATAL_ERROR "ff6-cpp requires AppleClang 15+ / Xcode 15+ (found ${_ff6_ver}).")
-elseif(_ff6_id STREQUAL "MSVC" AND _ff6_ver VERSION_LESS 19.38)
-    message(FATAL_ERROR "ff6-cpp requires MSVC 19.38+ / VS 2022 17.8+ (found ${_ff6_ver}).")
+set(_ostinato_id  "${CMAKE_CXX_COMPILER_ID}")
+set(_ostinato_ver "${CMAKE_CXX_COMPILER_VERSION}")
+if(_ostinato_id STREQUAL "GNU" AND _ostinato_ver VERSION_LESS 13)
+    message(FATAL_ERROR "ostinato-vi requires GCC 13+ (found ${_ostinato_ver}).")
+elseif(_ostinato_id STREQUAL "Clang" AND _ostinato_ver VERSION_LESS 16)
+    message(FATAL_ERROR "ostinato-vi requires Clang 16+ (found ${_ostinato_ver}).")
+elseif(_ostinato_id STREQUAL "AppleClang" AND _ostinato_ver VERSION_LESS 15)
+    message(FATAL_ERROR "ostinato-vi requires AppleClang 15+ / Xcode 15+ (found ${_ostinato_ver}).")
+elseif(_ostinato_id STREQUAL "MSVC" AND _ostinato_ver VERSION_LESS 19.38)
+    message(FATAL_ERROR "ostinato-vi requires MSVC 19.38+ / VS 2022 17.8+ (found ${_ostinato_ver}).")
 endif()
 
 enable_testing()
@@ -44,9 +44,9 @@ add_subdirectory(engine)
 # its own warning regime. No -Werror yet.
 # ---------------------------------------------------------------------------
 if(MSVC)
-    set(_ff6_warn /W4)
+    set(_ostinato_warn /W4)
 else()
-    set(_ff6_warn -Wall -Wextra -Wpedantic)
+    set(_ostinato_warn -Wall -Wextra -Wpedantic)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -54,36 +54,36 @@ endif()
 # against it without duplicating a main(). Links the engine PUBLIC so both
 # consumers see retropp:: transitively.
 # ---------------------------------------------------------------------------
-add_library(ff6-cpp-lib STATIC
+add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp)
-target_include_directories(ff6-cpp-lib PUBLIC include)
-target_compile_features(ff6-cpp-lib PUBLIC cxx_std_20)
-target_compile_options(ff6-cpp-lib PRIVATE ${_ff6_warn})
-target_link_libraries(ff6-cpp-lib PUBLIC retropp::engine)
+target_include_directories(ostinato-vi-lib PUBLIC include)
+target_compile_features(ostinato-vi-lib PUBLIC cxx_std_20)
+target_compile_options(ostinato-vi-lib PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-vi-lib PUBLIC retropp::engine)
 
 # ---------------------------------------------------------------------------
 # The game binary. Phase 0: prints identity + engine version, exits 0.
 # ---------------------------------------------------------------------------
-add_executable(ff6-cpp src/main.cpp)
-target_compile_features(ff6-cpp PRIVATE cxx_std_20)
-target_compile_options(ff6-cpp PRIVATE ${_ff6_warn})
-target_link_libraries(ff6-cpp PRIVATE ff6-cpp-lib)
+add_executable(ostinato-vi src/main.cpp)
+target_compile_features(ostinato-vi PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-vi PRIVATE ostinato-vi-lib)
 
 # Lean shipped binary: dead-strip unreferenced code at link, strip symbols on Release.
 if(APPLE)
-    target_link_options(ff6-cpp PRIVATE -Wl,-dead_strip)
-elseif(_ff6_id MATCHES "GNU|Clang")
-    target_compile_options(ff6-cpp PRIVATE -ffunction-sections -fdata-sections)
-    target_link_options(ff6-cpp PRIVATE -Wl,--gc-sections)
+    target_link_options(ostinato-vi PRIVATE -Wl,-dead_strip)
+elseif(_ostinato_id MATCHES "GNU|Clang")
+    target_compile_options(ostinato-vi PRIVATE -ffunction-sections -fdata-sections)
+    target_link_options(ostinato-vi PRIVATE -Wl,--gc-sections)
 elseif(MSVC)
-    target_compile_options(ff6-cpp PRIVATE /Gy)
-    target_link_options(ff6-cpp PRIVATE /OPT:REF /OPT:ICF)
+    target_compile_options(ostinato-vi PRIVATE /Gy)
+    target_link_options(ostinato-vi PRIVATE /OPT:REF /OPT:ICF)
 endif()
 
 if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
-    add_custom_command(TARGET ff6-cpp POST_BUILD
-        COMMAND "${CMAKE_STRIP}" -x "$<TARGET_FILE:ff6-cpp>"
-        COMMENT "ff6-cpp: stripping symbols from the Release binary (lean-build rule)"
+    add_custom_command(TARGET ostinato-vi POST_BUILD
+        COMMAND "${CMAKE_STRIP}" -x "$<TARGET_FILE:ostinato-vi>"
+        COMMENT "ostinato-vi: stripping symbols from the Release binary (lean-build rule)"
         VERBATIM)
 endif()
 
@@ -98,10 +98,10 @@ FetchContent_Declare(googletest
     GIT_TAG        v1.17.0)
 FetchContent_MakeAvailable(googletest)
 
-add_executable(ff6-cpp-tests tests/test_smoke.cpp)
-target_compile_features(ff6-cpp-tests PRIVATE cxx_std_20)
-target_compile_options(ff6-cpp-tests PRIVATE ${_ff6_warn})
-target_link_libraries(ff6-cpp-tests PRIVATE ff6-cpp-lib GTest::gtest_main)
+add_executable(ostinato-vi-tests tests/test_smoke.cpp)
+target_compile_features(ostinato-vi-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-tests PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-vi-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 
 include(GoogleTest)
-gtest_discover_tests(ff6-cpp-tests)
+gtest_discover_tests(ostinato-vi-tests)
