@@ -23,7 +23,7 @@ place; game systems are not yet ported. The current binary prints the engine ver
 
 | Path | What it is |
 |---|---|
-| `src/`, `include/ff6/` | Port source and public headers |
+| `src/`, `include/ostinato/` | Port source and public headers |
 | `tests/` | GoogleTest suite |
 | `engine/` | [Retro++](https://github.com/etroimcasso/GBCPP-Engine) engine submodule (currently a private repository — see note below) |
 | `original-src/` | [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly submodule (GPL-3.0) — read-only derivation reference; development-time only, never required by the distribution |

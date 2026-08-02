@@ -43,7 +43,7 @@ Three targets:
 
 **Static-lib scaffolding note.** There is no port code yet, but a STATIC library needs at least
 one real symbol (an empty archive draws `ranlib` "no symbols" warnings). So the build scaffolds
-`include/ff6/ff6.h` + `src/ff6.cpp` with a trivial `ff6::portName()` returning `"FF6-cpp"` — a
+`include/ostinato/ostinato.h` + `src/ostinato.cpp` with a trivial `ostinato::portName()` returning `"OstinatoVI"` — a
 genuine (if minimal) port surface that establishes the lib→engine / binary→lib / tests→lib topology.
 
 ### C++ standard & compiler minimums
@@ -86,7 +86,7 @@ That proves the engine target compiles, links, and runs from the consumer side. 
 
 ### `src/main.cpp` stub
 
-Logs `ff6::portName()` + `retropp::version()` and exits 0. No window, no run loop, no
+Logs `ostinato::portName()` + `retropp::version()` and exits 0. No window, no run loop, no
 `EngineConfig` — the first windowed consumer feature belongs to later work, and this keeps the
 build standup free of platform/windowing surface decisions. (`EngineConfig::setActive` would
 otherwise require an identity; unneeded here.)
@@ -132,8 +132,8 @@ kickoff.
 **Files created:**
 - `CMakeLists.txt` — top-level; lean-build default, compiler floor, `add_subdirectory(engine)`, three
   targets, GoogleTest FetchContent, `gtest_discover_tests`.
-- `include/ff6/ff6.h` — declares `ff6::portName()`.
-- `src/ff6.cpp` — defines `ff6::portName()` (the port library's first symbol).
+- `include/ostinato/ostinato.h` — declares `ostinato::portName()`.
+- `src/ostinato.cpp` — defines `ostinato::portName()` (the port library's first symbol).
 - `src/main.cpp` — prints port name + engine version, exits 0.
 - `tests/test_smoke.cpp` — the 1/1/0 smoke case.
 - `scripts/setup-dev-assets.sh` — dev populate.
@@ -144,7 +144,7 @@ kickoff.
 
 **Measured Release binary size (dev Mac, arm64, AppleClang 21):** **51,944 bytes (~52 KB)**,
 stripped. The binary is this small *because* dead-strip works: `main()` references only
-`retropp::version()` + `ff6::portName()`, so the linker discarded the entire unreferenced
+`retropp::version()` + `ostinato::portName()`, so the linker discarded the entire unreferenced
 engine / SDL / SameBoy footprint. Post-strip local symbol count: 29. This is the lean baseline;
 it will grow as the port references real engine surface (windowing, renderer, audio) later.
 
