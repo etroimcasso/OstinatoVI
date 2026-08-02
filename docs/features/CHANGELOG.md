@@ -1,0 +1,6 @@
+# Feature Changelog
+
+Chronological feature state transitions, newest first.
+
+- **2026-08-01** — `build-system`: ⬜ planned → ✅ complete. CMake consuming `engine/` via `add_subdirectory` (pin bumped `86f9d78`→`7c3707a`); three targets (`ff6-cpp-lib`/`ff6-cpp`/`ff6-cpp-tests`); GoogleTest `v1.17.0` smoke baseline **1/1/0**; lean-build defaults yield a **51,944-byte** stripped Release binary; dev populate script stages `src/gfx`→`assets/gfx/default` (1968 files) and `src/sound`→`assets/audio/default` (413 files) verbatim, nothing tracked.
+- **2026-08-01** — `asset-acquisition`: created ⬜ planned, feature doc authored at inception (pack model, two populate paths, ship rules locked; extraction-tool design deferred to its own work). Registry seeded with `build-system`, `ci`, `audio-engine (SNES)`, `extraction-tool` — all ⬜ planned.
