@@ -37,9 +37,9 @@ Three targets:
 
 | Target | Kind | Links | Purpose |
 |---|---|---|---|
-| `ff6-cpp-lib` | STATIC | `retropp::engine` (PUBLIC) | All port code lives here so both the binary and the tests can build against it without duplicating a `main`. |
-| `ff6-cpp` | executable | `ff6-cpp-lib` (PRIVATE) | The game binary. Currently prints the engine version + port name and exits 0. |
-| `ff6-cpp-tests` | executable | `ff6-cpp-lib` + `GTest::gtest_main` | The GoogleTest runner. |
+| `ostinato-vi-lib` | STATIC | `retropp::engine` (PUBLIC) | All port code lives here so both the binary and the tests can build against it without duplicating a `main`. |
+| `ostinato-vi` | executable | `ostinato-vi-lib` (PRIVATE) | The game binary. Currently prints the engine version + port name and exits 0. |
+| `ostinato-vi-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | The GoogleTest runner. |
 
 **Static-lib scaffolding note.** There is no port code yet, but a STATIC library needs at least
 one real symbol (an empty archive draws `ranlib` "no symbols" warnings). So the build scaffolds
@@ -65,7 +65,7 @@ genuine (if minimal) port surface that establishes the lib→engine / binary→l
 - **Dead-strip at link** on the shipped binary: `-Wl,-dead_strip` (Apple ld64);
   `-ffunction-sections -fdata-sections` + `-Wl,--gc-sections` (GNU/LLVM ld); `/Gy` + `/OPT:REF /OPT:ICF`
   (MSVC).
-- **Symbol strip** post-build on Release non-MSVC: `strip -x $<TARGET_FILE:ff6-cpp>` (MSVC keeps
+- **Symbol strip** post-build on Release non-MSVC: `strip -x $<TARGET_FILE:ostinato-vi>` (MSVC keeps
   symbols in a separate `.pdb`, so the `.exe` is already lean).
 - Binary size is **measured** and recorded below.
 
