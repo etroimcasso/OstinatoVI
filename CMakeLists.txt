@@ -55,7 +55,7 @@ endif()
 # consumers see retropp:: transitively.
 # ---------------------------------------------------------------------------
 add_library(ff6-cpp-lib STATIC
-    src/ff6.cpp)
+    src/ostinato.cpp)
 target_include_directories(ff6-cpp-lib PUBLIC include)
 target_compile_features(ff6-cpp-lib PUBLIC cxx_std_20)
 target_compile_options(ff6-cpp-lib PRIVATE ${_ff6_warn})
