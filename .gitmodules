@@ -1,0 +1,6 @@
+[submodule "engine"]
+	path = engine
+	url = git@github.com:etroimcasso/GBCPP-Engine.git
+[submodule "original-src"]
+	path = original-src
+	url = https://github.com/everything8215/ff6.git

@@ -1,0 +1,20 @@
+# OS noise
+.DS_Store
+
+# ROM files are never committed, anywhere in the tree
+*.sfc
+*.smc
+*.fig
+
+# Extracted / ROM-derived asset content is never committed; directory
+# structure is preserved via .gitkeep when assets/ is scaffolded
+assets/*/default/*
+!assets/*/default/.gitkeep
+
+# Build output
+build/
+
+# Private working docs — local only, never pushed to the public remote.
+# (Tracked on pre-restructure local branches; ignored everywhere going forward.)
+docs-internal/
+/CLAUDE.md
