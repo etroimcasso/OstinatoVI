@@ -314,6 +314,70 @@
     X(CharacterId, VICKS, 0x0F) \
     X(CharacterId, LEO, 0x0F) \
     X(CharacterId, KEFKA, 0x0F) \
+    X(CharacterPropId, TERRA, 0x00) \
+    X(CharacterPropId, LOCKE, 0x01) \
+    X(CharacterPropId, CYAN, 0x02) \
+    X(CharacterPropId, SHADOW, 0x03) \
+    X(CharacterPropId, EDGAR, 0x04) \
+    X(CharacterPropId, SABIN, 0x05) \
+    X(CharacterPropId, CELES, 0x06) \
+    X(CharacterPropId, STRAGO, 0x07) \
+    X(CharacterPropId, RELM, 0x08) \
+    X(CharacterPropId, SETZER, 0x09) \
+    X(CharacterPropId, MOG, 0x0A) \
+    X(CharacterPropId, GAU, 0x0B) \
+    X(CharacterPropId, GOGO, 0x0C) \
+    X(CharacterPropId, UMARO, 0x0D) \
+    X(CharacterPropId, BANON, 0x0E) \
+    X(CharacterPropId, LEO, 0x0F) \
+    X(CharacterPropId, GHOST_1, 0x10) \
+    X(CharacterPropId, GHOST_2, 0x11) \
+    X(CharacterPropId, KUPEK, 0x12) \
+    X(CharacterPropId, KUPOP, 0x13) \
+    X(CharacterPropId, KUMAMA, 0x14) \
+    X(CharacterPropId, KUKU, 0x15) \
+    X(CharacterPropId, KUTAN, 0x16) \
+    X(CharacterPropId, KUPAN, 0x17) \
+    X(CharacterPropId, KUSHU, 0x18) \
+    X(CharacterPropId, KURIN, 0x19) \
+    X(CharacterPropId, KURU, 0x1A) \
+    X(CharacterPropId, KAMOG, 0x1B) \
+    X(CharacterPropId, SCENARIO_MOG, 0x1C) \
+    X(CharacterPropId, TERRA_INTRO, 0x1D) \
+    X(CharacterPropId, MADUIN, 0x1E) \
+    X(CharacterPropId, SHADOW_COLOSSEUM, 0x1F) \
+    X(CharacterPropId, WEDGE, 0x20) \
+    X(CharacterPropId, VICKS, 0x21) \
+    X(CharacterPropId, UNUSED_22, 0x22) \
+    X(CharacterPropId, UNUSED_23, 0x23) \
+    X(CharacterPropId, UNUSED_24, 0x24) \
+    X(CharacterPropId, UNUSED_25, 0x25) \
+    X(CharacterPropId, UNUSED_26, 0x26) \
+    X(CharacterPropId, UNUSED_27, 0x27) \
+    X(CharacterPropId, UNUSED_28, 0x28) \
+    X(CharacterPropId, KEFKA_1, 0x29) \
+    X(CharacterPropId, KEFKA_2, 0x2A) \
+    X(CharacterPropId, KEFKA_3, 0x2B) \
+    X(CharacterPropId, KEFKA_4, 0x2C) \
+    X(CharacterPropId, KEFKA_5, 0x2D) \
+    X(CharacterPropId, KEFKA_6, 0x2E) \
+    X(CharacterPropId, KEFKA_7, 0x2F) \
+    X(CharacterPropId, TORK, 0x30) \
+    X(CharacterPropId, JADE, 0x31) \
+    X(CharacterPropId, CUSTER, 0x32) \
+    X(CharacterPropId, FABIAN, 0x33) \
+    X(CharacterPropId, DRAKE, 0x34) \
+    X(CharacterPropId, SARA, 0x35) \
+    X(CharacterPropId, CASE, 0x36) \
+    X(CharacterPropId, SIELE, 0x37) \
+    X(CharacterPropId, RAY, 0x38) \
+    X(CharacterPropId, REIKER, 0x39) \
+    X(CharacterPropId, LANCE, 0x3A) \
+    X(CharacterPropId, BOB, 0x3B) \
+    X(CharacterPropId, PEPPER, 0x3C) \
+    X(CharacterPropId, TAU, 0x3D) \
+    X(CharacterPropId, VICTOR, 0x3E) \
+    X(CharacterPropId, HO, 0x3F) \
     X(EventObjId, TERRA, 0x00) \
     X(EventObjId, LOCKE, 0x01) \
     X(EventObjId, CYAN, 0x02) \

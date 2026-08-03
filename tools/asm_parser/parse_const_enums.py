@@ -67,6 +67,7 @@ EMIT = {
     "EVENT_DIR":       Emit("EventDir",               "event_dir.h"),
     "ITEM":            Emit("ItemId",                 "item_id.h"),
     "CHAR":            Emit("CharacterId",            "character_id.h"),
+    "CHAR_PROP":       Emit("CharacterPropId",        "character_prop_id.h"),
     "EVENT_OBJ":       Emit("EventObjId",             "event_obj_id.h"),
     "CHAR_GFX":        Emit("CharacterGfxId",         "character_gfx_id.h"),
     "BATTLE_CMD":      Emit("BattleCommandId",        "battle_command_id.h"),
@@ -92,9 +93,11 @@ EMIT = {
 # StatusSet accessors, PLAN D5).
 STATUS_LAYOUT = ("STATUS1", "STATUS2", "STATUS3", "STATUS4")
 
-# Bodies recognized-and-skipped (combined 16-bit status views use '<<'/'::';
-# CHAR_PROP is a RAM/actor-index layout scope that informs D7 field order only).
-SKIP = ("STATUS12", "STATUS23", "STATUS34", "STATUS14", "CHAR_PROP")
+# Bodies recognized-and-skipped: the combined 16-bit status views use '<<'/'::'
+# expressions the port does not emit (they become StatusSet accessors, D5).
+# (CHAR_PROP was formerly skipped; PLAN Amendment A1 emits it as CharacterPropId
+# — the 64-value char_prop record index space, above.)
+SKIP = ("STATUS12", "STATUS23", "STATUS34", "STATUS14")
 
 # The upstream scope name for each cross-ref, mapped to its C++ enum, so a
 # cross-enum reference can be rendered as a readable comment.

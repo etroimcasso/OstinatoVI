@@ -260,6 +260,9 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(len(self.parsed.enum("ATTACK").members), 256)
         self.assertEqual(len(self.parsed.enum("MONSTER").members), 384)
         self.assertEqual(len(self.parsed.enum("STATUS_ID").members), 32)
+        # CHAR_PROP is the 64-value char_prop record index space (PLAN A1),
+        # emitted as CharacterPropId — one enumerator per record, incl. padding.
+        self.assertEqual(len(self.parsed.enum("CHAR_PROP").members), 64)
 
     def test_boundary_values(self):
         self.assertEqual(self.parsed.enum("ITEM").value_of("DIRK"), 0x00)
@@ -268,6 +271,12 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(self.parsed.enum("STATUS_ID").value_of("FLOAT"), 31)
         self.assertEqual(self.parsed.enum("GENJU_BONUS").value_of("NONE"), 0xFF)
         self.assertEqual(self.parsed.enum("TARGET").value_of("MENU"), 0xFF)
+        # CHAR_PROP record index boundaries (PLAN A1): first record, first Kefka
+        # variant, and the final beta slot — the sequential $00..$3f span.
+        char_prop = self.parsed.enum("CHAR_PROP")
+        self.assertEqual(char_prop.value_of("TERRA"), 0x00)
+        self.assertEqual(char_prop.value_of("KEFKA_1"), 0x29)
+        self.assertEqual(char_prop.value_of("HO"), 0x3F)
 
     def test_alias_and_cross_ref(self):
         d = self.parsed.enum("EVENT_DIR")

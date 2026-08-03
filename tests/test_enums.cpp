@@ -7,7 +7,7 @@
 
 #include <gtest/gtest.h>
 
-// The complete emitted enum surface (22 headers).
+// The complete emitted enum surface (23 headers).
 #include "ostinato/attack_id.h"
 #include "ostinato/battle_character_palette.h"
 #include "ostinato/battle_command_flags.h"
@@ -15,6 +15,7 @@
 #include "ostinato/character_flags.h"
 #include "ostinato/character_gfx_id.h"
 #include "ostinato/character_id.h"
+#include "ostinato/character_prop_id.h"
 #include "ostinato/dance_id.h"
 #include "ostinato/element.h"
 #include "ostinato/esper_bonus.h"
@@ -42,7 +43,7 @@
 namespace {
 
 // Every emitted enumerator's value must equal the parser-emitted contract value.
-// Full corpus — the X-macro expands to one check per enumerator (1247 of them).
+// Full corpus — the X-macro expands to one check per enumerator (1311 of them).
 TEST(Enums, AllEnumeratorsMatchContract) {
 #define CHECK(EnumT, Member, Val)                                        \
     EXPECT_EQ(static_cast<std::uint32_t>(ostinato::EnumT::Member),       \
