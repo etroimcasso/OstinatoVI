@@ -1,12 +1,12 @@
 # Build System & Test Harness
 
-**Date:** 2026-08-01
+**Date:** 2026-08-01 (updated 2026-08-03)
 **Status:** Complete
 
 ## Concept
 
 The build rails for the port: a CMake project that consumes the Retro++ engine as a
-subproject, a three-target topology (port library / game binary / test runner), a GoogleTest
+subproject, a five-target topology (port library / game binary / three test runners), a GoogleTest
 smoke harness proving the engine compiles-links-runs consumer-side, and a dev-only script that
 stages ripped ROM assets into the canonical pack directories. Zero game behavior — this
 stands up the infrastructure everything else builds on.
@@ -33,13 +33,18 @@ stands up the infrastructure everything else builds on.
 
 ### Target topology
 
-Three targets:
+Five targets:
 
 | Target | Kind | Links | Purpose |
 |---|---|---|---|
-| `ostinato-vi-lib` | STATIC | `retropp::engine` (PUBLIC) | All port code lives here so both the binary and the tests can build against it without duplicating a `main`. |
+| `ostinato-vi-lib` | STATIC | `retropp::engine` (PUBLIC) | All port code lives here so the binary and the test runners build against it without duplicating a `main`. Public include dirs: `include/` (port headers) + `src/` (data-layer headers, `data/*.h`). |
 | `ostinato-vi` | executable | `ostinato-vi-lib` (PRIVATE) | The game binary. Currently prints the engine version + port name and exits 0. |
-| `ostinato-vi-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | The GoogleTest runner. |
+| `ostinato-vi-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Smoke runner (engine reachability) — frozen baseline. |
+| `ostinato-vi-enum-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Full-corpus enum-surface tests + version-axis / packed-type behavior. |
+| `ostinato-vi-data-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Full-corpus data-table tests (character base stats, RNG table) vs generated fixtures. |
+
+Each data table gets its coverage in a dedicated test source; test binaries are split by
+concern so earlier baselines stay frozen as later ones grow.
 
 **Static-lib scaffolding note.** There is no port code yet, but a STATIC library needs at least
 one real symbol (an empty archive draws `ranlib` "no symbols" warnings). So the build scaffolds
@@ -54,7 +59,7 @@ genuine (if minimal) port surface that establishes the lib→engine / binary→l
   MSVC 19.38+ (VS 2022 17.8+). AppleClang added at 15+ (Xcode 15, first full C++20) since the engine
   guide omits it and the dev Mac builds with AppleClang. A too-old compiler is a `FATAL_ERROR` at
   configure, not a confusing mid-build failure. (Dev Mac verified: AppleClang 21.0.0.)
-- **Warnings** `-Wall -Wextra -Wpedantic` (`/W4` on MSVC), applied PRIVATE to the three port targets
+- **Warnings** `-Wall -Wextra -Wpedantic` (`/W4` on MSVC), applied PRIVATE to the port targets
   only — the engine compiles under its own warning regime. **No `-Werror` yet** (a warnings gate can
   be added once the port surface is real).
 

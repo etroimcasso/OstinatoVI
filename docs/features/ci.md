@@ -1,7 +1,7 @@
 # Continuous Integration
 
-**Date:** 2026-08-02
-**Status:** Complete (current scope — build + smoke test on all platforms)
+**Date:** 2026-08-02 (updated 2026-08-03)
+**Status:** Complete (current scope — build + full test suites on all platforms, plus a parser unit-test job)
 
 ## Concept
 
@@ -17,10 +17,12 @@ it is never built directly (the same source would rebuild for no new signal).
 | Linux (x64) | `beefserve` | GCC + Ninja |
 | macOS (ARM64) | `ericmacmini` | AppleClang + Ninja |
 | Windows (x64) | `WINDOWS-BVDA56O` | clang-cl (VS 2022, `-T ClangCL`) |
+| Parser unit tests | `beefserve` | Python 3 (see below) |
 
-All three jobs run in parallel — there is no serialization chain, because no two
-jobs share a host. A run is green only when all three report the full test count
-(the current baseline is `1/1/0` — passed/total/skipped — on every platform).
+All four jobs run in parallel (the two `beefserve` jobs don't contend — the parser
+job is sub-second Python). A run is green only when every build job reports the
+full test count (current C++ baseline: `10/10/0` — passed/total/skipped — on every
+platform) and the parser job reports its full suite (currently 63 cases).
 
 ## Design decisions
 
@@ -30,11 +32,13 @@ jobs share a host. A run is green only when all three report the full test count
   Any future addition of `pull_request` / `pull_request_target` / `workflow_run`
   must be weighed against that, since write access to the repo equals code-execution
   access to the runners.
-- **Only the engine submodule is initialized in CI.** The build consumes the engine
-  (`engine/`); it does not read the upstream disassembly submodule (`original-src/`),
-  which is a port-time asset source, not a build input. Skipping it keeps checkouts
-  lean. The engine is a private repo, so its checkout uses the `ENGINE_PAT` repository
-  secret, supplied per-invocation to git rather than written to the runner's config.
+- **Only the engine submodule is initialized in the build jobs.** The build consumes
+  the engine (`engine/`); it does not read the upstream disassembly submodule
+  (`original-src/`), which is a port-time asset source, not a build input. Skipping it
+  keeps build checkouts lean. The engine is a private repo, so its checkout uses the
+  `ENGINE_PAT` repository secret, supplied per-invocation to git rather than written
+  to the runner's config. (The parser job is the exception — it initializes
+  `original-src`, which is public and needs no PAT.)
 - **Build directories live outside the checkout** (`/tmp/ostinato-vi-ci-build`,
   `C:\ostinato-vi-ci-build`) and persist between runs, so builds are incremental.
 - **Test steps propagate failure through the log-capture pipe.** `set -o pipefail`
@@ -42,6 +46,35 @@ jobs share a host. A run is green only when all three report the full test count
   fails the step — `tee`/`Tee-Object` alone would report green regardless.
 - **Windows results filenames are run-unique** (`...-<run_id>-<run_attempt>.txt`) so a
   stale file handle from a prior run can never block the write.
+
+## Parser unit-test job
+
+The port-time generator scripts in `tools/asm_parser/` (which emit the enum headers,
+data tables, and test fixtures from the disassembly) carry their own Python unit
+suites (`test_parse_*.py`, stdlib-only). The `parser-tests` job runs them on every
+push via `python3 -m unittest discover -s tools/asm_parser -p 'test_parse_*.py'`,
+guarding the generators against helper-logic and structural-assert regressions that
+the C++ jobs — which only build the already-committed generated artifacts — cannot
+see.
+
+Job mechanics:
+
+- **`original-src` is initialized** (public submodule, no PAT) so each suite's
+  end-to-end layer runs against the real committed sources (`const.inc`,
+  `char_prop.asm`).
+- **Rip-product staging.** Some upstream files are produced by the disassembly's rip
+  (`make rip`), not committed — e.g. `rng_tbl.dat`. When the runner provides a ROM
+  via `FF6_VANILLA_ROM`, the job copies it into `original-src/vanilla/` and runs the
+  rip first, so those end-to-end tests run full. Without a ROM they skip with a
+  visible reason in the unittest output (never silently).
+- **The rip needs numpy** (`tools/extract_assets.py` → `monster_stencil`). The job
+  uses the runner's python3 when numpy imports; otherwise it builds a one-time
+  cached venv (`~/.cache/ostinatovi-rip-venv`) and runs the rip with it. If numpy
+  still cannot be provided while a ROM is present, the step fails loudly — that is a
+  provisioning defect, not a skip. `ci/runner-setup/linux/deps-install.sh` installs
+  `python3-numpy` + `python3-venv` for future runner builds.
+- Results upload as the `parser-test-results` artifact; green is read from the
+  unittest summary line (`Ran N tests … OK`), not the step icon.
 
 ## Runner provisioning
 
@@ -58,9 +91,9 @@ submodules, so no SDL/SameBoy package is required.
 **Repository secret** — `ENGINE_PAT`: a token with read access to the private engine
 repo, used to fetch the `engine/` submodule during checkout.
 
-### Vanilla ROM on each runner (needed once game data is derived from the ROM)
+### Vanilla ROM on each runner (consumed by the parser job's rip staging)
 
-Later work that derives game data reads the vanilla ROM. Rather than
+Work that derives game data reads the vanilla ROM. Rather than
 placing the ROM in the repository (it is never committed) or a workspace, each runner
 holds it once at a stable path outside the workspace, exposed to jobs through a
 runner environment variable:
@@ -84,12 +117,11 @@ guard above and re-run clean after a one-service bounce.
 
 ## Reading results
 
-Each job uploads its `ctest` output as a build artifact (`linux-test-results`,
-`macos-test-results`, `windows-test-results`). Green is confirmed by reading the test
-runner's own output (the pass/fail counts), not by the step's status icon alone.
+Each job uploads its test output as a build artifact (`linux-test-results`,
+`macos-test-results`, `windows-test-results`, `parser-test-results`). Green is
+confirmed by reading the test runner's own output (the pass/fail counts), not by the
+step's status icon alone.
 
 ## Open questions / future work
 
-- A future job that reads the vanilla ROM will consume `FF6_VANILLA_ROM` and add
-  the provisioning-failure guard described above.
 - Additional runner architectures can be added as parallel jobs if the fleet grows.
