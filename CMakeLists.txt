@@ -55,8 +55,12 @@ endif()
 # consumers see retropp:: transitively.
 # ---------------------------------------------------------------------------
 add_library(ostinato-vi-lib STATIC
-    src/ostinato.cpp)
-target_include_directories(ostinato-vi-lib PUBLIC include)
+    src/ostinato.cpp
+    src/data/character.cpp
+    src/data/rng_table.cpp)
+# src/ is on the public include path for the data-layer headers
+# ("data/character.h", "data/rng_table.h") consumed by the tests.
+target_include_directories(ostinato-vi-lib PUBLIC include src)
 target_compile_features(ostinato-vi-lib PUBLIC cxx_std_20)
 target_compile_options(ostinato-vi-lib PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-vi-lib PUBLIC retropp::engine)
@@ -105,3 +109,25 @@ target_link_libraries(ostinato-vi-tests PRIVATE ostinato-vi-lib GTest::gtest_mai
 
 include(GoogleTest)
 gtest_discover_tests(ostinato-vi-tests)
+
+# Phase 1.A foundation data: parser-emitted enum surface + hand-written version
+# axis / packed wrappers. Own test binary so the smoke baseline stays frozen.
+# tests/ is on the include path for the parser-emitted fixture.
+add_executable(ostinato-vi-enum-tests tests/test_enums.cpp)
+target_compile_features(ostinato-vi-enum-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-enum-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-enum-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-enum-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-enum-tests)
+
+# Phase 1.A data tables: character base stats (char_prop) + RNG table, each
+# full-corpus tested against its parser-emitted fixture. Own binary so the
+# smoke and enum baselines stay frozen.
+add_executable(ostinato-vi-data-tests
+    tests/test_character_base.cpp
+    tests/test_rng_table.cpp)
+target_compile_features(ostinato-vi-data-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-data-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-data-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-data-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-data-tests)
