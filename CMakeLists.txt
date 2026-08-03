@@ -105,3 +105,13 @@ target_link_libraries(ostinato-vi-tests PRIVATE ostinato-vi-lib GTest::gtest_mai
 
 include(GoogleTest)
 gtest_discover_tests(ostinato-vi-tests)
+
+# Phase 1.A foundation data: parser-emitted enum surface + hand-written version
+# axis / packed wrappers. Own test binary so the smoke baseline stays frozen.
+# tests/ is on the include path for the parser-emitted fixture.
+add_executable(ostinato-vi-enum-tests tests/test_enums.cpp)
+target_compile_features(ostinato-vi-enum-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-enum-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-enum-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-enum-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-enum-tests)
