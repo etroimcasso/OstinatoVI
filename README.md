@@ -9,11 +9,20 @@ mechanical ASM translation: idiomatic modern C++ against a portable engine layer
 **Status: early infrastructure.** The build system, test harness, and asset scaffolding are in
 place; game systems are not yet ported. The current binary prints the engine version and exits.
 
+## Version support
+
+The port targets **all three releases** of the game: Final Fantasy VI 1.0 (Japan), Final
+Fantasy III 1.0 (US), and Final Fantasy III 1.1 (US). The ROM you supply determines the
+version and language — a Japanese ROM yields the Japanese localization (kanji/kana text and
+all), a US ROM the English one. One binary covers all three; version-specific behavior is
+carried explicitly rather than baked to a single release. Current development validates
+against FF3 1.1 (US), with the other two slotted in as verification ROMs become available.
+
 ## What ships and what doesn't
 
 - **You supply your own ROM.** On first launch the app asks you to select your legitimately
-  owned FF6/FF3(US) ROM and extracts the assets it needs locally — the same model as Zelda64
-  recompiled or Ship of Harkinian. (This flow is future work; see
+  owned FF6 (J) or FF3 (US) ROM and extracts the assets it needs locally — the same model as
+  Zelda64 recompiled or Ship of Harkinian. (This flow is future work; see
   [`docs/features/asset-acquisition.md`](docs/features/asset-acquisition.md).)
 - **No copyrighted content is committed to or distributed with this repository.** No ROMs, no
   extracted graphics/audio, no dialogue text. `.gitignore` bans ROM extensions and extracted

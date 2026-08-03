@@ -55,12 +55,23 @@ Game data carrying exact original values (stats, tables, formulas) is emitted by
 - **End users supply their own ROM — selected in-app at first start** (Zelda64 / Ship of Harkinian model). The port's first launch with an empty pack presents a ROM-selection flow, runs extraction internally, and populates `assets/{gfx,audio}/default/` — same layout the dev populate path produces. No separate manual tool step in the user experience. **No extraction product is ever committed or shipped.**
 - Full pack model in `docs/features/asset-acquisition.md`.
 
+## Version support (decided 2026-08-02)
+
+**The port targets all three releases the disassembly builds** — FF6 1.0 (J) `45EF5AC8`, FF3 1.0 (U) `A27F1C7A`, FF3 1.1 (U) `C0FA0464`. This is a foundational design axis, not a later add-on:
+
+- **One binary, runtime version identity.** A `GameVersion` state (JP 1.0 / US 1.0 / US 1.1) is carried at runtime; the ROM the user supplies at first-start extraction determines it (CRC-identified), and the extracted asset pack records its source version. Language (JP/EN) and revision derive from it, mirroring the upstream build's own configuration axes.
+- **Version differences are finite and enumerable.** The disassembly builds all three ROMs from one source tree behind conditional flags — roughly 430 conditional sites, concentrated overwhelmingly in text presentation (menu ~277, battle graphics/messages ~86, cutscenes ~35); core battle/field/event simulation is nearly version-free. Each ported system carries its conditional sites as explicit version-dependent behavior; because the sites are mechanically searchable in the upstream, none can be silently missed.
+- **Text pipeline is version-aware from the core.** EN uses DTE compression and EN character tables; JP uses MTE/kana/kanji tables and wide-glyph metrics. Both are first-class inputs to the text and menu system designs — not a retrofit.
+- **Validation posture:** behavior is validated against FF3 1.1 (U) now (the development ROM on hand). JP and US 1.0 support is architected in from the data layer up; their behavioral validation activates when those ROMs are available, with per-version tests registered and visibly skipped until then.
+
 ## Named presentation enhancements
 
 Framework (FF Pixel Remaster / Halo MCC model): the default install plays exactly like the original ROM; every named enhancement is **user-opt-in, OFF by default, presentation-only** — never gameplay, RNG, AI, scripts, or cue timing.
 
 - **External audio packs** — per the engine's dual-audio-backend design: (a) original chiptune via VM-hosted SPC700 driver + emulated S-DSP; (b) user-supplied audio-pack replacement at engine cue points. Both backends are engine-mandatory; the pack side doubles as this port's first named enhancement.
 - Further named enhancements (output scaling ships engine-side already; anything FF6-specific): TBD — none currently planned.
+
+**Opt-in developer tools (distinct class, decided 2026-08-02):** the original game's debug menu (assembled out of shipped ROMs by the upstream's `DEBUG` flag) will be ported as an opt-in facility, OFF by default. It is tracked separately from presentation enhancements because it mutates game state; the presentation-only rule above stays intact.
 
 ## Licensing notes
 
@@ -72,7 +83,7 @@ Framework (FF Pixel Remaster / Halo MCC model): the default install plays exactl
 
 | # | Question | Decide by |
 |---|---|---|
-| 1 | **Primary version contract** — dev ROM is FF3 1.1 (U); the disassembly also builds 1.0 (U) and (J). Is 1.1 (U) the behavioral contract, and what J/1.0 scope (if any — text, version-specific bug adjudication)? | Before game-code porting begins |
+| 1 | **Primary version contract** — ✅ **RESOLVED 2026-08-02: all three releases are in scope** (see § Version support). Behavioral contract validated on FF3 1.1 (U) now; version axis designed in from the data layer; J/1.0 validation deferred until those ROMs are available. | ~~Before game-code porting begins~~ resolved |
 | 2 | **CI corpus access** — ✅ **RESOLVED 2026-08-01: runner-local ROM.** Each self-hosted runner holds the vanilla ROM outside the workspace, referenced via runner-env `FF6_VANILLA_ROM`; parser jobs stage it into `original-src/vanilla/` and run `make rip` (pure Python 3, no cc65) for the full corpus in CI. Missing ROM on a runner surfaces loudly. Provisioning documented in `docs/features/ci.md` at CI standup. | ~~CI standup~~ resolved |
 | 3 | **65C816 VM backend** — SameBoy has no SNES side. Candidates: extracted emulator core (licensing: Snes9x non-commercial = unusable; bsnes/Mesen2 GPL; smaller MIT/BSD cores exist) vs hand-written minimal 65C816 interpreter. SPC700 + S-DSP core doubly so (audio backend). May resolve differently per chip. | Engine VM/audio kickoff (engine-level decision) |
 | 4 | **Sim tick-rate value** — ✅ **RESOLVED 2026-08-01: 16,639,265 ns** (357,366 master cycles at 236,250,000/11 Hz ≈ 60.0988 Hz field rate); derivation in `docs/features/build-system.md`. CPU cycle budget deferred to the engine VM-backend kickoff (no current consumer). | ~~Build-system standup~~ resolved |
