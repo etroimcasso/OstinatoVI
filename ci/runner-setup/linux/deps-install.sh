@@ -26,6 +26,13 @@ apt-get install -y \
     libxfixes-dev \
     libxi-dev \
     libxtst-dev \
-    libvulkan-dev
+    libvulkan-dev \
+    python3-venv \
+    python3-numpy
+
+# python3-venv + python3-numpy: the parser-tests job stages the vanilla ROM and
+# runs the upstream rip (tools/extract_assets.py), which imports numpy. With
+# python3-numpy present the job uses the system interpreter directly; the venv
+# capability is its fallback for runners where system numpy is absent.
 
 echo "Done. Verify: cmake --version && ninja --version && gcc --version"

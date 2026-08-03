@@ -225,10 +225,26 @@ jobs:
           # Rip-product end-to-end tests (rng_tbl.dat, and later units) run full
           # only when the runner provides a vanilla ROM via FF6_VANILLA_ROM;
           # without it they skip visibly in the unittest output below.
+          #
+          # The upstream rip (tools/extract_assets.py) needs numpy. Prefer the
+          # runner's python3; fall back to a cached venv built once on this
+          # runner. If neither can provide numpy the step fails loudly — with a
+          # ROM provisioned, a missing rip dependency is a provisioning defect,
+          # not a skip.
           if [ -n "${FF6_VANILLA_ROM:-}" ] && [ -f "$FF6_VANILLA_ROM" ]; then
+            RIP_BIN="$(command -v python3)"
+            if ! "$RIP_BIN" -c 'import numpy' 2>/dev/null; then
+              VENV="$HOME/.cache/ostinatovi-rip-venv"
+              if [ ! -x "$VENV/bin/python3" ]; then
+                python3 -m venv "$VENV"
+                "$VENV/bin/pip" --quiet install numpy
+              fi
+              RIP_BIN="$VENV/bin/python3"
+            fi
+            "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
             mkdir -p original-src/vanilla
             cp "$FF6_VANILLA_ROM" original-src/vanilla/
-            make -C original-src rip
+            PATH="$(dirname "$RIP_BIN"):$PATH" make -C original-src rip
           else
             echo "FF6_VANILLA_ROM not set on this runner — rip-product e2e will skip visibly."
           fi
