@@ -1,4 +1,4 @@
-# OstinatoVI
+# Ostinato VI
 
 A native C++ reimplementation of **Final Fantasy VI** (Super Famicom / SNES), built on the
 [Retro++ engine](https://github.com/etroimcasso/GBCPP-Engine). The goal is behavioral
