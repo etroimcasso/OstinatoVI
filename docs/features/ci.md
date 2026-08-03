@@ -73,8 +73,14 @@ runner environment variable:
 A job that needs the ROM stages it from `FF6_VANILLA_ROM` into the workspace and
 proceeds. A runner missing the variable or the file is a provisioning failure and
 must surface loudly (fail, or skip with a visible reason) — never a silent pass.
-This is **not** needed for the current build/smoke jobs; it can be provisioned when
-the first ROM-reading job lands.
+
+**Provisioned 2026-08-02 on all three runners.** Verified copy (3,145,728 bytes,
+CRC32 `C0FA0464`) at a stable path outside each workspace. Mechanism per platform:
+the Linux and macOS runners carry `FF6_VANILLA_ROM` in the runner's `.env` file;
+the Windows runner carries it as a **machine-scope environment variable**
+(`[Environment]::SetEnvironmentVariable(..., 'Machine')`) — the service inherits it
+on its next restart, so jobs reading it before that restart fail visibly per the
+guard above and re-run clean after a one-service bounce.
 
 ## Reading results
 
