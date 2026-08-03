@@ -5,7 +5,7 @@ One row per feature. Statuses: ⬜ planned · 🟡 in progress · ✅ complete �
 | Feature | Status | Doc | Notes |
 |---|---|---|---|
 | asset-acquisition | ⬜ planned (doc authored) | `features/asset-acquisition.md` | Pack model + populate paths locked at inception; populate script done; extraction tool is its own later work |
-| build-system | ✅ complete | `features/build-system.md` | CMake + `add_subdirectory(engine)`; 3 targets; GoogleTest 1/1/0; lean 52 KB binary; dev populate. Engine pin `7c3707a` |
-| ci | ⬜ planned | `features/ci.md` (at CI standup) | Multi-platform self-hosted runners; corpus access via runner-local ROM (DESIGN.md open question #2, resolved) |
+| build-system | ✅ complete | `features/build-system.md` | CMake + `add_subdirectory(engine)`; 5 targets (lib / binary / smoke + enum + data test runners); GoogleTest 10/10/0; lean binary; dev populate. Engine pin `7c3707a` |
+| ci | ✅ complete | `features/ci.md` | 4 parallel self-hosted jobs (3 platform builds + parser unit tests); `ci/**` push trigger; runner-local ROM staged + ripped for rip-product e2e |
 | audio-engine (SNES) | ⬜ planned | `features/audio-engine.md` (at engine kickoff) | Engine-side: SPC700 + S-DSP backend designed against this consumer; dual-backend mandatory |
 | extraction-tool | ⬜ planned | (own doc when work starts) | Runtime ROM extraction; license determination first (GPL upstream reference) |
