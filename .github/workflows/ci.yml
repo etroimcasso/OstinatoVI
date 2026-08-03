@@ -213,12 +213,25 @@ jobs:
       - name: Init upstream disassembly submodule (const.inc for parser e2e)
         run: |
           cd "$GITHUB_WORKSPACE"
-          # original-src is public (no PAT). const.inc is a committed disassembly
-          # source file (not a rip product), so the parser's end-to-end layer runs
-          # against the real contract here — no ROM needed. Rip-product e2e
-          # (rng_tbl.dat and later units) is dual-moded on FF6_VANILLA_ROM when
-          # those parsers land; until then their e2e skips visibly.
+          # original-src is public (no PAT). const.inc and char_prop.asm are
+          # committed disassembly sources, so their end-to-end layers run against
+          # the real contract with no ROM. Rip products (rng_tbl.dat) come from
+          # the staging step below.
           git submodule update --init -- original-src
+
+      - name: Stage vanilla ROM and rip (rip-product e2e corpus)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          # Rip-product end-to-end tests (rng_tbl.dat, and later units) run full
+          # only when the runner provides a vanilla ROM via FF6_VANILLA_ROM;
+          # without it they skip visibly in the unittest output below.
+          if [ -n "${FF6_VANILLA_ROM:-}" ] && [ -f "$FF6_VANILLA_ROM" ]; then
+            mkdir -p original-src/vanilla
+            cp "$FF6_VANILLA_ROM" original-src/vanilla/
+            make -C original-src rip
+          else
+            echo "FF6_VANILLA_ROM not set on this runner — rip-product e2e will skip visibly."
+          fi
 
       - name: Run parser unit tests
         run: |
