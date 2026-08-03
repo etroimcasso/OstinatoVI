@@ -1,0 +1,286 @@
+#!/usr/bin/env python3
+"""Emit the Ostinato VI game-domain enum surface from original-src/include/const.inc.
+
+Port-time tooling (NOT a build/CI dependency): reads the ca65 .enum blocks in the
+FF6 disassembly and emits, per the Phase-1.A PLAN's D2 disposition table:
+
+  * one C++ header per emitted enum, include/ostinato/<snake>.h
+  * a single X-macro fixture, tests/fixtures/enums_expected.h, listing every
+    emitted enumerator's expected value for the full-corpus C++ test.
+
+It also runs two structural guarantees at emit time and hard-errors on any
+deviation (so a contract change can never slip through silently):
+
+  * Coverage: every .enum in const.inc must be accounted for in the disposition
+    (emitted, status-layout, or explicitly skipped). A new upstream enum trips
+    this — the guard that would have caught the GENJU_BONUS gap.
+  * STATUS layout (PLAN D5): STATUS1-4 bit layouts must align with STATUS_ID
+    sequential order (bit i%8 of bank i//8 == STATUS_ID[i]); 4x8 = 32 exactly.
+    This is the contract StatusSet::has() is built on.
+
+Python 3 standard library only; targets 3.9+.
+
+Usage:
+    parse_const_enums.py --const-inc PATH --out-include-dir DIR --fixture-out FILE
+    parse_const_enums.py --source-root PATH --out-include-dir DIR --fixture-out FILE
+    (Pass --check-only to validate + assert without writing files.)
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+import common
+from common import ParseError
+
+
+U8 = "std::uint8_t"
+U16 = "std::uint16_t"
+
+
+class Emit(object):
+    """A disposition for an enum that becomes a C++ enum class.
+
+    Underlying width is NOT stored here: per the PLAN D2 rule it is the smallest
+    of uint8_t/uint16_t that fits the enum's max value, derived from the data at
+    emit time (see width_for). Deriving it is what auto-corrects CHAR_FLAG, a
+    14-bit party bitmask (BIT_0..BIT_13, max 0x2000) the D2 table cell wrongly
+    marked u8 — recorded in the PLAN's s1 execution findings.
+    """
+
+    def __init__(self, cpp_name, filename):
+        self.cpp_name = cpp_name
+        self.filename = filename
+
+
+def width_for(enum):
+    """Smallest of uint8_t/uint16_t that fits the enum's max value (PLAN D2)."""
+    return U16 if enum.max_value > 0xFF else U8
+
+
+# --- D2 disposition table (PLAN phase-1.A-foundation.md) + s1 execution ruling.
+# GENJU_BONUS -> EsperBonus added per the 2026-08-02 user ruling (execution
+# findings item 1); TARGET emitted as a value-carrying enum, wrapper deferred.
+EMIT = {
+    "EVENT_DIR":       Emit("EventDir",               "event_dir.h"),
+    "ITEM":            Emit("ItemId",                 "item_id.h"),
+    "CHAR":            Emit("CharacterId",            "character_id.h"),
+    "CHAR_PROP":       Emit("CharacterPropId",        "character_prop_id.h"),
+    "EVENT_OBJ":       Emit("EventObjId",             "event_obj_id.h"),
+    "CHAR_GFX":        Emit("CharacterGfxId",         "character_gfx_id.h"),
+    "BATTLE_CMD":      Emit("BattleCommandId",        "battle_command_id.h"),
+    "GENJU":           Emit("EsperId",                "esper_id.h"),
+    "ATTACK":          Emit("AttackId",               "attack_id.h"),
+    "GENJU_BONUS":     Emit("EsperBonus",             "esper_bonus.h"),
+    "WEAPON_FLAG":     Emit("WeaponFlags",            "weapon_flags.h"),
+    "MONSTER":         Emit("MonsterId",              "monster_id.h"),
+    "DANCE":           Emit("DanceId",                "dance_id.h"),
+    "TARGET":          Emit("TargetFlags",            "target_flags.h"),
+    "BATTLE_CMD_FLAG": Emit("BattleCommandFlags",     "battle_command_flags.h"),
+    "CHAR_RUN_FACTOR": Emit("RunFactor",              "run_factor.h"),
+    "CHAR_LEVEL_MOD":  Emit("LevelMod",               "level_mod.h"),
+    "CHAR_FLAG":       Emit("CharacterFlags",         "character_flags.h"),
+    "ELEMENT":         Emit("Element",                "element.h"),
+    "STATUS_ID":       Emit("StatusId",               "status_id.h"),
+    "ITEM_TYPE":       Emit("ItemType",               "item_type.h"),
+    "ITEM_USAGE":      Emit("ItemUsage",              "item_usage.h"),
+    "BATTLE_CHAR_PAL": Emit("BattleCharacterPalette", "battle_character_palette.h"),
+}
+
+# Parsed for the D5 layout assertion; NOT emitted as C++ enums (they become
+# StatusSet accessors, PLAN D5).
+STATUS_LAYOUT = ("STATUS1", "STATUS2", "STATUS3", "STATUS4")
+
+# Bodies recognized-and-skipped: the combined 16-bit status views use '<<'/'::'
+# expressions the port does not emit (they become StatusSet accessors, D5).
+# (CHAR_PROP was formerly skipped; PLAN Amendment A1 emits it as CharacterPropId
+# — the 64-value char_prop record index space, above.)
+SKIP = ("STATUS12", "STATUS23", "STATUS34", "STATUS14")
+
+# The upstream scope name for each cross-ref, mapped to its C++ enum, so a
+# cross-enum reference can be rendered as a readable comment.
+_UPSTREAM_TO_CPP = {up: e.cpp_name for up, e in EMIT.items()}
+
+_AUTOGEN_BANNER = (
+    "// AUTO-GENERATED by tools/asm_parser/parse_const_enums.py — DO NOT EDIT.\n"
+    "// Regenerate from original-src/include/const.inc; hand edits will be lost.\n"
+)
+
+
+def _hex(value, width):
+    return "0x{:02X}".format(value) if width == U8 else "0x{:04X}".format(value)
+
+
+def _render_enum(enum, emit):
+    """Render one emitted enum to a C++ header string."""
+    width = width_for(enum)
+    name_w = max((len(m.name) for m in enum.members), default=1)
+    lines = []
+    lines.append(_AUTOGEN_BANNER)
+    lines.append("// Source: original-src/include/const.inc  "
+                 "(ca65 .enum {})\n".format(enum.name))
+    lines.append("#pragma once\n\n")
+    lines.append("#include <cstdint>\n\n")
+    lines.append("namespace ostinato {\n\n")
+    lines.append("enum class {} : {} {{\n".format(emit.cpp_name, width))
+    for m in enum.members:
+        pad = m.name.ljust(name_w)
+        if m.rhs_kind == "same_alias":
+            body = "{} = {},".format(pad, m.rhs_symbol)
+        elif m.rhs_kind == "cross_ref":
+            scope, member = m.rhs_symbol.split("::")
+            cpp_scope = _UPSTREAM_TO_CPP.get(scope, scope)
+            body = "{} = {},  // == {}::{}".format(
+                pad, _hex(m.value, width), cpp_scope, member)
+        else:  # bare / literal / bit
+            body = "{} = {},".format(pad, _hex(m.value, width))
+        lines.append("    {}\n".format(body))
+    lines.append("};\n\n")
+    lines.append("}  // namespace ostinato\n")
+    return "".join(lines)
+
+
+def _render_fixture(emitted_enums):
+    """Render the full-corpus X-macro fixture over every emitted enumerator."""
+    lines = []
+    lines.append(_AUTOGEN_BANNER)
+    lines.append("// Full-corpus expected values for every emitted enumerator.\n")
+    lines.append("// X(CppEnumType, MEMBER, expected_value) — consumed by "
+                 "tests/test_enums.cpp.\n")
+    lines.append("#pragma once\n\n")
+    lines.append("#define OSTINATO_ENUM_EXPECTED(X) \\\n")
+    rows = []
+    for enum, emit in emitted_enums:
+        width = width_for(enum)
+        for m in enum.members:
+            rows.append("    X({}, {}, {})".format(
+                emit.cpp_name, m.name, _hex(m.value, width)))
+    lines.append(" \\\n".join(rows))
+    lines.append("\n")
+    return "".join(lines)
+
+
+def assert_coverage(parsed):
+    """Every .enum in the file must be dispositioned. Hard-error otherwise."""
+    known = set(EMIT) | set(STATUS_LAYOUT) | set(SKIP)
+    for enum in parsed.enums:
+        if enum.name not in known:
+            raise ParseError(
+                "const.inc", enum.src_line,
+                "enum '{}' is not in the disposition table (EMIT/STATUS_LAYOUT/"
+                "SKIP) — a new upstream enum; escalate to disposition it before "
+                "emitting.".format(enum.name))
+    for up in EMIT:
+        if parsed.enum(up) is None:
+            raise ParseError("const.inc", 0,
+                             "expected enum '{}' not found in source".format(up))
+
+
+def assert_status_layout(parsed):
+    """PLAN D5: STATUS1-4 bit layout must align with STATUS_ID sequential order."""
+    status_id = parsed.enum("STATUS_ID")
+    if status_id is None:
+        raise ParseError("const.inc", 0, "STATUS_ID enum missing")
+    if len(status_id.members) != 32:
+        raise ParseError("const.inc", status_id.src_line,
+                         "STATUS_ID has {} members, expected 32 (4x8)"
+                         .format(len(status_id.members)))
+    banks = []
+    for i, name in enumerate(STATUS_LAYOUT):
+        bank = parsed.enum(name)
+        if bank is None:
+            raise ParseError("const.inc", 0, "{} enum missing".format(name))
+        bit_members = [m for m in bank.members if m.value != 0]
+        if len(bit_members) != 8:
+            raise ParseError("const.inc", bank.src_line,
+                             "{} has {} bit members, expected 8"
+                             .format(name, len(bit_members)))
+        banks.append(bank)
+    for i, sid in enumerate(status_id.members):
+        if sid.value != i:
+            raise ParseError("const.inc", status_id.src_line,
+                             "STATUS_ID member '{}' has value {}, expected {} "
+                             "(must be sequential)".format(sid.name, sid.value, i))
+        bank = banks[i // 8]
+        expected_bit = 1 << (i % 8)
+        mapped = bank.value_of(sid.name)
+        if mapped is None:
+            raise ParseError(
+                "const.inc", bank.src_line,
+                "STATUS_ID[{}]='{}' has no matching member in {} — status "
+                "layout misaligned (D5).".format(i, sid.name, bank.name))
+        if mapped != expected_bit:
+            raise ParseError(
+                "const.inc", bank.src_line,
+                "STATUS_ID[{}]='{}' maps to {}::{} = {:#04x}, expected bit "
+                "{:#04x} — status layout misaligned (D5)."
+                .format(i, sid.name, bank.name, sid.name, mapped, expected_bit))
+
+
+def run(const_inc, out_include_dir, fixture_out, check_only=False):
+    parsed = common.parse_ca65_constants(const_inc, skip_body_enums=SKIP)
+    assert_coverage(parsed)
+    assert_status_layout(parsed)
+
+    emitted = [(parsed.enum(up), EMIT[up]) for up in EMIT]
+
+    if check_only:
+        n_members = sum(len(e.members) for e, _ in emitted)
+        print("OK: {} emitted enums, {} enumerators; coverage + STATUS layout "
+              "verified.".format(len(emitted), n_members))
+        return 0
+
+    if not os.path.isdir(out_include_dir):
+        os.makedirs(out_include_dir)
+    for enum, emit in emitted:
+        path = os.path.join(out_include_dir, emit.filename)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(_render_enum(enum, emit))
+    fixture_dir = os.path.dirname(fixture_out)
+    if fixture_dir and not os.path.isdir(fixture_dir):
+        os.makedirs(fixture_dir)
+    with open(fixture_out, "w", encoding="utf-8") as fh:
+        fh.write(_render_fixture(emitted))
+
+    n_members = sum(len(e.members) for e, _ in emitted)
+    print("Emitted {} enum headers -> {}".format(len(emitted), out_include_dir))
+    print("Emitted fixture ({} enumerators) -> {}".format(n_members, fixture_out))
+    return 0
+
+
+def _resolve_const_inc(args):
+    if args.const_inc:
+        return args.const_inc
+    if args.source_root:
+        return os.path.join(args.source_root, "include", "const.inc")
+    return None
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--const-inc", help="path to const.inc")
+    ap.add_argument("--source-root",
+                    help="path to the disassembly root (const.inc resolved under it)")
+    ap.add_argument("--out-include-dir", default="include/ostinato",
+                    help="output directory for emitted enum headers")
+    ap.add_argument("--fixture-out", default="tests/fixtures/enums_expected.h",
+                    help="output path for the X-macro fixture")
+    ap.add_argument("--check-only", action="store_true",
+                    help="validate + assert without writing files")
+    args = ap.parse_args(argv)
+
+    const_inc = _resolve_const_inc(args)
+    if not const_inc:
+        ap.error("one of --const-inc or --source-root is required")
+    try:
+        return run(const_inc, args.out_include_dir, args.fixture_out,
+                   check_only=args.check_only)
+    except ParseError as exc:
+        sys.stderr.write("PARSE ERROR: {}\n".format(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
