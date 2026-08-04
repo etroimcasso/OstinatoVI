@@ -2,7 +2,7 @@
 """Emit the Ostinato VI game-domain enum surface from original-src/include/const.inc.
 
 Port-time tooling (NOT a build/CI dependency): reads the ca65 .enum blocks in the
-FF6 disassembly and emits, per the Phase-1.A PLAN's D2 disposition table:
+FF6 disassembly and emits, per the disposition table below:
 
   * one C++ header per emitted enum, include/ostinato/<snake>.h
   * a single X-macro fixture, tests/fixtures/enums_expected.h, listing every
@@ -14,7 +14,7 @@ deviation (so a contract change can never slip through silently):
   * Coverage: every .enum in const.inc must be accounted for in the disposition
     (emitted, status-layout, or explicitly skipped). A new upstream enum trips
     this — the guard that would have caught the GENJU_BONUS gap.
-  * STATUS layout (PLAN D5): STATUS1-4 bit layouts must align with STATUS_ID
+  * STATUS layout: STATUS1-4 bit layouts must align with STATUS_ID
     sequential order (bit i%8 of bank i//8 == STATUS_ID[i]); 4x8 = 32 exactly.
     This is the contract StatusSet::has() is built on.
 
@@ -43,11 +43,11 @@ U16 = "std::uint16_t"
 class Emit(object):
     """A disposition for an enum that becomes a C++ enum class.
 
-    Underlying width is NOT stored here: per the PLAN D2 rule it is the smallest
-    of uint8_t/uint16_t that fits the enum's max value, derived from the data at
-    emit time (see width_for). Deriving it is what auto-corrects CHAR_FLAG, a
-    14-bit party bitmask (BIT_0..BIT_13, max 0x2000) the D2 table cell wrongly
-    marked u8 — recorded in the PLAN's s1 execution findings.
+    Underlying width is NOT stored here: it is the smallest of
+    uint8_t/uint16_t that fits the enum's max value, derived from the data at
+    emit time (see width_for). Deriving it from the data makes a mis-declared
+    width impossible — CHAR_FLAG, a 14-bit party bitmask (BIT_0..BIT_13, max
+    0x2000), needs uint16_t and gets it automatically.
     """
 
     def __init__(self, cpp_name, filename):
@@ -56,13 +56,14 @@ class Emit(object):
 
 
 def width_for(enum):
-    """Smallest of uint8_t/uint16_t that fits the enum's max value (PLAN D2)."""
+    """Smallest of uint8_t/uint16_t that fits the enum's max value."""
     return U16 if enum.max_value > 0xFF else U8
 
 
-# --- D2 disposition table (PLAN phase-1.A-foundation.md) + s1 execution ruling.
-# GENJU_BONUS -> EsperBonus added per the 2026-08-02 user ruling (execution
-# findings item 1); TARGET emitted as a value-carrying enum, wrapper deferred.
+# --- Disposition table: every .enum in const.inc is accounted for here —
+# emitted (EMIT), consumed by the status-layout assertion (STATUS_LAYOUT), or
+# recognized-and-skipped (SKIP). TARGET is emitted as a value-carrying enum;
+# its read-side wrapper lives with the battle targeting consumer.
 EMIT = {
     "EVENT_DIR":       Emit("EventDir",               "event_dir.h"),
     "ITEM":            Emit("ItemId",                 "item_id.h"),
@@ -89,14 +90,12 @@ EMIT = {
     "BATTLE_CHAR_PAL": Emit("BattleCharacterPalette", "battle_character_palette.h"),
 }
 
-# Parsed for the D5 layout assertion; NOT emitted as C++ enums (they become
-# StatusSet accessors, PLAN D5).
+# Parsed for the status-layout assertion; NOT emitted as C++ enums (their
+# views become StatusSet accessors).
 STATUS_LAYOUT = ("STATUS1", "STATUS2", "STATUS3", "STATUS4")
 
 # Bodies recognized-and-skipped: the combined 16-bit status views use '<<'/'::'
-# expressions the port does not emit (they become StatusSet accessors, D5).
-# (CHAR_PROP was formerly skipped; PLAN Amendment A1 emits it as CharacterPropId
-# — the 64-value char_prop record index space, above.)
+# expressions the port does not emit (they become StatusSet accessors).
 SKIP = ("STATUS12", "STATUS23", "STATUS34", "STATUS14")
 
 # The upstream scope name for each cross-ref, mapped to its C++ enum, so a
@@ -179,7 +178,7 @@ def assert_coverage(parsed):
 
 
 def assert_status_layout(parsed):
-    """PLAN D5: STATUS1-4 bit layout must align with STATUS_ID sequential order."""
+    """STATUS1-4 bit layout must align with STATUS_ID sequential order."""
     status_id = parsed.enum("STATUS_ID")
     if status_id is None:
         raise ParseError("const.inc", 0, "STATUS_ID enum missing")
@@ -210,12 +209,12 @@ def assert_status_layout(parsed):
             raise ParseError(
                 "const.inc", bank.src_line,
                 "STATUS_ID[{}]='{}' has no matching member in {} — status "
-                "layout misaligned (D5).".format(i, sid.name, bank.name))
+                "layout misaligned.".format(i, sid.name, bank.name))
         if mapped != expected_bit:
             raise ParseError(
                 "const.inc", bank.src_line,
                 "STATUS_ID[{}]='{}' maps to {}::{} = {:#04x}, expected bit "
-                "{:#04x} — status layout misaligned (D5)."
+                "{:#04x} — status layout misaligned."
                 .format(i, sid.name, bank.name, sid.name, mapped, expected_bit))
 
 

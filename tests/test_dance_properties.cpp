@@ -1,5 +1,5 @@
-// Full-corpus test of the dance attack table (PLAN phase-1.B D4 + Amendment
-// B1). The byte-equivalence test asserts EVERY one of the 8 packed records is
+// Full-corpus test of the dance attack table.
+// The byte-equivalence test asserts EVERY one of the 8 packed records is
 // byte-identical to the ROM's 4-byte record (no subset) and that every
 // entry's identity field matches its position; the semantic tests exercise
 // the lookup.
