@@ -21,15 +21,18 @@
 
 namespace {
 
-// Full corpus: one memcmp per record catches field-order, padding, enum-value,
-// and trait-packing drift in a single byte-for-byte comparison against the ROM.
+// Full corpus: identity fields on both sides match the position, and one
+// memcmp per packed record catches field-order, padding, enum-value, and
+// trait-packing drift in a single byte-for-byte comparison against the ROM.
 TEST(CharacterBaseStats, AllRecordsAreByteIdenticalToRom) {
     const auto table = ostinato::characterBaseStats();
-    ASSERT_EQ(table.size(), ostinato::test::kExpectedCharacterRecords.size());
+    ASSERT_EQ(table.size(), ostinato::test::kExpectedCharacterEntries.size());
     for (std::size_t i = 0; i < table.size(); ++i) {
-        EXPECT_EQ(std::memcmp(&table[i],
-                              &ostinato::test::kExpectedCharacterRecords[i], 22),
-                  0)
+        const auto& expected = ostinato::test::kExpectedCharacterEntries[i];
+        EXPECT_EQ(expected.id, i) << "fixture entry " << i;
+        EXPECT_EQ(static_cast<std::size_t>(table[i].id), i)
+            << "table entry " << i;
+        EXPECT_EQ(std::memcmp(&table[i].record, &expected.record, 22), 0)
             << "record index " << i;
     }
 }
