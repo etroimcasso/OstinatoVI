@@ -1,12 +1,9 @@
-// Hand-written port-design (PLAN phase-1.B D9). Not parser-emitted.
-//
 // The targeting byte of an attack-properties record (record byte +0, $11A0) —
 // a one-byte carrier over the TargetFlags bit values, deliberately WITHOUT
 // semantic read accessors: the byte embeds a 2-bit INIT_* sub-field plus the
-// $FF MENU sentinel, and the read-side wrapper is deferred to the battle
-// targeting consumer (Phase 3.B forward-pointer in the checklist) where that
-// sub-field's semantics have their consumer context. sizeof == 1 keeps it
-// byte-identical to the ROM targeting byte.
+// $FF MENU sentinel, and a correct read-side decomposition needs the battle
+// targeting consumer's context, so the read-side wrapper lands with that
+// consumer. sizeof == 1 keeps it byte-identical to the ROM targeting byte.
 #pragma once
 
 #include <concepts>

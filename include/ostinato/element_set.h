@@ -1,10 +1,7 @@
-// Hand-written port-design (PLAN phase-1.A D4). Not parser-emitted.
-//
-// A set of elemental affinities packed into one byte — bucket 2 (multi-component)
-// per the data-surface discipline. The Element enum carries the upstream bit
-// values (FIRE=0x01 … WATER=0x80); this wrapper encapsulates the bit math so no
-// call site ever open-codes a mask. sizeof == 1 keeps it byte-identical to the
-// single affinity byte the ROM stores.
+// A set of elemental affinities packed into one byte. The Element enum carries
+// the upstream bit values (FIRE=0x01 … WATER=0x80); this wrapper encapsulates
+// the bit math so no call site ever open-codes a mask. sizeof == 1 keeps it
+// byte-identical to the single affinity byte the ROM stores.
 #pragma once
 
 #include <concepts>
@@ -31,9 +28,8 @@ struct ElementSet {
         bits &= static_cast<std::uint8_t>(~static_cast<std::uint8_t>(element));
     }
 
-    // OR-together builder (added in phase 1.B): ElementSet::of(Element::FIRE,
-    // Element::ICE). Zero arguments yields the empty set (the all-zero
-    // affinity byte).
+    // OR-together builder: ElementSet::of(Element::FIRE, Element::ICE).
+    // Zero arguments yields the empty set (the all-zero affinity byte).
     static constexpr ElementSet of(std::same_as<Element> auto... elements) {
         ElementSet result{};
         (result.set(elements), ...);

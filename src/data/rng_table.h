@@ -1,5 +1,4 @@
-// Hand-written port-design (PLAN phase-1.A D8; row shape per the house
-// self-labeling rule). The rows are parser-emitted
+// The RNG table. The rows are generated
 // (src/data/generated/rng_tbl_data.inc); this header owns the entry type, the
 // array, and the accessor.
 #pragma once

@@ -1,5 +1,4 @@
-// Hand-written port-design (PLAN phase-1.B D4 + Amendment B1; row shape per
-// the house self-labeling rule). The rows are parser-emitted
+// The dance attack table. The rows are generated
 // (src/data/generated/dance_prop_data.inc); this header owns the record type,
 // the entry type, the array, and the accessor.
 #pragma once

@@ -1,7 +1,7 @@
-// Full-corpus test of the per-battle magic-points table (PLAN phase-1.B D3).
+// Full-corpus test of the per-battle magic-points table.
 // Asserts all 512 entries match the ROM (no subset) — identity and value —
 // and that the accessor reads by battle index. The original's >= 512 guard is
-// consumer reward logic (a later battle phase), deliberately absent here.
+// consumer reward logic (battle-engine scope), deliberately absent here.
 
 #include <cstddef>
 #include <cstdint>

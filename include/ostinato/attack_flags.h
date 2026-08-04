@@ -1,11 +1,7 @@
-// Hand-written port-design (PLAN phase-1.B D7). Not parser-emitted.
-//
 // The four flag bytes of a 14-byte attack-properties record. No upstream
-// symbol source exists for these bits — the meanings live only in the prose
-// RAM map (original-src/notes/battle-ram.txt:212-243), cited per enum below —
-// so these are hand-written like StatusSet's packing rule, with the contract
-// doc carrying the per-bit citations. Byte offsets refer to the record layout
-// in src/data/attack_properties.h.
+// symbol source exists for these bits — the meanings live in the prose RAM map
+// (original-src/notes/battle-ram.txt:212-243), cited per enum below. Byte
+// offsets refer to the record layout in src/data/attack_properties.h.
 #pragma once
 
 #include <cstdint>

@@ -7,10 +7,9 @@ namespace ostinato {
 
 namespace {
 
-// The 256-entry EN table. The parser-emitted rows are the transcribed
-// contract data; this array + its types are the port surface. Designated
-// initializers at every row keep each field self-labeling; each entry carries
-// its identity as the AttackId enumerator.
+// The 256-entry EN table. The generated rows carry the ROM record data;
+// designated initializers at every row keep each field self-labeling, and each
+// entry carries its identity as the AttackId enumerator.
 constexpr std::array<AttackPropertiesEntry, 256> kAttackPropertiesEn = {{
 #include "data/generated/magic_prop_en_data.inc"
 }};

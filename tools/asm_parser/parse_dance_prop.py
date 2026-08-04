@@ -2,7 +2,7 @@
 """Emit the dance attack table from original-src dance_prop.asm.
 
 Port-time tooling (NOT a build/CI dependency): interprets the ca65 macro DSL in
-src/battle/dance_prop.asm and emits, per the Phase-1.B PLAN (D4 + Amendment B1):
+src/battle/dance_prop.asm and emits:
 
   * src/data/generated/dance_prop_data.inc — one designated-initializer
     DancePropertiesEntry row per dance (8 records), identity as the DanceId
@@ -136,7 +136,7 @@ def parse_dance_prop(asm_path, symbols):
 
         raise ParseError(asm_path, lineno,
                          "unrecognized line: '{}' (grammar not covered — "
-                         "escalate per the PLAN's T1 trigger)".format(s))
+                         "escalate, never guess)".format(s))
 
     if not label_seen:
         raise ParseError(asm_path, len(lines),

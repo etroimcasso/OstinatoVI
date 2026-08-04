@@ -1,5 +1,4 @@
-// Hand-written port-design (PLAN phase-1.B D3; row shape per the house
-// self-labeling rule). The rows are parser-emitted
+// Per-battle magic-point awards. The rows are generated
 // (src/data/generated/battle_magic_points_data.inc); this header owns the
 // entry type, the array, and the accessor.
 #pragma once

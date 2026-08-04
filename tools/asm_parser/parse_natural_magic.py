@@ -2,7 +2,7 @@
 """Emit the natural-magic tables from original-src event.asm.
 
 Port-time tooling (NOT a build/CI dependency): reads the NaturalMagic block in
-src/field/event.asm and emits, per the Phase-1.B PLAN (D6 + Amendment B1):
+src/field/event.asm and emits:
 
   * src/data/generated/natural_magic_data.inc — the kNaturalMagicTerra and
     kNaturalMagicCeles array definitions (16 designated-initializer rows each,

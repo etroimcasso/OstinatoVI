@@ -1,7 +1,5 @@
-// Hand-written port-design (PLAN phase-1.A D6). Not parser-emitted.
-//
-// The packed 22nd byte of a char_prop record — bucket 2 (multi-component). Three
-// disjoint fields share one byte:
+// The packed 22nd byte of a char_prop record. Three disjoint fields share one
+// byte:
 //
 //   * run factor      bits 0-1  (CHAR_RUN_FACTOR, mask 0x03)
 //   * level modifier  bits 2-3  (CHAR_LEVEL_MOD,  mask 0x0c)

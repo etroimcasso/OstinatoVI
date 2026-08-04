@@ -149,10 +149,10 @@ class EnumGrammarTests(unittest.TestCase):
     # --- error paths ---
 
     def test_enum_inside_version_guard_raises(self):
-        # PORT-LAW: an emitted enum inside a version-variant conditional.
+        # An emitted enum inside a version-variant conditional is a hard error.
         with self.assertRaises(ParseError) as ctx:
             parse_fragment(".if LANG_EN\n.enum E\n A\n.endenum\n.endif\n")
-        self.assertIn("PORT-LAW", str(ctx.exception))
+        self.assertIn("VERSION-VARIANT", str(ctx.exception))
 
     def test_unknown_symbol_raises(self):
         with self.assertRaises(ParseError):
@@ -178,7 +178,7 @@ _STATUS_FRAGMENT_HEADER = "".join(
 
 
 def _status_fragment(b4_override=None):
-    """A minimal STATUS_ID + STATUS1..4 fragment for the D5 layout assert.
+    """A minimal STATUS_ID + STATUS1..4 fragment for the status-layout assert.
 
     32 sequential ids in four banks of 8; each bank a BIT_0..7 set — aligned by
     default. Pass b4_override (e.g. "BIT_3") to force the B4 member (bank 2,
@@ -260,7 +260,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(len(self.parsed.enum("ATTACK").members), 256)
         self.assertEqual(len(self.parsed.enum("MONSTER").members), 384)
         self.assertEqual(len(self.parsed.enum("STATUS_ID").members), 32)
-        # CHAR_PROP is the 64-value char_prop record index space (PLAN A1),
+        # CHAR_PROP is the 64-value char_prop record index space,
         # emitted as CharacterPropId — one enumerator per record, incl. padding.
         self.assertEqual(len(self.parsed.enum("CHAR_PROP").members), 64)
 
@@ -271,7 +271,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(self.parsed.enum("STATUS_ID").value_of("FLOAT"), 31)
         self.assertEqual(self.parsed.enum("GENJU_BONUS").value_of("NONE"), 0xFF)
         self.assertEqual(self.parsed.enum("TARGET").value_of("MENU"), 0xFF)
-        # CHAR_PROP record index boundaries (PLAN A1): first record, first Kefka
+        # CHAR_PROP record index boundaries: first record, first Kefka
         # variant, and the final beta slot — the sequential $00..$3f span.
         char_prop = self.parsed.enum("CHAR_PROP")
         self.assertEqual(char_prop.value_of("TERRA"), 0x00)

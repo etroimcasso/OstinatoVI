@@ -1,6 +1,6 @@
-// Hand-written port-design (PLAN phase-1.B D1/D2). The row data is
-// parser-emitted (src/data/generated/magic_prop_en_data.inc); this struct +
-// lookup are port design informed by the contract, not transcribed from it.
+// Attack properties: the 256-record magic_prop table. The row data is
+// generated (src/data/generated/magic_prop_en_data.inc); this header owns the
+// record type, the entry type, and the accessors.
 #pragma once
 
 #include <array>
@@ -17,8 +17,8 @@
 namespace ostinato {
 
 // specialEffect's "no effect" sentinel byte. The consumer-side transform that
-// turns it into a disabled effect is battle logic (Phase 3), not data-layer
-// scope; the data stores the raw $FF.
+// turns it into a disabled effect is battle logic, not data-layer scope; the
+// data stores the raw $FF.
 inline constexpr std::uint8_t kNoSpecialEffect = 0xFF;
 
 // One 14-byte attack-properties record (magic_prop_en.dat, ROM C4/6AC0).
@@ -71,8 +71,7 @@ struct AttackPropertiesEntry {
 // The record for an attack, from the English-language table. The table is
 // language-variant upstream (magic_prop_en.dat / magic_prop_jp.dat rip as
 // separate files); a Language dispatch axis is added when the JP table becomes
-// rippable — until then the EN table is the sole backing store (deferral
-// pinned in the checklist forward-pointers).
+// rippable — until then the EN table is the sole backing store.
 const AttackProperties& getAttackProperties(AttackId id);
 
 // The full 256-entry EN table (ATTACK index order), for iteration and

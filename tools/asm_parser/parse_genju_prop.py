@@ -2,7 +2,7 @@
 """Emit the esper properties table from original-src genju_prop.asm.
 
 Port-time tooling (NOT a build/CI dependency): interprets the ca65 macro DSL in
-src/menu/genju_prop.asm and emits, per the Phase-1.B PLAN (D5 + Amendment B1):
+src/menu/genju_prop.asm and emits:
 
   * src/data/generated/genju_prop_data.inc — one designated-initializer
     EsperPropertiesEntry row per esper (27 records), identity as the EsperId
@@ -211,7 +211,7 @@ def parse_genju_prop(asm_path, symbols):
 
         raise ParseError(asm_path, lineno,
                          "unrecognized line: '{}' (grammar not covered — "
-                         "escalate per the PLAN's T1 trigger)".format(s))
+                         "escalate, never guess)".format(s))
 
     if not label_seen:
         raise ParseError(asm_path, len(lines),

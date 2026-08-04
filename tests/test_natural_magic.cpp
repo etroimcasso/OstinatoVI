@@ -1,5 +1,5 @@
-// Full-corpus test of the natural-magic tables (PLAN phase-1.B D6 +
-// Amendment B1). The byte-equivalence test asserts EVERY one of the 2x16
+// Full-corpus test of the natural-magic tables.
+// The byte-equivalence test asserts EVERY one of the 2x16
 // packed pairs is byte-identical to the ROM (no subset) and that every row's
 // slot field matches its position; the semantic tests pin the spell-first
 // pair order and the ROM's own out-of-sorted-order Celes entry, preserved
