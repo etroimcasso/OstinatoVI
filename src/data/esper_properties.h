@@ -1,5 +1,4 @@
-// Hand-written port-design (PLAN phase-1.B D5 + Amendment B1; row shape per
-// the house self-labeling rule). The rows are parser-emitted
+// The esper properties table. The rows are generated
 // (src/data/generated/genju_prop_data.inc); this header owns the record
 // types, the entry type, the array, and the accessor.
 #pragma once

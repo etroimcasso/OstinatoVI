@@ -1,10 +1,9 @@
-// Full-corpus test of the attack-properties table (PLAN phase-1.B D1/D2 +
-// Amendment B1). The byte-equivalence test asserts EVERY one of the 256
-// packed records is byte-identical to the ROM's 14-byte record (no subset)
-// and that every entry's identity field matches its position; the semantic
-// tests exercise the lookup and the builder round-trips the emitted rows
-// depend on. The JP language variant is a pinned deferral (R3) — visible skip
-// below, registered on every platform.
+// Full-corpus test of the attack-properties table. The byte-equivalence test
+// asserts EVERY one of the 256 packed records is byte-identical to the ROM's
+// 14-byte record (no subset) and that every entry's identity field matches its
+// position; the semantic tests exercise the lookup and the builder round-trips
+// the emitted rows depend on. The JP language variant is pending a J-ROM rip —
+// visible skip below, registered on every platform.
 
 #include <cstddef>
 #include <cstdint>
@@ -108,9 +107,9 @@ TEST(AttackProperties, BuilderRoundTrips) {
 }
 
 // The JP table (magic_prop_jp.dat) is language-variant upstream and pending a
-// J-ROM rip — pinned deferral, visible on every platform.
+// J-ROM rip — the skip stays visible on every platform until it lands.
 TEST(AttackProperties, JpVariantTable) {
-    GTEST_SKIP() << "magic_prop JP variant pending J-ROM rip (R3 deferral)";
+    GTEST_SKIP() << "magic_prop JP variant pending J-ROM rip";
 }
 
 }  // namespace

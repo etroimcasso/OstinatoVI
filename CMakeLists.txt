@@ -1,12 +1,12 @@
 cmake_minimum_required(VERSION 3.28)
 
 # ---------------------------------------------------------------------------
-# Lean-build default: a shipped artifact is never left in the toolchain's empty
+# Release by default: a shipped artifact is never left in the toolchain's empty
 # build-type state. Set before project() so it takes on single-config generators.
 # ---------------------------------------------------------------------------
 if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Release CACHE STRING
-        "Build type (Release by default per the lean-build rule)" FORCE)
+        "Build type (Release by default)" FORCE)
     message(STATUS "ostinato-vi: CMAKE_BUILD_TYPE defaulted to Release.")
 endif()
 
@@ -70,7 +70,7 @@ target_compile_options(ostinato-vi-lib PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-vi-lib PUBLIC retropp::engine)
 
 # ---------------------------------------------------------------------------
-# The game binary. Phase 0: prints identity + engine version, exits 0.
+# The game binary. Currently prints identity + engine version and exits 0.
 # ---------------------------------------------------------------------------
 add_executable(ostinato-vi src/main.cpp)
 target_compile_features(ostinato-vi PRIVATE cxx_std_20)
@@ -91,7 +91,7 @@ endif()
 if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
     add_custom_command(TARGET ostinato-vi POST_BUILD
         COMMAND "${CMAKE_STRIP}" -x "$<TARGET_FILE:ostinato-vi>"
-        COMMENT "ostinato-vi: stripping symbols from the Release binary (lean-build rule)"
+        COMMENT "ostinato-vi: stripping symbols from the Release binary"
         VERBATIM)
 endif()
 
@@ -114,9 +114,9 @@ target_link_libraries(ostinato-vi-tests PRIVATE ostinato-vi-lib GTest::gtest_mai
 include(GoogleTest)
 gtest_discover_tests(ostinato-vi-tests)
 
-# Phase 1.A foundation data: parser-emitted enum surface + hand-written version
+# Foundation-data tests: the generated enum surface + the hand-written version
 # axis / packed wrappers. Own test binary so the smoke baseline stays frozen.
-# tests/ is on the include path for the parser-emitted fixture.
+# tests/ is on the include path for the generated fixture.
 add_executable(ostinato-vi-enum-tests tests/test_enums.cpp)
 target_compile_features(ostinato-vi-enum-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-enum-tests PRIVATE ${_ostinato_warn})
@@ -124,8 +124,8 @@ target_include_directories(ostinato-vi-enum-tests PRIVATE ${CMAKE_CURRENT_SOURCE
 target_link_libraries(ostinato-vi-enum-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-enum-tests)
 
-# Phase 1.A data tables: character base stats (char_prop) + RNG table, each
-# full-corpus tested against its parser-emitted fixture. Own binary so the
+# Data-table tests: character base stats (char_prop) + the RNG table, each
+# full-corpus tested against its generated fixture. Own binary so the
 # smoke and enum baselines stay frozen.
 add_executable(ostinato-vi-data-tests
     tests/test_character_base.cpp
@@ -136,10 +136,10 @@ target_include_directories(ostinato-vi-data-tests PRIVATE ${CMAKE_CURRENT_SOURCE
 target_link_libraries(ostinato-vi-data-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-data-tests)
 
-# Phase 1.B spell/esper data: attack properties (magic_prop EN), per-battle
+# Spell/esper-data tests: attack properties (magic_prop EN), per-battle
 # magic points, dance attacks, esper properties, and natural magic — each
-# full-corpus tested against its parser-emitted fixture. Own binary so the
-# smoke, enum, and 1.A data baselines stay frozen. (Natural magic is a
+# full-corpus tested against its generated fixture. Own binary so the
+# smoke, enum, and data-table baselines stay frozen. (Natural magic is a
 # header-only surface — two tables, no accessor — so it adds no library
 # source.)
 add_executable(ostinato-vi-spell-tests

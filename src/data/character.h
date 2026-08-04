@@ -1,6 +1,6 @@
-// Hand-written port-design (PLAN phase-1.A D7 + Amendment A1). The row data is
-// parser-emitted (src/data/generated/char_prop_data.inc); this struct + lookup
-// are port design informed by the contract, not transcribed from it.
+// Character base stats: the 64-record char_prop table. The row data is
+// generated (src/data/generated/char_prop_data.inc); this header owns the
+// record type, the entry type, and the accessors.
 #pragma once
 
 #include <array>
@@ -57,8 +57,8 @@ struct CharacterBaseStatsEntry {
 // NOT a CharacterId. CharacterId spans only 0x00..0x0f with heavy aliasing and
 // cannot address a 64-record table; no CharacterId<->CharacterPropId conversion is
 // provided. In the original the index arrives from game state (the "actor number"
-// event/battle logic multiplies by 22) — any mapping is consumer-phase game logic,
-// never data-layer scope (PLAN Amendment A1).
+// event/battle logic multiplies by 22) — any mapping is consumer game logic,
+// never data-layer scope.
 const CharacterBaseStats& getCharacterBaseStats(CharacterPropId id);
 
 // The full 64-entry table (index order), for iteration and full-corpus tests.

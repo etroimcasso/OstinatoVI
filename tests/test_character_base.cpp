@@ -1,4 +1,4 @@
-// Full-corpus test of the character base-stats table (PLAN phase-1.A D6/D7 + A1).
+// Full-corpus test of the character base-stats table.
 // The byte-equivalence test asserts EVERY one of the 64 records is byte-identical
 // to the ROM's 22-byte record (no subset); the semantic test exercises the lookup
 // and the packed-trait accessors the port depends on.
@@ -38,7 +38,7 @@ TEST(CharacterBaseStats, AllRecordsAreByteIdenticalToRom) {
 }
 
 // The lookup indexes by CharacterPropId (== the raw 0..63 record index). Spot-check
-// two named records' semantic surface, including the D6 packed-trait accessors.
+// two named records' semantic surface, including the packed-trait accessors.
 TEST(CharacterBaseStats, LookupAndTraitAccessors) {
     using ostinato::BattleCommandId;
     using ostinato::CharacterPropId;

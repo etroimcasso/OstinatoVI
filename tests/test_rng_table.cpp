@@ -1,4 +1,4 @@
-// Full-corpus test of the RNG table (PLAN phase-1.A D8). Asserts all 256
+// Full-corpus test of the RNG table. Asserts all 256
 // entries match the ROM (no subset) — index and value — and that the byte
 // accessor reads by table position.
 
