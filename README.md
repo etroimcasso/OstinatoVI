@@ -37,7 +37,7 @@ against FF3 1.1 (US), with the other two slotted in as verification ROMs become 
 | `engine/` | [Retro++](https://github.com/etroimcasso/GBCPP-Engine) engine submodule (currently a private repository — see note below) |
 | `original-src/` | [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly submodule (GPL-3.0) — read-only derivation reference; development-time only, never required by the distribution |
 | `assets/{gfx,audio}/default/` | Canonical asset-pack load targets; contents are generated locally and never committed |
-| `docs/` | Project documentation (design context, feature docs) |
+| `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
 | `scripts/` | Development tooling |
 
 > **Note on submodules:** the Retro++ engine repository is private while it stabilizes, so
