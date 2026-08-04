@@ -346,29 +346,34 @@ _HEADER_COMMON = (
 )
 
 
-def _row_comment(rec):
-    return "// [${:02X}] {}{}".format(
-        rec.index, rec.name, "  (empty)" if rec.empty else "")
+def _inc_row_open(rec):
+    return "    CharacterBaseStatsEntry{{  // [${:02X}]{}\n".format(
+        rec.index, "  (empty)" if rec.empty else "")
 
 
 def _render_inc(records):
     lines = [_HEADER_COMMON,
-             "// CharacterBaseStats rows in CHAR_PROP record-index order ($00..$3f),\n"
-             "// one designated-initializer row per record, #included inside the\n"
-             "// kCharacterBaseStats array in src/data/character.cpp. Each row is\n"
-             "// preceded by its identity, // [$NN] CHAR_PROP_NAME — the table is\n"
-             "// indexed by CharacterPropId (include/ostinato/character_prop_id.h),\n"
-             "// never by CharacterId, whose 16 aliased values cannot address 64\n"
-             "// records. Zero-filled padding records render as {} (all 22 bytes\n"
-             "// zero — distinct from the $FF EMPTY/NONE sentinels real records use\n"
-             "// for empty slots). The .traits initializer is { run factor,\n"
+             "// CharacterBaseStatsEntry rows in CHAR_PROP record-index order\n"
+             "// ($00..$3f), one designated-initializer row per record,\n"
+             "// #included inside the kCharacterBaseStats array in\n"
+             "// src/data/character.cpp. Each row's identity is its .id field —\n"
+             "// the CharacterPropId enumerator\n"
+             "// (include/ostinato/character_prop_id.h) — never a CharacterId,\n"
+             "// whose 16 aliased values cannot address 64 records; a\n"
+             "// compile-time assert verifies id == position. The packed\n"
+             "// .record stays byte-identical to the 22 ROM bytes; zero-filled\n"
+             "// padding records render as CharacterBaseStats{} (all 22 bytes\n"
+             "// zero — distinct from the $FF EMPTY/NONE sentinels real records\n"
+             "// use for empty slots). The .traits initializer is { run factor,\n"
              "// level mod, fixed-equip }, packing bits 0-1 / 2-3 / 4 of the\n"
              "// record's final byte. Field order mirrors char_prop.asm's\n"
              "// end_char_prop byte emitter.\n\n"]
     for rec in records:
-        lines.append(_row_comment(rec) + "\n")
+        lines.append(_inc_row_open(rec))
+        lines.append("        .id = CharacterPropId::{},\n".format(rec.name))
         if rec.empty:
-            lines.append("{},\n\n")
+            lines.append("        .record = CharacterBaseStats{},\n")
+            lines.append("    },\n")
             continue
         cmds = ", ".join("BattleCommandId::{}".format(c) for c in rec.cmds)
         stat_kv = ", ".join(".{} = {}".format(f, v)
@@ -380,12 +385,15 @@ def _render_inc(records):
         traits = "{{ RunFactor::{}, LevelMod::{}, {} }}".format(
             rec.run_factor, rec.level_mod,
             "true" if rec.fixed_equip else "false")
-        lines.append("{{ .hp = {}, .mp = {},\n".format(rec.hp, rec.mp))
-        lines.append("  .commands = {{ {} }},\n".format(cmds))
-        lines.append("  {},\n".format(stat_kv))
-        lines.append("  {},\n".format(equip_kv))
-        lines.append("  {},\n".format(relic_kv))
-        lines.append("  .traits = {} }},\n\n".format(traits))
+        lines.append("        .record = CharacterBaseStats{\n")
+        lines.append("            .hp = {}, .mp = {},\n".format(rec.hp, rec.mp))
+        lines.append("            .commands = {{ {} }},\n".format(cmds))
+        lines.append("            {},\n".format(stat_kv))
+        lines.append("            {},\n".format(equip_kv))
+        lines.append("            {},\n".format(relic_kv))
+        lines.append("            .traits = {},\n".format(traits))
+        lines.append("        },\n")
+        lines.append("    },\n")
     return "".join(lines)
 
 
@@ -409,31 +417,44 @@ _FIXTURE_STRUCT = (
     "};\n"
     "static_assert(sizeof(ExpectedCharacterRecord) == 22,\n"
     "              \"fixture record must stay byte-identical to a ROM char_prop record\");\n"
+    "\n"
+    "// One fixture entry: the record's identity as a typed field (raw decimal\n"
+    "// index — the fixture stays independent of the port's CharacterPropId\n"
+    "// header) alongside the raw record bytes. Mirrors\n"
+    "// ostinato::CharacterBaseStatsEntry without depending on it.\n"
+    "struct ExpectedCharacterEntry {\n"
+    "    std::uint8_t id;\n"
+    "    ExpectedCharacterRecord record;\n"
+    "};\n"
 )
 
 
 def _fixture_row(rec):
+    open_line = "    {{ .id = {:>2},  // ${:02X} {}{}\n".format(
+        rec.index, rec.index, rec.name, "  (empty)" if rec.empty else "")
     if rec.empty:
-        return "    {},\n"
+        return open_line + "      .record = {} },\n"
     h = ["0x{:02X}".format(b) for b in rec.bytes]
-    return (
-        "    {{ .hp = {}, .mp = {},\n"
-        "      .cmd1 = {}, .cmd2 = {}, .cmd3 = {}, .cmd4 = {},\n"
-        "      .strength = {}, .agility = {}, .stamina = {},"
+    return open_line + (
+        "      .record = {{ .hp = {}, .mp = {},\n"
+        "                  .cmd1 = {}, .cmd2 = {}, .cmd3 = {}, .cmd4 = {},\n"
+        "                  .strength = {}, .agility = {}, .stamina = {},"
         " .magicPower = {}, .battlePower = {},\n"
-        "      .defense = {}, .magicDefense = {}, .evade = {}, .magicBlock = {},\n"
-        "      .weapon = {}, .shield = {}, .helmet = {}, .armor = {},\n"
-        "      .relic1 = {}, .relic2 = {}, .traits = {} }},\n"
+        "                  .defense = {}, .magicDefense = {}, .evade = {},"
+        " .magicBlock = {},\n"
+        "                  .weapon = {}, .shield = {}, .helmet = {},"
+        " .armor = {},\n"
+        "                  .relic1 = {}, .relic2 = {}, .traits = {} }} }},\n"
     ).format(*h)
 
 
 def _render_fixture(records):
     lines = [_HEADER_COMMON,
-             "// Test fixture for tests/test_character_base.cpp — the ground-truth\n"
-             "// record bytes. The full-corpus test memcmp-checks every\n"
-             "// CharacterBaseStats row (src/data/generated/char_prop_data.inc)\n"
-             "// against this table, record by record. Each record is labeled\n"
-             "// // [$NN] CHAR_PROP_NAME as in the .inc.\n"
+             "// Test fixture for tests/test_character_base.cpp — the\n"
+             "// ground-truth record bytes. The full-corpus test asserts, per\n"
+             "// entry: fixture id == position, table id enumerator ==\n"
+             "// position, and a 22-byte memcmp of the packed record against\n"
+             "// src/data/generated/char_prop_data.inc's row.\n"
              "\n"
              "#pragma once\n"
              "\n"
@@ -444,10 +465,9 @@ def _render_fixture(records):
              "\n",
              _FIXTURE_STRUCT,
              "\n",
-             "inline constexpr std::array<ExpectedCharacterRecord, {}> "
-             "kExpectedCharacterRecords = {{{{  // ROM CharProp\n".format(len(records))]
+             "inline constexpr std::array<ExpectedCharacterEntry, {}> "
+             "kExpectedCharacterEntries = {{{{  // ROM CharProp\n".format(len(records))]
     for rec in records:
-        lines.append("    " + _row_comment(rec) + "\n")
         lines.append(_fixture_row(rec))
     lines.append("}};\n\n}  // namespace ostinato::test\n")
     return "".join(lines)

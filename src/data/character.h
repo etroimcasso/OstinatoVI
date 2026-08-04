@@ -43,6 +43,16 @@ struct CharacterBaseStats {
 static_assert(sizeof(CharacterBaseStats) == 22,
               "CharacterBaseStats must be byte-identical to a 22-byte char_prop record");
 
+// One table entry: the record's identity as a typed field (the
+// CharacterPropId enumerator — identity is a field, never a comment)
+// alongside the packed record, which stays sizeof-locked to the ROM bytes.
+// Every generated row reads { .id = CharacterPropId::NAME, .record = { ... } };
+// a compile-time assert verifies id == array position for every entry.
+struct CharacterBaseStatsEntry {
+    CharacterPropId id;
+    CharacterBaseStats record;
+};
+
 // The record index is a CharacterPropId — the 64-value char_prop index space,
 // NOT a CharacterId. CharacterId spans only 0x00..0x0f with heavy aliasing and
 // cannot address a 64-record table; no CharacterId<->CharacterPropId conversion is
@@ -51,7 +61,7 @@ static_assert(sizeof(CharacterBaseStats) == 22,
 // never data-layer scope (PLAN Amendment A1).
 const CharacterBaseStats& getCharacterBaseStats(CharacterPropId id);
 
-// The full 64-record table (index order), for iteration and full-corpus tests.
-std::span<const CharacterBaseStats> characterBaseStats();
+// The full 64-entry table (index order), for iteration and full-corpus tests.
+std::span<const CharacterBaseStatsEntry> characterBaseStats();
 
 }  // namespace ostinato

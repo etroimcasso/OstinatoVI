@@ -9,408 +9,555 @@
 //       --inc-out      src/data/generated/char_prop_data.inc \
 //       --fixture-out  tests/fixtures/char_prop_expected.h
 
-// CharacterBaseStats rows in CHAR_PROP record-index order ($00..$3f),
-// one designated-initializer row per record, #included inside the
-// kCharacterBaseStats array in src/data/character.cpp. Each row is
-// preceded by its identity, // [$NN] CHAR_PROP_NAME — the table is
-// indexed by CharacterPropId (include/ostinato/character_prop_id.h),
-// never by CharacterId, whose 16 aliased values cannot address 64
-// records. Zero-filled padding records render as {} (all 22 bytes
-// zero — distinct from the $FF EMPTY/NONE sentinels real records use
-// for empty slots). The .traits initializer is { run factor,
+// CharacterBaseStatsEntry rows in CHAR_PROP record-index order
+// ($00..$3f), one designated-initializer row per record,
+// #included inside the kCharacterBaseStats array in
+// src/data/character.cpp. Each row's identity is its .id field —
+// the CharacterPropId enumerator
+// (include/ostinato/character_prop_id.h) — never a CharacterId,
+// whose 16 aliased values cannot address 64 records; a
+// compile-time assert verifies id == position. The packed
+// .record stays byte-identical to the 22 ROM bytes; zero-filled
+// padding records render as CharacterBaseStats{} (all 22 bytes
+// zero — distinct from the $FF EMPTY/NONE sentinels real records
+// use for empty slots). The .traits initializer is { run factor,
 // level mod, fixed-equip }, packing bits 0-1 / 2-3 / 4 of the
 // record's final byte. Field order mirrors char_prop.asm's
 // end_char_prop byte emitter.
 
-// [$00] TERRA
-{ .hp = 40, .mp = 16,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::MORPH, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 31, .agility = 33, .stamina = 28, .magicPower = 39, .battlePower = 12, .defense = 42, .magicDefense = 33, .evade = 5, .magicBlock = 7,
-  .weapon = ItemId::MITHRILKNIFE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false } },
-
-// [$01] LOCKE
-{ .hp = 48, .mp = 7,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::STEAL, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 37, .agility = 40, .stamina = 31, .magicPower = 28, .battlePower = 14, .defense = 46, .magicDefense = 23, .evade = 15, .magicBlock = 2,
-  .weapon = ItemId::DIRK, .shield = ItemId::EMPTY, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, false } },
-
-// [$02] CYAN
-{ .hp = 53, .mp = 5,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::BUSHIDO, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 40, .agility = 28, .stamina = 33, .magicPower = 25, .battlePower = 25, .defense = 48, .magicDefense = 20, .evade = 6, .magicBlock = 1,
-  .weapon = ItemId::ASHURA, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::LOW, LevelMod::HIGH, false } },
-
-// [$03] SHADOW
-{ .hp = 51, .mp = 6,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::THROW, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 39, .agility = 38, .stamina = 30, .magicPower = 33, .battlePower = 23, .defense = 47, .magicDefense = 25, .evade = 28, .magicBlock = 9,
-  .weapon = ItemId::IMPERIAL, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::NINJA_GEAR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, false } },
-
-// [$04] EDGAR
-{ .hp = 49, .mp = 6,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::TOOLS, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 39, .agility = 30, .stamina = 34, .magicPower = 29, .battlePower = 20, .defense = 50, .magicDefense = 22, .evade = 4, .magicBlock = 1,
-  .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::HIGH, false } },
-
-// [$05] SABIN
-{ .hp = 58, .mp = 3,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::BLITZ, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 47, .agility = 37, .stamina = 39, .magicPower = 28, .battlePower = 26, .defense = 53, .magicDefense = 21, .evade = 12, .magicBlock = 4,
-  .weapon = ItemId::METALKNUCKLE, .shield = ItemId::EMPTY, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::KUNG_FU_SUIT,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::HIGH, false } },
-
-// [$06] CELES
-{ .hp = 44, .mp = 15,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::RUNIC, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 34, .agility = 34, .stamina = 31, .magicPower = 36, .battlePower = 16, .defense = 44, .magicDefense = 31, .evade = 7, .magicBlock = 9,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::HAIR_BAND, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false } },
-
-// [$07] STRAGO
-{ .hp = 35, .mp = 13,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::LORE, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 28, .agility = 25, .stamina = 19, .magicPower = 34, .battlePower = 10, .defense = 33, .magicDefense = 27, .evade = 6, .magicBlock = 7,
-  .weapon = ItemId::MITHRIL_ROD, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::COTTON_ROBE,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::LOW, LevelMod::HIGH, false } },
-
-// [$08] RELM
-{ .hp = 37, .mp = 18,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::SKETCH, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 26, .agility = 34, .stamina = 22, .magicPower = 44, .battlePower = 11, .defense = 35, .magicDefense = 30, .evade = 13, .magicBlock = 9,
-  .weapon = ItemId::CHOCOBO_BRSH, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::SILK_ROBE,
-  .relic1 = ItemId::MEMENTO_RING, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, false } },
-
-// [$09] SETZER
-{ .hp = 46, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::SLOT, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 36, .agility = 32, .stamina = 32, .magicPower = 29, .battlePower = 18, .defense = 48, .magicDefense = 26, .evade = 9, .magicBlock = 1,
-  .weapon = ItemId::CARDS, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::BANDANA, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false } },
-
-// [$0A] MOG
-{ .hp = 39, .mp = 16,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::DANCE, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 29, .agility = 36, .stamina = 26, .magicPower = 35, .battlePower = 16, .defense = 52, .magicDefense = 36, .evade = 10, .magicBlock = 12,
-  .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::VERY_HIGH, false } },
-
-// [$0B] GAU
-{ .hp = 45, .mp = 10,
-  .commands = { BattleCommandId::RAGE, BattleCommandId::LEAP, BattleCommandId::MAGIC, BattleCommandId::ITEM },
-  .strength = 44, .agility = 38, .stamina = 36, .magicPower = 34, .battlePower = 99, .defense = 44, .magicDefense = 34, .evade = 21, .magicBlock = 18,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, false } },
-
-// [$0C] GOGO
-{ .hp = 36, .mp = 12,
-  .commands = { BattleCommandId::MIMIC, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 25, .agility = 30, .stamina = 20, .magicPower = 26, .battlePower = 13, .defense = 39, .magicDefense = 25, .evade = 10, .magicBlock = 6,
-  .weapon = ItemId::MITHRILKNIFE, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::HIGH, false } },
-
-// [$0D] UMARO
-{ .hp = 60, .mp = 0,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 57, .agility = 33, .stamina = 46, .magicPower = 37, .battlePower = 47, .defense = 89, .magicDefense = 68, .evade = 8, .magicBlock = 5,
-  .weapon = ItemId::BONE_CLUB, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::SNOW_MUFFLER,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::LOW, LevelMod::NORMAL, false } },
-
-// [$0E] BANON
-{ .hp = 46, .mp = 16,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::HEALTH, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 10, .agility = 24, .stamina = 11, .magicPower = 32, .battlePower = 6, .defense = 56, .magicDefense = 51, .evade = 36, .magicBlock = 32,
-  .weapon = ItemId::PUNISHER, .shield = ItemId::EMPTY, .helmet = ItemId::MAGUS_HAT, .armor = ItemId::SILK_ROBE,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::LOW, true } },
-
-// [$0F] LEO
-{ .hp = 50, .mp = 10,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::SHOCK, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 52, .agility = 38, .stamina = 41, .magicPower = 36, .battlePower = 60, .defense = 63, .magicDefense = 41, .evade = 22, .magicBlock = 21,
-  .weapon = ItemId::CRYSTAL, .shield = ItemId::AEGIS_SHLD, .helmet = ItemId::GOLD_HELMET, .armor = ItemId::GOLD_ARMOR,
-  .relic1 = ItemId::ATLAS_ARMLET, .relic2 = ItemId::OFFERING,
-  .traits = { RunFactor::LOW, LevelMod::VERY_HIGH, true } },
-
-// [$10] GHOST_1
-{ .hp = 26, .mp = 1,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::POSSESS, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 14, .agility = 15, .stamina = 10, .magicPower = 30, .battlePower = 22, .defense = 66, .magicDefense = 52, .evade = 0, .magicBlock = 0,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::RELIC_RING, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, true } },
-
-// [$11] GHOST_2
-{ .hp = 20, .mp = 1,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::POSSESS, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 4, .agility = 8, .stamina = 2, .magicPower = 15, .battlePower = 10, .defense = 17, .magicDefense = 11, .evade = 0, .magicBlock = 0,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::RELIC_RING, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::LOW, LevelMod::LOW, true } },
-
-// [$12] KUPEK
-{ .hp = 50, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 18, .agility = 11, .stamina = 12, .magicPower = 33, .battlePower = 35, .defense = 47, .magicDefense = 27, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true } },
-
-// [$13] KUPOP
-{ .hp = 54, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 18, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 1, .defense = 38, .magicDefense = 26, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true } },
-
-// [$14] KUMAMA
-{ .hp = 48, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 18, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 1, .defense = 42, .magicDefense = 33, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MITHRIL_CLAW, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true } },
-
-// [$15] KUKU
-{ .hp = 64, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 17, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 40, .magicDefense = 32, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::FLAIL, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::LOW, true } },
-
-// [$16] KUTAN
-{ .hp = 55, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 16, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 44, .magicDefense = 29, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true } },
-
-// [$17] KUPAN
-{ .hp = 51, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 20, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 21, .defense = 45, .magicDefense = 30, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::FULL_MOON, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true } },
-
-// [$18] KUSHU
-{ .hp = 52, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 24, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 27, .defense = 41, .magicDefense = 31, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::CHOCOBO_BRSH, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true } },
-
-// [$19] KURIN
-{ .hp = 53, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 19, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 20, .defense = 41, .magicDefense = 31, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true } },
-
-// [$1A] KURU
-{ .hp = 50, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 17, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 44, .defense = 27, .magicDefense = 19, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true } },
-
-// [$1B] KAMOG
-{ .hp = 53, .mp = 9,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 20, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 40, .magicDefense = 33, .evade = 7, .magicBlock = 5,
-  .weapon = ItemId::BOOMERANG, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true } },
-
-// [$1C] SCENARIO_MOG
-{ .hp = 12, .mp = 34,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 12, .agility = 12, .stamina = 12, .magicPower = 12, .battlePower = 12, .defense = 12, .magicDefense = 12, .evade = 12, .magicBlock = 12,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::VERY_LOW, LevelMod::VERY_HIGH, true } },
-
-// [$1D] TERRA_INTRO  (empty)
-{},
-
-// [$1E] MADUIN
-{ .hp = 10, .mp = 10,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 30, .agility = 30, .stamina = 30, .magicPower = 30, .battlePower = 30, .defense = 30, .magicDefense = 30, .evade = 30, .magicBlock = 30,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::SPRINT_SHOES, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, false } },
-
-// [$1F] SHADOW_COLOSSEUM
-{ .hp = 51, .mp = 6,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::MAGIC, BattleCommandId::NONE },
-  .strength = 40, .agility = 40, .stamina = 30, .magicPower = 35, .battlePower = 25, .defense = 49, .magicDefense = 27, .evade = 30, .magicBlock = 12,
-  .weapon = ItemId::BLOSSOM, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::NINJA_GEAR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, false } },
-
-// [$20] WEDGE
-{ .hp = 68, .mp = 0,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 40, .agility = 35, .stamina = 46, .magicPower = 29, .battlePower = 24, .defense = 77, .magicDefense = 50, .evade = 15, .magicBlock = 0,
-  .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::LOW, true } },
-
-// [$21] VICKS
-{ .hp = 70, .mp = 0,
-  .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
-  .strength = 41, .agility = 36, .stamina = 45, .magicPower = 28, .battlePower = 27, .defense = 79, .magicDefense = 50, .evade = 12, .magicBlock = 0,
-  .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::NORMAL, LevelMod::LOW, true } },
-
-// [$22] UNUSED_22  (empty)
-{},
-
-// [$23] UNUSED_23  (empty)
-{},
-
-// [$24] UNUSED_24  (empty)
-{},
-
-// [$25] UNUSED_25  (empty)
-{},
-
-// [$26] UNUSED_26  (empty)
-{},
-
-// [$27] UNUSED_27  (empty)
-{},
-
-// [$28] UNUSED_28  (empty)
-{},
-
-// [$29] KEFKA_1
-{ .hp = 14, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 14, .agility = 26, .stamina = 18, .magicPower = 22, .battlePower = 7, .defense = 42, .magicDefense = 36, .evade = 50, .magicBlock = 40,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, true } },
-
-// [$2A] KEFKA_2
-{ .hp = 255, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, true } },
-
-// [$2B] KEFKA_3
-{ .hp = 50, .mp = 50,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 80, .agility = 80, .stamina = 80, .magicPower = 80, .battlePower = 80, .defense = 180, .magicDefense = 180, .evade = 60, .magicBlock = 60,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::PALADIN_SHLD, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, true } },
-
-// [$2C] KEFKA_4
-{ .hp = 22, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, true } },
-
-// [$2D] KEFKA_5
-{ .hp = 34, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
-  .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
-  .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::HIGH, true } },
-
-// [$2E] KEFKA_6
-{ .hp = 14, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, true } },
-
-// [$2F] KEFKA_7
-{ .hp = 14, .mp = 17,
-  .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
-  .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
-  .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
-  .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
-  .traits = { RunFactor::HIGH, LevelMod::NORMAL, true } },
-
-// [$30] TORK  (empty)
-{},
-
-// [$31] JADE  (empty)
-{},
-
-// [$32] CUSTER  (empty)
-{},
-
-// [$33] FABIAN  (empty)
-{},
-
-// [$34] DRAKE  (empty)
-{},
-
-// [$35] SARA  (empty)
-{},
-
-// [$36] CASE  (empty)
-{},
-
-// [$37] SIELE  (empty)
-{},
-
-// [$38] RAY  (empty)
-{},
-
-// [$39] REIKER  (empty)
-{},
-
-// [$3A] LANCE  (empty)
-{},
-
-// [$3B] BOB  (empty)
-{},
-
-// [$3C] PEPPER  (empty)
-{},
-
-// [$3D] TAU  (empty)
-{},
-
-// [$3E] VICTOR  (empty)
-{},
-
-// [$3F] HO  (empty)
-{},
-
+    CharacterBaseStatsEntry{  // [$00]
+        .id = CharacterPropId::TERRA,
+        .record = CharacterBaseStats{
+            .hp = 40, .mp = 16,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::MORPH, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 31, .agility = 33, .stamina = 28, .magicPower = 39, .battlePower = 12, .defense = 42, .magicDefense = 33, .evade = 5, .magicBlock = 7,
+            .weapon = ItemId::MITHRILKNIFE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$01]
+        .id = CharacterPropId::LOCKE,
+        .record = CharacterBaseStats{
+            .hp = 48, .mp = 7,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::STEAL, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 37, .agility = 40, .stamina = 31, .magicPower = 28, .battlePower = 14, .defense = 46, .magicDefense = 23, .evade = 15, .magicBlock = 2,
+            .weapon = ItemId::DIRK, .shield = ItemId::EMPTY, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$02]
+        .id = CharacterPropId::CYAN,
+        .record = CharacterBaseStats{
+            .hp = 53, .mp = 5,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::BUSHIDO, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 40, .agility = 28, .stamina = 33, .magicPower = 25, .battlePower = 25, .defense = 48, .magicDefense = 20, .evade = 6, .magicBlock = 1,
+            .weapon = ItemId::ASHURA, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::LOW, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$03]
+        .id = CharacterPropId::SHADOW,
+        .record = CharacterBaseStats{
+            .hp = 51, .mp = 6,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::THROW, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 39, .agility = 38, .stamina = 30, .magicPower = 33, .battlePower = 23, .defense = 47, .magicDefense = 25, .evade = 28, .magicBlock = 9,
+            .weapon = ItemId::IMPERIAL, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::NINJA_GEAR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$04]
+        .id = CharacterPropId::EDGAR,
+        .record = CharacterBaseStats{
+            .hp = 49, .mp = 6,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::TOOLS, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 39, .agility = 30, .stamina = 34, .magicPower = 29, .battlePower = 20, .defense = 50, .magicDefense = 22, .evade = 4, .magicBlock = 1,
+            .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$05]
+        .id = CharacterPropId::SABIN,
+        .record = CharacterBaseStats{
+            .hp = 58, .mp = 3,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::BLITZ, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 47, .agility = 37, .stamina = 39, .magicPower = 28, .battlePower = 26, .defense = 53, .magicDefense = 21, .evade = 12, .magicBlock = 4,
+            .weapon = ItemId::METALKNUCKLE, .shield = ItemId::EMPTY, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::KUNG_FU_SUIT,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$06]
+        .id = CharacterPropId::CELES,
+        .record = CharacterBaseStats{
+            .hp = 44, .mp = 15,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::RUNIC, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 34, .agility = 34, .stamina = 31, .magicPower = 36, .battlePower = 16, .defense = 44, .magicDefense = 31, .evade = 7, .magicBlock = 9,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::HAIR_BAND, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$07]
+        .id = CharacterPropId::STRAGO,
+        .record = CharacterBaseStats{
+            .hp = 35, .mp = 13,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::LORE, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 28, .agility = 25, .stamina = 19, .magicPower = 34, .battlePower = 10, .defense = 33, .magicDefense = 27, .evade = 6, .magicBlock = 7,
+            .weapon = ItemId::MITHRIL_ROD, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::COTTON_ROBE,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::LOW, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$08]
+        .id = CharacterPropId::RELM,
+        .record = CharacterBaseStats{
+            .hp = 37, .mp = 18,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::SKETCH, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 26, .agility = 34, .stamina = 22, .magicPower = 44, .battlePower = 11, .defense = 35, .magicDefense = 30, .evade = 13, .magicBlock = 9,
+            .weapon = ItemId::CHOCOBO_BRSH, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::SILK_ROBE,
+            .relic1 = ItemId::MEMENTO_RING, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$09]
+        .id = CharacterPropId::SETZER,
+        .record = CharacterBaseStats{
+            .hp = 46, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::SLOT, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 36, .agility = 32, .stamina = 32, .magicPower = 29, .battlePower = 18, .defense = 48, .magicDefense = 26, .evade = 9, .magicBlock = 1,
+            .weapon = ItemId::CARDS, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::BANDANA, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0A]
+        .id = CharacterPropId::MOG,
+        .record = CharacterBaseStats{
+            .hp = 39, .mp = 16,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::DANCE, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 29, .agility = 36, .stamina = 26, .magicPower = 35, .battlePower = 16, .defense = 52, .magicDefense = 36, .evade = 10, .magicBlock = 12,
+            .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::VERY_HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0B]
+        .id = CharacterPropId::GAU,
+        .record = CharacterBaseStats{
+            .hp = 45, .mp = 10,
+            .commands = { BattleCommandId::RAGE, BattleCommandId::LEAP, BattleCommandId::MAGIC, BattleCommandId::ITEM },
+            .strength = 44, .agility = 38, .stamina = 36, .magicPower = 34, .battlePower = 99, .defense = 44, .magicDefense = 34, .evade = 21, .magicBlock = 18,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0C]
+        .id = CharacterPropId::GOGO,
+        .record = CharacterBaseStats{
+            .hp = 36, .mp = 12,
+            .commands = { BattleCommandId::MIMIC, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 25, .agility = 30, .stamina = 20, .magicPower = 26, .battlePower = 13, .defense = 39, .magicDefense = 25, .evade = 10, .magicBlock = 6,
+            .weapon = ItemId::MITHRILKNIFE, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::PLUMED_HAT, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0D]
+        .id = CharacterPropId::UMARO,
+        .record = CharacterBaseStats{
+            .hp = 60, .mp = 0,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 57, .agility = 33, .stamina = 46, .magicPower = 37, .battlePower = 47, .defense = 89, .magicDefense = 68, .evade = 8, .magicBlock = 5,
+            .weapon = ItemId::BONE_CLUB, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::SNOW_MUFFLER,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::LOW, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0E]
+        .id = CharacterPropId::BANON,
+        .record = CharacterBaseStats{
+            .hp = 46, .mp = 16,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::HEALTH, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 10, .agility = 24, .stamina = 11, .magicPower = 32, .battlePower = 6, .defense = 56, .magicDefense = 51, .evade = 36, .magicBlock = 32,
+            .weapon = ItemId::PUNISHER, .shield = ItemId::EMPTY, .helmet = ItemId::MAGUS_HAT, .armor = ItemId::SILK_ROBE,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::LOW, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$0F]
+        .id = CharacterPropId::LEO,
+        .record = CharacterBaseStats{
+            .hp = 50, .mp = 10,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::SHOCK, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 52, .agility = 38, .stamina = 41, .magicPower = 36, .battlePower = 60, .defense = 63, .magicDefense = 41, .evade = 22, .magicBlock = 21,
+            .weapon = ItemId::CRYSTAL, .shield = ItemId::AEGIS_SHLD, .helmet = ItemId::GOLD_HELMET, .armor = ItemId::GOLD_ARMOR,
+            .relic1 = ItemId::ATLAS_ARMLET, .relic2 = ItemId::OFFERING,
+            .traits = { RunFactor::LOW, LevelMod::VERY_HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$10]
+        .id = CharacterPropId::GHOST_1,
+        .record = CharacterBaseStats{
+            .hp = 26, .mp = 1,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::POSSESS, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 14, .agility = 15, .stamina = 10, .magicPower = 30, .battlePower = 22, .defense = 66, .magicDefense = 52, .evade = 0, .magicBlock = 0,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::RELIC_RING, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$11]
+        .id = CharacterPropId::GHOST_2,
+        .record = CharacterBaseStats{
+            .hp = 20, .mp = 1,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::POSSESS, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 4, .agility = 8, .stamina = 2, .magicPower = 15, .battlePower = 10, .defense = 17, .magicDefense = 11, .evade = 0, .magicBlock = 0,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::RELIC_RING, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::LOW, LevelMod::LOW, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$12]
+        .id = CharacterPropId::KUPEK,
+        .record = CharacterBaseStats{
+            .hp = 50, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 18, .agility = 11, .stamina = 12, .magicPower = 33, .battlePower = 35, .defense = 47, .magicDefense = 27, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$13]
+        .id = CharacterPropId::KUPOP,
+        .record = CharacterBaseStats{
+            .hp = 54, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 18, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 1, .defense = 38, .magicDefense = 26, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$14]
+        .id = CharacterPropId::KUMAMA,
+        .record = CharacterBaseStats{
+            .hp = 48, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 18, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 1, .defense = 42, .magicDefense = 33, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MITHRIL_CLAW, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$15]
+        .id = CharacterPropId::KUKU,
+        .record = CharacterBaseStats{
+            .hp = 64, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 17, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 40, .magicDefense = 32, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::FLAIL, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::LOW, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$16]
+        .id = CharacterPropId::KUTAN,
+        .record = CharacterBaseStats{
+            .hp = 55, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 16, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 44, .magicDefense = 29, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$17]
+        .id = CharacterPropId::KUPAN,
+        .record = CharacterBaseStats{
+            .hp = 51, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 20, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 21, .defense = 45, .magicDefense = 30, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::FULL_MOON, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$18]
+        .id = CharacterPropId::KUSHU,
+        .record = CharacterBaseStats{
+            .hp = 52, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 24, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 27, .defense = 41, .magicDefense = 31, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::CHOCOBO_BRSH, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$19]
+        .id = CharacterPropId::KURIN,
+        .record = CharacterBaseStats{
+            .hp = 53, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 19, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 20, .defense = 41, .magicDefense = 31, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MITHRIL_PIKE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$1A]
+        .id = CharacterPropId::KURU,
+        .record = CharacterBaseStats{
+            .hp = 50, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 17, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 44, .defense = 27, .magicDefense = 19, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$1B]
+        .id = CharacterPropId::KAMOG,
+        .record = CharacterBaseStats{
+            .hp = 53, .mp = 9,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 20, .agility = 14, .stamina = 12, .magicPower = 33, .battlePower = 11, .defense = 40, .magicDefense = 33, .evade = 7, .magicBlock = 5,
+            .weapon = ItemId::BOOMERANG, .shield = ItemId::BUCKLER, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$1C]
+        .id = CharacterPropId::SCENARIO_MOG,
+        .record = CharacterBaseStats{
+            .hp = 12, .mp = 34,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 12, .agility = 12, .stamina = 12, .magicPower = 12, .battlePower = 12, .defense = 12, .magicDefense = 12, .evade = 12, .magicBlock = 12,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::VERY_LOW, LevelMod::VERY_HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$1D]  (empty)
+        .id = CharacterPropId::TERRA_INTRO,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$1E]
+        .id = CharacterPropId::MADUIN,
+        .record = CharacterBaseStats{
+            .hp = 10, .mp = 10,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 30, .agility = 30, .stamina = 30, .magicPower = 30, .battlePower = 30, .defense = 30, .magicDefense = 30, .evade = 30, .magicBlock = 30,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::SPRINT_SHOES, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$1F]
+        .id = CharacterPropId::SHADOW_COLOSSEUM,
+        .record = CharacterBaseStats{
+            .hp = 51, .mp = 6,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::MAGIC, BattleCommandId::NONE },
+            .strength = 40, .agility = 40, .stamina = 30, .magicPower = 35, .battlePower = 25, .defense = 49, .magicDefense = 27, .evade = 30, .magicBlock = 12,
+            .weapon = ItemId::BLOSSOM, .shield = ItemId::MITHRIL_SHLD, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::NINJA_GEAR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, false },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$20]
+        .id = CharacterPropId::WEDGE,
+        .record = CharacterBaseStats{
+            .hp = 68, .mp = 0,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 40, .agility = 35, .stamina = 46, .magicPower = 29, .battlePower = 24, .defense = 77, .magicDefense = 50, .evade = 15, .magicBlock = 0,
+            .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::LOW, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$21]
+        .id = CharacterPropId::VICKS,
+        .record = CharacterBaseStats{
+            .hp = 70, .mp = 0,
+            .commands = { BattleCommandId::FIGHT, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::ITEM },
+            .strength = 41, .agility = 36, .stamina = 45, .magicPower = 28, .battlePower = 27, .defense = 79, .magicDefense = 50, .evade = 12, .magicBlock = 0,
+            .weapon = ItemId::MITHRILBLADE, .shield = ItemId::BUCKLER, .helmet = ItemId::LEATHER_HAT, .armor = ItemId::LEATHERARMOR,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::NORMAL, LevelMod::LOW, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$22]  (empty)
+        .id = CharacterPropId::UNUSED_22,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$23]  (empty)
+        .id = CharacterPropId::UNUSED_23,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$24]  (empty)
+        .id = CharacterPropId::UNUSED_24,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$25]  (empty)
+        .id = CharacterPropId::UNUSED_25,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$26]  (empty)
+        .id = CharacterPropId::UNUSED_26,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$27]  (empty)
+        .id = CharacterPropId::UNUSED_27,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$28]  (empty)
+        .id = CharacterPropId::UNUSED_28,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$29]
+        .id = CharacterPropId::KEFKA_1,
+        .record = CharacterBaseStats{
+            .hp = 14, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 14, .agility = 26, .stamina = 18, .magicPower = 22, .battlePower = 7, .defense = 42, .magicDefense = 36, .evade = 50, .magicBlock = 40,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2A]
+        .id = CharacterPropId::KEFKA_2,
+        .record = CharacterBaseStats{
+            .hp = 255, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2B]
+        .id = CharacterPropId::KEFKA_3,
+        .record = CharacterBaseStats{
+            .hp = 50, .mp = 50,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 80, .agility = 80, .stamina = 80, .magicPower = 80, .battlePower = 80, .defense = 180, .magicDefense = 180, .evade = 60, .magicBlock = 60,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::PALADIN_SHLD, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2C]
+        .id = CharacterPropId::KEFKA_4,
+        .record = CharacterBaseStats{
+            .hp = 22, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2D]
+        .id = CharacterPropId::KEFKA_5,
+        .record = CharacterBaseStats{
+            .hp = 34, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
+            .weapon = ItemId::MORNING_STAR, .shield = ItemId::EMPTY, .helmet = ItemId::MITHRIL_HELM, .armor = ItemId::MITHRIL_VEST,
+            .relic1 = ItemId::RIBBON, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::HIGH, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2E]
+        .id = CharacterPropId::KEFKA_6,
+        .record = CharacterBaseStats{
+            .hp = 14, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$2F]
+        .id = CharacterPropId::KEFKA_7,
+        .record = CharacterBaseStats{
+            .hp = 14, .mp = 17,
+            .commands = { BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE, BattleCommandId::NONE },
+            .strength = 15, .agility = 15, .stamina = 15, .magicPower = 15, .battlePower = 15, .defense = 50, .magicDefense = 50, .evade = 10, .magicBlock = 10,
+            .weapon = ItemId::EMPTY, .shield = ItemId::EMPTY, .helmet = ItemId::EMPTY, .armor = ItemId::EMPTY,
+            .relic1 = ItemId::EMPTY, .relic2 = ItemId::EMPTY,
+            .traits = { RunFactor::HIGH, LevelMod::NORMAL, true },
+        },
+    },
+    CharacterBaseStatsEntry{  // [$30]  (empty)
+        .id = CharacterPropId::TORK,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$31]  (empty)
+        .id = CharacterPropId::JADE,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$32]  (empty)
+        .id = CharacterPropId::CUSTER,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$33]  (empty)
+        .id = CharacterPropId::FABIAN,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$34]  (empty)
+        .id = CharacterPropId::DRAKE,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$35]  (empty)
+        .id = CharacterPropId::SARA,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$36]  (empty)
+        .id = CharacterPropId::CASE,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$37]  (empty)
+        .id = CharacterPropId::SIELE,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$38]  (empty)
+        .id = CharacterPropId::RAY,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$39]  (empty)
+        .id = CharacterPropId::REIKER,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3A]  (empty)
+        .id = CharacterPropId::LANCE,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3B]  (empty)
+        .id = CharacterPropId::BOB,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3C]  (empty)
+        .id = CharacterPropId::PEPPER,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3D]  (empty)
+        .id = CharacterPropId::TAU,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3E]  (empty)
+        .id = CharacterPropId::VICTOR,
+        .record = CharacterBaseStats{},
+    },
+    CharacterBaseStatsEntry{  // [$3F]  (empty)
+        .id = CharacterPropId::HO,
+        .record = CharacterBaseStats{},
+    },
