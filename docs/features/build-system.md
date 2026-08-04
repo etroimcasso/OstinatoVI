@@ -6,7 +6,7 @@
 ## Concept
 
 The build rails for the port: a CMake project that consumes the Retro++ engine as a
-subproject, a five-target topology (port library / game binary / three test runners), a GoogleTest
+subproject, a six-target topology (port library / game binary / four test runners), a GoogleTest
 smoke harness proving the engine compiles-links-runs consumer-side, and a dev-only script that
 stages ripped ROM assets into the canonical pack directories. Zero game behavior — this
 stands up the infrastructure everything else builds on.
@@ -33,7 +33,7 @@ stands up the infrastructure everything else builds on.
 
 ### Target topology
 
-Five targets:
+Six targets:
 
 | Target | Kind | Links | Purpose |
 |---|---|---|---|
@@ -42,6 +42,7 @@ Five targets:
 | `ostinato-vi-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Smoke runner (engine reachability) — frozen baseline. |
 | `ostinato-vi-enum-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Full-corpus enum-surface tests + version-axis / packed-type behavior. |
 | `ostinato-vi-data-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Full-corpus data-table tests (character base stats, RNG table) vs generated fixtures. |
+| `ostinato-vi-spell-tests` | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Full-corpus spell/esper data tests (attack properties, magic points, dances, espers, natural magic) vs generated fixtures; carries the visible skip for the pending Japanese attack-properties variant. |
 
 Each data table gets its coverage in a dedicated test source; test binaries are split by
 concern so earlier baselines stay frozen as later ones grow.

@@ -21,8 +21,9 @@ it is never built directly (the same source would rebuild for no new signal).
 
 All four jobs run in parallel (the two `beefserve` jobs don't contend — the parser
 job is sub-second Python). A run is green only when every build job reports the
-full test count (current C++ baseline: `10/10/0` — passed/total/skipped — on every
-platform) and the parser job reports its full suite (currently 63 cases).
+full test count (current C++ baseline: `23/24/1` — passed/total/skipped, the skip
+being the pending Japanese attack-properties variant — on every platform) and the
+parser job reports its full suite (currently 145 cases).
 
 ## Design decisions
 
