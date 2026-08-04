@@ -59,6 +59,8 @@ add_library(ostinato-vi-lib STATIC
     src/data/attack_properties.cpp
     src/data/battle_magic_points.cpp
     src/data/character.cpp
+    src/data/dance_properties.cpp
+    src/data/esper_properties.cpp
     src/data/rng_table.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
@@ -134,14 +136,18 @@ target_include_directories(ostinato-vi-data-tests PRIVATE ${CMAKE_CURRENT_SOURCE
 target_link_libraries(ostinato-vi-data-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-data-tests)
 
-# Phase 1.B spell/esper data: attack properties (magic_prop EN) + per-battle
-# magic points, each full-corpus tested against its parser-emitted fixture.
-# Own binary so the smoke, enum, and 1.A data baselines stay frozen (the
-# dance / esper / natural-magic tests join this binary in the 1.B close-out
-# session).
+# Phase 1.B spell/esper data: attack properties (magic_prop EN), per-battle
+# magic points, dance attacks, esper properties, and natural magic — each
+# full-corpus tested against its parser-emitted fixture. Own binary so the
+# smoke, enum, and 1.A data baselines stay frozen. (Natural magic is a
+# header-only surface — two tables, no accessor — so it adds no library
+# source.)
 add_executable(ostinato-vi-spell-tests
     tests/test_attack_properties.cpp
-    tests/test_battle_magic_points.cpp)
+    tests/test_battle_magic_points.cpp
+    tests/test_dance_properties.cpp
+    tests/test_esper_properties.cpp
+    tests/test_natural_magic.cpp)
 target_compile_features(ostinato-vi-spell-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-spell-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-spell-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
