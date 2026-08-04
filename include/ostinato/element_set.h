@@ -7,6 +7,7 @@
 // single affinity byte the ROM stores.
 #pragma once
 
+#include <concepts>
 #include <cstdint>
 
 #include "ostinato/element.h"
@@ -28,6 +29,15 @@ struct ElementSet {
 
     constexpr void clear(Element element) {
         bits &= static_cast<std::uint8_t>(~static_cast<std::uint8_t>(element));
+    }
+
+    // OR-together builder (added in phase 1.B): ElementSet::of(Element::FIRE,
+    // Element::ICE). Zero arguments yields the empty set (the all-zero
+    // affinity byte).
+    static constexpr ElementSet of(std::same_as<Element> auto... elements) {
+        ElementSet result{};
+        (result.set(elements), ...);
+        return result;
     }
 };
 

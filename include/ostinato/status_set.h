@@ -11,6 +11,7 @@
 #pragma once
 
 #include <array>
+#include <concepts>
 #include <cstdint>
 
 #include "ostinato/status_id.h"
@@ -33,6 +34,15 @@ struct StatusSet {
     constexpr void clear(StatusId id) {
         const auto i = static_cast<std::uint8_t>(id);
         bytes[i / 8] &= static_cast<std::uint8_t>(~(1u << (i % 8)));
+    }
+
+    // OR-together builder (added in phase 1.B): StatusSet::of(StatusId::SLEEP,
+    // StatusId::STOP). Zero arguments yields the empty set (all four status
+    // bytes zero).
+    static constexpr StatusSet of(std::same_as<StatusId> auto... ids) {
+        StatusSet result{};
+        (result.set(ids), ...);
+        return result;
     }
 };
 
