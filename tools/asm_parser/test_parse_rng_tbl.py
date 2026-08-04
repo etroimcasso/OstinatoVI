@@ -34,7 +34,7 @@ class RowFormatTests(unittest.TestCase):
     def test_entry_rows_shape(self):
         rows = prt._entry_rows([0x07, 0xB6]).splitlines()
         # Identity is a decimal field, right-aligned; value is the raw ROM byte
-        # in hex (the house index->value row shape).
+        # in hex.
         self.assertEqual(rows[0], "    { .index =   0, .value = 0x07 },")
         self.assertEqual(rows[1], "    { .index =   1, .value = 0xB6 },")
 

@@ -1,5 +1,5 @@
-// Full-corpus test of the esper properties table (PLAN phase-1.B D5 +
-// Amendment B1). The byte-equivalence test asserts EVERY one of the 27
+// Full-corpus test of the esper properties table.
+// The byte-equivalence test asserts EVERY one of the 27
 // packed records is byte-identical to the ROM's 11-byte record (no subset)
 // and that every entry's identity field matches its position in the
 // $36-based GENJU index space; the semantic tests exercise the lookup, the

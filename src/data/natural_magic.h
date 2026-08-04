@@ -1,5 +1,4 @@
-// Hand-written port-design (PLAN phase-1.B D6 + Amendment B1; row shape per
-// the house self-labeling rule). The table definitions are parser-emitted
+// The natural-magic tables. The table definitions are generated
 // (src/data/generated/natural_magic_data.inc, consumed at namespace scope
 // below); this header owns the record type and the slot-entry type. There is
 // deliberately NO accessor and NO character dispatch: which character reads

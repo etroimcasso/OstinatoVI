@@ -1,11 +1,8 @@
-// Hand-written port-design (PLAN phase-1.B D8). Not parser-emitted.
-//
-// A generic one-byte flag set over a bit-valued enum — bucket 2
-// (multi-component) per the data-surface discipline. The flag enum carries the
+// A generic one-byte flag set over a bit-valued enum. The flag enum carries the
 // upstream bit values; this template encapsulates the bit math so no call site
 // ever open-codes a mask. sizeof == 1 keeps every instantiation byte-identical
-// to the single ROM byte it represents. The shipped bespoke wrappers
-// (ElementSet, StatusSet) predate this template and stay as they are.
+// to the single ROM byte it represents. The bespoke wrappers (ElementSet,
+// StatusSet) predate this template and stay as they are.
 #pragma once
 
 #include <concepts>

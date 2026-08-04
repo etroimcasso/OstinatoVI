@@ -1,7 +1,7 @@
-// Full-corpus test of the parser-emitted enum surface + the hand-written
-// foundation types (PLAN phase-1.A). The enum-value test asserts EVERY emitted
-// enumerator against the parser-emitted fixture (no subset). The wrapper tests
-// exercise the byte/bit mapping the port depends on for ROM byte-equivalence.
+// Full-corpus test of the generated enum surface + the hand-written foundation
+// types. The enum-value test asserts EVERY emitted enumerator against the
+// generated fixture (no subset). The wrapper tests exercise the byte/bit
+// mapping the port depends on for ROM byte-equivalence.
 
 #include <cstdint>
 
@@ -37,12 +37,12 @@
 #include "ostinato/game_version.h"
 #include "ostinato/status_set.h"
 
-// Parser-emitted full-corpus expected values.
+// Generated full-corpus expected values.
 #include "fixtures/enums_expected.h"
 
 namespace {
 
-// Every emitted enumerator's value must equal the parser-emitted contract value.
+// Every emitted enumerator's value must equal the fixture's expected value.
 // Full corpus — the X-macro expands to one check per enumerator (1311 of them).
 TEST(Enums, AllEnumeratorsMatchContract) {
 #define CHECK(EnumT, Member, Val)                                        \
@@ -87,8 +87,8 @@ TEST(ElementSet, SetHasClearAndByteEquivalence) {
 }
 
 // The 4-byte packed layout: ids map to (byte id/8, bit id%8). Exercising ids in
-// different banks verifies the cross-byte-boundary mapping (PLAN D5) that
-// StatusSet must reproduce byte-for-byte against the ROM's four status bytes.
+// different banks verifies the cross-byte-boundary mapping StatusSet must
+// reproduce exactly against the ROM's four status bytes.
 TEST(StatusSet, CrossByteBoundaryMappingIsByteExact) {
     using ostinato::StatusId;
     ostinato::StatusSet st;

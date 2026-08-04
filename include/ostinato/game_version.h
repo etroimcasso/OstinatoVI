@@ -1,10 +1,8 @@
-// Hand-written port-design (PLAN phase-1.A D1). Not parser-emitted.
-//
-// The runtime version axis for the ALL-FF6 build (G1 resolution R3): one binary
-// serves all three rip-supported ROMs. This mirrors the upstream assembly-config
-// axes as clean C++ predicates — LANG_EN and ROM_VERSION in const.inc — without
-// any assembler-config or hardware idiom leaking into the port surface. No CRC
-// constants here; ROM identification is an extraction-tool concern (Phase 12).
+// The runtime version axis: one binary serves all three supported ROM
+// revisions. This mirrors the upstream assembly-config axes as clean C++
+// predicates — LANG_EN and ROM_VERSION in const.inc — without any
+// assembler-config or hardware idiom leaking into the port surface. No CRC
+// constants here; ROM identification is the extraction tool's concern.
 #pragma once
 
 #include <cstdint>

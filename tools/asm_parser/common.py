@@ -103,8 +103,8 @@ def is_version_variant_condition(cond_text):
     ROM_VERSION, LANG_EN_REV1, and DEBUG. The plain include guard
     (.ifndef CONST_INC and similar *_INC guards) is benign.
 
-    The port law forbids version-variant *emitted* values; the walker uses this
-    to hard-error if an .enum ever opens while such a condition is active.
+    Emitted values must be version-independent; the walker uses this to
+    hard-error if an .enum ever opens while such a condition is active.
     """
     tokens = re.findall(_IDENT, cond_text)
     version_axes = {"LANG_EN", "ROM_VERSION", "LANG_EN_REV1", "DEBUG"}
@@ -226,9 +226,10 @@ def _resolve_term(token, path, lineno, parsed, current_enum):
 def parse_ca65_constants(path, skip_body_enums=None):
     """Parse a ca65 constants/enum file into a ParsedConstants.
 
-    Enforces the port-law D3 rule structurally: an .enum opening while a
-    version-variant conditional (LANG_EN / ROM_VERSION / ...) is active is a
-    hard error, because that would make an emitted enum value version-dependent.
+    Structurally enforces that emitted enum values are version-independent: an
+    .enum opening while a version-variant conditional (LANG_EN / ROM_VERSION /
+    ...) is active is a hard error, because that would make an emitted enum
+    value version-dependent.
 
     skip_body_enums: an optional set of enum names whose *bodies* are recognized
     and consumed without member-grammar evaluation (e.g. the combined-status
@@ -293,9 +294,9 @@ def parse_ca65_constants(path, skip_body_enums=None):
             if version_variant_active():
                 raise ParseError(
                     path, lineno,
-                    "PORT-LAW VIOLATION: .enum opened inside a version-variant "
-                    "conditional — an emitted enum value would be "
-                    "version-dependent; escalate per D3.")
+                    "VERSION-VARIANT VIOLATION: .enum opened inside a "
+                    "version-variant conditional — an emitted enum value would "
+                    "be version-dependent; escalate, never guess.")
             parts = stripped.split(None, 1)
             if len(parts) != 2 or not _RE_IDENT.match(parts[1].strip()):
                 raise ParseError(path, lineno, "malformed .enum directive")

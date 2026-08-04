@@ -8,11 +8,11 @@ namespace ostinato {
 
 namespace {
 
-// The 64-entry table. The parser-emitted rows are the transcribed contract
-// data; this array + its types are the port surface. Designated initializers
-// at every row keep each field self-labeling; each entry carries its identity
-// as the CharacterPropId enumerator. Empty records are the ROM's zero-filled
-// padding slots (all-zero, distinct from the 0xFF EMPTY/NONE sentinels).
+// The 64-entry table. The generated rows carry the ROM record data; designated
+// initializers at every row keep each field self-labeling, and each entry
+// carries its identity as the CharacterPropId enumerator. Empty records are
+// the ROM's zero-filled padding slots (all-zero, distinct from the 0xFF
+// EMPTY/NONE sentinels).
 constexpr std::array<CharacterBaseStatsEntry, 64> kCharacterBaseStats = {{
 #include "data/generated/char_prop_data.inc"
 }};
