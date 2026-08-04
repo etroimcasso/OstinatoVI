@@ -2,6 +2,8 @@
 
 Chronological feature state transitions, newest first.
 
+- **2026-08-04** — `ci`: scope grown (stays ✅ complete). Two new self-hosted runners join the fleet: Linux ARM64 (`linmac-arm64`) and Windows ARM64 (`WINMACARM64`, clang-cl `-A ARM64`). The three ARM64 jobs share one physical host and run as a serial chain (macOS → Linux → Windows, `needs:` + `if: always()`); both new runners hold the vanilla ROM at a fixed path exported per-job as `FF6_VANILLA_ROM`. C++ baseline **23/24/1 on all five platforms**, count parity verified from runner logs.
+
 - **2026-08-03** — `build-system`: scope grown (stays ✅ complete). Sixth target `ostinato-vi-spell-tests` covers the spell/esper data family (attack properties, per-battle magic points, dances, espers, natural magic); C++ baseline now **23/24/1** per platform — the skip is the pending Japanese attack-properties variant, visible on every platform.
 - **2026-08-03** — `ci`: scope grown (stays ✅ complete). The `parser-tests` job now runs **145** cases: five new emitter suites (attack properties, battle magic points, dance, esper, natural magic) join the original three.
 - **2026-08-03** — `ci`: scope grown (stays ✅ complete). New `parser-tests` job runs the `tools/asm_parser/` unit suites (63 cases) on every `ci/**` push; stages the runner's `FF6_VANILLA_ROM` and runs the upstream rip (numpy via system python3 or a one-time cached venv) so rip-product e2e runs full instead of skipping. Linux runner-deps script gains `python3-numpy`/`python3-venv`. Registry row fixed: `ci` had never been flipped from ⬜ planned despite the 2026-08-02 transition below.
