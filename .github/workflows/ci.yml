@@ -33,6 +33,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The default workspace clean runs `git clean -ffdx`, which would delete
+          # the persisted gitignored build/ every run and force a cold rebuild.
+          clean: false
 
       - name: Install libxtst-dev (SDL3 XTEST dependency)
         run: |
@@ -64,19 +68,27 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S "$GITHUB_WORKSPACE" -B /tmp/ostinato-vi-ci-build \
+          cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build" \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build /tmp/ostinato-vi-ci-build --parallel
+        run: cmake --build "$GITHUB_WORKSPACE/build" --parallel
+
+      - name: Stage build for manual testing
+        run: |
+          # The whole build directory, never just the binary — the binary needs the
+          # files the build lays out beside it. The workspace lives under the runner
+          # service account; /tmp is where the machine's owner can launch the result.
+          # The rm clears only the previous staged copy, never the build itself.
+          rm -rf /tmp/ostinato-vi-build && cp -R "$GITHUB_WORKSPACE/build" /tmp/ostinato-vi-build
 
       - name: Test
         run: |
           set -o pipefail   # without this, tee's exit code (always 0) masks ctest failures
           export SDL_VIDEODRIVER=offscreen   # headless: SDL video init succeeds so the GPU device (lavapipe) is reachable
           mkdir -p "$GITHUB_WORKSPACE/ci-output"
-          ctest --test-dir /tmp/ostinato-vi-ci-build --output-on-failure \
+          ctest --test-dir "$GITHUB_WORKSPACE/build" --output-on-failure \
             2>&1 | tee "$GITHUB_WORKSPACE/ci-output/linux-test-results.txt"
 
       - name: Upload test results
@@ -93,6 +105,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The default workspace clean would delete the persisted gitignored
+          # build/ every run — see the Linux job.
+          clean: false
 
       - name: Init engine submodule
         env:
@@ -110,18 +126,23 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S "$GITHUB_WORKSPACE" -B /tmp/ostinato-vi-ci-build \
+          cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build" \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build /tmp/ostinato-vi-ci-build --parallel
+        run: cmake --build "$GITHUB_WORKSPACE/build" --parallel
+
+      - name: Stage build for manual testing
+        run: |
+          # Whole build directory to /tmp for the machine's owner — see the Linux job.
+          rm -rf /tmp/ostinato-vi-build && cp -R "$GITHUB_WORKSPACE/build" /tmp/ostinato-vi-build
 
       - name: Test
         run: |
           set -o pipefail   # without this, tee's exit code masks ctest failures
           mkdir -p "$GITHUB_WORKSPACE/ci-output"
-          ctest --test-dir /tmp/ostinato-vi-ci-build --output-on-failure \
+          ctest --test-dir "$GITHUB_WORKSPACE/build" --output-on-failure \
             2>&1 | tee "$GITHUB_WORKSPACE/ci-output/macos-test-results.txt"
 
       - name: Upload test results
@@ -211,6 +232,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The default workspace clean would delete the persisted gitignored
+          # build/ every run — see the Linux x64 job.
+          clean: false
 
       - name: Set vanilla-ROM path (fixed location on this runner)
         run: |
@@ -236,19 +261,24 @@ jobs:
 
       - name: Configure
         run: |
-          cmake -S "$GITHUB_WORKSPACE" -B /tmp/ostinato-vi-ci-build \
+          cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build" \
             -G Ninja \
             -DCMAKE_BUILD_TYPE=Release
 
       - name: Build
-        run: cmake --build /tmp/ostinato-vi-ci-build --parallel
+        run: cmake --build "$GITHUB_WORKSPACE/build" --parallel
+
+      - name: Stage build for manual testing
+        run: |
+          # Whole build directory to /tmp for the machine's owner — see the Linux x64 job.
+          rm -rf /tmp/ostinato-vi-build && cp -R "$GITHUB_WORKSPACE/build" /tmp/ostinato-vi-build
 
       - name: Test
         run: |
           set -o pipefail   # without this, tee's exit code masks ctest failures
           export SDL_VIDEODRIVER=offscreen   # headless: SDL video init succeeds so the GPU device (lavapipe) is reachable
           mkdir -p "$GITHUB_WORKSPACE/ci-output"
-          ctest --test-dir /tmp/ostinato-vi-ci-build --output-on-failure \
+          ctest --test-dir "$GITHUB_WORKSPACE/build" --output-on-failure \
             2>&1 | tee "$GITHUB_WORKSPACE/ci-output/linux-arm64-test-results.txt"
 
       - name: Upload test results
@@ -343,6 +373,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # This job shares beefserve's workspace with the Linux build job; the
+          # default clean here would wipe that job's persisted build/.
+          clean: false
 
       - name: Init upstream disassembly submodule (const.inc for parser e2e)
         run: |
