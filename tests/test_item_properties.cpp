@@ -32,7 +32,7 @@ namespace {
 
 // Full corpus: identity fields on both sides match the position, and one
 // memcmp per packed record catches field-order, padding, decomposition, and
-// builder drift in a single byte-for-byte comparison against the ROM.
+// builder drift in one whole-record comparison against the ROM.
 TEST(ItemProperties, AllRecordsAreByteIdenticalToRom) {
     const auto table = ostinato::itemPropertiesEn();
     ASSERT_EQ(table.size(), ostinato::test::kExpectedItemEntries.size());

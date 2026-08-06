@@ -61,8 +61,10 @@ add_library(ostinato-vi-lib STATIC
     src/data/character.cpp
     src/data/dance_properties.cpp
     src/data/esper_properties.cpp
+    src/data/colosseum_wagers.cpp
     src/data/item_properties.cpp
-    src/data/rng_table.cpp)
+    src/data/rng_table.cpp
+    src/data/shop_properties.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -155,11 +157,14 @@ target_include_directories(ostinato-vi-spell-tests PRIVATE ${CMAKE_CURRENT_SOURC
 target_link_libraries(ostinato-vi-spell-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-spell-tests)
 
-# Item-data tests: item properties (item_prop EN), full-corpus tested against
-# its generated fixture. Own binary so the smoke, enum, data-table, and
-# spell/esper baselines stay frozen.
+# Item-data tests: item properties (item_prop EN), shop properties
+# (shop_prop), and colosseum wagers (ColosseumProp) — each full-corpus tested
+# against its generated fixture. Own binary so the smoke, enum, data-table,
+# and spell/esper baselines stay frozen.
 add_executable(ostinato-vi-item-tests
-    tests/test_item_properties.cpp)
+    tests/test_colosseum_wagers.cpp
+    tests/test_item_properties.cpp
+    tests/test_shop_properties.cpp)
 target_compile_features(ostinato-vi-item-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-item-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-item-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
