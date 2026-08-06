@@ -218,7 +218,7 @@ inline constexpr std::uint8_t kDeadItemFlagBit0 = 0x01;
 inline constexpr std::uint8_t kDeadItemFlagBit6 = 0x40;
 
 // One 30-byte item-properties record (item_prop_en.dat, ROM D8/5000). Member
-// order and widths mirror the ROM record byte-for-byte — pinned by the
+// order and widths mirror the ROM record exactly — pinned by the
 // static_asserts below and the full-corpus byte-equivalence test. Each
 // member's citation is its layout authority.
 struct ItemProperties {
