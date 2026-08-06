@@ -2,6 +2,10 @@
 
 Chronological feature state transitions, newest first.
 
+- **2026-08-05** — `build-system`: scope grown (stays ✅ complete). Seventh target `ostinato-vi-item-tests` covers the item data family (item properties, shop specifications, colosseum wagers); C++ baseline now **33/35/2** per platform — the second skip is the pending Japanese item-properties variant, visible on every platform.
+- **2026-08-05** — `ci`: scope grown (stays ✅ complete). The `parser-tests` job now runs **208** cases: three new emitter suites (item properties, shop specifications, colosseum wagers) join the eight.
+- **2026-08-05** — `ci`: scope grown (stays ✅ complete). The Unix build jobs move into the workspace's normal `build/` directory (checkouts keep `clean: false` so the persisted tree survives the checkout action's default clean) and stage the entire build directory to `/tmp/ostinato-vi-build` after every build for manual testing; Windows keeps its fixed-root build directory and needs no staging. First run per Unix runner after the move is one expected cold build.
+
 - **2026-08-04** — `ci`: scope grown (stays ✅ complete). Two new self-hosted runners join the fleet: Linux ARM64 (`linmac-arm64`) and Windows ARM64 (`WINMACARM64`, clang-cl `-A ARM64`). The three ARM64 jobs share one physical host and run as a serial chain (macOS → Linux → Windows, `needs:` + `if: always()`); both new runners hold the vanilla ROM at a fixed path exported per-job as `FF6_VANILLA_ROM`. C++ baseline **23/24/1 on all five platforms**, count parity verified from runner logs.
 
 - **2026-08-03** — `build-system`: scope grown (stays ✅ complete). Sixth target `ostinato-vi-spell-tests` covers the spell/esper data family (attack properties, per-battle magic points, dances, espers, natural magic); C++ baseline now **23/24/1** per platform — the skip is the pending Japanese attack-properties variant, visible on every platform.
