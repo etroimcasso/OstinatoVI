@@ -48,8 +48,20 @@ reports its full suite (currently 145 cases).
   `ENGINE_PAT` repository secret, supplied per-invocation to git rather than written
   to the runner's config. (The parser job is the exception — it initializes
   `original-src`, which is public and needs no PAT.)
-- **Build directories live outside the checkout** (`/tmp/ostinato-vi-ci-build`,
-  `C:\ostinato-vi-ci-build`) and persist between runs, so builds are incremental.
+- **Unix jobs build in the workspace's normal `build/` directory** — the same
+  `cmake -S . -B build` a developer runs locally — and persist it between runs, so
+  builds are incremental. Their checkouts set `clean: false`, because the checkout
+  action's default `git clean -ffdx` would delete the gitignored `build/` on every
+  run and silently force cold builds (the `parser-tests` job shares a workspace
+  with the Linux build job and carries the same setting). After every build, each
+  Unix job replaces a staged copy of the **entire** build directory at
+  `/tmp/ostinato-vi-build` — the whole directory rather than the bare binary, so
+  anything the build lays out beside the executable comes along — where the
+  machine's owner can run the result without touching the runner service account's
+  workspace. Windows is the one exception: it builds at `C:\ostinato-vi-ci-build`
+  (the 260-character path limit is real for a FetchContent `_deps` tree nested
+  under the workspace), which already sits at an accessible fixed root, so it
+  needs no staging step.
 - **Test steps propagate failure through the log-capture pipe.** `set -o pipefail`
   on Linux/macOS and a `$LASTEXITCODE` check on Windows ensure a failing `ctest`
   fails the step — `tee`/`Tee-Object` alone would report green regardless.
@@ -102,7 +114,7 @@ headers SDL3 links against. The engine builds SDL3 and SameBoy from its own
 submodules, so no SDL/SameBoy package is required.
 
 **Repository secret** — `ENGINE_PAT`: a token with read access to the private engine
-repo, used to fetch the `engine/` submodule during checkout.
+repo, which fetches the `engine/` submodule during checkout.
 
 ### Vanilla ROM on each runner (consumed by the parser job's rip staging)
 

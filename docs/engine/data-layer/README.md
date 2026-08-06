@@ -49,3 +49,6 @@ Two include roots serve the data layer, both on the public include path:
 | [dances.md](dances.md) | The 8 dances and their four candidate attacks each. |
 | [espers.md](espers.md) | The 27 esper records — teachable spells with learn rates and the level-up bonus. |
 | [natural-magic.md](natural-magic.md) | Terra's and Celes's natural-magic spell/level tables. |
+| [item-properties.md](item-properties.md) | The 256-record item-properties table — item, weapon, armor, and relic stats in one 30-byte record: equip permissions, effect bits, stat boosts, spell casts, prices. |
+| [shop-properties.md](shop-properties.md) | The 128 shop records — shop type, price adjustment, and eight item slots each. |
+| [colosseum-wagers.md](colosseum-wagers.md) | The colosseum wager table — for each wagerable item, the monster fought and the prize won. |

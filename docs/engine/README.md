@@ -14,6 +14,6 @@ against the original game — the reverse-derived behavioral specs live separate
 
 | Section | Covers |
 |---|---|
-| [data-layer/](data-layer/README.md) | The static game content the port ships with — the game-domain enums, character base stats, the RNG table, attack properties, magic-point awards, dances, espers, and natural magic. Compile-time `constexpr` data plus pure lookup functions. |
+| [data-layer/](data-layer/README.md) | The static game content the port ships with — the game-domain enums, character base stats, the RNG table, attack properties, magic-point awards, dances, espers, natural magic, item properties, shops, and colosseum wagers. Compile-time `constexpr` data plus pure lookup functions. |
 
 Further sections are added as the corresponding systems land.
