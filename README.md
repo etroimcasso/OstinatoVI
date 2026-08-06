@@ -18,6 +18,19 @@ all), a US ROM the English one. One binary covers all three; version-specific be
 carried explicitly rather than baked to a single release. Current development validates
 against FF3 1.1 (US), with the other two slotted in as verification ROMs become available.
 
+## What this is not
+
+This project is not an alternative to the official **Pixel Remaster** line, and it is not
+trying to compete with it. If you want a modernized Final Fantasy VI — updated visuals,
+rearranged audio, and quality-of-life conveniences — buy the Pixel Remaster and give
+Square Enix your money for their efforts.
+
+For the same reason, this port will not be adding the convenience features common to
+modern re-releases and emulators: **no speed-up, no encounter disabling, no widescreen.**
+The point of the project is the original game, behaving as it did on the SNES, running as
+native code on modern platforms — fidelity is the feature, and gameplay-altering
+conveniences work against it.
+
 ## What ships and what doesn't
 
 - **You supply your own ROM.** On first launch the app asks you to select your legitimately
