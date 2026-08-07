@@ -106,6 +106,26 @@ class StatusDecompositionTests(unittest.TestCase):
             pmp.decompose_statuses([0x02, 0, 0, 0], {}, 0)
 
 
+class SpecialEffectDecompositionTests(unittest.TestCase):
+
+    def test_known_bytes_map_to_enumerators(self):
+        self.assertEqual(pmp.decompose_special_effect(0x35, 0), "DOOM")
+        self.assertEqual(pmp.decompose_special_effect(0x11, 0), "GOLEM")
+        self.assertEqual(pmp.decompose_special_effect(0x25, 0),
+                         "MISSES_FLOATING_TARGETS")
+
+    def test_ff_is_the_none_sentinel(self):
+        self.assertEqual(pmp.decompose_special_effect(0xFF, 0), "NONE")
+
+    def test_unmapped_byte_raises(self):
+        # $14 is a corpus gap inside the band; $41/$42 have handlers but no
+        # corpus carrier (deliberately unmapped); $46/$80 sit outside the
+        # attack band entirely.
+        for byte in (0x14, 0x41, 0x42, 0x46, 0x80):
+            with self.assertRaises(pmp.MagicPropError):
+                pmp.decompose_special_effect(byte, 0)
+
+
 class RendererFormattingTests(unittest.TestCase):
 
     def test_of_or_empty(self):
@@ -202,6 +222,22 @@ class EndToEndTests(unittest.TestCase):
         poison = self.records[0x03]
         self.assertEqual(poison.traits, ["INVERT_ON_UNDEAD"])
         self.assertEqual(poison.statuses, ["POISON"])
+
+    def test_special_effect_corpus_shape(self):
+        # 66 of 256 records carry a non-$FF special-effect byte, spanning 52
+        # distinct values — the full EN corpus of the dispatch band.
+        non_none = [r.special_effect for r in self.records
+                    if r.special_effect != 0xFF]
+        self.assertEqual(len(non_none), 66)
+        self.assertEqual(len(set(non_none)), 52)
+
+    def test_special_effect_rows_render_named(self):
+        # Every emitted specialEffect line renders through the
+        # AttackSpecialEffect surface — no raw-hex byte remains.
+        inc = pmp.render_inc(self.records)
+        self.assertNotRegex(inc, r"\.specialEffect = 0x")
+        self.assertIn(".specialEffect = AttackSpecialEffect::NONE,", inc)
+        self.assertIn(".specialEffect = AttackSpecialEffect::DOOM,", inc)
 
 
 if __name__ == "__main__":

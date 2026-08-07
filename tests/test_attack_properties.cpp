@@ -13,6 +13,7 @@
 
 #include "data/attack_properties.h"
 
+#include "ostinato/attack_effects.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/element.h"
@@ -28,7 +29,7 @@ namespace {
 
 // Full corpus: identity fields on both sides match the position, and one
 // memcmp per packed record catches field-order, padding, decomposition, and
-// builder drift in a single byte-for-byte comparison against the ROM.
+// builder drift against the ROM bytes in a single comparison.
 TEST(AttackProperties, AllRecordsAreByteIdenticalToRom) {
     const auto table = ostinato::attackPropertiesEn();
     ASSERT_EQ(table.size(), ostinato::test::kExpectedAttackEntries.size());
@@ -62,7 +63,27 @@ TEST(AttackProperties, LookupSemanticSurface) {
     EXPECT_EQ(fire.mpCost, 4u);
     EXPECT_EQ(fire.power, 21u);
     EXPECT_EQ(fire.hitRate, 150u);
-    EXPECT_EQ(fire.specialEffect, ostinato::kNoSpecialEffect);
+    EXPECT_EQ(fire.specialEffect, ostinato::AttackSpecialEffect::NONE);
+}
+
+// The specialEffect surface names the dispatch index (attack_effects.h).
+// Spot-check named rows against enumerators hand-traced from the ROM: a
+// target-side handler value (Doom $35), the mislabeled-header value (Golem
+// $11), a multi-carrier value (Quake $25), and a dead-at-dispatch value
+// (Retort $3C).
+TEST(AttackProperties, SpecialEffectNamedSurface) {
+    using ostinato::AttackId;
+    using ostinato::AttackSpecialEffect;
+    using ostinato::getAttackProperties;
+
+    EXPECT_EQ(getAttackProperties(AttackId::DOOM).specialEffect,
+              AttackSpecialEffect::DOOM);
+    EXPECT_EQ(getAttackProperties(AttackId::GOLEM).specialEffect,
+              AttackSpecialEffect::GOLEM);
+    EXPECT_EQ(getAttackProperties(AttackId::QUAKE).specialEffect,
+              AttackSpecialEffect::MISSES_FLOATING_TARGETS);
+    EXPECT_EQ(getAttackProperties(AttackId::RETORT).specialEffect,
+              AttackSpecialEffect::RETORT);
 }
 
 // Builder round-trips: every of(...) builder re-packs to the raw ROM byte the
