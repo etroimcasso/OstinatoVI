@@ -97,7 +97,66 @@ _MISC_BITS = (
     (0x02, "SHOW_ATTACK_MESSAGE"),
 )
 
-_NO_SPECIAL_EFFECT = 0xFF
+# Record byte +9 special-effect values — mirror
+# include/ostinato/attack_effects.h (names from the handler headers in
+# battle_main.asm's attacker/target special-effect jump tables, cited per
+# enumerator there). Exactly the values the EN corpus carries plus the $FF
+# no-effect sentinel; any other byte is a hard error, never a guess.
+_ATTACK_EFFECT_NAMES = {
+    0x00: "PUMMEL",
+    0x10: "SCAN",
+    0x11: "GOLEM",
+    0x12: "METAMORPH",
+    0x13: "PALIDOR",
+    0x15: "MANTRA",
+    0x16: "SPIRALER",
+    0x17: "TAPIR",
+    0x18: "WARP",
+    0x19: "EXPLODER",
+    0x1A: "BLOW_FISH",
+    0x1B: "PEARL_WIND",
+    0x1C: "REFLECT_LORE",
+    0x1D: "PEARL_LORE",
+    0x1E: "STEP_MINE",
+    0x1F: "DISCHORD",
+    0x20: "PEP_UP",
+    0x21: "RIPPLER",
+    0x22: "STONE",
+    0x23: "DISABLE_COUNTERATTACK",
+    0x24: "CRUSADER",
+    0x25: "MISSES_FLOATING_TARGETS",
+    0x26: "WALLCHANGE",
+    0x27: "ESCAPE",
+    0x28: "MIND_BLAST",
+    0x29: "N_CROSS",
+    0x2A: "FLARE_STAR",
+    0x2B: "R_POLARITY",
+    0x2C: "LAUNCHER",
+    0x2D: "LOVE_TOKEN",
+    0x2E: "SEIZE",
+    0x2F: "TARGETTING",
+    0x30: "SUPLEX",
+    0x31: "FORCEFIELD",
+    0x32: "QUADRA_SLAM_SLICE",
+    0x33: "BABABREATH",
+    0x34: "CHARM",
+    0x35: "DOOM",
+    0x36: "EMPOWERER",
+    0x37: "OVERCAST",
+    0x38: "SNEEZE",
+    0x39: "ENGULF",
+    0x3A: "ZINGER",
+    0x3B: "EVIL_TOOT",
+    0x3C: "RETORT",
+    0x3D: "REVENGE",
+    0x3E: "PHANTASM",
+    0x3F: "STUNNER",
+    0x40: "FALLEN_ONE",
+    0x43: "QUICK",
+    0x44: "DISCARD",
+    0x45: "CLEAR",
+    0xFF: "NONE",
+}
 
 
 # --- symbol resolution -------------------------------------------------------
@@ -207,6 +266,18 @@ def decompose_elements(byte, element_by_bit, index):
     return names
 
 
+def decompose_special_effect(byte, index):
+    """The byte +9 -> AttackSpecialEffect enumerator name; hard-error on any
+    byte outside the corpus map (a corpus divergence is an escalation)."""
+    name = _ATTACK_EFFECT_NAMES.get(byte)
+    if name is None:
+        raise MagicPropError(
+            "record {:#04x}: special-effect byte {:#04x} has no "
+            "AttackSpecialEffect name — escalate, never guess"
+            .format(index, byte))
+    return name
+
+
 def decompose_statuses(status_bytes, status_names, index):
     """The four status bytes -> StatusId names (id = byte*8 + bit, ascending)."""
     names = []
@@ -245,6 +316,7 @@ class Record(object):
         self.misc = _decompose_bits(raw[7], _MISC_BITS, "misc", index)
         self.hit_rate = raw[8]
         self.special_effect = raw[9]
+        self.special_effect_name = decompose_special_effect(raw[9], index)
         self.statuses = decompose_statuses(raw[10:14], symbols.status_names,
                                            index)
 
@@ -292,8 +364,7 @@ def _render_row(rec):
                  "Targeting::of({})".format(
                      ", ".join("TargetFlags::{}".format(n)
                                for n in rec.targeting)))
-    special = ("kNoSpecialEffect" if rec.special_effect == _NO_SPECIAL_EFFECT
-               else "0x{:02X}".format(rec.special_effect))
+    special = "AttackSpecialEffect::{}".format(rec.special_effect_name)
     return (
         "    AttackPropertiesEntry{{  // [${:02X}]\n"
         "        .id = AttackId::{},\n"
@@ -337,8 +408,9 @@ def render_inc(records):
              "// Flag bytes render through the of(...) builders so every set\n"
              "// bit is named; empty sets render as TypeName{}. mpCost /\n"
              "// power / hitRate are decimal (semantic magnitudes);\n"
-             "// specialEffect is the raw opaque ROM byte in hex, with $FF\n"
-             "// rendered as the kNoSpecialEffect sentinel.\n\n"]
+             "// specialEffect renders as its AttackSpecialEffect enumerator\n"
+             "// (ostinato/attack_effects.h — the special-effect dispatch\n"
+             "// index), with $FF as AttackSpecialEffect::NONE.\n\n"]
     for rec in records:
         lines.append(_render_row(rec))
     return "".join(lines)

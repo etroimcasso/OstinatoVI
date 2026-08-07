@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 
+#include "ostinato/attack_effects.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/element_set.h"
@@ -15,11 +16,6 @@
 #include "ostinato/targeting.h"
 
 namespace ostinato {
-
-// specialEffect's "no effect" sentinel byte. The consumer-side transform that
-// turns it into a disabled effect is battle logic, not data-layer scope; the
-// data stores the raw $FF.
-inline constexpr std::uint8_t kNoSpecialEffect = 0xFF;
 
 // One 14-byte attack-properties record (magic_prop_en.dat, ROM C4/6AC0).
 // Member order and widths mirror the record layout documented in
@@ -39,7 +35,7 @@ struct AttackProperties {
     std::uint8_t power;
     AttackMiscFlags misc;
     std::uint8_t hitRate;
-    std::uint8_t specialEffect;
+    AttackSpecialEffect specialEffect;
     StatusSet statuses;
 };
 
