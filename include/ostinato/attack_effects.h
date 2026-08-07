@@ -22,8 +22,8 @@
 // name comes from the value's handler header in the jump tables, cited per
 // enumerator (attacker-side handlers marked "attacker", target-side
 // "target"). The emitter hard-errors on any attack byte outside this set, so
-// a corpus divergence (e.g. a future JP rip) surfaces at emit time instead
-// of silently.
+// a corpus divergence (e.g. a future JP rip) surfaces as a parse error at
+// emit time.
 #pragma once
 
 #include <cstdint>
