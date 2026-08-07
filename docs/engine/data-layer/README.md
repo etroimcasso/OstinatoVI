@@ -44,7 +44,7 @@ Two include roots serve the data layer, both on the public include path:
 | [typed-wrappers.md](typed-wrappers.md) | The hand-written value types over packed ROM bytes — `ElementSet`, `StatusSet`, `FlagSet<F>`, `Targeting`, `CharacterTraits`, and the attack flag enums. |
 | [characters.md](characters.md) | Character base stats — the 64-record 22-byte table: starting stats, battle commands, initial equipment, traits. |
 | [rng.md](rng.md) | The 256-byte random-number table and `rngByte`. |
-| [attack-properties.md](attack-properties.md) | The 256-record attack-properties table — targeting, elements, flags, MP cost, power, hit rate, statuses for every attack. |
+| [attack-properties.md](attack-properties.md) | The 256-record attack-properties table — targeting, elements, flags, MP cost, power, hit rate, special effect, statuses for every attack. |
 | [battle-magic-points.md](battle-magic-points.md) | The per-battle magic-point award table (512 entries). |
 | [dances.md](dances.md) | The 8 dances and their four candidate attacks each. |
 | [espers.md](espers.md) | The 27 esper records — teachable spells with learn rates and the level-up bonus. |

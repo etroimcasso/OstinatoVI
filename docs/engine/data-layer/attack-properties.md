@@ -13,7 +13,7 @@ for (const auto& entry : ostinato::attackPropertiesEn()) {
     // entry.record — AttackProperties
 }
 
-ostinato::kNoSpecialEffect;   // 0xFF — specialEffect's "no effect" sentinel
+fire.specialEffect == ostinato::AttackSpecialEffect::NONE;   // true — Fire has none
 ```
 
 ## The record
@@ -29,7 +29,7 @@ struct AttackProperties {
     std::uint8_t   power;          // +6  spell power (damage/heal formula input)
     AttackMiscFlags misc;          // +7  status-immunity miss / attack message
     std::uint8_t   hitRate;        // +8
-    std::uint8_t   specialEffect;  // +9  raw effect index; 0xFF = none
+    AttackSpecialEffect specialEffect;  // +9  dispatch index; NONE = 0xFF
     StatusSet      statuses;       // +10..13  the four status bytes
 };
 static_assert(sizeof(AttackProperties) == 14);
@@ -41,9 +41,15 @@ by an `offsetof` `static_assert`, and the annotated RAM map
 (`original-src/notes/battle-ram.txt`) documents what each byte means. The wrapper
 field types are covered in [typed-wrappers.md](typed-wrappers.md).
 
-`specialEffect` is deliberately a raw byte: it's an index into battle-logic effect
-handling, and the transform that turns the `0xFF` sentinel (`kNoSpecialEffect`)
-into a disabled effect belongs to the battle engine, not the data layer.
+`specialEffect` names the record's entry in the battle engine's special-effect
+dispatch space (`AttackSpecialEffect`, `include/ostinato/attack_effects.h`). Each
+enumerator is cited to its handler in the disassembly's attacker/target jump
+tables; `AttackSpecialEffect::NONE` (`0xFF`) marks the rows with no effect —
+most of the table. The dispatch itself, including the transform that disables
+the `NONE` sentinel, belongs to the battle engine, not the data layer. Weapon
+and consumable effects feed the same dispatch space through their own
+sub-encodings — `WeaponSpecialEffect` / `ItemUseEffect` in
+[item-properties.md](item-properties.md).
 
 ## The table and the index space
 
@@ -78,13 +84,15 @@ in `src/data/attack_properties.cpp`), one designated-initializer row per attack.
 Flag bytes are written symbolically via the builders —
 `.element = ElementSet::of(Element::FIRE)`,
 `.flags1 = AttackFlags1::of(AttackFlag1::ENABLE_RUNIC, ...)` — so a rebalance edit
-names the bit, never a mask. A compile-time assert verifies every row's `.id`
+names the bit, never a mask; the special-effect byte likewise names its
+enumerator (`.specialEffect = AttackSpecialEffect::DOOM`). A compile-time assert verifies every row's `.id`
 matches its array position. A deliberate change must also update the matching row
 in `tests/fixtures/magic_prop_expected.h` (original ROM values).
 
 ## What's tested
 
 `tests/test_attack_properties.cpp` — every one of the 256 records
-`memcmp`-compared byte-for-byte against the fixture; a semantic spot-check of
-`AttackId::FIRE` hand-traced from the ROM bytes; round-trips of every builder
-family back to raw ROM bytes; and the visible JP-variant skip.
+`memcmp`-verified byte-identical to the fixture; a semantic spot-check of
+`AttackId::FIRE` hand-traced from the ROM bytes; named special-effect
+spot-checks (Doom, Golem, Quake, Retort); round-trips of every builder family
+back to raw ROM bytes; and the visible JP-variant skip.
