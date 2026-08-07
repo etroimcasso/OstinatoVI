@@ -215,9 +215,9 @@ def render_pack_inc(packs):
              "// index enum exists for packs, so the row's identity (.index,\n"
              "// decimal 0..31) is a typed field — a compile-time assert in\n"
              "// src/data/metamorph.h verifies index == position. Each pack's\n"
-             "// four items render as ItemId enumerators; the metamorph\n"
-             "// effect picks pack.items[rand 0..3] (behavior, Phase 3).\n"
-             "// Included inside the kMetamorphPacks array in\n"
+             "// four items render as ItemId enumerators; picking one of the\n"
+             "// four at random is the metamorph effect's job, not the\n"
+             "// table's. Included inside the kMetamorphPacks array in\n"
              "// src/data/metamorph.h.\n\n"]
     for pack in packs:
         lines.append(_render_pack_row(pack))

@@ -17,9 +17,9 @@
 // index enum exists for packs, so the row's identity (.index,
 // decimal 0..31) is a typed field — a compile-time assert in
 // src/data/metamorph.h verifies index == position. Each pack's
-// four items render as ItemId enumerators; the metamorph
-// effect picks pack.items[rand 0..3] (behavior, Phase 3).
-// Included inside the kMetamorphPacks array in
+// four items render as ItemId enumerators; picking one of the
+// four at random is the metamorph effect's job, not the
+// table's. Included inside the kMetamorphPacks array in
 // src/data/metamorph.h.
 
     MetamorphPackEntry{  // [0]
