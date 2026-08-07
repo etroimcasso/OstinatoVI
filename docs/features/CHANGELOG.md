@@ -2,6 +2,9 @@
 
 Chronological feature state transitions, newest first.
 
+- **2026-08-06** — `build-system`: stays ✅ complete. The spell test runner gains the named special-effect spot-checks that ride the new `AttackSpecialEffect` surface (`include/ostinato/attack_effects.h`); C++ baseline now **34/36/2** per platform.
+- **2026-08-06** — `ci`: stays ✅ complete. The `parser-tests` job now runs **213** cases: the attack-properties emitter suite gains five covering the special-effect name map (known bytes, the `$FF` sentinel, the unmapped-byte parse error, corpus shape, named rendering).
+
 - **2026-08-05** — `build-system`: scope grown (stays ✅ complete). Seventh target `ostinato-vi-item-tests` covers the item data family (item properties, shop specifications, colosseum wagers); C++ baseline now **33/35/2** per platform — the second skip is the pending Japanese item-properties variant, visible on every platform.
 - **2026-08-05** — `ci`: scope grown (stays ✅ complete). The `parser-tests` job now runs **208** cases: three new emitter suites (item properties, shop specifications, colosseum wagers) join the eight.
 - **2026-08-05** — `ci`: scope grown (stays ✅ complete). The Unix build jobs move into the workspace's normal `build/` directory (checkouts keep `clean: false` so the persisted tree survives the checkout action's default clean) and stage the entire build directory to `/tmp/ostinato-vi-build` after every build for manual testing; Windows keeps its fixed-root build directory and needs no staging. First run per Unix runner after the move is one expected cold build.
