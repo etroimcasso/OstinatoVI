@@ -64,7 +64,11 @@ add_library(ostinato-vi-lib STATIC
     src/data/colosseum_wagers.cpp
     src/data/item_properties.cpp
     src/data/metamorph.cpp
+    src/data/monster_align.cpp
+    src/data/monster_attacks.cpp
+    src/data/monster_items.cpp
     src/data/monster_properties.cpp
+    src/data/monster_special_anim.cpp
     src/data/rng_table.cpp
     src/data/shop_properties.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -173,12 +177,14 @@ target_include_directories(ostinato-vi-item-tests PRIVATE ${CMAKE_CURRENT_SOURCE
 target_link_libraries(ostinato-vi-item-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-item-tests)
 
-# Monster-data tests: monster properties (monster_prop) and the metamorph
-# pack + rate tables, each full-corpus tested against its generated fixture.
-# Own binary so the smoke, enum, data-table, spell/esper, and item baselines
-# stay frozen.
+# Monster-data tests: monster properties (monster_prop), the metamorph
+# pack + rate tables, and the six satellite tables (steal/drop items, rage,
+# sketch, control, special-attack animation, vertical alignment), each
+# full-corpus tested against its generated fixture. Own binary so the smoke,
+# enum, data-table, spell/esper, and item baselines stay frozen.
 add_executable(ostinato-vi-monster-tests
-    tests/test_monster_properties.cpp)
+    tests/test_monster_properties.cpp
+    tests/test_monster_tables.cpp)
 target_compile_features(ostinato-vi-monster-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-monster-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-monster-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

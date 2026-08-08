@@ -250,10 +250,24 @@ rows.
 
 **384 records × 1 byte** (ROM `CF/37C0`), the monster's special-attack
 animation index (`battle-ram.txt:961`). Loaded per monster to `$3C81`
-(`battle_main.asm:7420`, also read at `:1004`), then handed to the battle
-graphics code as the animation index (`battle_main.asm:8193-8194` → `$B7`).
-The byte value is the observable — the port stores it raw (hex), typed
-access only.
+(`battle_main.asm:7420`; the rage path copies it too, `:1004-1005`) and
+copied to `$B7` when a monster special attack fires
+(`battle_main.asm:8193-8194`). The battle graphics code consumes it as the
+**row index into the 35-row Monster Attack Animation Data table** (ROM
+`EC/E6E8`, 8-byte records — `rom-map.txt:260`): `InitWeaponAnim` multiplies
+it by 8 and loads that row (`btlgfx_main.asm:23661-23677`).
+
+The rows are a symbol set and surface as the `MonsterAttackAnimation` enum
+(`include/ostinato/monster_attack_animation.h`). The upstream has no
+symbolic names for the rows; the enumerators derive mechanically from the
+corpus — each row's name is the **dominant special-attack display name**
+among the monsters whose special uses it (the Monster Special Attack Names
+text table, ROM `CFD0D0` / `rom-map.txt:127`), ties broken by the earliest
+monster index, unused rows (29 and 34) named `UNUSED_n`. The emitter
+recomputes the derivation from `monster_special_name_en.json` on every run
+and hard-errors if the enum's mirror drifts, so the naming is corpus-pinned,
+not editorial. A 1-of-N dominant name is representative of its row, not
+authoritative — the per-enumerator comments carry the derivation counts.
 
 ## Vertical alignment (`monster_align`)
 
