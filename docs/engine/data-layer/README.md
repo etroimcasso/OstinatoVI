@@ -52,3 +52,5 @@ Two include roots serve the data layer, both on the public include path:
 | [item-properties.md](item-properties.md) | The 256-record item-properties table — item, weapon, armor, and relic stats in one 30-byte record: equip permissions, effect bits, stat boosts, spell casts, prices. |
 | [shop-properties.md](shop-properties.md) | The 128 shop records — shop type, price adjustment, and eight item slots each. |
 | [colosseum-wagers.md](colosseum-wagers.md) | The colosseum wager table — for each wagerable item, the monster fought and the prize won. |
+| [monster-properties.md](monster-properties.md) | The 384-record monster-properties table — stats, flags, immunities, elements, the packed metamorph and special-attack bytes — plus the metamorph item packs and odds thresholds they key. |
+| [monster-tables.md](monster-tables.md) | The six monster satellite tables — steal/drop items, Rage/Sketch/Control attack slots, the special-attack animation each monster plays, and colosseum vertical alignment. |
