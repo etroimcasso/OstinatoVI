@@ -55,3 +55,4 @@ Two include roots serve the data layer, both on the public include path:
 | [monster-properties.md](monster-properties.md) | The 384-record monster-properties table — stats, flags, immunities, elements, the packed metamorph and special-attack bytes — plus the metamorph item packs and odds thresholds they key. |
 | [monster-tables.md](monster-tables.md) | The six monster satellite tables — steal/drop items, Rage/Sketch/Control attack slots, the special-attack animation each monster plays, and colosseum vertical alignment. |
 | [formations.md](formations.md) | The 576 battle formations (monsters + positions), their aux records (entrance, battle types, flags, music), and the 16 conditional-battle substitutions. |
+| [encounters.md](encounters.md) | The field-encounter tables — random/event battle groups, the world/map group-index and rate tables, and the inline background/rate tables that decide which battle the player runs into and how often. |
