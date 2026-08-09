@@ -15,6 +15,7 @@ FF6 disassembly uses for constant/enumeration definitions:
   * line/inline comments (';')
   * conditional directives             .if / .ifdef / .ifndef / .else / .endif
   * macro definitions                  .macro ... .endmacro   (skipped wholesale)
+  * named scopes                       .scope ... .endscope   (skipped wholesale)
 
 It deliberately does NOT implement a general expression evaluator: every value
 in an *emitted* enum is a single term (an integer literal or a symbol, possibly
@@ -245,6 +246,7 @@ def parse_ca65_constants(path, skip_body_enums=None):
     parsed = ParsedConstants()
     cond_stack = []            # list[_Conditional]
     macro_depth = 0            # inside .macro ... .endmacro
+    scope_depth = 0            # inside .scope ... .endscope
     current_enum = None        # EnumDef while inside .enum ... .endenum
     current_enum_skip = False  # body of current_enum is being skipped
     enum_counter = 0           # ca65 auto-increment counter within current enum
@@ -270,6 +272,20 @@ def parse_ca65_constants(path, skip_body_enums=None):
             macro_depth -= 1
             continue
         if macro_depth > 0:
+            continue
+
+        # --- named scopes: skip wholesale (their bodies are ARRAY_LENGTH-style
+        # helper assignments the port does not emit; e.g. battle_bg.inc's
+        # `.scope BattleBG ... ARRAY_LENGTH = BATTLE_BG::TENTACLES + 1`). ---
+        if low.startswith(".scope"):
+            scope_depth += 1
+            continue
+        if low.startswith(".endscope"):
+            if scope_depth == 0:
+                raise ParseError(path, lineno, ".endscope without .scope")
+            scope_depth -= 1
+            continue
+        if scope_depth > 0:
             continue
 
         # --- conditional directives ---
@@ -360,6 +376,9 @@ def parse_ca65_constants(path, skip_body_enums=None):
     if macro_depth:
         raise ParseError(path, len(raw_lines),
                          "unterminated .macro (missing .endmacro)")
+    if scope_depth:
+        raise ParseError(path, len(raw_lines),
+                         "unterminated .scope (missing .endscope)")
     if current_enum is not None:
         raise ParseError(path, len(raw_lines),
                          "unterminated .enum (missing .endenum)")

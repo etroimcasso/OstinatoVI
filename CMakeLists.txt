@@ -62,6 +62,8 @@ add_library(ostinato-vi-lib STATIC
     src/data/dance_properties.cpp
     src/data/esper_properties.cpp
     src/data/colosseum_wagers.cpp
+    src/data/encounters.cpp
+    src/data/formations.cpp
     src/data/item_properties.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
@@ -190,3 +192,29 @@ target_compile_options(ostinato-vi-monster-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-monster-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-monster-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-monster-tests)
+
+# Formation-data tests: battle_monsters (formations), battle_prop (aux), and
+# cond_battle (conditional substitutions) — each full-corpus tested against
+# its generated fixture, plus the builder/accessor round-trips. Own binary so
+# the smoke, enum, data-table, spell/esper, item, and monster baselines stay
+# frozen.
+add_executable(ostinato-vi-formation-tests
+    tests/test_formation_data.cpp)
+target_compile_features(ostinato-vi-formation-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-formation-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-formation-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-formation-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-formation-tests)
+
+# Encounter-data tests: the field-encounter family — rand/event battle groups,
+# the world/sub group-index and rate tables, and the five inline
+# field/battle.asm tables — each full-corpus tested against its generated
+# fixture, plus the sector/map accessors. Own binary so the smoke, enum,
+# data-table, spell/esper, item, monster, and formation baselines stay frozen.
+add_executable(ostinato-vi-encounter-tests
+    tests/test_encounter_data.cpp)
+target_compile_features(ostinato-vi-encounter-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-encounter-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-encounter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-encounter-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-encounter-tests)
