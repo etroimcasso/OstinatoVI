@@ -59,6 +59,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
     src/data/battle_magic_points.cpp
+    src/data/battle_tables.cpp
     src/data/character.cpp
     src/data/dance_properties.cpp
     src/data/esper_properties.cpp
@@ -66,6 +67,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/encounters.cpp
     src/data/formations.cpp
     src/data/item_properties.cpp
+    src/data/level_up.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
     src/data/monster_attacks.cpp
@@ -232,3 +234,17 @@ target_compile_options(ostinato-vi-command-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-command-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-command-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-command-tests)
+
+# The battle formula-support and mapping tables (probability ladders, equipment
+# evade boosts, the final-battle chain, dance/background pairing, AI script
+# command sizes, throw/slot outcomes, spell order) plus the character level
+# progression cluster — each full-corpus tested against its generated fixture,
+# including both version curves of the MP table. Own binary so the other
+# baselines stay frozen.
+add_executable(ostinato-vi-formula-tests
+    tests/test_battle_formula_tables.cpp)
+target_compile_features(ostinato-vi-formula-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-formula-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-formula-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-formula-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-formula-tests)
