@@ -18,8 +18,8 @@ original-src/include/const.inc, and emits:
   * src/data/generated/metamorph_prop_data.inc — one designated-initializer
     MetamorphPackEntry row per pack (32 packs), items as ItemId enumerators.
   * src/data/generated/metamorph_rate_data.inc — one MetamorphRateEntry row
-    per probability byte (8 rows, raw hex values — the byte is the
-    observable).
+    per probability (8 rows; the value is the threshold a random byte is
+    compared against, a magnitude on a 0-255 scale).
   * tests/fixtures/metamorph_expected.h — both tables as raw bytes (the
     ground-truth byte contract) for full-corpus tests.
 
@@ -230,12 +230,13 @@ def render_rate_inc(rates):
              "// identity is its .id field — the MetamorphRate enumerator\n"
              "// (ostinato/metamorph_info.h names the documented odds\n"
              "// ladder); a compile-time assert in src/data/metamorph.h\n"
-             "// verifies id == position. .value is the raw ROM probability\n"
-             "// byte (hex; the byte value IS the observable — the effect\n"
-             "// passes when a random byte compares below it). Included\n"
-             "// inside the kMetamorphRates array in src/data/metamorph.h.\n\n"]
+             "// verifies id == position. .value is the probability the effect\n"
+             "// is compared against: metamorph succeeds when a random byte\n"
+             "// falls below it, so the value is a magnitude on a 0-255 scale.\n"
+             "// Included inside the kMetamorphRates array in\n"
+             "// src/data/metamorph.h.\n\n"]
     for index, value in enumerate(rates):
-        lines.append("    {{ .id = MetamorphRate::{}, .value = 0x{:02X} }},\n"
+        lines.append("    {{ .id = MetamorphRate::{}, .value = {} }},\n"
                      .format(_METAMORPH_RATE_NAMES[index], value))
     return "".join(lines)
 

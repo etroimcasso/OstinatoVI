@@ -37,8 +37,8 @@ struct MetamorphPackEntry {
 };
 
 // One rate-table entry: its identity as the MetamorphRate enumerator (the
-// documented odds ladder — metamorph_info.h) and the raw ROM threshold byte
-// stored there.
+// documented odds ladder — metamorph_info.h) and the threshold a random byte
+// is compared against, a magnitude on a 0-255 scale.
 struct MetamorphRateEntry {
     MetamorphRate id;
     std::uint8_t value;

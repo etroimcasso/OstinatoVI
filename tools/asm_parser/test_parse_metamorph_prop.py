@@ -118,14 +118,17 @@ class ReadPacksTests(unittest.TestCase):
 
 class RendererFormattingTests(unittest.TestCase):
 
-    def test_rate_rows_render_enumerator_id_and_hex_value(self):
+    def test_rate_rows_render_enumerator_id_and_decimal_value(self):
+        # A rate is the threshold a random byte is compared against — a
+        # magnitude, so it renders decimal rather than as a raw hex byte.
         inc = pmm.render_rate_inc([0xFF, 0xC0, 0x80, 0x40, 0x20, 0x10, 0x08,
                                    0x00])
         self.assertIn(
-            "    { .id = MetamorphRate::ODDS_255_256, .value = 0xFF },\n",
-            inc)
-        self.assertIn("    { .id = MetamorphRate::NEVER, .value = 0x00 },\n",
+            "    { .id = MetamorphRate::ODDS_255_256, .value = 255 },\n", inc)
+        self.assertIn("    { .id = MetamorphRate::ODDS_1_2, .value = 128 },\n",
                       inc)
+        self.assertIn("    { .id = MetamorphRate::NEVER, .value = 0 },\n", inc)
+        self.assertNotIn("0x", inc)
 
     def test_pack_row_renders_item_enumerators(self):
         class FakePack(object):

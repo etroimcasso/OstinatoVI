@@ -105,8 +105,9 @@ Thirty-two 4-item packs plus eight threshold bytes, both keyed off a
 monster's `metamorph` field exactly as the game keys them: the effect
 succeeds when a random byte compares below the threshold, then hands over
 one of the pack's four items — picking which of the four is the metamorph
-effect's job, not the table's. The thresholds are the raw ROM ladder
-(`0xFF` for `ODDS_255_256` down to `0x00` for `NEVER`). Packs 26-31 are
+effect's job, not the table's. A threshold is a magnitude on a 0-255 scale,
+so the ladder runs from 255 for `ODDS_255_256` down to 0 for `NEVER`.
+Packs 26-31 are
 unused by every shipped monster; their bytes resolve like any others.
 
 ## Backing data / where to change
