@@ -146,6 +146,42 @@ accessor masks its field back out. Table rows use the component form
 (`{ RunFactor::NORMAL, LevelMod::NORMAL, false }`); the byte-in constructor exists
 for code that round-trips a raw ROM byte.
 
+## Battle-table wrappers — one byte each
+
+Four small wrappers carry single bytes the [battle tables](battle-tables.md) and
+[level progression](level-up.md) key on. Each is `sizeof == 1`, constructed
+explicitly from its byte, and exposes only reads that are pinned to what the
+engine does with it.
+
+```cpp
+#include "ostinato/random_threshold.h"        // RandomThreshold
+#include "ostinato/battle_slot_mask.h"        // BattleSlotMask
+#include "ostinato/item_type_battle_flags.h"  // ItemTypeBattleFlags
+#include "ostinato/ability_learned_set.h"     // AbilityLearnedSet
+
+struct RandomThreshold { std::uint8_t bits; constexpr std::uint8_t value() const; };
+struct BattleSlotMask  { std::uint8_t bits; constexpr bool has(std::uint8_t slot) const; };
+struct ItemTypeBattleFlags {
+    std::uint8_t bits;
+    constexpr std::uint8_t mergedBits() const;          // bits << 1
+    constexpr bool         skipsEquippableCheck() const; // bit 7
+};
+struct AbilityLearnedSet {
+    std::uint8_t bits;
+    constexpr bool has(std::uint8_t slot) const;
+    constexpr int  count() const;
+};
+```
+
+- `RandomThreshold` — one rung of a probability ladder. A roll passes the rung
+  when `roll >= value()`, so an outcome's share is the gap to the next rung.
+- `BattleSlotMask` — a set of battle slots, one bit per slot: `$0F` is every
+  character, `$3F` every monster.
+- `ItemTypeBattleFlags` — the battle-usability bits an item's type contributes.
+- `AbilityLearnedSet` — which swdtechs or blitzes a character has learned, in
+  teaching order. Abilities are learned in order, so every reachable value is a
+  run of low bits.
+
 ## What's tested
 
 `tests/test_enums.cpp` exercises `ElementSet` and `StatusSet` bit mapping
