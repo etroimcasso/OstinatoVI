@@ -17,16 +17,17 @@
 // identity is its .id field — the MetamorphRate enumerator
 // (ostinato/metamorph_info.h names the documented odds
 // ladder); a compile-time assert in src/data/metamorph.h
-// verifies id == position. .value is the raw ROM probability
-// byte (hex; the byte value IS the observable — the effect
-// passes when a random byte compares below it). Included
-// inside the kMetamorphRates array in src/data/metamorph.h.
+// verifies id == position. .value is the probability the effect
+// is compared against: metamorph succeeds when a random byte
+// falls below it, so the value is a magnitude on a 0-255 scale.
+// Included inside the kMetamorphRates array in
+// src/data/metamorph.h.
 
-    { .id = MetamorphRate::ODDS_255_256, .value = 0xFF },
-    { .id = MetamorphRate::ODDS_3_4, .value = 0xC0 },
-    { .id = MetamorphRate::ODDS_1_2, .value = 0x80 },
-    { .id = MetamorphRate::ODDS_1_4, .value = 0x40 },
-    { .id = MetamorphRate::ODDS_1_8, .value = 0x20 },
-    { .id = MetamorphRate::ODDS_1_16, .value = 0x10 },
-    { .id = MetamorphRate::ODDS_1_32, .value = 0x08 },
-    { .id = MetamorphRate::NEVER, .value = 0x00 },
+    { .id = MetamorphRate::ODDS_255_256, .value = 255 },
+    { .id = MetamorphRate::ODDS_3_4, .value = 192 },
+    { .id = MetamorphRate::ODDS_1_2, .value = 128 },
+    { .id = MetamorphRate::ODDS_1_4, .value = 64 },
+    { .id = MetamorphRate::ODDS_1_8, .value = 32 },
+    { .id = MetamorphRate::ODDS_1_16, .value = 16 },
+    { .id = MetamorphRate::ODDS_1_32, .value = 8 },
+    { .id = MetamorphRate::NEVER, .value = 0 },
