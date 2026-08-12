@@ -57,6 +57,7 @@ endif()
 add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp
     src/data/attack_properties.cpp
+    src/data/battle_commands.cpp
     src/data/battle_magic_points.cpp
     src/data/character.cpp
     src/data/dance_properties.cpp
@@ -218,3 +219,16 @@ target_compile_options(ostinato-vi-encounter-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-encounter-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-encounter-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-encounter-tests)
+
+# Battle-command tests: BattleCmdProp + the command-domain satellite tables
+# (membership masks, command-id lists, per-command delay/targeting-init
+# mappings, and the relic/attack pair tables) — each full-corpus tested against
+# its generated fixture, plus the command accessors and the GetBitPtr-order
+# membership checks. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-command-tests
+    tests/test_battle_commands.cpp)
+target_compile_features(ostinato-vi-command-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-command-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-command-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-command-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-command-tests)
