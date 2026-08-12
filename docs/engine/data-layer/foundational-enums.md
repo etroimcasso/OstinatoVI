@@ -27,6 +27,7 @@
 #include "ostinato/level_mod.h"         // LevelMod
 #include "ostinato/event_dir.h"         // EventDir
 #include "ostinato/event_obj_id.h"      // EventObjId
+#include "ostinato/ai_script_command.h" // AiScriptCommand
 ```
 
 Every game-domain identity is an `enum class` in namespace `ostinato`, each
@@ -161,6 +162,16 @@ by `SELF`), the two-bit initial-cursor sub-field `INIT_SINGLE/ALL/GROUP/HALF`
   subtract `EsperId::RAMUH` ([espers.md](espers.md)).
 - **`EsperBonus`** — the 17 level-up bonuses (`HP_10=0x00 .. MAGPWR_2=0x10`) plus
   `NONE=0xFF` for espers granting no bonus.
+
+## `AiScriptCommand` — the monster AI script vocabulary
+
+The 16 commands a monster's AI script is written in, `USE_ATTACK=0xF0 ..
+END_OF_SCRIPT=0xFF`. A script is a byte stream in which any value below
+`USE_ATTACK` is an attack to use, and these values introduce everything else —
+targeting, conditionals, variable manipulation, animations, and the two
+terminators (`END_IF`, `END_OF_SCRIPT`). Each command is followed by a fixed
+number of argument bytes; `kAiCommandSizes` in [battle-tables.md](battle-tables.md)
+gives the length of each.
 
 ## `RunFactor` / `LevelMod` — trait sub-fields, values in place
 
