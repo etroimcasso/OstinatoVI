@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""Emit the monster sprite-overlap (y-shift) table from original-src
+monster_overlap.asm.
+
+Port-time tooling (NOT a build/CI dependency). monster_overlap.asm (ROM
+cf/3600; label MonsterOverlap) is a hand-written ca65 source table, one
+`.byte` per monster with the MONSTER name in a trailing comment. The value is
+a "y shift for sprite priority" magnitude (btlgfx_main.asm:4663 is the sole
+consumer); 14 of the 384 rows are non-zero (magnitudes 1-72, decimal). This
+script reads the source table straight off disk and emits:
+
+  * src/data/generated/monster_overlap_data.inc — one designated-initializer
+    MonsterOverlapEntry row per monster (384 rows), identity as the MonsterId
+    enumerator field and the value as a decimal y-shift magnitude; the
+    kMonsterOverlaps array #includes it.
+  * tests/fixtures/monster_overlap_expected.h — the same 384 values with
+    decimal identity (the ground-truth byte contract) for a full-corpus
+    equivalence test.
+
+Identity names resolve against original-src/include/const.inc (MONSTER) and are
+emitted positionally (the monster_align precedent). The per-row comments in
+monster_overlap.asm are the upstream author's colloquial labels and do not all
+match the enum names (row 239 is `1ST_CLASS` where the enum is `FIRST_CLASS`),
+so they are not asserted against the enum.
+
+Structural guarantees, hard-errored at emit time:
+  * exactly 384 `.byte` rows follow the MonsterOverlap label (any other count
+    is the wrong artifact);
+  * every record index has a MONSTER name, and the MONSTER space is exactly
+    384 ids.
+
+Python 3 standard library only; targets 3.9+.
+
+Usage:
+    parse_monster_overlap.py --source-root PATH --inc-out FILE --fixture-out FILE
+    (Pass --check-only to validate + assert without writing files.)
+"""
+
+from __future__ import annotations
+
+import argparse
+import os
+import sys
+
+import common
+import parse_const_enums as pce
+from common import ParseError
+
+RECORD_COUNT = 384
+_LABEL = "MonsterOverlap:"
+
+
+class Symbols(object):
+    """The const.inc MONSTER enum the identity names resolve against."""
+
+    def __init__(self, const_inc):
+        self.parsed = common.parse_ca65_constants(const_inc,
+                                                  skip_body_enums=pce.SKIP)
+        if self.parsed.enum("MONSTER") is None:
+            raise ParseError(const_inc, 0,
+                             "expected enum 'MONSTER' not found")
+        # First declaration wins (trailing aliases never shadow the primary).
+        self.monster_names = {}
+        for m in self.parsed.enum("MONSTER").members:
+            self.monster_names.setdefault(m.value, m.name)
+        if max(self.monster_names) != RECORD_COUNT - 1:
+            raise ParseError(const_inc, 0,
+                             "MONSTER max id {} != {} (index-space mismatch)"
+                             .format(max(self.monster_names),
+                                     RECORD_COUNT - 1))
+
+
+def read_rows(asm_path, symbols):
+    """Parse the `.byte value ; NAME` rows after the MonsterOverlap label into a
+    list of y-shift values (in MONSTER index order). Identity is emitted
+    positionally from the MONSTER enum, matching the monster_align precedent;
+    every position must have a MONSTER name. The trailing comments are the
+    upstream author's colloquial labels (e.g. row 239 is `1ST_CLASS` where the
+    enum is `FIRST_CLASS`), so they are not asserted equal to the enum name —
+    the count + positional emission + the compile-time id==position assert pin
+    the alignment."""
+    with open(asm_path, "r", encoding="utf-8") as fh:
+        lines = fh.readlines()
+
+    started = False
+    values = []
+    for idx, raw in enumerate(lines):
+        code, _comment = common.strip_comment(raw)
+        s = code.strip()
+        if not started:
+            if s == _LABEL:
+                started = True
+            continue
+        if not s:
+            continue
+        if not s.startswith(".byte"):
+            break  # first non-.byte line ends the table
+        arg = s[len(".byte"):].strip()
+        value = common.parse_int_literal(arg)
+        if value is None or not 0 <= value <= 0xFF:
+            raise ParseError(asm_path, idx + 1,
+                             "malformed .byte value {!r}".format(arg))
+        index = len(values)
+        if symbols.monster_names.get(index) is None:
+            raise ParseError(asm_path, idx + 1,
+                             "row {} has no MONSTER name".format(index))
+        values.append(value)
+
+    if not started:
+        raise ParseError(asm_path, 0,
+                         "MonsterOverlap label not found (wrong artifact)")
+    if len(values) != RECORD_COUNT:
+        raise ParseError(asm_path, 0,
+                         "expected {} rows, found {}"
+                         .format(RECORD_COUNT, len(values)))
+    return values
+
+
+# --- rendering ---------------------------------------------------------------
+
+_HEADER_COMMON = (
+    "// AUTO-GENERATED by tools/asm_parser/parse_monster_overlap.py\n"
+    "// Source: src/btlgfx/monster_overlap.asm (MonsterOverlap, ROM cf/3600,\n"
+    "//         384 bytes — one sprite-priority y shift per monster; sole\n"
+    "//         consumer btlgfx_main.asm:4663)\n"
+    "// Source: include/const.inc (MONSTER values)\n"
+    "// (original-src pinned at 1ea47b5)\n"
+    "// DO NOT EDIT BY HAND — regenerate via:\n"
+    "//   python3 tools/asm_parser/parse_monster_overlap.py \\\n"
+    "//       --source-root  original-src \\\n"
+    "//       --inc-out      src/data/generated/monster_overlap_data.inc \\\n"
+    "//       --fixture-out  tests/fixtures/monster_overlap_expected.h\n"
+    "\n"
+)
+
+
+def render_inc(values, symbols):
+    lines = [_HEADER_COMMON,
+             "// MonsterOverlapEntry rows in MONSTER index order ($000..$17F),\n"
+             "// one row per monster, #included inside the kMonsterOverlaps\n"
+             "// array in src/data/attack_animations.cpp. Each row's identity\n"
+             "// is its .monster field — the MonsterId enumerator; a\n"
+             "// compile-time assert verifies it == position. .yShift is the\n"
+             "// decimal sprite-priority y-shift magnitude.\n\n"]
+    name_width = max(len(symbols.monster_names[i]) for i in range(len(values)))
+    for index, value in enumerate(values):
+        name = symbols.monster_names[index]
+        lines.append("    {{ .monster = MonsterId::{},{} .yShift = {} }},\n"
+                     .format(name, " " * (name_width - len(name)), value))
+    return "".join(lines)
+
+
+def render_fixture(values):
+    lines = [_HEADER_COMMON,
+             "// Test fixture for tests/test_attack_animations.cpp — the\n"
+             "// ground-truth copy of the table (.id decimal identity, .yShift\n"
+             "// decimal magnitude). The full-corpus test asserts\n"
+             "// kMonsterOverlaps matches this array entry by entry, so a hand\n"
+             "// edit or re-emit drift in either file fails loudly.\n"
+             "\n"
+             "#pragma once\n"
+             "\n"
+             "#include <array>\n"
+             "#include <cstdint>\n"
+             "\n"
+             "namespace ostinato::test {\n"
+             "\n"
+             "// Mirrors ostinato::MonsterOverlapEntry\n"
+             "// (src/data/attack_animations.h) without depending on it.\n"
+             "struct ExpectedMonsterOverlapEntry {\n"
+             "    std::uint16_t id;\n"
+             "    std::uint8_t yShift;\n"
+             "};\n"
+             "\n",
+             "inline constexpr std::array<ExpectedMonsterOverlapEntry, {}>\n"
+             "kExpectedMonsterOverlapEntries = {{{{  // ROM MonsterOverlap\n"
+             .format(len(values))]
+    for index, value in enumerate(values):
+        lines.append("    {{ .id = {:>3}, .yShift = {} }},\n"
+                     .format(index, value))
+    lines.append("}};\n\n}  // namespace ostinato::test\n")
+    return "".join(lines)
+
+
+# --- driver ------------------------------------------------------------------
+
+def run(asm_path, const_inc, inc_out, fixture_out, check_only=False):
+    symbols = Symbols(const_inc)
+    values = read_rows(asm_path, symbols)
+
+    if check_only:
+        nonzero = sum(1 for v in values if v)
+        print("OK: {} rows; {} non-zero y-shifts; all comments match MONSTER."
+              .format(len(values), nonzero))
+        return 0
+
+    _write(inc_out, render_inc(values, symbols))
+    _write(fixture_out, render_fixture(values))
+    print("Emitted {} rows -> {}".format(len(values), inc_out))
+    print("Emitted fixture -> {}".format(fixture_out))
+    return 0
+
+
+def _write(path, text):
+    directory = os.path.dirname(path)
+    if directory and not os.path.isdir(directory):
+        os.makedirs(directory)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--source-root",
+                    help="disassembly root (monster_overlap.asm + const.inc "
+                         "resolved under it)")
+    ap.add_argument("--overlap-asm", help="path to monster_overlap.asm")
+    ap.add_argument("--const-inc", help="path to const.inc")
+    ap.add_argument("--inc-out",
+                    default="src/data/generated/monster_overlap_data.inc",
+                    help="output path for the MonsterOverlapEntry rows")
+    ap.add_argument("--fixture-out",
+                    default="tests/fixtures/monster_overlap_expected.h",
+                    help="output path for the value fixture")
+    ap.add_argument("--check-only", action="store_true",
+                    help="validate + assert without writing files")
+    args = ap.parse_args(argv)
+
+    asm_path = args.overlap_asm
+    const_inc = args.const_inc
+    if args.source_root:
+        if not asm_path:
+            asm_path = os.path.join(args.source_root, "src", "btlgfx",
+                                    "monster_overlap.asm")
+        if not const_inc:
+            const_inc = os.path.join(args.source_root, "include", "const.inc")
+    if not asm_path or not const_inc:
+        ap.error("provide --source-root, or both --overlap-asm and --const-inc")
+    try:
+        return run(asm_path, const_inc, args.inc_out, args.fixture_out,
+                   check_only=args.check_only)
+    except ParseError as exc:
+        sys.stderr.write("PARSE ERROR: {}\n".format(exc))
+        return 2
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
