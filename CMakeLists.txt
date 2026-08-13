@@ -56,6 +56,7 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp
+    src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
     src/data/battle_magic_points.cpp
@@ -248,3 +249,16 @@ target_compile_options(ostinato-vi-formula-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-formula-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-formula-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-formula-tests)
+
+# Attack/animation-data tests: the btlgfx data layer — AttackAnimProp,
+# AttackGfxProp, the shared weapon/monster attack-animation record,
+# ItemJumpThrowAnim, ItemAnimPtrs, and MonsterOverlap — each full-corpus tested
+# against its generated fixture, plus the typed-wrapper round-trips. Own binary
+# so the other baselines stay frozen.
+add_executable(ostinato-vi-anim-tests
+    tests/test_attack_animations.cpp)
+target_compile_features(ostinato-vi-anim-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-anim-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-anim-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-anim-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-anim-tests)
