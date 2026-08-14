@@ -11,6 +11,12 @@
 assets/*/default/*
 !assets/*/default/.gitkeep
 
+# Text corpus: extracted ROM-derived text is copyrighted expression and is
+# never committed. No pack model here — the game reads raw .dat files from a
+# language directory directly under assets/text/. Structure kept via .gitkeep.
+assets/text/*/*
+!assets/text/*/.gitkeep
+
 # Build output
 build/
 
