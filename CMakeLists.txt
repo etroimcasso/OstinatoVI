@@ -76,7 +76,11 @@ add_library(ostinato-vi-lib STATIC
     src/data/monster_properties.cpp
     src/data/monster_special_anim.cpp
     src/data/rng_table.cpp
-    src/data/shop_properties.cpp)
+    src/data/shop_properties.cpp
+    src/data/text_codec.cpp
+    src/data/text_corpus.cpp
+    src/data/text_metadata.cpp
+    src/data/text_offsets.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -262,3 +266,21 @@ target_compile_options(ostinato-vi-anim-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-anim-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-anim-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-anim-tests)
+
+# Text-corpus tests: the TextClass structural metadata table + the TextCorpus
+# runtime loader (the filesystem seam, the seam-free buffer path, the
+# fixed-length name accessors round-tripped against the real rip bytes, and DTE
+# expansion). The real-corpus tests locate the rip via FF6_TEXT_DIR, defaulting
+# to the repo-relative rip path baked in below; absent corpus -> visible skip.
+# Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-text-tests
+    tests/test_text_corpus.cpp
+    tests/test_text_offsets.cpp
+    tests/test_text_codec.cpp)
+target_compile_features(ostinato-vi-text-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-text-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-text-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_compile_definitions(ostinato-vi-text-tests PRIVATE
+    FF6_TEXT_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/original-src/src/text")
+target_link_libraries(ostinato-vi-text-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-text-tests)
