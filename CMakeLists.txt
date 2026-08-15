@@ -77,8 +77,10 @@ add_library(ostinato-vi-lib STATIC
     src/data/monster_special_anim.cpp
     src/data/rng_table.cpp
     src/data/shop_properties.cpp
+    src/data/text_codec.cpp
     src/data/text_corpus.cpp
-    src/data/text_metadata.cpp)
+    src/data/text_metadata.cpp
+    src/data/text_offsets.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -272,7 +274,9 @@ gtest_discover_tests(ostinato-vi-anim-tests)
 # to the repo-relative rip path baked in below; absent corpus -> visible skip.
 # Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-text-tests
-    tests/test_text_corpus.cpp)
+    tests/test_text_corpus.cpp
+    tests/test_text_offsets.cpp
+    tests/test_text_codec.cpp)
 target_compile_features(ostinato-vi-text-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-text-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-text-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

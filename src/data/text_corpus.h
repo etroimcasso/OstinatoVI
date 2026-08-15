@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "data/text_metadata.h"
+#include "ostinato/attack_id.h"
 #include "ostinato/dance_id.h"
 #include "ostinato/esper_bonus.h"
 #include "ostinato/esper_id.h"
@@ -110,6 +111,31 @@ public:
     std::span<const std::uint8_t> itemTypeName(std::size_t index) const;
     std::span<const std::uint8_t> rareItemName(std::size_t index) const;
 
+    // --- pointer-indexed variable-length record accessors --------------------
+    // Each returns the raw bytes of one variable-length record (the glyph +
+    // escape stream, UNDECODED — see the codec layer for tokenizing). The
+    // record is located by the class's offset table. Enum-keyed where the
+    // class maps cleanly onto one of the game's id spaces, decimal index
+    // otherwise (dialogue, battle dialogue, map titles, subset descriptions).
+
+    // Combined field dialogue: index 0..3083 over the concatenated dlg1+dlg2
+    // record space (dlg1's 1574 records then dlg2's 1510).
+    std::span<const std::uint8_t> dialogue(std::size_t index) const;
+
+    std::span<const std::uint8_t> attackMessage(AttackId id) const;
+    std::span<const std::uint8_t> itemDescription(ItemId id) const;
+
+    std::span<const std::uint8_t> battleDialogue(std::size_t index) const;
+    std::span<const std::uint8_t> monsterDialogue(std::size_t index) const;
+    std::span<const std::uint8_t> mapTitle(std::size_t index) const;
+    std::span<const std::uint8_t> magicDescription(std::size_t index) const;
+    std::span<const std::uint8_t> loreDescription(std::size_t index) const;
+    std::span<const std::uint8_t> blitzDescription(std::size_t index) const;
+    std::span<const std::uint8_t> bushidoDescription(std::size_t index) const;
+    std::span<const std::uint8_t> genjuAttackDescription(std::size_t index) const;
+    std::span<const std::uint8_t> genjuBonusDescription(std::size_t index) const;
+    std::span<const std::uint8_t> rareItemDescription(std::size_t index) const;
+
     // The DTE char table (for the dialogue codec). Empty/unloaded if the
     // corpus has no dte_tbl.
     DteTable dte() const;
@@ -120,6 +146,14 @@ private:
     // class is loaded, FIXED, and index < recordCount.
     std::span<const std::uint8_t> fixedRecord(TextClass klass,
                                               std::size_t index) const;
+
+    // The slicer for the self-contained POINTER classes (every pointer class
+    // except DLG1/DLG2). Returns record `index` as [offset[i], offset[i+1])
+    // in the class's own bytes (last record runs to end). PRECONDITION
+    // (asserted): the class is loaded, a self-contained POINTER class, and
+    // index < recordCount.
+    std::span<const std::uint8_t> pointerRecord(TextClass klass,
+                                                std::size_t index) const;
 
     std::array<std::vector<std::uint8_t>, kTextClassCount> buffers_{};
 };
