@@ -8,6 +8,8 @@
 #include <string>
 #include <utility>
 
+#include "data/text_offsets.h"
+
 namespace ostinato {
 
 namespace {
@@ -101,6 +103,49 @@ std::span<const std::uint8_t> TextCorpus::fixedRecord(TextClass klass,
     return std::span<const std::uint8_t>(buf).subspan(offset, meta.recordSize);
 }
 
+std::span<const std::uint8_t> TextCorpus::pointerRecord(TextClass klass,
+                                                        std::size_t index) const {
+    assert(textClassMetadata(klass).kind == TextClassKind::POINTER &&
+           "not a pointer class");
+    const std::vector<std::uint8_t>& buf =
+        buffers_[static_cast<std::size_t>(klass)];
+    assert(!buf.empty() && "text class not loaded");
+    const std::span<const std::uint32_t> offsets = pointerOffsets(klass);
+    assert(index < offsets.size() && "text record index out of range");
+    const std::size_t start = offsets[index];
+    // The last record runs to the end of the class's bytes; every other ends
+    // where the next begins.
+    const std::size_t end =
+        (index + 1 < offsets.size()) ? offsets[index + 1] : buf.size();
+    return std::span<const std::uint8_t>(buf).subspan(start, end - start);
+}
+
+std::span<const std::uint8_t> TextCorpus::dialogue(std::size_t index) const {
+    const std::span<const std::uint32_t> offsets = dialogueOffsets();
+    assert(index < offsets.size() && "dialogue index out of range");
+    const std::vector<std::uint8_t>& dlg1 =
+        buffers_[static_cast<std::size_t>(TextClass::DLG1)];
+    const std::vector<std::uint8_t>& dlg2 =
+        buffers_[static_cast<std::size_t>(TextClass::DLG2)];
+    assert(!dlg1.empty() && !dlg2.empty() && "dialogue banks not loaded");
+    // The combined offsets address a dlg1‖dlg2 concatenation; the split is
+    // dlg1's byte length. Integrity: the emitted table's first dlg2 offset
+    // must equal that length (both come from the same rip).
+    const std::size_t split = dlg1.size();
+    assert(offsets[textClassMetadata(TextClass::DLG1).recordCount] == split &&
+           "dialogue offset table split disagrees with dlg1 byte length");
+    const std::size_t start = offsets[index];
+    const std::size_t end =
+        (index + 1 < offsets.size()) ? offsets[index + 1] : split + dlg2.size();
+    if (start >= split) {
+        // A dlg2 record: shift into the dlg2 buffer.
+        return std::span<const std::uint8_t>(dlg2).subspan(start - split,
+                                                           end - start);
+    }
+    // A dlg1 record (the last one ends exactly at the split).
+    return std::span<const std::uint8_t>(dlg1).subspan(start, end - start);
+}
+
 DteTable TextCorpus::dte() const {
     return DteTable(rawBytes(TextClass::DTE_TABLE));
 }
@@ -156,6 +201,54 @@ std::span<const std::uint8_t> TextCorpus::itemTypeName(std::size_t index) const 
 }
 std::span<const std::uint8_t> TextCorpus::rareItemName(std::size_t index) const {
     return fixedRecord(TextClass::RARE_ITEM_NAME, index);
+}
+
+// Enum-keyed pointer-record accessors.
+std::span<const std::uint8_t> TextCorpus::attackMessage(AttackId id) const {
+    return pointerRecord(TextClass::ATTACK_MSG, static_cast<std::size_t>(id));
+}
+std::span<const std::uint8_t> TextCorpus::itemDescription(ItemId id) const {
+    return pointerRecord(TextClass::ITEM_DESC, static_cast<std::size_t>(id));
+}
+
+// Decimal-index pointer-record accessors.
+std::span<const std::uint8_t> TextCorpus::battleDialogue(std::size_t index) const {
+    return pointerRecord(TextClass::BATTLE_DLG, index);
+}
+std::span<const std::uint8_t> TextCorpus::monsterDialogue(
+    std::size_t index) const {
+    return pointerRecord(TextClass::MONSTER_DLG, index);
+}
+std::span<const std::uint8_t> TextCorpus::mapTitle(std::size_t index) const {
+    return pointerRecord(TextClass::MAP_TITLE, index);
+}
+std::span<const std::uint8_t> TextCorpus::magicDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::MAGIC_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::loreDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::LORE_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::blitzDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::BLITZ_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::bushidoDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::BUSHIDO_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::genjuAttackDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::GENJU_ATTACK_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::genjuBonusDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::GENJU_BONUS_DESC, index);
+}
+std::span<const std::uint8_t> TextCorpus::rareItemDescription(
+    std::size_t index) const {
+    return pointerRecord(TextClass::RARE_ITEM_DESC, index);
 }
 
 }  // namespace ostinato
