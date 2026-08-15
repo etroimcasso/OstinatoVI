@@ -69,6 +69,8 @@ add_library(ostinato-vi-lib STATIC
     src/data/formations.cpp
     src/data/item_properties.cpp
     src/data/level_up.cpp
+    src/data/map_animations.cpp
+    src/data/map_properties.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
     src/data/monster_attacks.cpp
@@ -284,3 +286,17 @@ target_compile_definitions(ostinato-vi-text-tests PRIVATE
     FF6_TEXT_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/original-src/src/text")
 target_link_libraries(ostinato-vi-text-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-text-tests)
+
+# Map-metadata tests: the 415-row MapProperties record + parallax + initial-NPC
+# switches (test_map_properties), and the palette / bg1-bg2 stream / bg3
+# animation tables (test_map_animations). Full-corpus memcmp against the
+# parser-emitted fixtures plus packed-group decode hand-traces. Own binary so the
+# other baselines stay frozen.
+add_executable(ostinato-vi-map-tests
+    tests/test_map_properties.cpp
+    tests/test_map_animations.cpp)
+target_compile_features(ostinato-vi-map-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-map-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-map-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-map-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-map-tests)
