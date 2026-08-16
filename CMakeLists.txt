@@ -71,6 +71,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/level_up.cpp
     src/data/map_animations.cpp
     src/data/map_properties.cpp
+    src/data/map_triggers.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
     src/data/monster_attacks.cpp
@@ -294,7 +295,8 @@ gtest_discover_tests(ostinato-vi-text-tests)
 # other baselines stay frozen.
 add_executable(ostinato-vi-map-tests
     tests/test_map_properties.cpp
-    tests/test_map_animations.cpp)
+    tests/test_map_animations.cpp
+    tests/test_map_triggers.cpp)
 target_compile_features(ostinato-vi-map-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-map-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-map-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
