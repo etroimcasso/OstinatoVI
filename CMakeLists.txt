@@ -66,6 +66,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/esper_properties.cpp
     src/data/colosseum_wagers.cpp
     src/data/encounters.cpp
+    src/data/event_triggers.cpp
     src/data/formations.cpp
     src/data/item_properties.cpp
     src/data/level_up.cpp
@@ -302,3 +303,16 @@ target_compile_options(ostinato-vi-map-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-map-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-map-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-map-tests)
+
+# Event-data tests: the event-trigger family — per-map event triggers, their
+# per-map offset table, and the per-map startup events — each full-corpus
+# memcmp'd against the ROM-assembled fixture, plus the EventScriptRef round-trip,
+# the per-map slice accessors, and the kEventReturnScript pin. Own binary so the
+# other baselines stay frozen.
+add_executable(ostinato-vi-event-tests
+    tests/test_event_triggers.cpp)
+target_compile_features(ostinato-vi-event-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-event-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-event-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-event-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-event-tests)
