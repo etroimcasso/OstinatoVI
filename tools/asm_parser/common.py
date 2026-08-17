@@ -29,6 +29,7 @@ without anyone noticing.
 
 from __future__ import annotations
 
+import os
 import re
 
 
@@ -459,3 +460,87 @@ def _assert_doc_value(comment, value, path, lineno, name):
                 path, lineno,
                 "member '{}' computed value {} disagrees with documented "
                 "value {} (counter/grammar bug)".format(name, value, doc))
+
+
+# --- ROM oracle (HiROM) ------------------------------------------------------
+#
+# A handful of data classes reference code by *label* (SavePoint, EventReturn,
+# ...) rather than by an address-named `_cXXXXXX` symbol. A label's assembled
+# value exists only in the linked ROM, so the parser reads it there — the
+# oracle-capture pattern (run/read the assembled binary, never guess the value).
+# The whole reassembled block is then compared to the ROM byte-for-byte, so the
+# mechanical `_cXXXXXX` arithmetic is verified against ground truth over the
+# entire corpus, not just spot-checked.
+
+# The event-script block base (EventScript, ca/0000). Every event reference is
+# stored as a 24-bit offset from this base (include/event_cmd.inc:101,
+# _event_addr(addr) = (addr - EventScript) & $ffffff).
+EVENT_SCRIPT_BASE = 0xCA0000
+
+
+def find_vanilla_rom(source_root=None):
+    """Locate the vanilla ROM used as the assembled-bytes oracle.
+
+    Resolution order:
+      1. FF6_VANILLA_ROM env var (the fleet-standard variable; every CI runner
+         exports it, and the dev machine can too).
+      2. A single ``*.smc`` under ``<source_root>/vanilla/`` (dev-machine layout).
+
+    Returns an absolute path, or None when no ROM is available. Callers that
+    need the ROM to emit correct bytes raise; e2e tests skip cleanly.
+    """
+    env = os.environ.get("FF6_VANILLA_ROM")
+    if env and os.path.isfile(env):
+        return os.path.abspath(env)
+    if source_root:
+        vdir = os.path.join(source_root, "vanilla")
+        if os.path.isdir(vdir):
+            smcs = sorted(f for f in os.listdir(vdir)
+                          if f.lower().endswith(".smc"))
+            if smcs:
+                return os.path.abspath(os.path.join(vdir, smcs[0]))
+    return None
+
+
+def load_vanilla_rom(source_root=None):
+    """Read the vanilla ROM bytes; raise ParseError if none is available."""
+    path = find_vanilla_rom(source_root)
+    if path is None:
+        raise ParseError(
+            "<vanilla-rom>", 0,
+            "vanilla ROM not found: set FF6_VANILLA_ROM or place a .smc under "
+            "<source-root>/vanilla/ (required for event-label resolution and the "
+            "full-block byte cross-check)")
+    with open(path, "rb") as fh:
+        return fh.read()
+
+
+def hirom_file_offset(snes_addr):
+    """Map a headerless HiROM SNES address (banks $C0-$FF) to a file offset.
+
+    HiROM banks $C0-$FF mirror the ROM linearly: file = (bank & $3f) << 16 |
+    low16. (e.g. $c4:0000 -> 0x040000, $d1:fa00 -> 0x11fa00.)
+    """
+    bank = (snes_addr >> 16) & 0xFF
+    if bank < 0xC0:
+        raise ValueError(
+            "not a HiROM ROM-region address: ${:06x}".format(snes_addr))
+    return ((bank & 0x3F) << 16) | (snes_addr & 0xFFFF)
+
+
+_RE_EVENT_ADDR_LABEL = re.compile(r"^_([0-9a-f]{6})$")
+
+
+def resolve_event_addr_label(label):
+    """Resolve an address-named event label to its 24-bit offset, else None.
+
+    An address-named label IS its SNES address: `_cae8f4` -> $cae8f4, stored as
+    (addr - EventScript) & $ffffff. Returns None for any other spelling (named
+    code labels such as SavePoint / EventReturn, which resolve from the ROM
+    oracle in the per-table parser).
+    """
+    m = _RE_EVENT_ADDR_LABEL.match(label)
+    if not m:
+        return None
+    addr = int(m.group(1), 16)
+    return (addr - EVENT_SCRIPT_BASE) & 0xFFFFFF
