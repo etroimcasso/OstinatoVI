@@ -76,8 +76,11 @@ The build defaults to a lean Release configuration (optimized, dead-stripped, sy
 
 ## License
 
-The port's licensing is being finalized. The upstream disassembly
-([everything8215/ff6](https://github.com/everything8215/ff6)) is GPL-3.0 and is used as a
-design/derivation reference; the Retro++ engine carries its own license. Final Fantasy VI is the
-property of Square Enix — this project ships no Square Enix-copyrighted content and requires the
-user's own ROM.
+This port's source is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0);
+see [LICENSE](LICENSE). Copyright © 2026 the OstinatoVI authors. The Retro++ engine (the
+`engine/` submodule) is likewise AGPL-3.0, so the combined distributable is AGPL-3.0.
+
+The upstream disassembly ([everything8215/ff6](https://github.com/everything8215/ff6)) is GPL-3.0
+and is used only as a design/derivation reference — AGPL-3.0 remains compatible with it. Final
+Fantasy VI is the property of Square Enix; this project ships no Square Enix-copyrighted content
+and requires the user's own ROM.
