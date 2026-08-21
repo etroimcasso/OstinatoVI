@@ -85,7 +85,8 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_codec.cpp
     src/data/text_corpus.cpp
     src/data/text_metadata.cpp
-    src/data/text_offsets.cpp)
+    src/data/text_offsets.cpp
+    src/data/world_map.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -321,3 +322,17 @@ target_compile_options(ostinato-vi-event-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-event-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-event-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-event-tests)
+
+# World-map data tests: the story-gated tilemap modification system (the chunk
+# list and its per-world offset table), the seven vehicle event references, and
+# the world sine table — each full-corpus memcmp'd against the ROM-assembled
+# fixture, plus the EventBitRef / WorldTilePatchRef round-trips, the per-world
+# slice accessors, and the sine/cosine angle reduction. Own binary so the other
+# baselines stay frozen.
+add_executable(ostinato-vi-world-tests
+    tests/test_world_map.cpp)
+target_compile_features(ostinato-vi-world-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-world-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-world-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-world-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-world-tests)
