@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <numbers>
 
 #include <gtest/gtest.h>
 
@@ -88,7 +89,8 @@ TEST(WorldMap, SineTableMatchesItsGenerator) {
     const auto sine = worldSineTable();
     for (std::size_t degree = 0; degree < sine.size(); ++degree) {
         const auto expected = static_cast<std::uint8_t>(std::floor(
-            std::fabs(std::sin(2.0 * M_PI * static_cast<double>(degree) / 360.0)
+            std::fabs(std::sin(2.0 * std::numbers::pi
+                               * static_cast<double>(degree) / 360.0)
                       * 255.0)));
         EXPECT_EQ(sine[degree].amplitude, expected)
             << "sine amplitude at degree " << degree;
