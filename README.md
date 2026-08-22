@@ -1,7 +1,7 @@
 # Ostinato VI
 
 A native C++ reimplementation of **Final Fantasy VI** (Super Famicom / SNES), built on the
-[Retro++ engine](https://github.com/etroimcasso/GBCPP-Engine). The goal is behavioral
+[Retro++ engine](https://github.com/RetroPlusPlus/Engine). The goal is behavioral
 fidelity — same observable behavior as the original given the same inputs and RNG state —
 running as ordinary native code on Windows, macOS, and Linux. Not an emulator, and not a
 mechanical ASM translation: idiomatic modern C++ against a portable engine layer.
@@ -47,17 +47,15 @@ conveniences work against it.
 |---|---|
 | `src/`, `include/ostinato/` | Port source and public headers |
 | `tests/` | GoogleTest suite |
-| `engine/` | [Retro++](https://github.com/etroimcasso/GBCPP-Engine) engine submodule (currently a private repository — see note below) |
+| `engine/` | [Retro++](https://github.com/RetroPlusPlus/Engine) engine submodule |
 | `original-src/` | [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly submodule (GPL-3.0) — read-only derivation reference; development-time only, never required by the distribution |
 | `assets/{gfx,audio}/default/` | Canonical asset-pack load targets; contents are generated locally and never committed |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
 | `scripts/` | Development tooling |
 
-> **Note on submodules:** the Retro++ engine repository is private while it stabilizes, so
-> third-party clones cannot initialize `engine/` yet and the project will not build externally
-> until the engine is published. The `original-src/` disassembly submodule is public but is only
-> needed for development; much of its data corpus is generated locally by its `make rip` step
-> against a user-supplied ROM.
+> **Note on submodules:** both submodules are public and initialize without credentials. The
+> `original-src/` disassembly is needed only for development; much of its data corpus is
+> generated locally by its `make rip` step against a user-supplied ROM.
 
 ## Building
 
