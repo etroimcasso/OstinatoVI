@@ -426,7 +426,7 @@ class EndToEndTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.root = _find_source_root()
-        cls.res = pwd.load_and_resolve(cls.root)
+        cls.res, cls.tiles = pwd.load_and_resolve(cls.root)
 
     def test_corpus_extents(self):
         self.assertEqual(len(self.res.modifications), 18)
@@ -510,6 +510,281 @@ class EndToEndTests(unittest.TestCase):
         fixture = pwd.render_fixture(self.res)
         self.assertEqual(fixture.count(".firstChunk ="), len(self.res.mod_offsets))
         self.assertIn("{ .index = 1, .firstChunk = 15 },", fixture)
+
+
+# --- tile properties, songs, curves, train sizes: pure helpers ----------------
+
+class DataTermTests(unittest.TestCase):
+    """The three term forms the tables in scope actually use."""
+
+    def setUp(self):
+        inc = _find_source_root()
+        self.songs = None
+        if inc is not None:
+            path = os.path.join(inc, "include", "sound", "song_script.inc")
+            if os.path.isfile(path):
+                self.songs = common.parse_ca65_constants(path).enum("SONG")
+
+    def test_integer_literals(self):
+        self.assertEqual(pwd._eval_data_term("$0f", "f", 1, None), 15)
+        self.assertEqual(pwd._eval_data_term("16", "f", 1, None), 16)
+        self.assertEqual(pwd._eval_data_term(" $2644 ", "f", 1, None), 0x2644)
+
+    def test_products(self):
+        # dtsize writes its pixel counts as `height*width`.
+        self.assertEqual(pwd._eval_data_term("10*10", "f", 1, None), 100)
+        self.assertEqual(pwd._eval_data_term("0*0", "f", 1, None), 0)
+        self.assertEqual(pwd._eval_data_term("16*16", "f", 1, None), 256)
+
+    def test_song_symbols_resolve(self):
+        if self.songs is None:
+            self.skipTest("song_script.inc absent")
+        self.assertEqual(
+            pwd._eval_data_term("SONG::BLACKJACK", "f", 1, self.songs), 0x35)
+        self.assertEqual(
+            pwd._eval_data_term("SONG::TERRA", "f", 1, self.songs), 0x06)
+
+    def test_unknown_song_symbol_is_an_error(self):
+        if self.songs is None:
+            self.skipTest("song_script.inc absent")
+        with self.assertRaises(ParseError):
+            pwd._eval_data_term("SONG::NOT_A_TRACK", "f", 1, self.songs)
+
+    def test_unexpected_scope_is_an_error(self):
+        with self.assertRaises(ParseError):
+            pwd._eval_data_term("ITEM::POTION", "f", 1, None)
+
+    def test_unparsable_term_is_an_error(self):
+        with self.assertRaises(ParseError):
+            pwd._eval_data_term("$$nope", "f", 1, None)
+        with self.assertRaises(ParseError):
+            pwd._eval_data_term("", "f", 1, None)
+
+
+class LabeledTableTests(unittest.TestCase):
+    """The reader takes the length from the source, then the caller asserts it."""
+
+    def test_reads_a_byte_table_and_its_address(self):
+        path = _write_tmp("; a comment\n"
+                          "SomeTbl:\n"
+                          "@1907:  .byte   $0f,$1f,$2f\n"
+                          "        .byte   $3f\n"
+                          "\n"
+                          "; next thing\n"
+                          "Other:\n")
+        try:
+            addr, values = pwd.read_labeled_table(path, "SomeTbl", "byte", 4)
+        finally:
+            os.unlink(path)
+        self.assertEqual(addr, 0x1907)
+        self.assertEqual(values, [0x0F, 0x1F, 0x2F, 0x3F])
+
+    def test_reads_a_word_table(self):
+        path = _write_tmp("WordTbl:\n@9b14:  .word   $0004,$0044\n")
+        try:
+            addr, values = pwd.read_labeled_table(path, "WordTbl", "word", 2)
+        finally:
+            os.unlink(path)
+        self.assertEqual(addr, 0x9B14)
+        self.assertEqual(values, [0x0004, 0x0044])
+
+    def test_reads_an_address_labeled_table(self):
+        # The second tile-property table is unnamed upstream; the address label
+        # on its first data line is the only handle.
+        path = _write_tmp("First:\n@9b14:  .word   $0001\n"
+                          "\n"
+                          "@9d14:  .word   $0002,$0003\n")
+        try:
+            addr, values = pwd.read_labeled_table(path, "@9d14", "word", 2)
+        finally:
+            os.unlink(path)
+        self.assertEqual(addr, 0x9D14)
+        self.assertEqual(values, [0x0002, 0x0003])
+
+    def test_skips_a_stacked_alias_label(self):
+        path = _write_tmp("_ee99d1:\ndtsize:\n@99d1:  .word   0*0,3*3\n")
+        try:
+            addr, values = pwd.read_labeled_table(path, "_ee99d1", "word", 2)
+        finally:
+            os.unlink(path)
+        self.assertEqual(addr, 0x99D1)
+        self.assertEqual(values, [0, 9])
+
+    def test_trailing_comments_are_stripped(self):
+        path = _write_tmp("T:\n@4566:  .byte   $00,$01  ; not turning\n")
+        try:
+            _addr, values = pwd.read_labeled_table(path, "T", "byte", 2)
+        finally:
+            os.unlink(path)
+        self.assertEqual(values, [0, 1])
+
+    def test_missing_label_is_an_error(self):
+        path = _write_tmp("Other:\n@1000:  .byte   $00\n")
+        try:
+            with self.assertRaises(ParseError):
+                pwd.read_labeled_table(path, "Absent", "byte", 1)
+        finally:
+            os.unlink(path)
+
+    def test_wrong_directive_is_an_error(self):
+        path = _write_tmp("T:\n@1000:  .word   $0000\n")
+        try:
+            with self.assertRaises(ParseError):
+                pwd.read_labeled_table(path, "T", "byte", 1)
+        finally:
+            os.unlink(path)
+
+    def test_wrong_count_is_an_error(self):
+        path = _write_tmp("T:\n@1000:  .byte   $00,$01\n")
+        try:
+            with self.assertRaises(ParseError):
+                pwd.read_labeled_table(path, "T", "byte", 3)
+        finally:
+            os.unlink(path)
+
+    def test_unexpected_line_under_the_label_is_an_error(self):
+        path = _write_tmp("T:\n        lda     #$00\n")
+        try:
+            with self.assertRaises(ParseError):
+                pwd.read_labeled_table(path, "T", "byte", 1)
+        finally:
+            os.unlink(path)
+
+    def test_missing_address_line_is_an_error(self):
+        path = _write_tmp("T:\n        .byte   $00,$01\n")
+        try:
+            with self.assertRaises(ParseError):
+                pwd.read_labeled_table(path, "T", "byte", 2)
+        finally:
+            os.unlink(path)
+
+
+class TrainTileDerivationTests(unittest.TestCase):
+    """magitek_train_tiles.dat is rebuilt, never transcribed."""
+
+    def test_prefix_sum_walks_the_non_zero_sizes_descending(self):
+        derived = pwd._derive_train_tile_offsets([0, 4, 9])
+        # Two non-zero steps, descending: 9 then 4, cycled across the tiles.
+        self.assertEqual(len(derived), pwd.TRAIN_TILE_COUNT * 2)
+        self.assertEqual(derived[0], pwd.TRAIN_TILE_BASE)
+        self.assertEqual(derived[1], pwd.TRAIN_TILE_BASE + 9)
+        self.assertEqual(derived[2], pwd.TRAIN_TILE_BASE + 13)
+        self.assertEqual(derived[3], pwd.TRAIN_TILE_BASE + 22)
+
+    def test_a_zero_size_contributes_no_step(self):
+        self.assertEqual(len(pwd._derive_train_tile_offsets([0, 0, 1])),
+                         pwd.TRAIN_TILE_COUNT)
+
+
+class ResidualBitTests(unittest.TestCase):
+    """T-2: unconsumed bits are counted and reported, never named."""
+
+    def test_counts_only_bits_outside_the_consumed_mask(self):
+        counts = pwd._residual_tile_prop_bits([[0x0044, 0x0045], [0x0008]])
+        # $0044 is entirely consumed bits except $0004; $0045 adds $0001.
+        self.assertEqual(counts, {0x0004: 2, 0x0001: 1, 0x0008: 1})
+
+    def test_a_fully_consumed_corpus_reports_nothing(self):
+        self.assertEqual(pwd._residual_tile_prop_bits([[0x0002, 0x8000]]), {})
+        self.assertIn("no tile-property bit", pwd._residual_report({}))
+
+    def test_the_report_names_no_bit(self):
+        text = pwd._residual_report({0x0004: 469})
+        self.assertIn("$0004", text)
+        self.assertIn("469", text)
+        self.assertIn("reported, not named", text)
+
+
+@unittest.skipUnless(_rom_available(_find_source_root()),
+                     "original-src world source and/or vanilla ROM absent")
+class TileAndCurveEndToEndTests(unittest.TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.root = _find_source_root()
+        _res, cls.tiles = pwd.load_and_resolve(cls.root)
+
+    def test_tile_property_corpus_extents(self):
+        self.assertEqual(len(self.tiles.tile_props), pwd.WORLD_TILE_PROP_TABLES)
+        for table in self.tiles.tile_props:
+            self.assertEqual(len(table), pwd.WORLD_TILE_PROP_ENTRIES)
+        # world/tile_prop.asm:5 and :41 — the first row of each table.
+        self.assertEqual(self.tiles.tile_props[0][2], 0x0044)
+        self.assertEqual(self.tiles.tile_props[1][2], 0x0444)
+
+    def test_residual_bits_are_the_three_the_corpus_sets(self):
+        # Reported, not named — the surface stores the raw word so nothing is
+        # lost, and no meaning is invented for these.
+        self.assertEqual(self.tiles.residual_bits,
+                         {0x0001: 117, 0x0004: 469, 0x0008: 23})
+
+    def test_song_tables_resolve_to_named_tracks(self):
+        by_label = {label: rows for label, _s, _d, rows in self.tiles.songs}
+        self.assertEqual([n for n, _v in by_label["WorldSongTbl"]],
+                         ["TERRA", "VELDT", "DARK_WORLD",
+                          "SEARCHING_FOR_FRIENDS"])
+        self.assertEqual([n for n, _v in by_label["SnakeSongTbl"]],
+                         ["SERPENT_TRENCH", "SERPENT_TRENCH"])
+        self.assertEqual(len(self.tiles.songs), len(pwd.SONG_TABLES))
+
+    def test_curve_lengths_are_what_the_source_holds(self):
+        for label, _source, _snes, count, _dir in pwd.CURVE_TABLES:
+            self.assertEqual(len(self.tiles.curves[label][1]), count, label)
+
+    def test_hflip_tables_are_boolean(self):
+        for label in pwd.HFLIP_TABLES:
+            for value in self.tiles.curves[label][1]:
+                self.assertIn(value, (0, 1), label)
+
+    def test_train_geometry_and_the_derivation_proof(self):
+        dtsize = self.tiles.train_sizes["dtsize"][1]
+        chr_size = self.tiles.train_sizes["chr_size"][1]
+        self.assertEqual(chr_size, [0, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16])
+        self.assertEqual(dtsize, [s * s for s in chr_size])
+        # The proof itself: 348 entries, all derived, none transcribed.
+        self.assertEqual(len(self.tiles.train_tile_offsets),
+                         pwd.TRAIN_TILE_ENTRIES)
+        self.assertEqual(self.tiles.train_tile_offsets[0], pwd.TRAIN_TILE_BASE)
+
+    def test_every_tile_property_row_carries_its_index_as_a_typed_field(self):
+        stem, array_name, world_enum, source_desc = pwd.WORLD_TILE_PROP_EMIT[0]
+        inc = pwd.render_tile_prop_inc(self.tiles.tile_props[0], array_name,
+                                       source_desc, world_enum,
+                                       pwd.WORLD_TILE_PROP_SNES)
+        self.assertEqual(inc.count(".index ="), pwd.WORLD_TILE_PROP_ENTRIES)
+        self.assertEqual(inc.count(".properties ="), pwd.WORLD_TILE_PROP_ENTRIES)
+        self.assertIn(
+            "{ .index =   2, .properties = WorldTileProperties::of(0x0044) },",
+            inc)
+
+    def test_song_and_flip_rows_are_self_labeling(self):
+        label, stem, doc, rows = self.tiles.songs[2]   # WorldSongTbl
+        inc = pwd.render_song_inc(rows, label, "kWorldSongs", doc)
+        self.assertIn("{ .index = 0, .song = SongId::TERRA },", inc)
+        self.assertEqual(inc.count(".song ="), len(rows))
+
+        values = self.tiles.curves["CharTopHFlipTbl"][1]
+        stem, array_name, source_desc, cdoc = pwd.CURVE_EMIT["CharTopHFlipTbl"]
+        flip = pwd.render_curve_inc(values, "CharTopHFlipTbl", array_name,
+                                    source_desc, cdoc, True)
+        self.assertIn(".flipped = false", flip)
+        self.assertIn(".flipped = true", flip)
+        self.assertEqual(flip.count(".flipped ="), len(values))
+
+    def test_battle_zoom_rows_split_the_word(self):
+        inc = pwd.render_battle_zoom_inc(self.tiles.curves["BattleZoomTbl"][1])
+        self.assertIn(
+            "{ .index =  0, .zoomLevel = 133, .screenBrightness =  15 },", inc)
+        self.assertEqual(inc.count(".zoomLevel ="), 34)
+
+    def test_song_id_header_names_every_track(self):
+        path = os.path.join(self.root, "include", "sound", "song_script.inc")
+        enum = common.parse_ca65_constants(path).enum("SONG")
+        header = pwd.render_song_id_header(enum)
+        self.assertIn("enum class SongId : std::uint8_t {", header)
+        self.assertIn("BLACKJACK", header)
+        self.assertIn("NONE", header)
+        self.assertIn("kSongCount = 85;", header)
 
 
 if __name__ == "__main__":

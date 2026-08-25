@@ -86,7 +86,8 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_corpus.cpp
     src/data/text_metadata.cpp
     src/data/text_offsets.cpp
-    src/data/world_map.cpp)
+    src/data/world_map.cpp
+    src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -330,7 +331,8 @@ gtest_discover_tests(ostinato-vi-event-tests)
 # slice accessors, and the sine/cosine angle reduction. Own binary so the other
 # baselines stay frozen.
 add_executable(ostinato-vi-world-tests
-    tests/test_world_map.cpp)
+    tests/test_world_map.cpp
+    tests/test_world_tiles.cpp)
 target_compile_features(ostinato-vi-world-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-world-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-world-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

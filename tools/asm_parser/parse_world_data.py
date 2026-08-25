@@ -92,6 +92,71 @@ MOD_POOL_FILE = "world_mod_tiles.dat"
 # The valid event-offset range: [0, size of the event-script block).
 EVENT_BLOCK_SIZE = 0x2E600
 
+# --- world tile properties, song tables, curves, train tile sizes ------------
+
+# Two 256-entry word tables, contiguous: world of balance then world of ruin.
+# GetWorldTileProp (world/move.asm:1366-1393) indexes
+# WorldTileProp[mapIndex * 256 + tileByte], the map offset being
+# (mapIndex << 8) << 1 bytes, which is exactly these two blocks.
+WORLD_TILE_PROP_SNES = 0xEE9B14
+WORLD_TILE_PROP_ENTRIES = 256
+WORLD_TILE_PROP_TABLES = 2
+
+# The bits every consumer reads, and the name each becomes. Anything outside
+# this mask has no consumer in the world module; the parser reports which of
+# those bits the corpus ever sets and never invents a meaning for one.
+TILE_PROP_CONSUMED_MASK = 0x0002 | 0x0010 | 0x0020 | 0x0040 | 0x0700 | 0x2000 \
+    | 0x4000 | 0x8000
+
+# The five song tables, contiguous at ee/8389 in this order. Values are SONG::
+# symbols from include/sound/song_script.inc.
+WORLD_SONG_SNES = 0xEE8389
+SONG_TABLES = (
+    # (upstream label, entries, C++ stem, accessor doc)
+    ("AirshipSongTbl", 4, "airship_song",
+     "The airship's song, selected by world (world/init.asm:189)."),
+    ("ChocoSongTbl", 4, "chocobo_song",
+     "The chocobo's song, selected by world (world/init.asm:431)."),
+    ("WorldSongTbl", 4, "world_song",
+     "The overworld's song, selected by world (world/init.asm:749)."),
+    ("TrainSongTbl", 2, "train_song",
+     "The Magitek train ride's song (world/init.asm:982 reads entry 0 only)."),
+    ("SnakeSongTbl", 2, "serpent_trench_song",
+     "The Serpent Trench's song (world/init.asm:1113)."),
+)
+
+# The movement / presentation curves, in (label, source file, SNES address,
+# entry count, directive) form. Each length is proven twice: counted from the
+# source lines, and confirmed by the block ending exactly where the next
+# labelled thing begins, with every byte compared to the ROM.
+CURVE_TABLES = (
+    ("TrainBattleMosaicTbl", "move.asm", 0xEE1907, 41, "byte"),
+    ("BattleZoomTbl", "move.asm", 0xEE224E, 34, "word"),
+    ("AirshipDirAnimOffset", "sprite.asm", 0xEE4566, 16, "byte"),
+    ("CharMoveFrameTbl", "sprite.asm", 0xEE4842, 16, "byte"),
+    ("CharTopHFlipTbl", "sprite.asm", 0xEE4852, 128, "byte"),
+    ("CharBtmHFlipTbl", "sprite.asm", 0xEE48D2, 128, "byte"),
+    ("_ee4952", "sprite.asm", 0xEE4952, 178, "byte"),
+)
+
+# The two h-flip tables are booleans in the corpus; asserted, not assumed.
+HFLIP_TABLES = ("CharTopHFlipTbl", "CharBtmHFlipTbl")
+
+# The Magitek train's per-layer tile geometry (world/train_init.asm:4-14).
+TRAIN_SIZE_TABLES = (
+    ("dtsize", 0xEE99D1, 13),
+    ("chr_size", 0xEE99EB, 13),
+)
+
+# magitek_train_tiles.dat is NOT transcribed: its 348 words are exactly the
+# running prefix sum from $2000 over the non-zero dtsize values in descending
+# order, cycled across 29 tiles. The parser proves that over every entry
+# instead of copying the blob.
+TRAIN_TILE_FILE = "magitek_train_tiles.dat"
+TRAIN_TILE_ENTRIES = 348
+TRAIN_TILE_BASE = 0x2000
+TRAIN_TILE_COUNT = 29
+
 # --- source grammar ----------------------------------------------------------
 
 _RE_LABEL = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):$")
@@ -329,6 +394,134 @@ def parse_event_proc_addresses(path):
             for export, proc in aliases.items() if proc in proc_addrs}
 
 
+# --- generic labelled-table reader -------------------------------------------
+
+_RE_DATA_DIR = re.compile(r"^(?:@[0-9a-f]{4}:)?\s*\.(byte|word)\s+(.+)$")
+_RE_ADDR_PREFIX = re.compile(r"^@([0-9a-f]{4}):")
+_RE_SCOPED_TERM = re.compile(
+    r"^([A-Za-z_][A-Za-z0-9_]*)::([A-Za-z_][A-Za-z0-9_]*)$")
+
+
+def _eval_data_term(term, path, lineno, songs):
+    """Resolve one .byte/.word term.
+
+    Three forms appear across the tables in scope: an integer literal, a product
+    of integer literals (dtsize writes its pixel counts as `10*10`), and a
+    SONG:: symbol. Anything else is a hard error rather than a guess.
+    """
+    term = term.strip()
+    if not term:
+        raise ParseError(path, lineno, "empty data term")
+
+    scoped = _RE_SCOPED_TERM.match(term)
+    if scoped:
+        scope, member = scoped.group(1), scoped.group(2)
+        if scope != "SONG" or songs is None:
+            raise ParseError(path, lineno,
+                             "unexpected scoped term {!r}".format(term))
+        value = songs.value_of(member)
+        if value is None:
+            raise ParseError(path, lineno,
+                             "unknown SONG symbol {!r}".format(member))
+        return value
+
+    product = 1
+    for factor in term.split("*"):
+        lit = common.parse_int_literal(factor.strip())
+        if lit is None:
+            raise ParseError(path, lineno,
+                             "unparsable data term {!r}".format(term))
+        product *= lit
+    return product
+
+
+def read_labeled_table(path, label, directive, expected, songs=None):
+    """Read the .byte/.word table under `label`, returning (address, values).
+
+    `label` is either a symbol (`dtsize`) or the address label the source puts
+    on the first data line (`@9d14`, for the second tile-property table, which
+    upstream leaves unnamed). The body ends at the first line that is not a data
+    directive of the requested kind, so the entry count comes from the source
+    rather than from a constant here; the caller's expected count is asserted
+    against it and every value is then compared to the ROM.
+    """
+    with open(path, "r", encoding="utf-8") as fh:
+        lines = fh.readlines()
+
+    start = None
+    wanted = "{}:".format(label)
+    for idx, raw in enumerate(lines):
+        code, _comment = common.strip_comment(raw)
+        s = code.strip()
+        if s == wanted:
+            start = idx + 1
+            break
+        if label.startswith("@") and s.startswith(wanted):
+            start = idx          # the label sits on the first data line itself
+            break
+    if start is None:
+        raise ParseError(path, 0, "label {} not found".format(wanted))
+
+    address = None
+    values = []
+    for idx in range(start, len(lines)):
+        code, _comment = common.strip_comment(lines[idx])
+        s = code.strip()
+        if not s:
+            if values:
+                break
+            continue
+
+        m = _RE_DATA_DIR.match(s)
+        if not m:
+            if values:
+                break
+            # A stacked alias label above the data (train_init.asm writes
+            # `_ee99d1:` then `dtsize:`) is scaffolding, not a body line.
+            if _RE_LABEL.match(s):
+                continue
+            raise ParseError(path, idx + 1,
+                             "unexpected line under {}: {!r}".format(label, s))
+        if m.group(1) != directive:
+            if values:
+                break
+            raise ParseError(path, idx + 1,
+                             "{} opens with .{} but .{} was expected"
+                             .format(label, m.group(1), directive))
+
+        addr_match = _RE_ADDR_PREFIX.match(s)
+        if addr_match and address is None:
+            address = int(addr_match.group(1), 16)
+        for term in m.group(2).split(","):
+            values.append(_eval_data_term(term, path, idx + 1, songs))
+
+    if address is None:
+        raise ParseError(path, 0, "{} has no @addr: line".format(label))
+    if len(values) != expected:
+        raise ParseError(path, 0,
+                         "{} holds {} entries, expected {}"
+                         .format(label, len(values), expected))
+    return address, values
+
+
+def _assert_rom_table(rom, snes, values, width, name):
+    """Every entry of a parsed table must match the ROM at its documented
+    address. Width is 1 for .byte tables, 2 for little-endian .word tables."""
+    base = common.hirom_file_offset(snes)
+    if width == 1:
+        actual = list(rom[base:base + len(values)])
+    else:
+        actual = [_read_u16(rom, base + i * 2) for i in range(len(values))]
+    if actual != list(values):
+        for i, (got, want) in enumerate(zip(actual, values)):
+            if got != want:
+                raise ParseError(name, 0,
+                                 "ROM MISMATCH at {}[{}]: ROM ${:0{w}x} != "
+                                 "source ${:0{w}x}"
+                                 .format(name, i, got, want, w=width * 2))
+        raise ParseError(name, 0, "ROM MISMATCH: {} length differs".format(name))
+
+
 # --- resolution + full-block cross-check -------------------------------------
 
 
@@ -526,6 +719,181 @@ def resolve(source_root, world_data, mod_lists, pool, sine, export_addrs):
     return res
 
 
+# --- world tile properties, songs, curves, train sizes -----------------------
+
+
+class ResolvedTiles(object):
+    """The s2 units, parsed from source and confirmed against the ROM."""
+
+    def __init__(self):
+        self.tile_props = None       # list[list[int]], one per world
+        self.residual_bits = None    # {bit mask: count} for unconsumed bits set
+        self.songs = None            # list[(label, stem, doc, [(name, value)])]
+        self.curves = None           # {label: (address, [values])}
+        self.train_sizes = None      # {label: (address, [values])}
+        self.train_tile_offsets = None   # the derived (not transcribed) sequence
+
+
+def _derive_train_tile_offsets(dtsize):
+    """Rebuild magitek_train_tiles.dat instead of transcribing it.
+
+    The ROM baked a precomputed prefix sum the SNES could not afford at load
+    time: starting from $2000, it walks the non-zero dtsize values in descending
+    order, cycling that 12-step sequence across 29 tiles, emitting the running
+    total before each step. Returns the derived sequence for comparison.
+    """
+    steps = sorted((v for v in dtsize if v), reverse=True)
+    offsets = []
+    running = TRAIN_TILE_BASE
+    for _tile in range(TRAIN_TILE_COUNT):
+        for step in steps:
+            offsets.append(running)
+            running += step
+    return offsets
+
+
+def _assert_train_tile_derivation(source_root, dtsize):
+    """Prove every entry of magitek_train_tiles.dat is derived, then drop it."""
+    path = os.path.join(source_root, "src", "world", TRAIN_TILE_FILE)
+    blob = _read_blob(path)
+    if len(blob) != TRAIN_TILE_ENTRIES * 2:
+        raise ParseError(TRAIN_TILE_FILE, 0,
+                         "{} B is not {} words"
+                         .format(len(blob), TRAIN_TILE_ENTRIES))
+    actual = [_read_u16(blob, i * 2) for i in range(TRAIN_TILE_ENTRIES)]
+    derived = _derive_train_tile_offsets(dtsize)
+    if len(derived) != TRAIN_TILE_ENTRIES:
+        raise ParseError(TRAIN_TILE_FILE, 0,
+                         "derivation produced {} entries, expected {}"
+                         .format(len(derived), TRAIN_TILE_ENTRIES))
+    for i, (got, want) in enumerate(zip(actual, derived)):
+        if got != want:
+            raise ParseError(TRAIN_TILE_FILE, 0,
+                             "DERIVATION MISMATCH at [{}]: file ${:04x} != "
+                             "prefix sum ${:04x} — the blob carries authored "
+                             "information after all; stop and re-audit"
+                             .format(i, got, want))
+    return derived
+
+
+def _residual_tile_prop_bits(tables):
+    """T-2: report which unconsumed bits the corpus sets, never name them."""
+    counts = {}
+    for values in tables:
+        for value in values:
+            residual = value & ~TILE_PROP_CONSUMED_MASK & 0xFFFF
+            bit = 1
+            while bit <= 0x8000:
+                if residual & bit:
+                    counts[bit] = counts.get(bit, 0) + 1
+                bit <<= 1
+    return counts
+
+
+def resolve_world_tiles(source_root, rom):
+    """Parse and ROM-verify every s2 unit."""
+    world_dir = os.path.join(source_root, "src", "world")
+    song_inc = os.path.join(source_root, "include", "sound", "song_script.inc")
+
+    parsed_songs = common.parse_ca65_constants(song_inc)
+    song_enum = parsed_songs.enum("SONG")
+    if song_enum is None:
+        raise ParseError(song_inc, 0, "no SONG enum in song_script.inc")
+
+    res = ResolvedTiles()
+
+    # --- tile properties: two 256-word tables, the second one unnamed --------
+    tile_path = os.path.join(world_dir, "tile_prop.asm")
+    balance_addr, balance = read_labeled_table(
+        tile_path, "WorldTileProp", "word", WORLD_TILE_PROP_ENTRIES)
+    ruin_addr, ruin = read_labeled_table(
+        tile_path, "@9d14", "word", WORLD_TILE_PROP_ENTRIES)
+    if balance_addr != (WORLD_TILE_PROP_SNES & 0xFFFF):
+        raise ParseError(tile_path, 0,
+                         "WorldTileProp at @{:04x}, expected @{:04x}"
+                         .format(balance_addr, WORLD_TILE_PROP_SNES & 0xFFFF))
+    if ruin_addr != balance_addr + WORLD_TILE_PROP_ENTRIES * 2:
+        raise ParseError(tile_path, 0,
+                         "the second tile-property table starts at @{:04x}, "
+                         "not directly after the first (@{:04x})"
+                         .format(ruin_addr,
+                                 balance_addr + WORLD_TILE_PROP_ENTRIES * 2))
+    _assert_rom_table(rom, WORLD_TILE_PROP_SNES, balance + ruin, 2,
+                      "WorldTileProp")
+    res.tile_props = [balance, ruin]
+    res.residual_bits = _residual_tile_prop_bits(res.tile_props)
+
+    # --- song tables: contiguous, values resolved through the SONG enum ------
+    by_value = {}
+    for member in song_enum.members:
+        by_value.setdefault(member.value, member.name)
+
+    init_path = os.path.join(world_dir, "init.asm")
+    songs = []
+    running = WORLD_SONG_SNES
+    for label, count, stem, doc in SONG_TABLES:
+        addr, values = read_labeled_table(init_path, label, "byte", count,
+                                          songs=song_enum)
+        if addr != (running & 0xFFFF):
+            raise ParseError(init_path, 0,
+                             "{} at @{:04x}, expected @{:04x}"
+                             .format(label, addr, running & 0xFFFF))
+        _assert_rom_table(rom, running, values, 1, label)
+        rows = []
+        for value in values:
+            name = by_value.get(value)
+            if name is None:
+                raise ParseError(init_path, 0,
+                                 "{} holds ${:02x}, which no SONG symbol names "
+                                 "— escalate".format(label, value))
+            rows.append((name, value))
+        songs.append((label, stem, doc, rows))
+        running += count
+    res.songs = songs
+
+    # --- movement / presentation curves --------------------------------------
+    curves = {}
+    for label, source, snes, count, directive in CURVE_TABLES:
+        path = os.path.join(world_dir, source)
+        addr, values = read_labeled_table(path, label, directive, count)
+        if addr != (snes & 0xFFFF):
+            raise ParseError(path, 0,
+                             "{} at @{:04x}, expected @{:04x}"
+                             .format(label, addr, snes & 0xFFFF))
+        _assert_rom_table(rom, snes, values, 1 if directive == "byte" else 2,
+                          label)
+        if label in HFLIP_TABLES and any(v not in (0, 1) for v in values):
+            raise ParseError(path, 0,
+                             "{} holds a value outside 0/1 — it is not a "
+                             "boolean table; escalate".format(label))
+        curves[label] = (snes, values)
+    res.curves = curves
+
+    # --- train tile geometry + the derivation proof --------------------------
+    train_path = os.path.join(world_dir, "train_init.asm")
+    train_sizes = {}
+    for label, snes, count in TRAIN_SIZE_TABLES:
+        addr, values = read_labeled_table(train_path, label, "word", count)
+        if addr != (snes & 0xFFFF):
+            raise ParseError(train_path, 0,
+                             "{} at @{:04x}, expected @{:04x}"
+                             .format(label, addr, snes & 0xFFFF))
+        _assert_rom_table(rom, snes, values, 2, label)
+        train_sizes[label] = (snes, values)
+    res.train_sizes = train_sizes
+
+    dtsize = train_sizes["dtsize"][1]
+    chr_size = train_sizes["chr_size"][1]
+    for i, (pixels, side) in enumerate(zip(dtsize, chr_size)):
+        if pixels != side * side:
+            raise ParseError(train_path, 0,
+                             "dtsize[{}] = {} but chr_size[{}] = {} squares to "
+                             "{} — escalate".format(i, pixels, i, side,
+                                                    side * side))
+    res.train_tile_offsets = _assert_train_tile_derivation(source_root, dtsize)
+    return res
+
+
 # --- emitters ----------------------------------------------------------------
 
 # The upstream `.proc` name behind each vehicle event, mapped to the enumerator
@@ -625,6 +993,277 @@ def _hexbytes(values):
     return ", ".join("0x{:02X}".format(b) for b in values)
 
 
+# --- emitters: the s2 units ---------------------------------------------------
+
+# The C++ identity each curve becomes: the .inc stem and the array it fills.
+# Names are descriptive, taken from the upstream comment above each table
+# rather than from its address label.
+CURVE_EMIT = {
+    "TrainBattleMosaicTbl": ("train_battle_mosaic", "kTrainBattleMosaicCurve",
+                             "world/move.asm:265-269",
+                             ["The mosaic strength stepped through when a "
+                              "battle starts on the",
+                              "Magitek train ride: it blurs in, holds, and "
+                              "blurs back out."]),
+    "AirshipDirAnimOffset": ("airship_dir_anim_offset",
+                             "kAirshipDirectionAnimationOffsets",
+                             "world/sprite.asm:798-804",
+                             ["Frame offsets for the airship's facing, four "
+                              "rows of four: not turning,",
+                              "turning right, turning left, and an unused "
+                              "fourth row. Within a row",
+                              "the columns are unused, straight, up, down."]),
+    "CharMoveFrameTbl": ("char_move_frame", "kCharacterMoveFrames",
+                         "world/sprite.asm:1134-1139",
+                         ["The sprite frame shown at each step of the "
+                          "character's walk cycle, four",
+                          "frames per facing."]),
+    "CharTopHFlipTbl": ("char_top_hflip", "kCharacterTopHalfFlips",
+                        "world/sprite.asm:1143-1152",
+                        ["Whether the character's top sprite half is drawn "
+                         "mirrored, per action."]),
+    "CharBtmHFlipTbl": ("char_btm_hflip", "kCharacterBottomHalfFlips",
+                        "world/sprite.asm:1156-1165",
+                        ["Whether the character's bottom sprite half is drawn "
+                         "mirrored, per action."]),
+    "_ee4952": ("grounded_airship_size", "kGroundedAirshipSizeCurve",
+                "world/sprite.asm:1169-1182",
+                ["The size and position curve for the airship sitting on the "
+                 "ground, read",
+                 "as it grows and shrinks (world/sprite.asm:986)."]),
+}
+
+TRAIN_SIZE_EMIT = {
+    "dtsize": ("train_layer_pixel_count", "kTrainLayerPixelCounts",
+               "world/train_init.asm:3-7",
+               ["Pixels per tile in each Magitek train graphics layer — the "
+                "square of the",
+                "layer's tile side. Layer 0 is empty; the loader walks layers "
+                "downward",
+                "(world/train_init.asm:41-46)."]),
+    "chr_size": ("train_layer_tile_side", "kTrainLayerTileSides",
+                 "world/train_init.asm:11-14",
+                 ["The tile height and width of each Magitek train graphics "
+                  "layer, in pixels",
+                  "(world/train_init.asm:99-107)."]),
+}
+
+WORLD_TILE_PROP_EMIT = (
+    ("world_tile_prop_balance", "kWorldOfBalanceTileProperties",
+     "WORLD_OF_BALANCE", "world/tile_prop.asm:3-36"),
+    ("world_tile_prop_ruin", "kWorldOfRuinTileProperties",
+     "WORLD_OF_RUIN", "world/tile_prop.asm:40-72"),
+)
+
+
+def render_song_id_header(song_enum):
+    width = max(len(m.name) for m in song_enum.members)
+    lines = [
+        "// AUTO-GENERATED by tools/asm_parser/parse_world_data.py — "
+        "DO NOT EDIT.\n"
+        "// Regenerate from original-src (pinned at 1ea47b5); hand edits will "
+        "be lost.\n"
+        "// Source: include/sound/song_script.inc (the SONG enum)\n"
+        "#pragma once\n\n#include <cstdint>\n\n",
+        "// Every song the sound driver can be asked to play. The id is the "
+        "index the\n"
+        "// driver takes directly; NONE is the sentinel the game writes when "
+        "no song is\n"
+        "// selected, not a track.\n",
+        "namespace ostinato {\n\n",
+        "enum class SongId : std::uint8_t {\n",
+    ]
+    for member in song_enum.members:
+        lines.append("    {:<{w}} = 0x{:02X},\n"
+                     .format(member.name, member.value, w=width))
+    lines.append("};\n\n")
+    lines.append("// The number of real tracks (SILENCE .. ENDING_THEME_2); "
+                 "NONE sits outside\n"
+                 "// the run as a sentinel.\n"
+                 "inline constexpr std::uint8_t kSongCount = {};\n\n"
+                 .format(sum(1 for m in song_enum.members
+                             if m.name != "NONE")))
+    lines.append("}  // namespace ostinato\n")
+    return "".join(lines)
+
+
+def render_tile_prop_inc(values, array_name, source_desc, world_enum, snes):
+    out = [_banner(["{} (ROM ee/{:04x})".format(source_desc, snes & 0xFFFF)]),
+           "// The {} rows of {}, #included inside that array in\n"
+           "// src/data/world_tiles.cpp. The row's identity (.index, the "
+           "decimal tile\n"
+           "// index the world tilemap stores) is a typed field, not the array "
+           "position —\n"
+           "// a compile-time assert verifies index == position for every "
+           "entry. The\n"
+           "// property word is the raw ROM value behind a wrapper whose "
+           "accessors name\n"
+           "// each bit; it reads as hex because it is a packed word, not a "
+           "magnitude.\n"
+           "// Keyed by WorldMapId::{}.\n\n"
+           .format(len(values), array_name, world_enum)]
+    for index, value in enumerate(values):
+        out.append("    {{ .index = {:3d}, .properties = "
+                   "WorldTileProperties::of(0x{:04X}) }},\n"
+                   .format(index, value))
+    return "".join(out)
+
+
+def render_song_inc(rows, label, array_name, doc):
+    out = [_banner(["world/init.asm ({}, ROM ee/{:04x})"
+                    .format(label, WORLD_SONG_SNES & 0xFFFF)]),
+           "// {}\n"
+           "// The {} rows of {}, #included inside that array in\n"
+           "// src/data/world_tiles.cpp. Each row names its song; the identity\n"
+           "// (.index) is the decimal slot the consumer indexes with. A\n"
+           "// compile-time assert verifies index == position.\n\n"
+           .format(doc, len(rows), array_name)]
+    for index, (name, _value) in enumerate(rows):
+        out.append("    {{ .index = {}, .song = SongId::{} }},\n"
+                   .format(index, name))
+    return "".join(out)
+
+
+def render_curve_inc(values, label, array_name, source_desc, doc, boolean):
+    out = [_banner(["{} ({})".format(source_desc, label)]),
+           "".join("// {}\n".format(line) for line in doc)
+           + "//\n"
+           "// The {} rows of {}, #included inside that array in\n"
+           "// src/data/world_tiles.cpp. The row's identity (.index) is a "
+           "typed field,\n"
+           "// not the array position; a compile-time assert verifies\n"
+           "// index == position for every entry.\n\n"
+           .format(len(values), array_name)]
+    for index, value in enumerate(values):
+        if boolean:
+            out.append("    {{ .index = {:3d}, .flipped = {} }},\n"
+                       .format(index, "true" if value else "false"))
+        else:
+            out.append("    {{ .index = {:3d}, .value = {:3d} }},\n"
+                       .format(index, value))
+    return "".join(out)
+
+
+def render_battle_zoom_inc(values):
+    out = [_banner(["world/move.asm:1435-1441 (BattleZoomTbl, ROM ee/224e)"]),
+           "// The battle-transition zoom: each step sets the Mode 7 zoom "
+           "level and the\n"
+           "// screen brightness for one frame (world/move.asm:1414-1417). The "
+           "row's\n"
+           "// identity (.index, the decimal step) is a typed field; a "
+           "compile-time\n"
+           "// assert verifies index == position. Included inside\n"
+           "// kBattleZoomSteps in src/data/world_tiles.cpp.\n\n"]
+    for index, word in enumerate(values):
+        out.append("    {{ .index = {:2d}, .zoomLevel = {:3d}, "
+                   ".screenBrightness = {:3d} }},\n"
+                   .format(index, word & 0xFF, (word >> 8) & 0xFF))
+    return "".join(out)
+
+
+def render_train_size_inc(values, label, array_name, source_desc, doc):
+    out = [_banner(["{} ({})".format(source_desc, label)]),
+           "".join("// {}\n".format(line) for line in doc)
+           + "//\n"
+           "// The {} rows of {}, #included inside that array in\n"
+           "// src/data/world_tiles.cpp. The row's identity (.index, the "
+           "decimal layer)\n"
+           "// is a typed field; a compile-time assert verifies "
+           "index == position.\n\n"
+           .format(len(values), array_name)]
+    for index, value in enumerate(values):
+        out.append("    {{ .index = {:2d}, .value = {:3d} }},\n"
+                   .format(index, value))
+    return "".join(out)
+
+
+def render_tiles_fixture(tiles):
+    out = [_banner(["world/tile_prop.asm + world/init.asm song tables + "
+                    "world/move.asm + world/sprite.asm curves + "
+                    "world/train_init.asm (ROM bytes)"]),
+           "#pragma once\n\n#include <array>\n#include <cstdint>\n\n"
+           "namespace ostinato::test {\n\n"]
+
+    out.append("// The two world tile-property tables, as raw ROM words in "
+               "index order.\n"
+               "struct ExpectedWorldTilePropTable {\n"
+               "    std::array<std::uint16_t, "
+               + str(WORLD_TILE_PROP_ENTRIES) + "> words;\n};\n\n")
+    out.append("inline constexpr std::array<ExpectedWorldTilePropTable, "
+               + str(WORLD_TILE_PROP_TABLES) + ">\n"
+               "kExpectedWorldTileProps = { {\n")
+    for values in tiles.tile_props:
+        out.append("    { {\n")
+        for chunk in range(0, len(values), 8):
+            out.append("        "
+                       + ", ".join("0x{:04X}".format(v)
+                                   for v in values[chunk:chunk + 8]) + ",\n")
+        out.append("    } },\n")
+    out.append("} };\n\n")
+
+    out.append("// Each world song table, as the raw ROM song ids the driver "
+               "receives.\n")
+    for _label, stem, _doc, rows in tiles.songs:
+        out.append("inline constexpr std::array<std::uint8_t, "
+                   + str(len(rows)) + ">\n"
+                   "kExpected" + _pascal(stem) + " = { { "
+                   + _hexbytes([v for _n, v in rows]) + " } };\n")
+    out.append("\n")
+
+    out.append("// Each movement / presentation curve, as raw ROM bytes.\n")
+    for label, (_snes, values) in sorted(tiles.curves.items()):
+        if label == "BattleZoomTbl":
+            continue
+        stem = CURVE_EMIT[label][0]
+        out.append("inline constexpr std::array<std::uint8_t, "
+                   + str(len(values)) + ">\n"
+                   "kExpected" + _pascal(stem) + " = { {\n")
+        for chunk in range(0, len(values), 12):
+            out.append("    " + _hexbytes(values[chunk:chunk + 12]) + ",\n")
+        out.append("} };\n")
+    out.append("\n")
+
+    zoom = tiles.curves["BattleZoomTbl"][1]
+    out.append("// The battle zoom steps, as the raw ROM words (low byte zoom "
+               "level, high\n// byte screen brightness).\n"
+               "inline constexpr std::array<std::uint16_t, "
+               + str(len(zoom)) + ">\nkExpectedBattleZoom = { {\n")
+    for chunk in range(0, len(zoom), 8):
+        out.append("    " + ", ".join("0x{:04X}".format(v)
+                                      for v in zoom[chunk:chunk + 8]) + ",\n")
+    out.append("} };\n\n")
+
+    for label, (_snes, values) in tiles.train_sizes.items():
+        stem = TRAIN_SIZE_EMIT[label][0]
+        out.append("inline constexpr std::array<std::uint16_t, "
+                   + str(len(values)) + ">\n"
+                   "kExpected" + _pascal(stem) + " = { { "
+                   + ", ".join(str(v) for v in values) + " } };\n")
+    out.append("\n")
+
+    out.append("// The offsets magitek_train_tiles.dat holds, rebuilt from the "
+               "layer pixel\n"
+               "// counts rather than transcribed: the file is a precomputed "
+               "prefix sum, and\n"
+               "// the parser proves the derivation over every entry at emit "
+               "time.\n"
+               "inline constexpr std::array<std::uint16_t, "
+               + str(len(tiles.train_tile_offsets)) + ">\n"
+               "kExpectedTrainTileOffsets = { {\n")
+    for chunk in range(0, len(tiles.train_tile_offsets), 8):
+        out.append("    " + ", ".join(
+            "0x{:04X}".format(v)
+            for v in tiles.train_tile_offsets[chunk:chunk + 8]) + ",\n")
+    out.append("} };\n\n")
+
+    out.append("}  // namespace ostinato::test\n")
+    return "".join(out)
+
+
+def _pascal(stem):
+    return "".join(part.capitalize() for part in stem.split("_"))
+
+
 def render_fixture(res):
     out = [_banner(["world/world_1_mod.dat + world_2_mod.dat + world_data.asm + "
                     "world_sine.dat (ROM-assembled bytes)"]),
@@ -715,7 +1354,9 @@ def load_and_resolve(source_root):
     sine = _read_blob(os.path.join(world_dir, world_data.sine_file))
 
     export_addrs = parse_event_proc_addresses(event_main)
-    return resolve(source_root, world_data, mod_lists, pool, sine, export_addrs)
+    res = resolve(source_root, world_data, mod_lists, pool, sine, export_addrs)
+    tiles = resolve_world_tiles(source_root, common.load_vanilla_rom(source_root))
+    return res, tiles
 
 
 def _read_blob(path):
@@ -726,8 +1367,18 @@ def _read_blob(path):
         return fh.read()
 
 
+def _residual_report(residual_bits):
+    """T-2 surfaces as a printed report, never as an invented name."""
+    if not residual_bits:
+        return "no tile-property bit outside the consumed mask is ever set"
+    return ("tile-property bits with NO consumer are set in the corpus: "
+            + ", ".join("${:04x} x{}".format(bit, count)
+                        for bit, count in sorted(residual_bits.items()))
+            + " — reported, not named")
+
+
 def run(source_root, repo_root, check_only=False):
-    res = load_and_resolve(source_root)
+    res, tiles = load_and_resolve(source_root)
     if check_only:
         print("OK: {} modification chunks over {} worlds (+end) / {} vehicle "
               "events / sine {} entries; world_mod + world_data + world_sine all "
@@ -737,10 +1388,19 @@ def run(source_root, repo_root, check_only=False):
                       len(res.vehicle_offsets), len(res.sine), res.pool_length,
                       res.mod_pad[1], res.mod_pad[0] or 0,
                       res.data_pad[1], res.data_pad[0] or 0))
+        print("OK: {} x {} tile-property entries / {} song tables / {} curves / "
+              "{} train size tables; every value matches the ROM; "
+              "magitek_train_tiles.dat derived {}/{}."
+              .format(WORLD_TILE_PROP_TABLES, WORLD_TILE_PROP_ENTRIES,
+                      len(tiles.songs), len(tiles.curves),
+                      len(tiles.train_sizes), len(tiles.train_tile_offsets),
+                      TRAIN_TILE_ENTRIES))
+        print("NOTE: " + _residual_report(tiles.residual_bits))
         return 0
 
     gen = os.path.join(repo_root, "src", "data", "generated")
     fix = os.path.join(repo_root, "tests", "fixtures")
+    inc = os.path.join(repo_root, "include", "ostinato")
     _write(os.path.join(gen, "world_mod_data.inc"),
            render_modifications_inc(res.modifications))
     _write(os.path.join(gen, "world_mod_offsets_data.inc"),
@@ -749,7 +1409,46 @@ def run(source_root, repo_root, check_only=False):
            render_vehicle_events_inc(res.vehicle_offsets))
     _write(os.path.join(gen, "world_sine_data.inc"), render_sine_inc(res.sine))
     _write(os.path.join(fix, "world_data_expected.h"), render_fixture(res))
-    print("Emitted world-map data (4 generated + 1 fixture) -> {}".format(gen))
+
+    # --- s2 units -------------------------------------------------------------
+    song_inc = os.path.join(source_root, "include", "sound", "song_script.inc")
+    song_enum = common.parse_ca65_constants(song_inc).enum("SONG")
+    _write(os.path.join(inc, "song_id.h"), render_song_id_header(song_enum))
+
+    for table, ((stem, array_name, world_enum, source_desc), values) in \
+            enumerate(zip(WORLD_TILE_PROP_EMIT, tiles.tile_props)):
+        _write(os.path.join(gen, stem + "_data.inc"),
+               render_tile_prop_inc(
+                   values, array_name, source_desc, world_enum,
+                   WORLD_TILE_PROP_SNES
+                   + table * WORLD_TILE_PROP_ENTRIES * 2))
+
+    for label, stem, doc, rows in tiles.songs:
+        _write(os.path.join(gen, "world_song_" + stem.replace("_song", "")
+                            + "_data.inc"),
+               render_song_inc(rows, label, "k" + _pascal(stem) + "s", doc))
+
+    for label, (_snes, values) in tiles.curves.items():
+        if label == "BattleZoomTbl":
+            _write(os.path.join(gen, "battle_zoom_data.inc"),
+                   render_battle_zoom_inc(values))
+            continue
+        stem, array_name, source_desc, doc = CURVE_EMIT[label]
+        _write(os.path.join(gen, stem + "_data.inc"),
+               render_curve_inc(values, label, array_name, source_desc, doc,
+                                label in HFLIP_TABLES))
+
+    for label, (_snes, values) in tiles.train_sizes.items():
+        stem, array_name, source_desc, doc = TRAIN_SIZE_EMIT[label]
+        _write(os.path.join(gen, stem + "_data.inc"),
+               render_train_size_inc(values, label, array_name, source_desc,
+                                     doc))
+
+    _write(os.path.join(fix, "world_tiles_expected.h"),
+           render_tiles_fixture(tiles))
+    print("Emitted world-map data + world tile/song/curve data -> {}"
+          .format(gen))
+    print("NOTE: " + _residual_report(tiles.residual_bits))
     return 0
 
 
