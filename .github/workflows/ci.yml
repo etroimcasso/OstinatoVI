@@ -78,15 +78,31 @@ jobs:
           set -eo pipefail
           cd "$GITHUB_WORKSPACE"
           # The text-corpus tests read the ripped .dat files out of the upstream
-          # disassembly, so this build DOES need original-src. Without this step
-          # they skip — and a skip that happens on only some runners hides those
-          # tests behind a green tick, which is what it did until 2026-08-25.
+          # disassembly, so this build needs original-src. Without this step they
+          # skip — and a skip on only some runners hides them behind a green tick.
           git submodule update --init -- original-src
-          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
-            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
-            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+          # Every runner has the ROM, but by three different mechanisms (see
+          # docs/features/ci.md "Runner provisioning"): the runner .env file, a
+          # machine-scope variable, or a fixed path exported by an earlier step.
+          # Take the variable when the job can see it, and fall back to the
+          # documented fixed locations when it cannot.
+          ROM="${FF6_VANILLA_ROM:-}"
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            for cand in "$HOME/ci-assets/ostinatovi/FF3-1.1-U.smc" \
+                        "$HOME/ci-assets/ff6-vanilla.smc"; do
+              if [ -f "$cand" ]; then ROM="$cand"; break; fi
+            done
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            ROM="$(find "$HOME/ci-assets" -maxdepth 3 -iname '*.smc' -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            echo "No vanilla ROM on this runner. FF6_VANILLA_ROM='${FF6_VANILLA_ROM:-<unset>}'." >&2
+            echo "Also checked ~/ci-assets/ostinatovi/FF3-1.1-U.smc and ~/ci-assets/*.smc." >&2
+            ls -la "$HOME/ci-assets" 2>&1 || echo "(no ~/ci-assets directory)" >&2
             exit 1
           fi
+          echo "Vanilla ROM: $ROM"
           # extract_assets.py needs numpy. Prefer the runner's python3; fall back
           # to a venv cached once on the machine.
           RIP_BIN="$(command -v python3)"
@@ -100,7 +116,7 @@ jobs:
           fi
           "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
           mkdir -p original-src/vanilla
-          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cp "$ROM" original-src/vanilla/
           cd original-src
           # The three steps the upstream `rip` target runs, invoked directly so
           # the step needs no make on any platform.
@@ -175,15 +191,31 @@ jobs:
           set -eo pipefail
           cd "$GITHUB_WORKSPACE"
           # The text-corpus tests read the ripped .dat files out of the upstream
-          # disassembly, so this build DOES need original-src. Without this step
-          # they skip — and a skip that happens on only some runners hides those
-          # tests behind a green tick, which is what it did until 2026-08-25.
+          # disassembly, so this build needs original-src. Without this step they
+          # skip — and a skip on only some runners hides them behind a green tick.
           git submodule update --init -- original-src
-          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
-            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
-            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+          # Every runner has the ROM, but by three different mechanisms (see
+          # docs/features/ci.md "Runner provisioning"): the runner .env file, a
+          # machine-scope variable, or a fixed path exported by an earlier step.
+          # Take the variable when the job can see it, and fall back to the
+          # documented fixed locations when it cannot.
+          ROM="${FF6_VANILLA_ROM:-}"
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            for cand in "$HOME/ci-assets/ostinatovi/FF3-1.1-U.smc" \
+                        "$HOME/ci-assets/ff6-vanilla.smc"; do
+              if [ -f "$cand" ]; then ROM="$cand"; break; fi
+            done
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            ROM="$(find "$HOME/ci-assets" -maxdepth 3 -iname '*.smc' -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            echo "No vanilla ROM on this runner. FF6_VANILLA_ROM='${FF6_VANILLA_ROM:-<unset>}'." >&2
+            echo "Also checked ~/ci-assets/ostinatovi/FF3-1.1-U.smc and ~/ci-assets/*.smc." >&2
+            ls -la "$HOME/ci-assets" 2>&1 || echo "(no ~/ci-assets directory)" >&2
             exit 1
           fi
+          echo "Vanilla ROM: $ROM"
           # extract_assets.py needs numpy. Prefer the runner's python3; fall back
           # to a venv cached once on the machine.
           RIP_BIN="$(command -v python3)"
@@ -197,7 +229,7 @@ jobs:
           fi
           "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
           mkdir -p original-src/vanilla
-          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cp "$ROM" original-src/vanilla/
           cd original-src
           # The three steps the upstream `rip` target runs, invoked directly so
           # the step needs no make on any platform.
@@ -264,38 +296,69 @@ jobs:
       - name: Stage the text corpus (rip products the text tests read)
         shell: powershell
         run: |
+          $ErrorActionPreference = "Stop"
           cd $env:GITHUB_WORKSPACE
           # See the Linux x64 job: the text-corpus tests read the ripped .dat
-          # files, so this build needs original-src and the ROM. A missing ROM is
-          # a provisioning defect, not a skip.
+          # files, so this build needs original-src and the ROM.
           git submodule update --init -- original-src
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not $env:FF6_VANILLA_ROM -or -not (Test-Path $env:FF6_VANILLA_ROM)) {
-            Write-Error "FF6_VANILLA_ROM is unset or missing on this runner."
+          # The ROM is provisioned differently per runner (docs/features/ci.md
+          # "Runner provisioning"): a machine-scope variable here, a fixed path on
+          # the ARM64 VM. Take the variable when visible, else the fixed paths.
+          $rom = $env:FF6_VANILLA_ROM
+          if (-not $rom -or -not (Test-Path $rom)) {
+            foreach ($c in @("C:\ci-assets\ostinatovi\FF3-1.1-U.smc",
+                             "$env:USERPROFILE\ci-assets\ostinatovi\FF3-1.1-U.smc",
+                             "$env:USERPROFILE\ci-assets\ff6-vanilla.smc")) {
+              if (Test-Path $c) { $rom = $c; break }
+            }
+          }
+          if (-not $rom -or -not (Test-Path $rom)) {
+            $hit = Get-ChildItem -Path "C:\ci-assets","$env:USERPROFILE\ci-assets" `
+                     -Filter *.smc -Recurse -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if ($hit) { $rom = $hit.FullName }
+          }
+          if (-not $rom -or -not (Test-Path $rom)) {
+            Write-Host "No vanilla ROM on this runner. FF6_VANILLA_ROM='$env:FF6_VANILLA_ROM'."
+            Write-Host "Also checked C:\ci-assets and $env:USERPROFILE\ci-assets."
+            Get-ChildItem -Path "C:\ci-assets","$env:USERPROFILE\ci-assets" `
+              -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 FullName
             exit 1
           }
-          $rip = "python"
-          & $rip -c "import numpy" 2>$null
+          Write-Host "Vanilla ROM: $rom"
+          # python3/python/py all appear across these runners; take whichever
+          # resolves, then require numpy from it or from a cached venv.
+          $ripExe = $null; $ripArgs = @()
+          foreach ($c in @(@("python3",@()), @("python",@()), @("py",@("-3")))) {
+            if (Get-Command $c[0] -ErrorAction SilentlyContinue) {
+              $ripExe = $c[0]; $ripArgs = $c[1]; break
+            }
+          }
+          if (-not $ripExe) { Write-Host "No Python interpreter on PATH."; exit 1 }
+          & $ripExe @ripArgs -c "import numpy" 2>$null
           if ($LASTEXITCODE -ne 0) {
             $venv = "$env:USERPROFILE\.cache\ostinatovi-rip-venv"
             if (-not (Test-Path "$venv\Scripts\python.exe")) {
-              & $rip -m venv $venv
-              & "$venv\Scripts\pip.exe" --quiet install numpy
+              & $ripExe @ripArgs -m venv $venv
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              & "$venv\Scripts\python.exe" -m pip --quiet install numpy
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
-            $rip = "$venv\Scripts\python.exe"
+            $ripExe = "$venv\Scripts\python.exe"; $ripArgs = @()
           }
-          & $rip -c "import numpy"   # hard proof before ripping
+          & $ripExe @ripArgs -c "import numpy"   # hard proof before ripping
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path original-src\vanilla | Out-Null
-          Copy-Item $env:FF6_VANILLA_ROM original-src\vanilla\ -Force
+          Copy-Item $rom original-src\vanilla\ -Force
           cd original-src
           # The three steps the upstream `rip` target runs, invoked directly so
           # the step needs no make on Windows.
-          & $rip tools/extract_assets.py
+          & $ripExe @ripArgs tools/extract_assets.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $rip tools/fix_dlg.py combine en
+          & $ripExe @ripArgs tools/fix_dlg.py combine en
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $rip tools/fix_dlg.py combine jp
+          & $ripExe @ripArgs tools/fix_dlg.py combine jp
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure
@@ -389,15 +452,31 @@ jobs:
           set -eo pipefail
           cd "$GITHUB_WORKSPACE"
           # The text-corpus tests read the ripped .dat files out of the upstream
-          # disassembly, so this build DOES need original-src. Without this step
-          # they skip — and a skip that happens on only some runners hides those
-          # tests behind a green tick, which is what it did until 2026-08-25.
+          # disassembly, so this build needs original-src. Without this step they
+          # skip — and a skip on only some runners hides them behind a green tick.
           git submodule update --init -- original-src
-          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
-            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
-            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+          # Every runner has the ROM, but by three different mechanisms (see
+          # docs/features/ci.md "Runner provisioning"): the runner .env file, a
+          # machine-scope variable, or a fixed path exported by an earlier step.
+          # Take the variable when the job can see it, and fall back to the
+          # documented fixed locations when it cannot.
+          ROM="${FF6_VANILLA_ROM:-}"
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            for cand in "$HOME/ci-assets/ostinatovi/FF3-1.1-U.smc" \
+                        "$HOME/ci-assets/ff6-vanilla.smc"; do
+              if [ -f "$cand" ]; then ROM="$cand"; break; fi
+            done
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            ROM="$(find "$HOME/ci-assets" -maxdepth 3 -iname '*.smc' -print -quit 2>/dev/null || true)"
+          fi
+          if [ -z "$ROM" ] || [ ! -f "$ROM" ]; then
+            echo "No vanilla ROM on this runner. FF6_VANILLA_ROM='${FF6_VANILLA_ROM:-<unset>}'." >&2
+            echo "Also checked ~/ci-assets/ostinatovi/FF3-1.1-U.smc and ~/ci-assets/*.smc." >&2
+            ls -la "$HOME/ci-assets" 2>&1 || echo "(no ~/ci-assets directory)" >&2
             exit 1
           fi
+          echo "Vanilla ROM: $ROM"
           # extract_assets.py needs numpy. Prefer the runner's python3; fall back
           # to a venv cached once on the machine.
           RIP_BIN="$(command -v python3)"
@@ -411,7 +490,7 @@ jobs:
           fi
           "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
           mkdir -p original-src/vanilla
-          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cp "$ROM" original-src/vanilla/
           cd original-src
           # The three steps the upstream `rip` target runs, invoked directly so
           # the step needs no make on any platform.
@@ -489,38 +568,69 @@ jobs:
       - name: Stage the text corpus (rip products the text tests read)
         shell: powershell
         run: |
+          $ErrorActionPreference = "Stop"
           cd $env:GITHUB_WORKSPACE
           # See the Linux x64 job: the text-corpus tests read the ripped .dat
-          # files, so this build needs original-src and the ROM. A missing ROM is
-          # a provisioning defect, not a skip.
+          # files, so this build needs original-src and the ROM.
           git submodule update --init -- original-src
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not $env:FF6_VANILLA_ROM -or -not (Test-Path $env:FF6_VANILLA_ROM)) {
-            Write-Error "FF6_VANILLA_ROM is unset or missing on this runner."
+          # The ROM is provisioned differently per runner (docs/features/ci.md
+          # "Runner provisioning"): a machine-scope variable here, a fixed path on
+          # the ARM64 VM. Take the variable when visible, else the fixed paths.
+          $rom = $env:FF6_VANILLA_ROM
+          if (-not $rom -or -not (Test-Path $rom)) {
+            foreach ($c in @("C:\ci-assets\ostinatovi\FF3-1.1-U.smc",
+                             "$env:USERPROFILE\ci-assets\ostinatovi\FF3-1.1-U.smc",
+                             "$env:USERPROFILE\ci-assets\ff6-vanilla.smc")) {
+              if (Test-Path $c) { $rom = $c; break }
+            }
+          }
+          if (-not $rom -or -not (Test-Path $rom)) {
+            $hit = Get-ChildItem -Path "C:\ci-assets","$env:USERPROFILE\ci-assets" `
+                     -Filter *.smc -Recurse -ErrorAction SilentlyContinue |
+                   Select-Object -First 1
+            if ($hit) { $rom = $hit.FullName }
+          }
+          if (-not $rom -or -not (Test-Path $rom)) {
+            Write-Host "No vanilla ROM on this runner. FF6_VANILLA_ROM='$env:FF6_VANILLA_ROM'."
+            Write-Host "Also checked C:\ci-assets and $env:USERPROFILE\ci-assets."
+            Get-ChildItem -Path "C:\ci-assets","$env:USERPROFILE\ci-assets" `
+              -Recurse -ErrorAction SilentlyContinue | Select-Object -First 40 FullName
             exit 1
           }
-          $rip = "python"
-          & $rip -c "import numpy" 2>$null
+          Write-Host "Vanilla ROM: $rom"
+          # python3/python/py all appear across these runners; take whichever
+          # resolves, then require numpy from it or from a cached venv.
+          $ripExe = $null; $ripArgs = @()
+          foreach ($c in @(@("python3",@()), @("python",@()), @("py",@("-3")))) {
+            if (Get-Command $c[0] -ErrorAction SilentlyContinue) {
+              $ripExe = $c[0]; $ripArgs = $c[1]; break
+            }
+          }
+          if (-not $ripExe) { Write-Host "No Python interpreter on PATH."; exit 1 }
+          & $ripExe @ripArgs -c "import numpy" 2>$null
           if ($LASTEXITCODE -ne 0) {
             $venv = "$env:USERPROFILE\.cache\ostinatovi-rip-venv"
             if (-not (Test-Path "$venv\Scripts\python.exe")) {
-              & $rip -m venv $venv
-              & "$venv\Scripts\pip.exe" --quiet install numpy
+              & $ripExe @ripArgs -m venv $venv
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              & "$venv\Scripts\python.exe" -m pip --quiet install numpy
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             }
-            $rip = "$venv\Scripts\python.exe"
+            $ripExe = "$venv\Scripts\python.exe"; $ripArgs = @()
           }
-          & $rip -c "import numpy"   # hard proof before ripping
+          & $ripExe @ripArgs -c "import numpy"   # hard proof before ripping
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Force -Path original-src\vanilla | Out-Null
-          Copy-Item $env:FF6_VANILLA_ROM original-src\vanilla\ -Force
+          Copy-Item $rom original-src\vanilla\ -Force
           cd original-src
           # The three steps the upstream `rip` target runs, invoked directly so
           # the step needs no make on Windows.
-          & $rip tools/extract_assets.py
+          & $ripExe @ripArgs tools/extract_assets.py
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $rip tools/fix_dlg.py combine en
+          & $ripExe @ripArgs tools/fix_dlg.py combine en
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          & $rip tools/fix_dlg.py combine jp
+          & $ripExe @ripArgs tools/fix_dlg.py combine jp
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure
