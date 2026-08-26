@@ -50,8 +50,8 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Only the engine is initialized — the upstream disassembly submodule is a
-          # port-time asset source, not a build input, and nothing in this build reads it.
+          # Only the engine is initialized here. The upstream disassembly comes in
+          # through the text-corpus staging step below, which also needs the ROM.
           # A job's GITHUB_TOKEN is scoped to this repo only, so the credential is supplied
           # per-invocation with -c (git passes it down to the clone it spawns) rather than
           # written to the runner's git config.
@@ -72,6 +72,41 @@ jobs:
             git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
               submodule update --init --recursive -- engine
           fi
+
+      - name: Stage the text corpus (rip products the text tests read)
+        run: |
+          set -eo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # The text-corpus tests read the ripped .dat files out of the upstream
+          # disassembly, so this build DOES need original-src. Without this step
+          # they skip — and a skip that happens on only some runners hides those
+          # tests behind a green tick, which is what it did until 2026-08-25.
+          git submodule update --init -- original-src
+          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
+            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
+            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+            exit 1
+          fi
+          # extract_assets.py needs numpy. Prefer the runner's python3; fall back
+          # to a venv cached once on the machine.
+          RIP_BIN="$(command -v python3)"
+          if ! "$RIP_BIN" -c 'import numpy' 2>/dev/null; then
+            VENV="$HOME/.cache/ostinatovi-rip-venv"
+            if [ ! -x "$VENV/bin/python3" ]; then
+              python3 -m venv "$VENV"
+              "$VENV/bin/pip" --quiet install numpy
+            fi
+            RIP_BIN="$VENV/bin/python3"
+          fi
+          "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
+          mkdir -p original-src/vanilla
+          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cd original-src
+          # The three steps the upstream `rip` target runs, invoked directly so
+          # the step needs no make on any platform.
+          "$RIP_BIN" tools/extract_assets.py
+          "$RIP_BIN" tools/fix_dlg.py combine en
+          "$RIP_BIN" tools/fix_dlg.py combine jp
 
       - name: Configure
         run: |
@@ -135,6 +170,41 @@ jobs:
               submodule update --init --recursive -- engine
           fi
 
+      - name: Stage the text corpus (rip products the text tests read)
+        run: |
+          set -eo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # The text-corpus tests read the ripped .dat files out of the upstream
+          # disassembly, so this build DOES need original-src. Without this step
+          # they skip — and a skip that happens on only some runners hides those
+          # tests behind a green tick, which is what it did until 2026-08-25.
+          git submodule update --init -- original-src
+          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
+            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
+            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+            exit 1
+          fi
+          # extract_assets.py needs numpy. Prefer the runner's python3; fall back
+          # to a venv cached once on the machine.
+          RIP_BIN="$(command -v python3)"
+          if ! "$RIP_BIN" -c 'import numpy' 2>/dev/null; then
+            VENV="$HOME/.cache/ostinatovi-rip-venv"
+            if [ ! -x "$VENV/bin/python3" ]; then
+              python3 -m venv "$VENV"
+              "$VENV/bin/pip" --quiet install numpy
+            fi
+            RIP_BIN="$VENV/bin/python3"
+          fi
+          "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
+          mkdir -p original-src/vanilla
+          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cd original-src
+          # The three steps the upstream `rip` target runs, invoked directly so
+          # the step needs no make on any platform.
+          "$RIP_BIN" tools/extract_assets.py
+          "$RIP_BIN" tools/fix_dlg.py combine en
+          "$RIP_BIN" tools/fix_dlg.py combine jp
+
       - name: Configure
         run: |
           cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build" \
@@ -190,6 +260,43 @@ jobs:
             git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Stage the text corpus (rip products the text tests read)
+        shell: powershell
+        run: |
+          cd $env:GITHUB_WORKSPACE
+          # See the Linux x64 job: the text-corpus tests read the ripped .dat
+          # files, so this build needs original-src and the ROM. A missing ROM is
+          # a provisioning defect, not a skip.
+          git submodule update --init -- original-src
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $env:FF6_VANILLA_ROM -or -not (Test-Path $env:FF6_VANILLA_ROM)) {
+            Write-Error "FF6_VANILLA_ROM is unset or missing on this runner."
+            exit 1
+          }
+          $rip = "python"
+          & $rip -c "import numpy" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            $venv = "$env:USERPROFILE\.cache\ostinatovi-rip-venv"
+            if (-not (Test-Path "$venv\Scripts\python.exe")) {
+              & $rip -m venv $venv
+              & "$venv\Scripts\pip.exe" --quiet install numpy
+            }
+            $rip = "$venv\Scripts\python.exe"
+          }
+          & $rip -c "import numpy"   # hard proof before ripping
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path original-src\vanilla | Out-Null
+          Copy-Item $env:FF6_VANILLA_ROM original-src\vanilla\ -Force
+          cd original-src
+          # The three steps the upstream `rip` target runs, invoked directly so
+          # the step needs no make on Windows.
+          & $rip tools/extract_assets.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $rip tools/fix_dlg.py combine en
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $rip tools/fix_dlg.py combine jp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure
         shell: powershell
@@ -277,6 +384,41 @@ jobs:
               submodule update --init --recursive -- engine
           fi
 
+      - name: Stage the text corpus (rip products the text tests read)
+        run: |
+          set -eo pipefail
+          cd "$GITHUB_WORKSPACE"
+          # The text-corpus tests read the ripped .dat files out of the upstream
+          # disassembly, so this build DOES need original-src. Without this step
+          # they skip — and a skip that happens on only some runners hides those
+          # tests behind a green tick, which is what it did until 2026-08-25.
+          git submodule update --init -- original-src
+          if [ -z "${FF6_VANILLA_ROM:-}" ] || [ ! -f "${FF6_VANILLA_ROM}" ]; then
+            echo "FF6_VANILLA_ROM is unset or missing on this runner." >&2
+            echo "The text tests need the rip corpus; a missing ROM is a provisioning defect, not a skip." >&2
+            exit 1
+          fi
+          # extract_assets.py needs numpy. Prefer the runner's python3; fall back
+          # to a venv cached once on the machine.
+          RIP_BIN="$(command -v python3)"
+          if ! "$RIP_BIN" -c 'import numpy' 2>/dev/null; then
+            VENV="$HOME/.cache/ostinatovi-rip-venv"
+            if [ ! -x "$VENV/bin/python3" ]; then
+              python3 -m venv "$VENV"
+              "$VENV/bin/pip" --quiet install numpy
+            fi
+            RIP_BIN="$VENV/bin/python3"
+          fi
+          "$RIP_BIN" -c 'import numpy'   # hard proof before ripping
+          mkdir -p original-src/vanilla
+          cp "$FF6_VANILLA_ROM" original-src/vanilla/
+          cd original-src
+          # The three steps the upstream `rip` target runs, invoked directly so
+          # the step needs no make on any platform.
+          "$RIP_BIN" tools/extract_assets.py
+          "$RIP_BIN" tools/fix_dlg.py combine en
+          "$RIP_BIN" tools/fix_dlg.py combine jp
+
       - name: Configure
         run: |
           cmake -S "$GITHUB_WORKSPACE" -B "$GITHUB_WORKSPACE/build" \
@@ -343,6 +485,43 @@ jobs:
             git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
+
+      - name: Stage the text corpus (rip products the text tests read)
+        shell: powershell
+        run: |
+          cd $env:GITHUB_WORKSPACE
+          # See the Linux x64 job: the text-corpus tests read the ripped .dat
+          # files, so this build needs original-src and the ROM. A missing ROM is
+          # a provisioning defect, not a skip.
+          git submodule update --init -- original-src
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not $env:FF6_VANILLA_ROM -or -not (Test-Path $env:FF6_VANILLA_ROM)) {
+            Write-Error "FF6_VANILLA_ROM is unset or missing on this runner."
+            exit 1
+          }
+          $rip = "python"
+          & $rip -c "import numpy" 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            $venv = "$env:USERPROFILE\.cache\ostinatovi-rip-venv"
+            if (-not (Test-Path "$venv\Scripts\python.exe")) {
+              & $rip -m venv $venv
+              & "$venv\Scripts\pip.exe" --quiet install numpy
+            }
+            $rip = "$venv\Scripts\python.exe"
+          }
+          & $rip -c "import numpy"   # hard proof before ripping
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          New-Item -ItemType Directory -Force -Path original-src\vanilla | Out-Null
+          Copy-Item $env:FF6_VANILLA_ROM original-src\vanilla\ -Force
+          cd original-src
+          # The three steps the upstream `rip` target runs, invoked directly so
+          # the step needs no make on Windows.
+          & $rip tools/extract_assets.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $rip tools/fix_dlg.py combine en
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          & $rip tools/fix_dlg.py combine jp
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Configure
         shell: powershell
