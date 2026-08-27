@@ -52,8 +52,19 @@ Game data carrying exact original values (stats, tables, formulas) is emitted by
 ## Distribution & asset model
 
 - **The distribution never requires the disassembly.** `original-src/` is a dev submodule only; the released artifact carries no disassembly gitlink and no build/runtime reference to it.
-- **End users supply their own ROM — selected in-app at first start** (Zelda64 / Ship of Harkinian model). The port's first launch with an empty pack presents a ROM-selection flow, runs extraction internally, and populates `assets/{gfx,audio}/default/` — same layout the dev populate path produces. No separate manual tool step in the user experience. **No extraction product is ever committed or shipped.**
+- **End users supply their own ROM — selected in-app at first start** (Zelda64 / Ship of Harkinian model). The port's first launch with an empty pack presents a ROM-selection flow, runs extraction internally, and populates the canonical asset directories — the same layout the dev populate path produces. No separate manual tool step in the user experience. **No extraction product is ever committed or shipped.**
 - Full pack model in `docs/features/asset-acquisition.md`.
+
+### What is extracted, and what is compiled in
+
+The line is the content's **nature**, not its file format or its size, and it is drawn once for the whole project rather than re-argued at each table:
+
+- **Extracted from the player's ROM, never compiled in and never committed:** game text (dialogue, names, descriptions, battle and menu strings), map layouts and tilemaps, artwork of every kind (backgrounds, sprites, fonts, portraits), and music and sound. These are authored expression.
+- **Compiled into the binary:** the mechanics and the numeric tables that encode them — stats, formulas, encounter and formation tables, passability and terrain bits, animation and command properties, ids, curves. These are rules, not expression.
+
+A borderline case is decided by asking what the bytes *are*: a table of tile indices that draws a piece of the world is content even when it is small (the world map's tile patches moved to extraction on exactly this reasoning), while a byte that says whether the party can walk on a tile is mechanics even when it sits beside one.
+
+**One extraction route, one code path.** The port's own extractor reads the ROM and writes the asset files; CI, a developer's machine and a player's install all populate the same way through the same binary. The upstream disassembly's own rip tooling is never a build or CI dependency — it is a design reference, not an asset supply.
 
 ## Version support (decided 2026-08-02)
 
