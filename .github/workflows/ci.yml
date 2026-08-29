@@ -52,16 +52,23 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           # Only the engine is initialized — the upstream disassembly submodule is a
           # port-time asset source, not a build input, and nothing in this build reads it.
-          # The engine is a private repo and a job's GITHUB_TOKEN is scoped to this repo
-          # only, so the credential is supplied per-invocation with -c (git passes it down
-          # to the clone it spawns) rather than written to the runner's git config.
+          # A job's GITHUB_TOKEN is scoped to this repo only, so the credential is supplied
+          # per-invocation with -c (git passes it down to the clone it spawns) rather than
+          # written to the runner's git config.
           # Recursive because the engine builds SDL3 and SameBoy from its own submodules.
-          # A leftover submodule clone from an earlier run can lack the revision this
-          # branch records ("Unable to find current revision"); discarding it and retrying
-          # once costs a full fetch only on the run that hits it.
+          # These runners keep their workspace between runs, so sync first: a submodule
+          # clone left by an earlier run still carries whatever URL it was created with,
+          # and asking the old host for a revision only the new one has fails as
+          # "not our ref". deinit does not discard .git/modules/engine, so the retry
+          # removes it outright before syncing again.
+          # A leftover clone can also simply lack the revision this branch records
+          # ("Unable to find current revision"); the same retry covers that.
+          git submodule sync --recursive -- engine
           if ! git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
                  submodule update --init --recursive -- engine; then
             git submodule deinit -f -- engine
+            rm -rf .git/modules/engine
+            git submodule sync --recursive -- engine
             git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
               submodule update --init --recursive -- engine
           fi
@@ -115,11 +122,15 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          # See the Linux job for why only the engine is initialized and why the
-          # credential is supplied per-invocation rather than written to git config.
+          # See the Linux job for why only the engine is initialized, why the credential
+          # is supplied per-invocation rather than written to git config, and why a
+          # persistent workspace has to sync before it updates.
+          git submodule sync --recursive -- engine
           if ! git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
                  submodule update --init --recursive -- engine; then
             git submodule deinit -f -- engine
+            rm -rf .git/modules/engine
+            git submodule sync --recursive -- engine
             git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
               submodule update --init --recursive -- engine
           fi
@@ -167,11 +178,15 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd $env:GITHUB_WORKSPACE
-          # See the Linux job for why only the engine is initialized and why the
-          # credential is supplied per-invocation rather than written to git config.
+          # See the Linux job for why only the engine is initialized, why the credential
+          # is supplied per-invocation rather than written to git config, and why a
+          # persistent workspace has to sync before it updates.
+          git submodule sync --recursive -- engine
           git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
           if ($LASTEXITCODE -ne 0) {
             git submodule deinit -f -- engine
+            Remove-Item -Recurse -Force .git/modules/engine -ErrorAction SilentlyContinue
+            git submodule sync --recursive -- engine
             git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
@@ -249,12 +264,15 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          # See the Linux x64 job for why only the engine is initialized and why
-          # the credential is supplied per-invocation rather than written to git
-          # config.
+          # See the Linux x64 job for why only the engine is initialized, why the
+          # credential is supplied per-invocation rather than written to git config,
+          # and why a persistent workspace has to sync before it updates.
+          git submodule sync --recursive -- engine
           if ! git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
                  submodule update --init --recursive -- engine; then
             git submodule deinit -f -- engine
+            rm -rf .git/modules/engine
+            git submodule sync --recursive -- engine
             git -c "url.https://x-access-token:${ENGINE_PAT}@github.com/.insteadOf=https://github.com/" \
               submodule update --init --recursive -- engine
           fi
@@ -313,12 +331,15 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd $env:GITHUB_WORKSPACE
-          # See the Linux x64 job for why only the engine is initialized and why
-          # the credential is supplied per-invocation rather than written to git
-          # config.
+          # See the Linux x64 job for why only the engine is initialized, why the
+          # credential is supplied per-invocation rather than written to git config,
+          # and why a persistent workspace has to sync before it updates.
+          git submodule sync --recursive -- engine
           git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
           if ($LASTEXITCODE -ne 0) {
             git submodule deinit -f -- engine
+            Remove-Item -Recurse -Force .git/modules/engine -ErrorAction SilentlyContinue
+            git submodule sync --recursive -- engine
             git -c "url.https://x-access-token:${env:ENGINE_PAT}@github.com/.insteadOf=https://github.com/" submodule update --init --recursive -- engine
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
