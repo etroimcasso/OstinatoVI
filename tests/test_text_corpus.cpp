@@ -182,7 +182,7 @@ protected:
 };
 
 TEST_F(TextCorpusRipTest, EveryFixedClassRoundTrips) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     for (const auto& meta : textClassMetadata()) {
         if (meta.kind != TextClassKind::FIXED) continue;
         const std::vector<std::uint8_t> bytes = raw(std::string(meta.fileStem));
@@ -204,7 +204,7 @@ TEST_F(TextCorpusRipTest, EveryFixedClassRoundTrips) {
 }
 
 TEST_F(TextCorpusRipTest, EnumKeyedAccessorsHitTheRightRecord) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const auto itemBytes = raw("item_name");
     const auto item5 = corpus().itemName(ItemId{5});
     EXPECT_TRUE(spanEq(item5,
@@ -227,7 +227,7 @@ TEST_F(TextCorpusRipTest, EnumKeyedAccessorsHitTheRightRecord) {
 }
 
 TEST_F(TextCorpusRipTest, DecimalIndexAccessorsHitTheRightRecord) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const auto attackBytes = raw("attack_name");
     const auto atk174 = corpus().attackName(174);  // last of 175
     EXPECT_TRUE(spanEq(atk174,
@@ -240,7 +240,7 @@ TEST_F(TextCorpusRipTest, DecimalIndexAccessorsHitTheRightRecord) {
 }
 
 TEST_F(TextCorpusRipTest, DteTableExpandsAgainstRawPairs) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const auto dteBytes = raw("dte_tbl");
     ASSERT_EQ(dteBytes.size(), 256u);
     const DteTable dte = corpus().dte();
@@ -257,7 +257,7 @@ TEST_F(TextCorpusRipTest, DteTableExpandsAgainstRawPairs) {
 }
 
 TEST_F(TextCorpusRipTest, PointerClassBytesLoadWhole) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     ASSERT_TRUE(corpus().has(TextClass::DLG1));
     const auto dlg1 = raw("dlg1");
     EXPECT_EQ(corpus().rawBytes(TextClass::DLG1).size(), dlg1.size());
