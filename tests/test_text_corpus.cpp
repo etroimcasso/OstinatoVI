@@ -1,22 +1,20 @@
 // Text-corpus tests: the structural metadata table, the TextCorpus loader
 // (both the filesystem seam and the seam-free buffer path), the fixed-length
-// name accessors round-tripped against the real rip bytes, and DTE expansion.
+// name accessors round-tripped against the real cartridge bytes, and DTE
+// expansion.
 //
-// The real-corpus tests locate the rip via FF6_TEXT_DIR (env), defaulting to
-// the repo-relative rip path baked in at configure time. The rip names files
-// with a language suffix (char_name_en.dat); the game reads unsuffixed files
-// from a language directory (assets/text/en/char_name.dat), so the fixture
-// stages the rip into a temp directory under the game's layout and loads
-// through the real loadFromDirectory path. Absent corpus -> visible GTEST_SKIP.
+// The real-corpus tests read a cartridge end to end: the image FF6_VANILLA_ROM
+// names is hosted, each text family is read out of it, and the corpus built
+// from those buffers is checked against the same bytes sliced straight from the
+// image. Without a cartridge, or without the machine that reads one, they skip
+// and say which is missing.
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <array>
 #include <cstdint>
-#include <cstdlib>
 #include <filesystem>
 #include <fstream>
-#include <iterator>
 #include <optional>
 #include <span>
 #include <string>
@@ -31,6 +29,7 @@
 
 #include "data/text_corpus.h"
 #include "data/text_metadata.h"
+#include "vanilla_rom.h"
 #include "fixtures/text_metadata_expected.h"
 #include "ostinato/dance_id.h"
 #include "ostinato/esper_bonus.h"
@@ -39,10 +38,6 @@
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/text_class.h"
-
-#ifndef FF6_TEXT_DIR_DEFAULT
-#define FF6_TEXT_DIR_DEFAULT ""
-#endif
 
 namespace ostinato {
 namespace {
@@ -56,19 +51,6 @@ long processId() {
 #else
     return ::getpid();
 #endif
-}
-
-fs::path ripTextDir() {
-    if (const char* env = std::getenv("FF6_TEXT_DIR")) {
-        return fs::path(env);
-    }
-    return fs::path(FF6_TEXT_DIR_DEFAULT);
-}
-
-std::vector<std::uint8_t> readAll(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in),
-                                     std::istreambuf_iterator<char>());
 }
 
 bool spanEq(std::span<const std::uint8_t> a, std::span<const std::uint8_t> b) {
@@ -174,70 +156,46 @@ TEST(TextCorpusBufferPath, ConstructsFromBuffersWithoutIo) {
 }
 
 // ---------------------------------------------------------------------------
-// Real corpus — staged from the rip through the real loader, then round-tripped
-// against the raw bytes. Skipped cleanly when the rip is absent.
+// Real corpus — read out of a cartridge, then round-tripped against the same
+// bytes taken straight from the image. Skipped when there is no cartridge, or
+// no machine to read it with.
 // ---------------------------------------------------------------------------
 
 class TextCorpusRipTest : public ::testing::Test {
 protected:
-    inline static fs::path src_;
-    inline static fs::path staged_;
-    inline static std::optional<TextCorpus> corpus_;
-    inline static bool available_ = false;
+    inline static test::IngestedCartridge cartridge_;
 
-    static void SetUpTestSuite() {
-        src_ = ripTextDir();
-        if (src_.empty() ||
-            !fs::exists(src_ / "char_name_en.dat")) {
-            available_ = false;
-            return;
-        }
-        staged_ = fs::temp_directory_path() /
-                  ("ostinato_text_rip_" + std::to_string(processId()));
-        fs::create_directories(staged_);
+    static void SetUpTestSuite() { cartridge_ = test::ingestVanilla(); }
+
+    static const TextCorpus& corpus() { return cartridge_.content->text; }
+
+    // A class's bytes straight out of the image, for comparison against what
+    // the corpus sliced out of the machine's read.
+    static std::vector<std::uint8_t> raw(const std::string& stem) {
         for (const auto& meta : textClassMetadata()) {
-            const fs::path srcFile =
-                src_ / (std::string(meta.fileStem) + "_en.dat");
-            if (fs::exists(srcFile)) {
-                fs::copy_file(srcFile,
-                              staged_ / (std::string(meta.fileStem) + ".dat"),
-                              fs::copy_options::overwrite_existing);
+            if (meta.fileStem == stem) {
+                return test::romSlice(cartridge_.image, meta.id);
             }
         }
-        corpus_ = TextCorpus::loadFromDirectory(staged_);
-        available_ = true;
-    }
-
-    static void TearDownTestSuite() {
-        corpus_.reset();
-        if (!staged_.empty()) {
-            std::error_code ec;
-            fs::remove_all(staged_, ec);
-        }
-    }
-
-    // Raw bytes of a class straight from the rip _en.dat, for independent
-    // comparison against the loader's slicing.
-    static std::vector<std::uint8_t> raw(const std::string& stem) {
-        return readAll(src_ / (stem + "_en.dat"));
+        return {};
     }
 };
 
 TEST_F(TextCorpusRipTest, EveryFixedClassRoundTrips) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
     for (const auto& meta : textClassMetadata()) {
         if (meta.kind != TextClassKind::FIXED) continue;
         const std::vector<std::uint8_t> bytes = raw(std::string(meta.fileStem));
         ASSERT_EQ(bytes.size(),
                   static_cast<std::size_t>(meta.recordCount) * meta.recordSize)
             << meta.fileStem;
-        ASSERT_TRUE(corpus_->has(meta.id)) << meta.fileStem;
+        ASSERT_TRUE(corpus().has(meta.id)) << meta.fileStem;
         // Every record's accessor slice must equal the raw slice.
         for (std::size_t r = 0; r < meta.recordCount; ++r) {
             const std::span<const std::uint8_t> want(
                 bytes.data() + r * meta.recordSize, meta.recordSize);
             std::span<const std::uint8_t> got =
-                corpus_->rawBytes(meta.id).subspan(r * meta.recordSize,
+                corpus().rawBytes(meta.id).subspan(r * meta.recordSize,
                                                    meta.recordSize);
             ASSERT_TRUE(spanEq(got, want))
                 << meta.fileStem << " record " << r;
@@ -246,46 +204,46 @@ TEST_F(TextCorpusRipTest, EveryFixedClassRoundTrips) {
 }
 
 TEST_F(TextCorpusRipTest, EnumKeyedAccessorsHitTheRightRecord) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
     const auto itemBytes = raw("item_name");
-    const auto item5 = corpus_->itemName(ItemId{5});
+    const auto item5 = corpus().itemName(ItemId{5});
     EXPECT_TRUE(spanEq(item5,
                        std::span<const std::uint8_t>(itemBytes.data() + 5 * 13, 13)));
 
     const auto monBytes = raw("monster_name");
-    const auto mon383 = corpus_->monsterName(static_cast<MonsterId>(383));
+    const auto mon383 = corpus().monsterName(static_cast<MonsterId>(383));
     EXPECT_TRUE(spanEq(mon383,
                        std::span<const std::uint8_t>(monBytes.data() + 383 * 10, 10)));
 
     const auto danceBytes = raw("dance_name");
-    const auto dance0 = corpus_->danceName(static_cast<DanceId>(0));
+    const auto dance0 = corpus().danceName(static_cast<DanceId>(0));
     EXPECT_TRUE(spanEq(dance0,
                        std::span<const std::uint8_t>(danceBytes.data(), 12)));
 
     const auto bonusBytes = raw("genju_bonus_name");
-    const auto bonus0 = corpus_->genjuBonusName(static_cast<EsperBonus>(0));
+    const auto bonus0 = corpus().genjuBonusName(static_cast<EsperBonus>(0));
     EXPECT_TRUE(spanEq(bonus0,
                        std::span<const std::uint8_t>(bonusBytes.data(), 9)));
 }
 
 TEST_F(TextCorpusRipTest, DecimalIndexAccessorsHitTheRightRecord) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
     const auto attackBytes = raw("attack_name");
-    const auto atk174 = corpus_->attackName(174);  // last of 175
+    const auto atk174 = corpus().attackName(174);  // last of 175
     EXPECT_TRUE(spanEq(atk174,
                        std::span<const std::uint8_t>(attackBytes.data() + 174 * 10, 10)));
 
     const auto cmdBytes = raw("battle_cmd_name");
-    const auto cmd0 = corpus_->battleCommandName(0);
+    const auto cmd0 = corpus().battleCommandName(0);
     EXPECT_TRUE(spanEq(cmd0,
                        std::span<const std::uint8_t>(cmdBytes.data(), 7)));
 }
 
 TEST_F(TextCorpusRipTest, DteTableExpandsAgainstRawPairs) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
     const auto dteBytes = raw("dte_tbl");
     ASSERT_EQ(dteBytes.size(), 256u);
-    const DteTable dte = corpus_->dte();
+    const DteTable dte = corpus().dte();
     ASSERT_TRUE(dte.loaded());
     EXPECT_EQ(dte.size(), 128u);
     EXPECT_TRUE(DteTable::isDteCode(0x80));
@@ -299,10 +257,10 @@ TEST_F(TextCorpusRipTest, DteTableExpandsAgainstRawPairs) {
 }
 
 TEST_F(TextCorpusRipTest, PointerClassBytesLoadWhole) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
-    ASSERT_TRUE(corpus_->has(TextClass::DLG1));
+    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    ASSERT_TRUE(corpus().has(TextClass::DLG1));
     const auto dlg1 = raw("dlg1");
-    EXPECT_EQ(corpus_->rawBytes(TextClass::DLG1).size(), dlg1.size());
+    EXPECT_EQ(corpus().rawBytes(TextClass::DLG1).size(), dlg1.size());
 }
 
 // ---------------------------------------------------------------------------
