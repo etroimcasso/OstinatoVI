@@ -42,6 +42,65 @@ struct WorldVehicleEventEntry {
     EventScriptRef script;
 };
 
+// Where one patch writes, in tilemap columns and rows. The world tilemap is
+// 256 columns wide, so a row step is a whole 256 from the destination word
+// (world/init.asm:1976-1979).
+struct WorldTileDestination {
+    std::uint8_t x = 0;
+    std::uint8_t y = 0;
+};
+
+// The tiles one modification chunk stamps onto the world map, read in place.
+//
+// A patch is a rectangle: where it goes, how big it is, and its tiles row by
+// row. The bytes stay where they are — this is a view over the tile pool, not a
+// copy — so it is only as good as the span it was built from.
+//
+// The record is a destination word, a byte packing width into its high nybble
+// and height into its low one, then width x height tiles in row-major order
+// (world/init.asm:1957-1982).
+class WorldTilePatch {
+public:
+    WorldTilePatch() = default;
+
+    // A patch over `bytes`, which must begin at the record's first byte and run
+    // at least to its last. A span too short to hold the header, or too short
+    // for the tiles the header claims, yields an empty patch (valid() == false)
+    // rather than reading past the end.
+    explicit WorldTilePatch(std::span<const std::uint8_t> bytes);
+
+    // Whether the span held a whole record. Everything below reads as zero or
+    // empty when it did not.
+    bool valid() const { return !bytes_.empty(); }
+
+    WorldTileDestination destination() const;
+    std::uint8_t width() const;
+    std::uint8_t height() const;
+
+    // The tiles, row-major: row r spans [r * width(), (r + 1) * width()).
+    std::span<const std::uint8_t> tiles() const;
+
+private:
+    std::span<const std::uint8_t> bytes_{};
+};
+
+// The pool of patch tiles the modification chunks point into.
+//
+// A chunk's WorldTilePatchRef counts from the start of the modification block,
+// which begins with the per-world chunk lists; the tiles follow them. So a ref
+// is resolved by subtracting how far into that block the pool itself starts —
+// the arithmetic the world program does inline (world/init.asm:1954-1956), kept
+// here so no consumer repeats it.
+struct WorldTilePool {
+    // The pool's bytes, and how far into the modification block they begin.
+    std::span<const std::uint8_t> bytes{};
+    std::uint16_t offsetInBlock = 0;
+
+    // The patch a chunk's ref names. A ref pointing before the pool or past its
+    // end yields an invalid patch.
+    WorldTilePatch patchAt(WorldTilePatchRef ref) const;
+};
+
 // One entry of the sine table: the degree, and the amplitude stored for it.
 // Identity is a field, never a comment — every generated row reads
 // { .index = N, .amplitude = M }, so no value is positionally opaque.
