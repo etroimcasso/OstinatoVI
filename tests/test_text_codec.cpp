@@ -237,7 +237,7 @@ protected:
 // complete over the whole dialogue corpus (any undefined control byte would
 // throw). DTE codes expand through the real table.
 TEST_F(TextCodecRipTest, EveryDialogueRecordTokenizes) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const DteTable dte = corpus().dte();
     ASSERT_TRUE(dte.loaded());
     const std::size_t count = textClassMetadata(TextClass::DLG1).recordCount +
@@ -251,7 +251,7 @@ TEST_F(TextCodecRipTest, EveryDialogueRecordTokenizes) {
 // Every battle-text record tokenizes and reassembles byte-for-byte (no DTE in
 // this family, so the token stream is a lossless split of the record bytes).
 TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const TextClass fams[] = {TextClass::ATTACK_MSG, TextClass::BATTLE_DLG,
                               TextClass::MONSTER_DLG};
     for (const TextClass klass : fams) {
@@ -286,7 +286,7 @@ TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
 // Every menu-description record decodes to exactly its bytes up to the 0x00
 // terminator.
 TEST_F(TextCodecRipTest, MenuDescriptionsDecodeToTerminator) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const TextClass fams[] = {
         TextClass::ITEM_DESC,      TextClass::MAGIC_DESC,
         TextClass::LORE_DESC,      TextClass::BLITZ_DESC,
@@ -341,7 +341,7 @@ TEST_F(TextCodecRipTest, MenuDescriptionsDecodeToTerminator) {
 // but skipped (see tools/asm_parser/parse_text_meta.py). This proves the
 // shipped `.dat` reads back as the real English game text.
 TEST_F(TextCodecRipTest, MenuDescriptionsCrossCheckUpstreamText) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     struct Fam {
         TextClass klass;
         const test::ExpectedMenuDesc* expected;

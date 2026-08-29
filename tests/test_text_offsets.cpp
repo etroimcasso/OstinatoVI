@@ -189,7 +189,7 @@ protected:
 // Every self-contained pointer class: each record the accessor returns equals
 // the raw `.dat` bytes sliced by the independent fixture offsets.
 TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     for (const auto& c : allOffsetCases()) {
         const std::string name = c.name;
         if (name == "dialogue") continue;  // handled separately below
@@ -217,7 +217,7 @@ TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
 // Dialogue is the combined dlg1+dlg2 stream: record i comes from dlg1's bytes
 // below the split, dlg2's above it, sliced by the same combined offset table.
 TEST_F(TextOffsetsRipTest, DialogueAccessorMatchesConcatenatedSlices) {
-    if (!cartridge_.available()) GTEST_SKIP() << cartridge_.skipReason;
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     std::vector<std::uint8_t> concat = raw("dlg1");
     const std::vector<std::uint8_t> dlg2 = raw("dlg2");
     concat.insert(concat.end(), dlg2.begin(), dlg2.end());

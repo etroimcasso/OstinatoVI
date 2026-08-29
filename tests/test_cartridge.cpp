@@ -1,8 +1,8 @@
 // Tests for the cartridge route: recognising an image, keeping it, and reading it.
 //
 // Recognition and refusal are exercised with synthetic images. The install round-trip and the read
-// need a real cartridge and skip visibly without one; the read additionally needs the SNES machine,
-// which is not built yet.
+// need a real cartridge, and a machine that cannot supply one fails rather than skipping. The read
+// additionally needs the SNES machine, which is not built yet, and says so.
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -85,11 +85,8 @@ TEST(Cartridge, AnImageWithTheWrongContentIsNotACartridge) {
 }
 
 TEST(Cartridge, TheVanillaCartridgeIsRecognised) {
-    const auto rom = test::vanillaRom();
-    if (!rom) {
-        GTEST_SKIP() << test::kNoVanillaRom;
-    }
-    const auto version = assets::identifyRom(assets::stripCopierHeader(*rom));
+    const std::vector<std::uint8_t> rom = test::vanillaRom();
+    const auto version = assets::identifyRom(assets::stripCopierHeader(rom));
     ASSERT_TRUE(version.has_value());
     // Every runner is provisioned with the 1.1 US cartridge.
     EXPECT_EQ(*version, GameVersion::US_1_1);
@@ -122,12 +119,9 @@ TEST(Cartridge, NothingIsInstalledInAFreshRoot) {
 }
 
 TEST(Cartridge, InstallingKeepsTheImageByteForByte) {
-    const auto rom = test::vanillaRom();
-    if (!rom) {
-        GTEST_SKIP() << test::kNoVanillaRom;
-    }
+    const std::vector<std::uint8_t> rom = test::vanillaRom();
     const TempRoot root;
-    const auto result = assets::installCartridge(*rom, root.path());
+    const auto result = assets::installCartridge(rom, root.path());
     ASSERT_TRUE(result.succeeded) << result.message;
     EXPECT_EQ(result.version, GameVersion::US_1_1);
     EXPECT_TRUE(assets::cartridgeInstalled(root.path()));
@@ -136,22 +130,19 @@ TEST(Cartridge, InstallingKeepsTheImageByteForByte) {
     ASSERT_TRUE(kept);
     const std::vector<std::uint8_t> bytes{std::istreambuf_iterator<char>{kept},
                                           std::istreambuf_iterator<char>{}};
-    const auto expected = assets::stripCopierHeader(*rom);
+    const auto expected = assets::stripCopierHeader(rom);
     ASSERT_EQ(bytes.size(), expected.size());
     EXPECT_TRUE(std::equal(bytes.begin(), bytes.end(), expected.begin()));
 }
 
 TEST(Cartridge, InstallingFromAFileTakesTheSameRoute) {
-    const auto rom = test::vanillaRom();
-    if (!rom) {
-        GTEST_SKIP() << test::kNoVanillaRom;
-    }
+    const std::vector<std::uint8_t> rom = test::vanillaRom();
     const TempRoot root;
     const fs::path source = root.path() / "source.sfc";
     {
         std::ofstream out{source, std::ios::binary};
-        out.write(reinterpret_cast<const char*>(rom->data()),
-                  static_cast<std::streamsize>(rom->size()));
+        out.write(reinterpret_cast<const char*>(rom.data()),
+                  static_cast<std::streamsize>(rom.size()));
     }
     const auto result = assets::installCartridge(source, root.path());
     ASSERT_TRUE(result.succeeded) << result.message;
@@ -161,12 +152,9 @@ TEST(Cartridge, InstallingFromAFileTakesTheSameRoute) {
 // --- reading one -------------------------------------------------------------
 
 TEST(Cartridge, ReadingTheCartridgeNeedsTheSnesMachine) {
-    const auto rom = test::vanillaRom();
-    if (!rom) {
-        GTEST_SKIP() << test::kNoVanillaRom;
-    }
+    const std::vector<std::uint8_t> rom = test::vanillaRom();
     try {
-        const assets::IngestedContent content = assets::ingestCartridge(*rom);
+        const assets::IngestedContent content = assets::ingestCartridge(rom);
         EXPECT_EQ(content.version, GameVersion::US_1_1);
         EXPECT_TRUE(content.text.has(TextClass::CHAR_NAME));
         EXPECT_FALSE(content.worldTiles.bytes.empty());
