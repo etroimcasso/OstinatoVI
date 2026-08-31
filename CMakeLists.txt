@@ -59,6 +59,7 @@ add_library(ostinato-vi-lib STATIC
     src/assets/asset_root.cpp
     src/assets/cartridge.cpp
     src/assets/first_start.cpp
+    src/assets/rom_reader.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp

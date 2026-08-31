@@ -1,8 +1,7 @@
 // Tests for the cartridge route: recognising an image, keeping it, and reading it.
 //
 // Recognition and refusal are exercised with synthetic images. The install round-trip and the read
-// need a real cartridge, and a machine that cannot supply one fails rather than skipping. The read
-// additionally needs the SNES machine, which is not built yet, and says so.
+// need a real cartridge, and a machine that cannot supply one fails rather than skipping.
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +12,8 @@
 #include <gtest/gtest.h>
 
 #include "assets/cartridge.h"
+#include "assets/rom_reader.h"
+#include "data/rom_regions.h"
 #include "ostinato/rom_identity.h"
 
 #include "vanilla_rom.h"
@@ -151,15 +152,92 @@ TEST(Cartridge, InstallingFromAFileTakesTheSameRoute) {
 
 // --- reading one -------------------------------------------------------------
 
-TEST(Cartridge, ReadingTheCartridgeNeedsTheSnesMachine) {
+TEST(Cartridge, ReadingACartridgeYieldsItsContent) {
     const std::vector<std::uint8_t> rom = test::vanillaRom();
-    try {
-        const assets::IngestedContent content = assets::ingestCartridge(rom);
-        EXPECT_EQ(content.version, GameVersion::US_1_1);
-        EXPECT_TRUE(content.text.has(TextClass::CHAR_NAME));
-        EXPECT_FALSE(content.worldTiles.bytes.empty());
-    } catch (const std::runtime_error&) {
-        GTEST_SKIP() << test::kNoSnesBackend;
+    const assets::IngestedContent content = assets::ingestCartridge(rom);
+    EXPECT_EQ(content.version, GameVersion::US_1_1);
+    // Every text class the US cartridge ships is there; the one it does not is absent.
+    EXPECT_TRUE(content.text.has(TextClass::CHAR_NAME));
+    EXPECT_TRUE(content.text.has(TextClass::ITEM_TYPE_NAME));
+    EXPECT_TRUE(content.text.has(TextClass::DTE_TABLE));
+    // The world-map tile pool, and the offset the chunks count from.
+    EXPECT_EQ(content.worldTiles.bytes.size(), 1182u);
+    EXPECT_EQ(content.worldTiles.offsetInBlock, 0x48u);
+}
+
+TEST(Cartridge, ReadingAnUnrecognisedImageThrows) {
+    EXPECT_THROW((void)assets::ingestCartridge(imageOfRightSizeWrongContent()), std::runtime_error);
+}
+
+// --- addressing an image -----------------------------------------------------
+
+// A stand-in image the size of a cartridge, each byte carrying its own offset so a read can be
+// checked against where it came from.
+std::vector<std::uint8_t> countingImage() {
+    std::vector<std::uint8_t> image(kRomSizeBytes);
+    for (std::size_t i = 0; i < image.size(); ++i) {
+        image[i] = static_cast<std::uint8_t>(i & 0xFF);
+    }
+    return image;
+}
+
+TEST(HiRomImage, TheFirstBankStartsAtTheStartOfTheImage) {
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    const auto bytes = cartridge.read({.at = 0xC00000, .size = 4});
+    EXPECT_EQ(bytes.data(), image.data());
+    EXPECT_EQ(bytes.size(), 4u);
+}
+
+TEST(HiRomImage, ABankNumberPicksItsSliceOfTheImage) {
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    // Bank $CE is the fourteenth bank, so it begins fourteen 64 KB slices in.
+    const auto bytes = cartridge.read({.at = 0xCE0000, .size = 1});
+    EXPECT_EQ(bytes.data(), image.data() + (0x0E << 16));
+}
+
+TEST(HiRomImage, AReadRunsStraightThroughABankBoundary) {
+    // The dialogue bank genuinely does this, which is why a read is one extent.
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    const auto bytes = cartridge.read({.at = 0xCDFFFE, .size = 4});
+    ASSERT_EQ(bytes.size(), 4u);
+    EXPECT_EQ(bytes[0], 0xFE);
+    EXPECT_EQ(bytes[1], 0xFF);
+    EXPECT_EQ(bytes[2], 0x00);  // first byte of the next bank
+    EXPECT_EQ(bytes[3], 0x01);
+}
+
+TEST(HiRomImage, TheLastByteOfTheImageIsReachable) {
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    const auto bytes = cartridge.read({.at = 0xEFFFFF, .size = 1});
+    EXPECT_EQ(bytes.data(), image.data() + kRomSizeBytes - 1);
+}
+
+TEST(HiRomImage, AReadPastTheEndThrows) {
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    EXPECT_THROW((void)cartridge.read({.at = 0xEFFFFF, .size = 2}), std::out_of_range);
+    EXPECT_FALSE(cartridge.contains({.at = 0xEFFFFF, .size = 2}));
+    EXPECT_TRUE(cartridge.contains({.at = 0xEFFFFF, .size = 1}));
+}
+
+TEST(HiRomImage, AnAddressBelowTheCartridgeIsRejected) {
+    // Banks under $C0 are the console's own memory, not this cartridge.
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    EXPECT_THROW((void)cartridge.read({.at = 0x7E0000, .size = 1}), std::invalid_argument);
+    EXPECT_FALSE(cartridge.contains({.at = 0x7E0000, .size = 1}));
+}
+
+TEST(HiRomImage, EveryShippedRegionIsInsideACartridge) {
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    for (const auto& row : romRegions()) {
+        EXPECT_TRUE(cartridge.contains(row.region))
+            << "region " << static_cast<std::size_t>(row.asset) << " does not fit a cartridge";
     }
 }
 

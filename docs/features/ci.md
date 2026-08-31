@@ -87,11 +87,7 @@ Job mechanics:
 - **`original-src` is initialized** (public submodule, no PAT) so each suite's
   end-to-end layer runs against the real committed sources (`const.inc`,
   `char_prop.asm`).
-- **Rip-product staging.** Some upstream files are produced by the disassembly's rip
-  (`make rip`), not committed — e.g. `rng_tbl.dat`. When the runner provides a ROM
-  via `FF6_VANILLA_ROM`, the job copies it into `original-src/vanilla/` and runs the
-  rip first, so those end-to-end tests run full. Without a ROM they skip with a
-  visible reason in the unittest output (never silently).
+- **Rip-product staging.** The ROM file is staged at ci-assets/ostinatovi and used as the source of all ripping operations.
 - **The rip needs numpy** (`tools/extract_assets.py` → `monster_stencil`). The job
   uses the runner's python3 when numpy imports; otherwise it builds a one-time
   cached venv (`~/.cache/ostinatovi-rip-venv`) and runs the rip with it. If numpy
@@ -124,13 +120,13 @@ holds it once at a stable path outside the workspace, exposed to jobs through a
 runner environment variable:
 
 1. Copy the vanilla ROM to a stable location on the runner (outside the Actions work
-   directory), e.g. `~/ci-assets/ff6-vanilla.smc`.
+   directory): `~/ci-assets/ostinatovi/FF3-1.1-USA.smc`.
 2. Set `FF6_VANILLA_ROM` to that absolute path in the runner's environment (the
    runner's `.env` file, or the service environment).
 
-A job that needs the ROM stages it from `FF6_VANILLA_ROM` into the workspace and
-proceeds. A runner missing the variable or the file is a provisioning failure and
-must surface loudly (fail, or skip with a visible reason) — never a silent pass.
+The parser job stages the ROM from `FF6_VANILLA_ROM` into the workspace; the C++
+tests read it in place. Every runner has one; a runner that cannot read it fails,
+naming the path.
 
 **Provisioned 2026-08-02 on the first three runners.** Verified copy (3,145,728
 bytes, CRC32 `C0FA0464`) at a stable path outside each workspace. Mechanism per
@@ -140,12 +136,14 @@ variable** (`[Environment]::SetEnvironmentVariable(..., 'Machine')`) — the ser
 inherits it on its next restart, so jobs reading it before that restart fail
 visibly per the guard above and re-run clean after a one-service bounce.
 
-**The two ARM64 runners (added 2026-08-04) use fixed paths instead of runner-level
-environment.** The ROM lives at `~/ci-assets/ostinatovi/FF3-1.1-U.smc` on
-`linmac-arm64` and `C:\ci-assets\ostinatovi\FF3-1.1-U.smc` on `WINMACARM64`; each
-ARM64 job's first step exports that path to `FF6_VANILLA_ROM` via `GITHUB_ENV`, so
-ROM-consuming steps see the same variable on every runner regardless of the
-provisioning mechanism behind it.
+**Some runners use a fixed path instead of runner-level environment.** The job's
+first step exports the path to `FF6_VANILLA_ROM` via `GITHUB_ENV`, so ROM-consuming
+steps see the same variable on every runner regardless of the mechanism behind it.
+This covers `linmac-arm64` (`~/ci-assets/ostinatovi/FF3-1.1-USA.smc`), `WINMACARM64`
+(`C:\ci-assets\ostinatovi\FF3-1.1-USA.smc`), and `ericmacmini`
+(`~/ci-assets/ostinatovi/FF3-1.1-USA.smc`) — the macOS runner's service environment
+carries the variable with an unexpanded `$HOME` in it, so the job sets it from a
+shell that has expanded it.
 
 ## Reading results
 

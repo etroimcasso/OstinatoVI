@@ -8,8 +8,8 @@ Two steps, and no third way in:
 
 1. **Install** — the player points at their cartridge. It is identified, and the image
    is copied into their own files as `rom/cartridge.sfc`. Once, ever.
-2. **Ingest** — every launch hosts that copy on a virtual machine, reads the families
-   the game needs, and lets the machine go.
+2. **Ingest** — every launch reads the families the game needs straight out of that
+   copy, at the addresses the cartridge itself uses.
 
 The install happens either through a native file dialog on a first launch, or headlessly
 via `ostinato-vi --install-rom <path>`. Both call the same function.
@@ -92,10 +92,14 @@ content.text.itemName(ItemId::POTION); // the corpus, read out of the cartridge
 content.worldTiles;                    // the world-map tile pool
 ```
 
-The virtual machine exists only for the duration of the call: the image is hosted, every
-family is read, and the machine is destroyed before `ingestCartridge` returns. The spans
-inside `IngestedContent` outlive it because the bytes are held by the engine's data
-library, which resolves an entry once and keeps it for the life of the program.
+Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps
+its banks straight onto the image, so an address becomes an offset by arithmetic —
+`assets::HiRomImage` (`src/assets/rom_reader.h`) is the one place that knows how, and it
+is the only place in the port that does arithmetic on a cartridge address.
+
+The spans inside `IngestedContent` outlive the call: the tile pool is catalogued with the
+engine's data library, which resolves an entry once and keeps it for the life of the
+program.
 
 There is an overload taking an image directly, for reading a cartridge that has not been
 installed — the tests use it.
@@ -124,9 +128,9 @@ const RomAsset asset = textClassAsset(TextClass::ITEM_NAME);
   table.
 - `romRegions()` is the whole 309-row table, for iteration.
 
-Addresses are the cartridge's own, and the machine resolves them in its decoded address
-space — so a family wider than the bank it starts in reads straight through, and nothing
-in the port does address arithmetic.
+Addresses are the cartridge's own. A family wider than the bank it starts in reads
+straight through — the dialogue bank does exactly this — because a read is one extent
+rather than a per-bank walk.
 
 ## World tile patches
 
@@ -153,10 +157,8 @@ hold, gives a patch whose `valid()` is false rather than a read past the end.
 - **The identity comes first.** `EngineConfig::setActive` must run before anything
   resolves the asset root, because the per-user directory is derived from the app
   identity. `main` does this ahead of the flag and the dialog alike.
-- **A read needs the SNES machine.** Constructing a VM for that platform throws until
-  the engine's backend is built. Tests that read a cartridge skip with that reason;
-  nothing else is affected, because the install, the region table, and the identity table
-  do not need a machine.
+- **Nothing here skips.** A test that wants a cartridge either reads one or fails. There
+  is no emulator in this path to be missing.
 - **A family with no consumer still has a region.** The table carries every family the
   cartridge holds, including ones nothing reads yet. Only the families with a consumer are
   read at launch.
@@ -165,7 +167,7 @@ hold, gives a patch whose `valid()` is false rather than a read past the end.
 
 | To do this | Edit |
 |---|---|
-| Read a family nothing reads yet | `CartridgeRegions` and the read loop in `src/assets/cartridge.cpp` — add a member, declare it in the batch, read it |
+| Read a family nothing reads yet | The read section of `ingestCartridge` in `src/assets/cartridge.cpp` — ask `romRegion` for its place and read it |
 | Change where the cartridge is kept | The literal `"rom/cartridge.sfc"` at every site that names it (registration, presence, install) |
 | Change what the dialog says, or how many times it asks | `src/assets/first_start.cpp` |
 | Accept a different set of cartridges | The CRC branches upstream, then regenerate — the identity table is emitted, not hand-written |
