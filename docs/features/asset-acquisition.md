@@ -13,7 +13,7 @@ The copy lives under the engine's asset root at `rom/cartridge.sfc`. The asset r
 A developer, a CI runner, and a player all take the same two steps:
 
 1. **Install.** The image is identified by size and CRC32 and copied into the player's files. A player does this through a native file dialog on first launch; a developer or CI runner does it headlessly with `ostinato-vi --install-rom <path> [--out <dir>]`. Both call the same function, at the same point of startup.
-2. **Ingest.** Each launch hosts the copy on a virtual machine, reads each content family whole by a version-keyed table of cartridge addresses, and destroys the machine. The bytes are held in memory for the life of the program.
+2. **Ingest.** Each launch reads each content family whole out of the copy, by a version-keyed table of cartridge addresses. The bytes are held in memory for the life of the program. FF6 is a HiROM cartridge, so an address becomes an image offset by arithmetic — no emulator is involved.
 
 Accepted cartridges are the three the upstream disassembly accepts: Final Fantasy VI 1.0 (J), Final Fantasy III 1.0 (U), and Final Fantasy III 1.1 (U). A 512-byte copier header is recognised by length and dropped before anything reads or identifies the bytes; the checksum is taken over the headerless image. Anything else is refused with a message naming what would work.
 
@@ -21,11 +21,13 @@ Addresses come from the upstream rip lists, which are keyed by **language** rath
 
 The developer-facing surface is documented at [docs/engine/assets/rom-ingestion.md](../engine/assets/rom-ingestion.md).
 
+The engine's SNES virtual machine will eventually be able to host a cartridge and answer reads itself. That path waits on Snaggletooth, the clean-room SNES implementation the engine uses, which is both unfinished and LoROM-only at present. When it arrives it becomes a second implementation of the same step, checkable against this one.
+
 ### Why in place rather than extracted
 
 Reading the cartridge directly removes the whole class of problems that an extracted asset tree creates: a partially written tree, a stale tree after a format change, a developer tree populated by a different tool than the player's, and a build that has to know whether content is present. It also means the addresses are exercised on every launch rather than once at extraction time, so a wrong one surfaces immediately and is attributable.
 
-The cost is that reading needs the machine. Until the engine's SNES backend is built, constructing that machine fails, and the tests that read a cartridge skip with that reason stated. The install, the address table, and the identity table need no machine and are exercised now.
+The cost is a single place in the port that knows a cartridge address becomes an image offset by bank arithmetic. That is hardware-shaped, which the port otherwise keeps out of its surfaces — it is confined to one function at the I/O boundary, where the bytes and their addressing are the contract.
 
 ## Pack system
 

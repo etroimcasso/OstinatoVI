@@ -5,8 +5,8 @@
 // a provisioning failure and fails the test that wanted it, naming the variable and the path — it
 // is never skipped past, because a skip would let a misconfigured machine report a clean run.
 //
-// The one thing that IS skipped is the machine that reads a cartridge: constructing a VM for the
-// SNES throws until the engine's backend is built, and those tests say so.
+// Nothing here skips. Reading a cartridge needs no emulator — the port maps a cartridge address
+// onto the image directly — so a test that wants one either gets it or fails.
 #pragma once
 
 #include <cstdint>
@@ -25,9 +25,6 @@
 #include "ostinato/rom_asset.h"
 
 namespace ostinato::test {
-
-// What a test says when the cartridge is there but the machine that reads it is not yet built.
-inline constexpr const char* kNoSnesBackend = "SNES VM backend not built";
 
 // The cartridge FF6_VANILLA_ROM names.
 //
@@ -55,48 +52,37 @@ inline std::vector<std::uint8_t> vanillaRom() {
 }
 
 // One reading of the cartridge, kept alongside the image it came from so a test can compare what
-// the machine handed back against the file's own bytes.
+// the reader handed back against the file's own bytes.
 //
-// The cartridge itself is never optional — a machine that cannot supply one fails here. `content`
-// is empty only while the SNES backend is unbuilt, and `skipReason` says so.
+// `romError` carries whatever stopped a cartridge being read, so the test that wanted one can fail
+// on it — a fixture's suite-wide setup cannot fail a test by throwing.
 struct IngestedCartridge {
     std::vector<std::uint8_t> image;
     std::optional<assets::IngestedContent> content;
-    std::string skipReason;   // set only when the SNES backend is unbuilt
-    std::string romError;     // set when no cartridge could be read — a failure, never a skip
+    std::string romError;
 
     bool available() const { return content.has_value(); }
 };
 
-// Read the cartridge FF6_VANILLA_ROM names. A missing or unreadable cartridge throws; an unbuilt
-// SNES backend comes back as a reason to skip.
+// Read the cartridge FF6_VANILLA_ROM names. Anything that stops it — no variable, an unreadable
+// file, an image no revision matches — is recorded for the test to fail on.
 inline IngestedCartridge ingestVanilla() {
     IngestedCartridge result;
     try {
         result.image = vanillaRom();
-    } catch (const std::runtime_error& error) {
-        // Recorded rather than thrown: a fixture's suite-wide setup cannot fail a test by
-        // throwing, so the tests themselves fail on this in REQUIRE_CARTRIDGE below.
-        result.romError = error.what();
-        return result;
-    }
-    try {
         result.content = assets::ingestCartridge(result.image);
-    } catch (const std::runtime_error&) {
-        result.skipReason = kNoSnesBackend;
+    } catch (const std::exception& error) {
+        result.romError = error.what();
     }
     return result;
 }
 
-// The guard every cartridge-reading test opens with. A cartridge that could not be read FAILS the
-// test; only the unbuilt SNES backend skips.
+// The guard every cartridge-reading test opens with. There is no skip path: a cartridge that could
+// not be read fails the test, naming what stopped it.
 #define OSTINATO_REQUIRE_CARTRIDGE(cartridge)                       \
     do {                                                            \
-        if (!(cartridge).romError.empty()) {                        \
-            FAIL() << (cartridge).romError;                         \
-        }                                                           \
         if (!(cartridge).available()) {                             \
-            GTEST_SKIP() << (cartridge).skipReason;                 \
+            FAIL() << (cartridge).romError;                         \
         }                                                           \
     } while (0)
 
