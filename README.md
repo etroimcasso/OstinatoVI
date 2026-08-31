@@ -1,7 +1,7 @@
 # Ostinato VI
 
 A native C++ reimplementation of **Final Fantasy VI** (Super Famicom / SNES), built on the
-[Retro++ engine](https://github.com/RetroPlusPlus/Engine). The goal is behavioral
+[Polyrhythm engine](https://github.com/RetroPlusPlus/Polyrhythm). The goal is behavioral
 fidelity — same observable behavior as the original given the same inputs and RNG state —
 running as ordinary native code on Windows, macOS, and Linux. Not an emulator, and not a
 mechanical ASM translation: idiomatic modern C++ against a portable engine layer.
@@ -47,7 +47,7 @@ conveniences work against it.
 |---|---|
 | `src/`, `include/ostinato/` | Port source and public headers |
 | `tests/` | GoogleTest suite |
-| `engine/` | [Retro++](https://github.com/RetroPlusPlus/Engine) engine submodule |
+| `engine/` | [Polyrhythm](https://github.com/RetroPlusPlus/Polyrhythm) engine submodule |
 | `original-src/` | [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly submodule (GPL-3.0) — read-only derivation reference; development-time only, never required by the distribution |
 | `assets/{gfx,audio}/default/` | Canonical asset-pack load targets; contents are generated locally and never committed |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
@@ -75,7 +75,7 @@ The build defaults to a lean Release configuration (optimized, dead-stripped, sy
 ## License
 
 This port's source is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0);
-see [LICENSE](LICENSE). Copyright © 2026 the OstinatoVI authors. The Retro++ engine (the
+see [LICENSE](LICENSE). Copyright © 2026 the OstinatoVI authors. The Polyrhythm engine (the
 `engine/` submodule) is likewise AGPL-3.0, so the combined distributable is AGPL-3.0.
 
 The upstream disassembly ([everything8215/ff6](https://github.com/everything8215/ff6)) is GPL-3.0
