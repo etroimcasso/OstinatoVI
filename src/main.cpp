@@ -124,6 +124,6 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::cout << ostinato::portName() << " on Retro++ " << retropp::version() << "\n";
+    std::cout << ostinato::portName() << " on Polyrhythm " << retropp::version() << "\n";
     return 0;
 }
