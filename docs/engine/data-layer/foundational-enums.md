@@ -56,9 +56,9 @@ constexpr bool     isRevision1(GameVersion version);   // true only for US_1_1
 One binary serves all three supported ROM revisions — Final Fantasy VI (J) 1.0 and
 Final Fantasy III (US) 1.0 / 1.1. Version-conditional data and behavior key off
 these predicates rather than build-time configuration. The enumerator values are
-ordering-stable but arbitrary and are never persisted as-is; a save or asset pack
-records the identified revision explicitly. ROM identification (CRC matching) is
-the extraction tool's concern, not this header's.
+ordering-stable but arbitrary and are never persisted as-is. Which revision a
+cartridge is belongs to the port's own cartridge handling — see
+[../assets/rom-ingestion.md](../assets/rom-ingestion.md).
 
 ## Character identity — four distinct index spaces
 
