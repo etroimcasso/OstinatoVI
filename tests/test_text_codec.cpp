@@ -13,29 +13,22 @@
 //   4. Menu-description decode cross-check against the upstream reference text
 //      (parser-emitted), for the records whose glyph bytes are unambiguous.
 //
-// The real-corpus sweeps locate the rip via FF6_TEXT_DIR; absent corpus ->
-// visible GTEST_SKIP. JP validation waits on a Japanese ROM.
+// The real-corpus sweeps read the cartridge FF6_VANILLA_ROM names; without one,
+// or without the machine that reads one, they skip and say which is missing. JP
+// validation waits on a Japanese cartridge.
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <filesystem>
-#include <optional>
 #include <span>
 #include <string>
 #include <variant>
 #include <vector>
 
-#if defined(_WIN32)
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
-
 #include "data/text_codec.h"
 #include "data/text_corpus.h"
 #include "data/text_metadata.h"
+#include "vanilla_rom.h"
 #include "fixtures/text_menu_desc_expected.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/battle_text_command.h"
@@ -44,29 +37,8 @@
 #include "ostinato/text_class.h"
 #include "ostinato/text_token.h"
 
-#ifndef FF6_TEXT_DIR_DEFAULT
-#define FF6_TEXT_DIR_DEFAULT ""
-#endif
-
 namespace ostinato {
 namespace {
-
-namespace fs = std::filesystem;
-
-long processId() {
-#if defined(_WIN32)
-    return _getpid();
-#else
-    return ::getpid();
-#endif
-}
-
-fs::path ripTextDir() {
-    if (const char* env = std::getenv("FF6_TEXT_DIR")) {
-        return fs::path(env);
-    }
-    return fs::path(FF6_TEXT_DIR_DEFAULT);
-}
 
 // A 256-byte DTE buffer whose code C (>= 0x80) expands to the pair
 // {C, C ^ 0xFF} — enough to check the expansion wiring without the real table.
@@ -231,61 +203,32 @@ TEST(TextCodecMenuDescription, StopsAtTerminator) {
 
 class TextCodecRipTest : public ::testing::Test {
 protected:
-    inline static fs::path src_;
-    inline static fs::path staged_;
-    inline static std::optional<TextCorpus> corpus_;
-    inline static bool available_ = false;
+    inline static test::IngestedCartridge cartridge_;
 
-    static void SetUpTestSuite() {
-        src_ = ripTextDir();
-        if (src_.empty() || !fs::exists(src_ / "dlg1_en.dat")) {
-            available_ = false;
-            return;
-        }
-        staged_ = fs::temp_directory_path() /
-                  ("ostinato_text_codec_" + std::to_string(processId()));
-        fs::create_directories(staged_);
-        for (const auto& meta : textClassMetadata()) {
-            const fs::path srcFile =
-                src_ / (std::string(meta.fileStem) + "_en.dat");
-            if (fs::exists(srcFile)) {
-                fs::copy_file(srcFile,
-                              staged_ / (std::string(meta.fileStem) + ".dat"),
-                              fs::copy_options::overwrite_existing);
-            }
-        }
-        corpus_ = TextCorpus::loadFromDirectory(staged_);
-        available_ = true;
-    }
+    static void SetUpTestSuite() { cartridge_ = test::ingestVanilla(); }
 
-    static void TearDownTestSuite() {
-        corpus_.reset();
-        if (!staged_.empty()) {
-            std::error_code ec;
-            fs::remove_all(staged_, ec);
-        }
-    }
+    static const TextCorpus& corpus() { return cartridge_.content->text; }
 
     // The public accessor for one menu-description class's record.
     static std::span<const std::uint8_t> menuRecord(TextClass klass,
                                                      std::size_t i) {
         switch (klass) {
             case TextClass::ITEM_DESC:
-                return corpus_->itemDescription(static_cast<ItemId>(i));
+                return corpus().itemDescription(static_cast<ItemId>(i));
             case TextClass::MAGIC_DESC:
-                return corpus_->magicDescription(i);
+                return corpus().magicDescription(i);
             case TextClass::LORE_DESC:
-                return corpus_->loreDescription(i);
+                return corpus().loreDescription(i);
             case TextClass::BLITZ_DESC:
-                return corpus_->blitzDescription(i);
+                return corpus().blitzDescription(i);
             case TextClass::BUSHIDO_DESC:
-                return corpus_->bushidoDescription(i);
+                return corpus().bushidoDescription(i);
             case TextClass::GENJU_ATTACK_DESC:
-                return corpus_->genjuAttackDescription(i);
+                return corpus().genjuAttackDescription(i);
             case TextClass::GENJU_BONUS_DESC:
-                return corpus_->genjuBonusDescription(i);
+                return corpus().genjuBonusDescription(i);
             default:
-                return corpus_->rareItemDescription(i);
+                return corpus().rareItemDescription(i);
         }
     }
 };
@@ -294,13 +237,13 @@ protected:
 // complete over the whole dialogue corpus (any undefined control byte would
 // throw). DTE codes expand through the real table.
 TEST_F(TextCodecRipTest, EveryDialogueRecordTokenizes) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
-    const DteTable dte = corpus_->dte();
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
+    const DteTable dte = corpus().dte();
     ASSERT_TRUE(dte.loaded());
     const std::size_t count = textClassMetadata(TextClass::DLG1).recordCount +
                               textClassMetadata(TextClass::DLG2).recordCount;
     for (std::size_t i = 0; i < count; ++i) {
-        EXPECT_NO_THROW({ tokenizeDialogue(corpus_->dialogue(i), dte); })
+        EXPECT_NO_THROW({ tokenizeDialogue(corpus().dialogue(i), dte); })
             << "dialogue " << i;
     }
 }
@@ -308,7 +251,7 @@ TEST_F(TextCodecRipTest, EveryDialogueRecordTokenizes) {
 // Every battle-text record tokenizes and reassembles byte-for-byte (no DTE in
 // this family, so the token stream is a lossless split of the record bytes).
 TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const TextClass fams[] = {TextClass::ATTACK_MSG, TextClass::BATTLE_DLG,
                               TextClass::MONSTER_DLG};
     for (const TextClass klass : fams) {
@@ -317,13 +260,13 @@ TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
             std::span<const std::uint8_t> record;
             switch (klass) {
                 case TextClass::ATTACK_MSG:
-                    record = corpus_->attackMessage(static_cast<AttackId>(i));
+                    record = corpus().attackMessage(static_cast<AttackId>(i));
                     break;
                 case TextClass::BATTLE_DLG:
-                    record = corpus_->battleDialogue(i);
+                    record = corpus().battleDialogue(i);
                     break;
                 default:
-                    record = corpus_->monsterDialogue(i);
+                    record = corpus().monsterDialogue(i);
                     break;
             }
             std::vector<BattleTextToken> tokens;
@@ -343,7 +286,7 @@ TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
 // Every menu-description record decodes to exactly its bytes up to the 0x00
 // terminator.
 TEST_F(TextCodecRipTest, MenuDescriptionsDecodeToTerminator) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const TextClass fams[] = {
         TextClass::ITEM_DESC,      TextClass::MAGIC_DESC,
         TextClass::LORE_DESC,      TextClass::BLITZ_DESC,
@@ -355,28 +298,28 @@ TEST_F(TextCodecRipTest, MenuDescriptionsDecodeToTerminator) {
             std::span<const std::uint8_t> record;
             switch (klass) {
                 case TextClass::ITEM_DESC:
-                    record = corpus_->itemDescription(static_cast<ItemId>(i));
+                    record = corpus().itemDescription(static_cast<ItemId>(i));
                     break;
                 case TextClass::MAGIC_DESC:
-                    record = corpus_->magicDescription(i);
+                    record = corpus().magicDescription(i);
                     break;
                 case TextClass::LORE_DESC:
-                    record = corpus_->loreDescription(i);
+                    record = corpus().loreDescription(i);
                     break;
                 case TextClass::BLITZ_DESC:
-                    record = corpus_->blitzDescription(i);
+                    record = corpus().blitzDescription(i);
                     break;
                 case TextClass::BUSHIDO_DESC:
-                    record = corpus_->bushidoDescription(i);
+                    record = corpus().bushidoDescription(i);
                     break;
                 case TextClass::GENJU_ATTACK_DESC:
-                    record = corpus_->genjuAttackDescription(i);
+                    record = corpus().genjuAttackDescription(i);
                     break;
                 case TextClass::GENJU_BONUS_DESC:
-                    record = corpus_->genjuBonusDescription(i);
+                    record = corpus().genjuBonusDescription(i);
                     break;
                 default:
-                    record = corpus_->rareItemDescription(i);
+                    record = corpus().rareItemDescription(i);
                     break;
             }
             const auto glyphs = decodeMenuDescription(record);
@@ -398,7 +341,7 @@ TEST_F(TextCodecRipTest, MenuDescriptionsDecodeToTerminator) {
 // but skipped (see tools/asm_parser/parse_text_meta.py). This proves the
 // shipped `.dat` reads back as the real English game text.
 TEST_F(TextCodecRipTest, MenuDescriptionsCrossCheckUpstreamText) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     struct Fam {
         TextClass klass;
         const test::ExpectedMenuDesc* expected;

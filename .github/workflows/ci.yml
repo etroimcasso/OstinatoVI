@@ -117,6 +117,14 @@ jobs:
           # build/ every run — see the Linux job.
           clean: false
 
+      - name: Set vanilla-ROM path (fixed location on this runner)
+        run: |
+          # This runner's service environment carries FF6_VANILLA_ROM with an
+          # unexpanded $HOME in it, which resolves to nothing. Setting it here
+          # overrides that for every later step with a path the shell has
+          # actually expanded.
+          echo "FF6_VANILLA_ROM=$HOME/ci-assets/ostinatovi/FF3-1.1-USA.smc" >> "$GITHUB_ENV"
+
       - name: Init engine submodule
         env:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
@@ -323,7 +331,7 @@ jobs:
           # This runner carries no FF6_VANILLA_ROM machine variable; the ROM
           # lives at a fixed path instead, exported here so any ROM-consuming
           # step sees the fleet-standard variable.
-          Add-Content -Path $env:GITHUB_ENV -Value "FF6_VANILLA_ROM=C:\ci-assets\ostinatovi\FF3-1.1-U.smc"
+          Add-Content -Path $env:GITHUB_ENV -Value "FF6_VANILLA_ROM=C:\ci-assets\ostinatovi\FF3-1.1-USA.smc"
 
       - name: Init engine submodule
         shell: powershell

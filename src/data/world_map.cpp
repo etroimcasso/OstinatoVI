@@ -129,4 +129,61 @@ std::span<const WorldVehicleEventEntry> worldVehicleEvents() {
 
 std::span<const WorldSineEntry> worldSineTable() { return kWorldSine; }
 
+// --- tile patches ------------------------------------------------------------
+
+namespace {
+
+// The record's fixed head: the destination word, then the packed size byte.
+// The tiles follow it.
+constexpr std::size_t kPatchHeaderBytes = 3;
+constexpr std::size_t kPatchSizeByte = 2;
+
+}  // namespace
+
+WorldTilePatch::WorldTilePatch(std::span<const std::uint8_t> bytes) {
+    if (bytes.size() < kPatchHeaderBytes) {
+        return;
+    }
+    const std::size_t area = static_cast<std::size_t>(bytes[kPatchSizeByte] >> 4)
+                             * static_cast<std::size_t>(bytes[kPatchSizeByte] & 0x0F);
+    if (bytes.size() < kPatchHeaderBytes + area) {
+        return;
+    }
+    bytes_ = bytes.subspan(0, kPatchHeaderBytes + area);
+}
+
+WorldTileDestination WorldTilePatch::destination() const {
+    if (!valid()) {
+        return {};
+    }
+    return {bytes_[0], bytes_[1]};
+}
+
+std::uint8_t WorldTilePatch::width() const {
+    return valid() ? static_cast<std::uint8_t>(bytes_[kPatchSizeByte] >> 4) : 0;
+}
+
+std::uint8_t WorldTilePatch::height() const {
+    return valid() ? static_cast<std::uint8_t>(bytes_[kPatchSizeByte] & 0x0F) : 0;
+}
+
+std::span<const std::uint8_t> WorldTilePatch::tiles() const {
+    if (!valid()) {
+        return {};
+    }
+    return bytes_.subspan(kPatchHeaderBytes);
+}
+
+WorldTilePatch WorldTilePool::patchAt(WorldTilePatchRef ref) const {
+    const std::uint16_t offset = ref.offsetFromBlockBase();
+    if (offset < offsetInBlock) {
+        return {};
+    }
+    const std::size_t index = static_cast<std::size_t>(offset - offsetInBlock);
+    if (index >= bytes.size()) {
+        return {};
+    }
+    return WorldTilePatch{bytes.subspan(index)};
+}
+
 }  // namespace ostinato

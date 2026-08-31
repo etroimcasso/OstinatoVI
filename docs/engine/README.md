@@ -15,5 +15,6 @@ against the original game — the reverse-derived behavioral specs live separate
 | Section | Covers |
 |---|---|
 | [data-layer/](data-layer/README.md) | The static game content the port ships with — the game-domain enums, character base stats, the RNG table, attack properties, magic-point awards, dances, espers, natural magic, item properties, shops, colosseum wagers, monster properties and their satellite tables, battle formations, and the field-encounter tables. Compile-time `constexpr` data plus pure lookup functions. |
+| [assets/](assets/README.md) | The content the port does not ship — the script, the graphics, and the tables that come out of a player's own cartridge. How a cartridge is recognised, kept, and read. |
 
 Further sections are added as the corresponding systems land.
