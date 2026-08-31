@@ -4,12 +4,12 @@ Authored at inception, 2026-08-01. This document holds project intent, hardware 
 
 ## Intent
 
-A behaviorally faithful native reimplementation of Final Fantasy VI (Super Famicom / SNES) as a consumer of the **Retro++ engine**. Same observable behavior as the original given the same inputs and RNG state — running as ordinary native code on Windows/macOS/Linux through the engine's platform layer. Not an emulator; not a mechanical ASM translation.
+A behaviorally faithful native reimplementation of Final Fantasy VI (Super Famicom / SNES) as a consumer of the **Polyrhythm engine**. Same observable behavior as the original given the same inputs and RNG state — running as ordinary native code on Windows/macOS/Linux through the engine's platform layer. Not an emulator; not a mechanical ASM translation.
 
 Two goals coexist by design:
 
-1. **The port itself** — FF6 running natively on Retro++.
-2. **Engine growth** — this is Retro++'s first SNES consumer. The engine's SNES surface (SPC700 + S-DSP audio backend, `Wdc65816` VM backend, any renderer capability the SNES demands beyond current coverage) **gets designed against this project's needs**. The SNES audio system's absence from the engine today is deliberate; this port is the anvil it is forged on.
+1. **The port itself** — FF6 running natively on Polyrhythm.
+2. **Engine growth** — this is Polyrhythm's first SNES consumer. The engine's SNES surface (SPC700 + S-DSP audio backend, `Wdc65816` VM backend, any renderer capability the SNES demands beyond current coverage) **gets designed against this project's needs**. The SNES audio system's absence from the engine today is deliberate; this port is the anvil it is forged on.
 
 ## Upstream
 

@@ -1,12 +1,12 @@
-# Renderer Capability Audit — FF6 Observables → Retro++ Surface
+# Renderer Capability Audit — FF6 Observables → Polyrhythm Surface
 
 **Date:** 2026-08-02
 **Status:** Complete
 **Inputs:** full PPU-usage survey of the FF6 disassembly (`everything8215/ff6` @ `1ea47b5`, all ten
-modules); Retro++ engine developer guide + effect-library roadmap (engine checkout @ `7c3707a`).
+modules); Polyrhythm engine developer guide + effect-library roadmap (engine checkout @ `7c3707a`).
 **Feeds:** engine work-item sequencing (see `docs/DESIGN.md`) and the game-side rendering design.
 
-This document maps every renderer-visible behavior in Final Fantasy VI onto the Retro++ engine's
+This document maps every renderer-visible behavior in Final Fantasy VI onto the Polyrhythm engine's
 drawing vocabulary and issues one verdict per behavior region:
 
 - **Covered** — the engine expresses the observable directly.

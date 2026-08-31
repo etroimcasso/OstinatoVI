@@ -33,7 +33,7 @@ The cost is a single place in the port that knows a cartridge address becomes an
 
 Graphics and audio packs remain the model for **replacement** content — swappable directories under `assets/gfx/` and `assets/audio/`, selected independently, with `default/` as the canonical load target. Packs are how a player substitutes their own art or music; they are not how the original content arrives, which is the change from the earlier design.
 
-Engine-side per Retro++'s pack model: startup scan, independent gfx/audio selection persisted in engine config. Fallback chain (selected pack → `default/` for missing assets) and the `pack.json` manifest format are locked when the pack loader is implemented against this consumer; record decisions here.
+Engine-side per Polyrhythm's pack model: startup scan, independent gfx/audio selection persisted in engine config. Fallback chain (selected pack → `default/` for missing assets) and the `pack.json` manifest format are locked when the pack loader is implemented against this consumer; record decisions here.
 
 ## Ship rules (locked)
 

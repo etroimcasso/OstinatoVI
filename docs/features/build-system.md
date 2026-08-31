@@ -5,7 +5,7 @@
 
 ## Concept
 
-The build rails for the port: a CMake project that consumes the Retro++ engine as a
+The build rails for the port: a CMake project that consumes the Polyrhythm engine as a
 subproject, a seven-target topology (port library / game binary / five test runners), a GoogleTest
 smoke harness proving the engine compiles-links-runs consumer-side, and a dev-only script that
 stages ripped ROM assets into the canonical pack directories. Zero game behavior — this
