@@ -12,7 +12,7 @@ endif()
 
 project(ostinato-vi
     VERSION 0.0.1
-    DESCRIPTION "Final Fantasy VI — modern C++ port on the Retro++ engine"
+    DESCRIPTION "Final Fantasy VI — modern C++ port on the Polyrhythm engine"
     LANGUAGES CXX)
 
 # ---------------------------------------------------------------------------
@@ -34,7 +34,7 @@ endif()
 enable_testing()
 
 # ---------------------------------------------------------------------------
-# The Retro++ engine, consumed as a source subproject. Its own tests/examples
+# The Polyrhythm engine, consumed as a source subproject. Its own tests/examples
 # default OFF when it is not the top-level project, so nothing extra is fetched.
 # ---------------------------------------------------------------------------
 add_subdirectory(engine)
