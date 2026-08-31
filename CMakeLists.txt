@@ -56,6 +56,10 @@ endif()
 # ---------------------------------------------------------------------------
 add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp
+    src/assets/asset_root.cpp
+    src/assets/cartridge.cpp
+    src/assets/first_start.cpp
+    src/assets/rom_reader.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
@@ -81,6 +85,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/monster_special_anim.cpp
     src/data/npc_properties.cpp
     src/data/rng_table.cpp
+    src/data/rom_regions.cpp
     src/data/shop_properties.cpp
     src/data/text_codec.cpp
     src/data/text_corpus.cpp
@@ -102,6 +107,10 @@ add_executable(ostinato-vi src/main.cpp)
 target_compile_features(ostinato-vi PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-vi PRIVATE ostinato-vi-lib)
+# A binary still sitting inside the checkout reads and writes the cartridge there instead of the
+# per-user directory. Baked on the game target only: a test binary has no asset root of its own.
+target_compile_definitions(ostinato-vi PRIVATE
+    OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # Lean shipped binary: dead-strip unreferenced code at link, strip symbols on Release.
 if(APPLE)
@@ -276,10 +285,10 @@ gtest_discover_tests(ostinato-vi-anim-tests)
 
 # Text-corpus tests: the TextClass structural metadata table + the TextCorpus
 # runtime loader (the filesystem seam, the seam-free buffer path, the
-# fixed-length name accessors round-tripped against the real rip bytes, and DTE
-# expansion). The real-corpus tests locate the rip via FF6_TEXT_DIR, defaulting
-# to the repo-relative rip path baked in below; absent corpus -> visible skip.
-# Own binary so the other baselines stay frozen.
+# fixed-length name accessors round-tripped against the real cartridge bytes,
+# and DTE expansion). The real-corpus tests read the cartridge FF6_VANILLA_ROM
+# names and skip visibly without one. Own binary so the other baselines stay
+# frozen.
 add_executable(ostinato-vi-text-tests
     tests/test_text_corpus.cpp
     tests/test_text_offsets.cpp
@@ -287,8 +296,6 @@ add_executable(ostinato-vi-text-tests
 target_compile_features(ostinato-vi-text-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-text-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-text-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-target_compile_definitions(ostinato-vi-text-tests PRIVATE
-    FF6_TEXT_DIR_DEFAULT="${CMAKE_CURRENT_SOURCE_DIR}/original-src/src/text")
 target_link_libraries(ostinato-vi-text-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-text-tests)
 
@@ -323,6 +330,21 @@ target_compile_options(ostinato-vi-event-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-event-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-event-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-event-tests)
+
+# ROM-ingestion tests: the region table and ROM identity (full-corpus against
+# their generated fixtures), the cartridge route (recognition, refusal, and the
+# install round-trip), and the first-start decision driven with fakes. The tests
+# that need a real cartridge find one via FF6_VANILLA_ROM and skip visibly
+# without it. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-rom-tests
+    tests/test_cartridge.cpp
+    tests/test_first_start.cpp
+    tests/test_rom_regions.cpp)
+target_compile_features(ostinato-vi-rom-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-rom-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-rom-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-rom-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-rom-tests)
 
 # World-map data tests: the story-gated tilemap modification system (the chunk
 # list and its per-world offset table), the seven vehicle event references, and

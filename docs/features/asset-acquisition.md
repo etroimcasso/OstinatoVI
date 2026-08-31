@@ -1,40 +1,43 @@
 # Asset Acquisition & Pack System
 
-Feature doc, authored at inception 2026-08-01. Design record for the asset pipeline; the populate script exists today, the runtime extraction tool is future work. Engine-side pack selection/loading is Retro++ surface.
+Feature doc, authored at inception 2026-08-01; rewritten 2026-08-28 when the acquisition model changed from extraction-to-files to reading in place. Design record for how copyrighted content reaches the running game, and for the pack system that sits alongside it.
 
 ## The model
 
-Graphics and audio assets are **packs** — swappable directories under `assets/gfx/` and `assets/audio/`, selected independently. `assets/gfx/default/` and `assets/audio/default/` are the canonical engine load targets: structurally committed via `.gitkeep`, **contents gitignored and never committed**.
+The player supplies a Final Fantasy VI cartridge. It is copied once into their own files, and every launch reads what it needs directly out of that copy. **Nothing is extracted to intermediate files**, so there is no populated asset tree to detect, no half-populated state, and no second code path that only developers exercise.
 
-## Two populate paths, one layout
+The copy lives under the engine's asset root at `rom/cartridge.sfc`. The asset root is the per-user data directory — beside the player's saves — except for a binary still sitting inside its own source checkout, which uses the checkout so a developer's install lands in the tree they are working in.
 
-1. **Dev populate (dev-time only).** The developer runs `make rip` in `original-src/` once against a vanilla ROM in `original-src/vanilla/` (any filename; identified by CRC32; headerless — 3,145,728 bytes). A checked-in populate script (`scripts/setup-dev-assets.sh`) then **stages raw rip products verbatim** into `assets/*/default/`, layout mirroring the upstream module structure. Engine-facing format conversion is explicitly deferred to the work that defines those formats; the staged layout is regenerable and may be reshaped then.
-2. **Runtime populate (end user) — first-start ROM selection, in-app.** On first launch with an empty `default/` pack, the port itself presents a ROM-selection flow: the user picks their legitimate ROM, extraction runs inside the app, the **identical layout** is written into `assets/*/default/`, and the game proceeds — the same first-start model as Zelda64 recompiled or Ship of Harkinian. There is no manual tool step in the user experience. The extraction code may additionally exist as a standalone CLI for power users — decided at extraction-tool design time — but the canonical path is the first-start flow. No ROM, no disassembly, no extracted content is ever distributed.
+## One route, every environment
 
-Both paths land the same bytes in the same layout, so the engine's daily dev load path IS the shipped load path — no dev/prod branch.
+A developer, a CI runner, and a player all take the same two steps:
 
-## Runtime extraction tool
+1. **Install.** The image is identified by size and CRC32 and copied into the player's files. A player does this through a native file dialog on first launch; a developer or CI runner does it headlessly with `ostinato-vi --install-rom <path> [--out <dir>]`. Both call the same function, at the same point of startup.
+2. **Ingest.** Each launch reads each content family whole out of the copy, by a version-keyed table of cartridge addresses. The bytes are held in memory for the life of the program. FF6 is a HiROM cartridge, so an address becomes an image offset by arithmetic — no emulator is involved.
 
-- Ships with the port (code only), invoked by the first-start ROM-selection flow above. Identifies the ROM by CRC32 (accepting the same three versions upstream does: `45EF5AC8` J 1.0 / `A27F1C7A` U 1.0 / `C0FA0464` U 1.1), refuses headered/modified ROMs with a clear message (or offers header stripping — decide at design time).
-- **Design reference vs. code derivation:** upstream's `tools/extract_assets.py` (CRC identification, HiROM mapping, LZSS decompression, full asset walk) is the proof that this tool is tractable in pure Python — but upstream is **GPL-3.0**, so deriving our shipped tool's code from it requires a recorded license determination (`docs/licensing/LICENSING.md`) first. Options at design time: clean implementation from the disassembly's data layout (the layout itself is read from our derivation reference), or accept GPL for the tool as a standalone program.
-- Full design (offsets, formats, output manifest) is pinned when that work starts; deferred now.
+Accepted cartridges are the three the upstream disassembly accepts: Final Fantasy VI 1.0 (J), Final Fantasy III 1.0 (U), and Final Fantasy III 1.1 (U). A 512-byte copier header is recognised by length and dropped before anything reads or identifies the bytes; the checksum is taken over the headerless image. Anything else is refused with a message naming what would work.
 
-## First-start sequencing — port-side only, no engine modification
+Addresses come from the upstream rip lists, which are keyed by **language** rather than revision — the two US cartridges share one address set because their ripped data is identical. Where a family exists in only one language (item type names in the US cartridges, character titles in the Japanese one), asking for the other says so rather than answering with a wrong place.
 
-An engine-side bootstrap surface was briefly considered and rejected: the engine is a library the port's `main()` drives, and asset loading happens only when the port requests it — so no engine modification or restart is needed. The sequence is plain port-side control flow:
+The developer-facing surface is documented at [docs/engine/assets/rom-ingestion.md](../engine/assets/rom-ingestion.md).
 
-1. `main()` checks `assets/*/default/` for extracted content.
-2. Empty → run the extraction flow (acquire the user's ROM via a simple file-selection prompt, extract, write the layout).
-3. Then proceed into normal engine construction / asset loading — same code path as every subsequent launch.
+The engine's SNES virtual machine will eventually be able to host a cartridge and answer reads itself. That path waits on Snaggletooth, the clean-room SNES implementation the engine uses, which is both unfinished and LoROM-only at present. When it arrives it becomes a second implementation of the same step, checkable against this one.
 
-No pre-asset engine state, no restart, no engine work item.
+### Why in place rather than extracted
 
-## Selection, fallback, manifest
+Reading the cartridge directly removes the whole class of problems that an extracted asset tree creates: a partially written tree, a stale tree after a format change, a developer tree populated by a different tool than the player's, and a build that has to know whether content is present. It also means the addresses are exercised on every launch rather than once at extraction time, so a wrong one surfaces immediately and is attributable.
 
-Engine-side per Retro++'s pack model: startup scan of `assets/gfx/` and `assets/audio/`, independent gfx/audio selection persisted in engine config, `default/` on first launch. Empty-`default/` startup triggers the first-start ROM-selection flow (above) — never a silent failure, and never a bare error message pointing at a tool the user must go run. The flow runs entirely port-side in `main()` before engine asset loading begins (see the First-start sequencing section); no engine involvement. Fallback chain (selected pack → `default/` for missing assets) and `pack.json` manifest format: locked when the pack loader is implemented against this consumer; record decisions here.
+The cost is a single place in the port that knows a cartridge address becomes an image offset by bank arithmetic. That is hardware-shaped, which the port otherwise keeps out of its surfaces — it is confined to one function at the I/O boundary, where the bytes and their addressing are the contract.
+
+## Pack system
+
+Graphics and audio packs remain the model for **replacement** content — swappable directories under `assets/gfx/` and `assets/audio/`, selected independently, with `default/` as the canonical load target. Packs are how a player substitutes their own art or music; they are not how the original content arrives, which is the change from the earlier design.
+
+Engine-side per Retro++'s pack model: startup scan, independent gfx/audio selection persisted in engine config. Fallback chain (selected pack → `default/` for missing assets) and the `pack.json` manifest format are locked when the pack loader is implemented against this consumer; record decisions here.
 
 ## Ship rules (locked)
 
-- Distributable build empties `assets/*/default/` before packaging; a CI smoke check fails the package if any default-pack byte is present.
+- No ROM, no disassembly, and no content derived from either is ever distributed.
+- The distributable build empties `assets/*/default/` before packaging; a CI smoke check fails the package if any default-pack byte is present.
 - User packs may ship only if they contain zero copyrighted-derived bytes.
-- `.gitignore` bans `*.sfc` / `*.smc` / `*.fig` everywhere in the tree and `assets/*/default/` contents (`.gitkeep` excepted) — in force since the root commit.
+- `.gitignore` bans `*.sfc` / `*.smc` / `*.fig` everywhere in the tree and `assets/*/default/` contents (`.gitkeep` excepted) — in force since the root commit. The ban covers the installed cartridge too: a development install writes into the checkout, and that file is ignored by the same rule.

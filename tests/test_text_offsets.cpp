@@ -6,72 +6,35 @@
 //      / pointerOffsets) must match the independent parser-emitted fixture
 //      (tests/fixtures/text_offsets_expected.h) entry for entry, so a hand edit
 //      or re-emit drift in either file fails. No corpus needed.
-//   2. Round-trip — against the real rip, every pointer-record accessor must
-//      return exactly the fixture-defined slice of the raw `.dat` bytes
+//   2. Round-trip — against a real cartridge, every pointer-record accessor
+//      must return exactly the fixture-defined slice of the family's bytes
 //      ([off[i], off[i+1]), last record to end; dialogue over the concatenated
 //      dlg1+dlg2 stream). This cross-checks the accessors, the production
-//      offsets, and the raw file against the fixture authority at once.
+//      offsets, and the cartridge's own bytes against the fixture authority at
+//      once.
 //
-// The rip is located via FF6_TEXT_DIR (env), defaulting to the repo-relative
-// rip path baked in at configure time; absent corpus -> visible GTEST_SKIP.
+// The cartridge is the image FF6_VANILLA_ROM names; without one, or without the
+// machine that reads one, these skip and say which is missing.
 #include <gtest/gtest.h>
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
-#include <cstdlib>
-#include <filesystem>
-#include <fstream>
-#include <iterator>
-#include <optional>
 #include <span>
 #include <string>
-#include <system_error>
 #include <vector>
-
-#if defined(_WIN32)
-#include <process.h>
-#else
-#include <unistd.h>
-#endif
 
 #include "data/text_corpus.h"
 #include "data/text_metadata.h"
+#include "vanilla_rom.h"
 #include "data/text_offsets.h"
 #include "fixtures/text_offsets_expected.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
 #include "ostinato/text_class.h"
 
-#ifndef FF6_TEXT_DIR_DEFAULT
-#define FF6_TEXT_DIR_DEFAULT ""
-#endif
-
 namespace ostinato {
 namespace {
-
-namespace fs = std::filesystem;
-
-long processId() {
-#if defined(_WIN32)
-    return _getpid();
-#else
-    return ::getpid();
-#endif
-}
-
-fs::path ripTextDir() {
-    if (const char* env = std::getenv("FF6_TEXT_DIR")) {
-        return fs::path(env);
-    }
-    return fs::path(FF6_TEXT_DIR_DEFAULT);
-}
-
-std::vector<std::uint8_t> readAll(const fs::path& path) {
-    std::ifstream in(path, std::ios::binary);
-    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(in),
-                                     std::istreambuf_iterator<char>());
-}
 
 bool spanEq(std::span<const std::uint8_t> a, std::span<const std::uint8_t> b) {
     return a.size() == b.size() && std::equal(a.begin(), a.end(), b.begin());
@@ -168,48 +131,25 @@ TEST(TextOffsets, NonDialoguePointerClassAsserts) {
 }
 
 // ---------------------------------------------------------------------------
-// Round-trip — real rip staged through the loader; accessors vs fixture slices.
+// Round-trip — the corpus read out of a cartridge; accessors vs slices of the
+// same bytes taken straight from the image.
 // ---------------------------------------------------------------------------
 
 class TextOffsetsRipTest : public ::testing::Test {
 protected:
-    inline static fs::path src_;
-    inline static fs::path staged_;
-    inline static std::optional<TextCorpus> corpus_;
-    inline static bool available_ = false;
+    inline static test::IngestedCartridge cartridge_;
 
-    static void SetUpTestSuite() {
-        src_ = ripTextDir();
-        if (src_.empty() || !fs::exists(src_ / "dlg1_en.dat")) {
-            available_ = false;
-            return;
-        }
-        staged_ = fs::temp_directory_path() /
-                  ("ostinato_text_off_" + std::to_string(processId()));
-        fs::create_directories(staged_);
-        for (const auto& meta : textClassMetadata()) {
-            const fs::path srcFile =
-                src_ / (std::string(meta.fileStem) + "_en.dat");
-            if (fs::exists(srcFile)) {
-                fs::copy_file(srcFile,
-                              staged_ / (std::string(meta.fileStem) + ".dat"),
-                              fs::copy_options::overwrite_existing);
-            }
-        }
-        corpus_ = TextCorpus::loadFromDirectory(staged_);
-        available_ = true;
-    }
+    static void SetUpTestSuite() { cartridge_ = test::ingestVanilla(); }
 
-    static void TearDownTestSuite() {
-        corpus_.reset();
-        if (!staged_.empty()) {
-            std::error_code ec;
-            fs::remove_all(staged_, ec);
-        }
-    }
+    static const TextCorpus& corpus() { return cartridge_.content->text; }
 
     static std::vector<std::uint8_t> raw(const std::string& stem) {
-        return readAll(src_ / (stem + "_en.dat"));
+        for (const auto& meta : textClassMetadata()) {
+            if (meta.fileStem == stem) {
+                return test::romSlice(cartridge_.image, meta.id);
+            }
+        }
+        return {};
     }
 
     // The public accessor for one self-contained pointer class's record.
@@ -217,29 +157,29 @@ protected:
                                                     std::size_t i) {
         switch (klass) {
             case TextClass::ATTACK_MSG:
-                return corpus_->attackMessage(static_cast<AttackId>(i));
+                return corpus().attackMessage(static_cast<AttackId>(i));
             case TextClass::ITEM_DESC:
-                return corpus_->itemDescription(static_cast<ItemId>(i));
+                return corpus().itemDescription(static_cast<ItemId>(i));
             case TextClass::BATTLE_DLG:
-                return corpus_->battleDialogue(i);
+                return corpus().battleDialogue(i);
             case TextClass::MONSTER_DLG:
-                return corpus_->monsterDialogue(i);
+                return corpus().monsterDialogue(i);
             case TextClass::MAP_TITLE:
-                return corpus_->mapTitle(i);
+                return corpus().mapTitle(i);
             case TextClass::MAGIC_DESC:
-                return corpus_->magicDescription(i);
+                return corpus().magicDescription(i);
             case TextClass::LORE_DESC:
-                return corpus_->loreDescription(i);
+                return corpus().loreDescription(i);
             case TextClass::BLITZ_DESC:
-                return corpus_->blitzDescription(i);
+                return corpus().blitzDescription(i);
             case TextClass::BUSHIDO_DESC:
-                return corpus_->bushidoDescription(i);
+                return corpus().bushidoDescription(i);
             case TextClass::GENJU_ATTACK_DESC:
-                return corpus_->genjuAttackDescription(i);
+                return corpus().genjuAttackDescription(i);
             case TextClass::GENJU_BONUS_DESC:
-                return corpus_->genjuBonusDescription(i);
+                return corpus().genjuBonusDescription(i);
             case TextClass::RARE_ITEM_DESC:
-                return corpus_->rareItemDescription(i);
+                return corpus().rareItemDescription(i);
             default:
                 return {};
         }
@@ -249,7 +189,7 @@ protected:
 // Every self-contained pointer class: each record the accessor returns equals
 // the raw `.dat` bytes sliced by the independent fixture offsets.
 TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     for (const auto& c : allOffsetCases()) {
         const std::string name = c.name;
         if (name == "dialogue") continue;  // handled separately below
@@ -261,7 +201,7 @@ TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
         }();
         const std::vector<std::uint8_t> bytes = raw(name);
         const std::span<const std::uint32_t> off = c.expected;
-        ASSERT_TRUE(corpus_->has(klass)) << name;
+        ASSERT_TRUE(corpus().has(klass)) << name;
         for (std::size_t i = 0; i < off.size(); ++i) {
             const std::size_t start = off[i];
             const std::size_t end = (i + 1 < off.size()) ? off[i + 1]
@@ -277,7 +217,7 @@ TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
 // Dialogue is the combined dlg1+dlg2 stream: record i comes from dlg1's bytes
 // below the split, dlg2's above it, sliced by the same combined offset table.
 TEST_F(TextOffsetsRipTest, DialogueAccessorMatchesConcatenatedSlices) {
-    if (!available_) GTEST_SKIP() << "rip corpus absent (FF6_TEXT_DIR)";
+    OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     std::vector<std::uint8_t> concat = raw("dlg1");
     const std::vector<std::uint8_t> dlg2 = raw("dlg2");
     concat.insert(concat.end(), dlg2.begin(), dlg2.end());
@@ -288,7 +228,7 @@ TEST_F(TextOffsetsRipTest, DialogueAccessorMatchesConcatenatedSlices) {
         const std::size_t end = (i + 1 < off.size()) ? off[i + 1] : concat.size();
         const std::span<const std::uint8_t> want(concat.data() + start,
                                                  end - start);
-        ASSERT_TRUE(spanEq(corpus_->dialogue(i), want)) << "dialogue " << i;
+        ASSERT_TRUE(spanEq(corpus().dialogue(i), want)) << "dialogue " << i;
     }
 }
 
