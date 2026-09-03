@@ -21,7 +21,7 @@ struct ExpectedRomRegion {
     std::uint32_t size;
 };
 
-inline constexpr std::array<ExpectedRomRegion, 309>
+inline constexpr std::array<ExpectedRomRegion, 310>
 kExpectedRomRegions = {{
     { .asset =   0, .language = 0, .at = 0xD1F000, .size =   1299 },
     { .asset =   0, .language = 1, .at = 0xD1F000, .size =   1873 },
@@ -332,6 +332,7 @@ kExpectedRomRegions = {{
     { .asset = 154, .language = 1, .at = 0xDFBF02, .size =   6774 },
     { .asset = 155, .language = 0, .at = 0xED8634, .size =   1430 },
     { .asset = 155, .language = 1, .at = 0xED8634, .size =   1430 },
+    { .asset = 156, .language = 1, .at = 0xEE573E, .size =   5294 },
 }};
 
 }  // namespace ostinato::test

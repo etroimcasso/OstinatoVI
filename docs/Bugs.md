@@ -50,3 +50,43 @@ tables really do differ, so the distinction cannot quietly collapse.
 alter World of Ruin walking behaviour, so it is a gameplay change rather than a
 repair. Anything that depends on it — routing, encounter rates, where the party
 can and cannot step in the second half of the game — shifts with it.
+
+---
+
+## World animation frames store sprite rows the game never draws
+
+**What happens.** Eight of the overworld's 108 animation frames hold more sprite
+rows than they say they do. The surplus rows are complete, plausible sprites —
+more trench arrows, more rocks — and nothing ever puts them on screen.
+
+**Where the original does it.** Each frame is a count byte followed by four bytes
+per sprite. Eight frames disagree with their own count:
+
+| Frames | Count byte says | Rows actually stored |
+|---|---|---|
+| The six serpent-trench arrow frames | 2 | 4 |
+| Two of the trailing frames | 4 | 6 |
+
+Both world draw routines — `DrawVehicleSprites` (`world/sprite.asm:423-489`) and
+`DrawWorldSprites` (`world/sprite.asm:495-554`) — loop exactly `count` times, so
+the extra rows are never read. They are real cartridge bytes all the same: they
+sit inside the block the game copies whole, between one frame's rows and the next
+frame's count byte.
+
+**Where the port keeps it.** `WorldAnimFrame` reports the two numbers separately:
+
+| Accessor | Meaning |
+|---|---|
+| `spriteCount()` | What the game draws — the record's own count byte. |
+| `storedRows()` | What the record holds, surplus rows included. |
+
+Drawing code uses `spriteCount()`. `storedRows()` exists so the extra rows are
+visible rather than silently dropped, and so a record's real extent is known —
+which matters, because a frame's length cannot be derived from the pointer table
+alone. `tests/test_world_anim.cpp` pins all eight frames by name and asserts no
+ninth appears.
+
+**If you want to change it.** Drawing `storedRows()` sprites would put arrows and
+rocks on screen that the original never shows, at positions nobody chose for that
+purpose. Removing the rows instead would change the cartridge's own bytes, which
+this port does not carry and does not rewrite.

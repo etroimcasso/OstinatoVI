@@ -14,12 +14,16 @@ Sources:
     extract_assets.py walks (extract_assets.py:247-266). Upstream keys them by
     LANGUAGE, not by revision: both US ROMs share the `en` list because their
     ripped data is identical (extract_assets.py:323-331).
+  * The assembly sources, for the content families upstream does not rip. The
+    world animation frames are one: their artwork is ripped but the records
+    arranging it are left in the assembly, so their extent is resolved from the
+    assembly and proved against the cartridge instead (see _ASM_REGIONS).
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
     image size.
   * src/data/generated/text_metadata_data.inc (repo-side) — the per-text-class
-    record counts and widths, used to prove each fixed-record text range is
+    record counts and widths, which prove each fixed-record text range is
     exactly as long as its records require.
 
 Emitted artifacts:
@@ -42,6 +46,9 @@ Structural guarantees, hard-errored at emit time:
     HiROM ROM region the linker declares;
   * the stems that carry multiple families are EXACTLY the ten _ROLE_NAMES
     covers — a new one is a grammar change, not something to name on the fly;
+  * every assembly-sourced region is identical to the cartridge over its whole
+    extent, which is what makes its address trustworthy without a rip list to
+    state it;
   * every fixed-record text range is exactly recordCount x recordSize bytes;
   * extract_assets.py holds exactly three CRC branches, each naming a ROM this
     port supports and assigning it the language that ROM's revision implies;
@@ -64,6 +71,7 @@ import re
 import sys
 
 import common
+import parse_world_anim
 from common import ParseError
 
 # The SNES address of the first ROM bank. HiROM banks $c0-$ff hold the image;
@@ -74,6 +82,43 @@ ROM_REGION_BASE = 0xC00000
 # The list sections, in the order extract_assets.py walks them and in the order
 # their families appear in the emitted enum.
 SECTIONS = ("text", "data", "array")
+
+# The rip-list sections plus the one this script sources itself. Enumerators are
+# laid out in this order.
+EMIT_SECTIONS = SECTIONS + ("asm",)
+
+
+class AsmRegion(object):
+    """A content family that lives in the assembly rather than the rip list.
+
+    `resolve` reads the family out of the assembly and returns its SNES address,
+    its byte length, and the bytes themselves; those bytes are then required to
+    match the cartridge exactly. Only English is stated: the assembly's own
+    addresses shift in the Japanese build by an amount only an assembler can
+    work out, so no Japanese row is emitted rather than a guessed one.
+    """
+
+    def __init__(self, asset, path, resolve):
+        self.asset = asset
+        self.path = path
+        self.resolve = resolve
+
+
+def _resolve_world_anim(source_root):
+    """The world animation frames: the pointer table and the records as one."""
+    resolved = parse_world_anim.resolve(source_root)
+    parse_world_anim.assert_matches_rom(resolved, source_root)
+    return (resolved.region_at, resolved.region_size,
+            resolved.pointer_bytes + resolved.block_bytes)
+
+
+# The families sourced from the assembly. Each one is here because upstream's
+# rip writes its artwork but not the data arranging it.
+_ASM_REGIONS = (
+    AsmRegion(asset="WORLD_ANIM_FRAMES",
+              path="src/world/world_anim.asm",
+              resolve=_resolve_world_anim),
+)
 
 # Upstream ROM names -> the GameVersion enumerator each is. Every name the CRC
 # chain produces must appear here; a name that does not is a new or renamed ROM
@@ -265,6 +310,32 @@ def read_rip_list(source_root, language, rom_size):
     return rows
 
 
+def read_asm_regions(source_root, rom_size):
+    """The assembly-sourced families, each proved against the cartridge.
+
+    Returns (rows, checked_bytes). The proof is the resolver's own: it
+    reassembles the family from the assembly and compares every byte at the
+    address it derived, so a wrong address cannot reach the emitted table.
+    """
+    rows = []
+    checked = 0
+    for region in _ASM_REGIONS:
+        begin, size, contents = region.resolve(source_root)
+        end = begin + size - 1
+        limit = ROM_REGION_BASE + rom_size
+        if begin < ROM_REGION_BASE or end >= limit:
+            raise ParseError(region.path, 0,
+                             "{}: ${:06x}-${:06x} falls outside the ROM region "
+                             "${:06x}-${:06x}"
+                             .format(region.asset, begin, end,
+                                     ROM_REGION_BASE, limit - 1))
+        rows.append(RegionRow(asset=region.asset, language="en", section="asm",
+                              path=region.path, begin=begin, end=end,
+                              item_size=None))
+        checked += len(contents)
+    return rows, checked
+
+
 def assert_role_names_complete(rows_by_language, source_root):
     """The stems carrying more than one family are exactly the ten named above.
 
@@ -427,7 +498,9 @@ def assert_ranges_match_rom(rows, source_root):
     The port reads these places out of the cartridge itself, so the addresses
     are only right if the bytes at them are the bytes upstream extracted. Only
     families the rip writes whole are comparable: a `%s` path is split per item
-    and a text range is decoded to JSON, so neither is a byte-for-byte match.
+    and a text range is decoded to JSON, so neither can be compared against the
+    cartridge as raw bytes. Assembly-sourced rows carry their own proof and are
+    checked where they are read.
 
     Returns (checked, skipped_missing) or None when no ROM is available.
     """
@@ -439,7 +512,7 @@ def assert_ranges_match_rom(rows, source_root):
     checked = 0
     missing = 0
     for row in rows:
-        if row.language != "en" or row.section == "text":
+        if row.language != "en" or row.section in ("text", "asm"):
             continue
         if "%s" in row.path:
             continue
@@ -471,7 +544,7 @@ def build_asset_order(rows_by_language):
     order, every family taken the first time it is seen."""
     order = []
     seen = set()
-    for section in SECTIONS:
+    for section in EMIT_SECTIONS:
         for language in ("en", "jp"):
             for row in rows_by_language[language]:
                 if row.section != section or row.asset in seen:
@@ -519,6 +592,8 @@ _SECTION_COMMENTS = {
             "// tables the game reads directly.",
     "array": "// Pointer-indexed arrays: a table of offsets followed by the\n"
              "// variable-length records it addresses.",
+    "asm": "// Families the upstream rip leaves in the assembly. Their extent\n"
+           "// comes from the assembly and is proved against the cartridge.",
 }
 
 
@@ -692,6 +767,9 @@ def run(source_root, repo_root, check_only=False):
     }
     assert_role_names_complete(rows_by_language, source_root)
 
+    asm_rows, asm_bytes = read_asm_regions(source_root, rom_size)
+    rows_by_language["en"] = rows_by_language["en"] + asm_rows
+
     metadata = read_text_metadata(repo_root)
     fixed = assert_fixed_text_sizes(rows_by_language["en"], metadata, repo_root)
 
@@ -706,10 +784,12 @@ def run(source_root, repo_root, check_only=False):
         rom_note = ("{} en ranges byte-identical to the ROM ({} not ripped "
                     "on this machine)".format(rom_check[0], rom_check[1]))
 
-    summary = ("{} assets / {} region rows (en {}, jp {}); ROM {} B, copier "
+    summary = ("{} assets / {} region rows (en {}, jp {}); {} assembly-sourced "
+               "rows, {} B proved against the cartridge; ROM {} B, copier "
                "header {} B, {} revisions; {} fixed text ranges verified; {}"
                .format(len(asset_order), len(region_rows),
                        len(rows_by_language["en"]), len(rows_by_language["jp"]),
+                       len(asm_rows), asm_bytes,
                        rom_size, copier_header, len(identities), fixed,
                        rom_note))
 
