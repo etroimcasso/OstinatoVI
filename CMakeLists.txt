@@ -91,6 +91,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_corpus.cpp
     src/data/text_metadata.cpp
     src/data/text_offsets.cpp
+    src/data/world_anim.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -353,6 +354,7 @@ gtest_discover_tests(ostinato-vi-rom-tests)
 # slice accessors, and the sine/cosine angle reduction. Own binary so the other
 # baselines stay frozen.
 add_executable(ostinato-vi-world-tests
+    tests/test_world_anim.cpp
     tests/test_world_map.cpp
     tests/test_world_tiles.cpp)
 target_compile_features(ostinato-vi-world-tests PRIVATE cxx_std_20)
