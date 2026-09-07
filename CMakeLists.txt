@@ -91,7 +91,9 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_corpus.cpp
     src/data/text_metadata.cpp
     src/data/text_offsets.cpp
+    src/data/train_ride.cpp
     src/data/world_anim.cpp
+    src/data/world_cutscenes.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -351,10 +353,14 @@ gtest_discover_tests(ostinato-vi-rom-tests)
 # list and its per-world offset table), the seven vehicle event references, and
 # the world sine table — each full-corpus memcmp'd against the ROM-assembled
 # fixture, plus the EventBitRef / WorldTilePatchRef round-trips, the per-world
-# slice accessors, and the sine/cosine angle reduction. Own binary so the other
-# baselines stay frozen.
+# slice accessors, and the sine/cosine angle reduction. The Magitek train ride's
+# steering curves, tunnel arrangements and airship camera move, and the world
+# set-piece tables, are compared to their fixtures the same way. Own binary so
+# the other baselines stay frozen.
 add_executable(ostinato-vi-world-tests
+    tests/test_train_ride.cpp
     tests/test_world_anim.cpp
+    tests/test_world_cutscenes.cpp
     tests/test_world_map.cpp
     tests/test_world_tiles.cpp)
 target_compile_features(ostinato-vi-world-tests PRIVATE cxx_std_20)

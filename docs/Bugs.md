@@ -90,3 +90,58 @@ ninth appears.
 rocks on screen that the original never shows, at positions nobody chose for that
 purpose. Removing the rows instead would change the cartridge's own bytes, which
 this port does not carry and does not rewrite.
+
+---
+
+## World-map strafing reads past the end of its bearing table
+
+**What happens.** Holding Y on the overworld strafes the vehicle along a bearing
+picked from the direction being held. The code masks all four direction bits and
+looks the result up in a table that only covers eleven of the sixteen
+combinations, so five of them read whatever bytes follow the table.
+
+**Where the original does it.** `StrafeAngleTbl` (`world/ctrl.asm:194`) holds
+eleven bearings. The strafe routine (`world/ctrl.asm:201-206`) masks the
+direction bits with `and #$000f`, discards the empty mask, and indexes with
+everything else:
+
+```
+lda     $05
+and     #$000f
+jeq     @6e38       ; nothing held — no strafe
+asl
+tax
+lda     f:StrafeAngleTbl,x
+```
+
+That leaves masks 11 through 15 — up with both left and right, and any mask
+holding both up and down — landing past the last entry, on the routine's own
+instructions read as a bearing.
+
+The gap looks like an oversight rather than a judgement about what a control pad
+can do: masks 3 and 7 both hold left *and* right together, and both are present
+in the table, carrying a bearing of zero. Masks 11 and 15 hold the same opposed
+pair and are simply absent.
+
+Whether it can be reached depends on the controller. A stock pad pivots, so up
+with down and left with right cannot be held at once; a pad without that pivot,
+or an input device that reports directions independently, can produce all
+sixteen.
+
+**Where the port keeps it.** `src/data/world_cutscenes.h` exposes the table as it
+stands and reports the shortfall rather than papering over it:
+
+| Function | Behaviour |
+|---|---|
+| `strafeAngle(mask)` | The bearing, or nothing when the mask falls past the table. |
+| `strafeMaskReadsPastTheTable(mask)` | Whether a mask is one of the five with no entry. |
+
+No bearing is invented for the uncovered masks — the original does not produce
+one either, it produces whatever those bytes happen to be. Callers decide.
+`tests/test_world_cutscenes.cpp` walks all sixteen masks and pins which eleven
+are covered.
+
+**If you want to change it.** Extending the table to sixteen entries means
+choosing bearings for direction combinations the game never assigned any, which
+is new behaviour rather than a repair. Refusing to strafe on an uncovered mask is
+the smaller change and is what falling through `strafeAngle()` already gives you.
