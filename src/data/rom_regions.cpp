@@ -10,10 +10,9 @@ namespace ostinato {
 
 namespace {
 
-// Every (family, language) pair the upstream rip lists state an address for.
-// A family both languages ship has two rows; one only a single language ships
-// has one.
-constexpr std::array<RomRegionEntry, 309> kRomRegions = {{
+// Every (family, language) pair there is an address for. A family both
+// languages ship has two rows; one only a single language ships has one.
+constexpr std::array<RomRegionEntry, 310> kRomRegions = {{
 #include "data/generated/rom_regions_data.inc"
 }};
 
