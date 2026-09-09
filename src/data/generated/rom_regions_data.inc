@@ -326,3 +326,4 @@
     { .asset = RomAsset::SHORT_ENTRANCE,           .language = Language::EN, .region = { .at = 0xDFBF02, .size =   6774 } },
     { .asset = RomAsset::TREASURE_PROP,            .language = Language::JP, .region = { .at = 0xED8634, .size =   1430 } },
     { .asset = RomAsset::TREASURE_PROP,            .language = Language::EN, .region = { .at = 0xED8634, .size =   1430 } },
+    { .asset = RomAsset::WORLD_ANIM_FRAMES,        .language = Language::EN, .region = { .at = 0xEE573E, .size =   5294 } },
