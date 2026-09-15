@@ -94,6 +94,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/train_ride.cpp
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
+    src/data/battle_backgrounds.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -368,3 +369,15 @@ target_compile_options(ostinato-vi-world-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-world-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-world-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-world-tests)
+
+# Battle background tests: all 56 BattleBGProp records full-corpus memcmp'd
+# against the ROM-assembled fixture, plus the packed graphics/palette slot
+# decodes, the $FF-versus-0 distinction the loaders draw, and the named-builder
+# round-trips. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-background-tests
+    tests/test_battle_backgrounds.cpp)
+target_compile_features(ostinato-vi-background-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-background-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-background-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-background-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-background-tests)
