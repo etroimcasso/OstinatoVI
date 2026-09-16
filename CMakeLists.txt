@@ -95,6 +95,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
     src/data/battle_backgrounds.cpp
+    src/data/char_ai.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -375,7 +376,8 @@ gtest_discover_tests(ostinato-vi-world-tests)
 # decodes, the $FF-versus-0 distinction the loaders draw, and the named-builder
 # round-trips. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-background-tests
-    tests/test_battle_backgrounds.cpp)
+    tests/test_battle_backgrounds.cpp
+    tests/test_char_ai.cpp)
 target_compile_features(ostinato-vi-background-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-background-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-background-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
