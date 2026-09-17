@@ -93,6 +93,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_metadata.cpp
     src/data/text_offsets.cpp
     src/data/train_ride.cpp
+    src/data/trig_tables.cpp
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
     src/data/battle_backgrounds.cpp
@@ -386,11 +387,12 @@ target_link_libraries(ostinato-vi-background-tests PRIVATE ostinato-vi-lib GTest
 gtest_discover_tests(ostinato-vi-background-tests)
 
 # The remaining small tables: the blitz input sequences and the masks their
-# inputs accept, each compared in full against the ROM-assembled fixture, plus
-# the traced sequences and the builders. Own binary so the other baselines stay
-# frozen.
+# inputs accept, and the battle graphics trig tables — each compared in full
+# against the ROM-assembled fixture, plus the traced values, the builders and
+# the formula checks. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-misc-tests
-    tests/test_blitz_codes.cpp)
+    tests/test_blitz_codes.cpp
+    tests/test_trig_tables.cpp)
 target_compile_features(ostinato-vi-misc-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-misc-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
