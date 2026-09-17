@@ -65,6 +65,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/battle_commands.cpp
     src/data/battle_magic_points.cpp
     src/data/battle_tables.cpp
+    src/data/blitz_codes.cpp
     src/data/character.cpp
     src/data/dance_properties.cpp
     src/data/esper_properties.cpp
@@ -383,3 +384,15 @@ target_compile_options(ostinato-vi-background-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-background-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-background-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-background-tests)
+
+# The remaining small tables: the blitz input sequences and the masks their
+# inputs accept, each compared in full against the ROM-assembled fixture, plus
+# the traced sequences and the builders. Own binary so the other baselines stay
+# frozen.
+add_executable(ostinato-vi-misc-tests
+    tests/test_blitz_codes.cpp)
+target_compile_features(ostinato-vi-misc-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-misc-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-misc-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-misc-tests)
