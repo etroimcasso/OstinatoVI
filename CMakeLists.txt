@@ -78,6 +78,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/map_animations.cpp
     src/data/map_properties.cpp
     src/data/map_triggers.cpp
+    src/data/menu_orders.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
     src/data/monster_attacks.cpp
@@ -392,6 +393,7 @@ gtest_discover_tests(ostinato-vi-background-tests)
 # the formula checks. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-misc-tests
     tests/test_blitz_codes.cpp
+    tests/test_menu_orders.cpp
     tests/test_trig_tables.cpp)
 target_compile_features(ostinato-vi-misc-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
