@@ -69,4 +69,5 @@ Two include roots serve the data layer, both on the public include path:
 | [battle-backgrounds.md](battle-backgrounds.md) | The 56 battle backgrounds — the graphics blocks, tilemaps and palette that compose each one, the double-width and wavy-effect flags packed into two of the six bytes, and the three backgrounds that build themselves without a first graphics block. |
 | [character-ai.md](character-ai.md) | The 24 scripted battle setups — the four character slots each one places, whether a slot fights as an enemy or sits outside the party, the A.I. script that drives it, and the background and music overrides that stage the battle. |
 | [blitz-codes.md](blitz-codes.md) | The eight blitz button sequences, the controller's twelve inputs, and the mask each sequence step accepts. |
+| [menu-orders.md](menu-orders.md) | The menu ordering lists — each esper's place in the esper list, the six magic-order settings, and the items an imp can equip. |
 | [trig-tables.md](trig-tables.md) | The battle graphics angle tables — the 32×32 arctangent grid and the 16-bit and 8-bit sine tables, in 256ths of a turn. |
