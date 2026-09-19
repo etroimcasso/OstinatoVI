@@ -5,8 +5,12 @@ Port-time tooling (NOT a build/CI dependency): reads the ca65 .enum blocks in th
 FF6 disassembly and emits, per the disposition table below:
 
   * one C++ header per emitted enum, include/ostinato/<snake>.h
+  * include/ostinato/game_limits.h — the file-scope ceilings on the values the
+    game counts (gil, steps, experience), which are constants rather than
+    enumerations.
   * a single X-macro fixture, tests/fixtures/enums_expected.h, listing every
-    emitted enumerator's expected value for the full-corpus C++ test.
+    emitted enumerator's expected value for the full-corpus C++ test, and a
+    second, tests/fixtures/game_limits_expected.h, over the limits.
 
 It also runs two structural guarantees at emit time and hard-errors on any
 deviation (so a contract change can never slip through silently):
@@ -90,6 +94,22 @@ EMIT = {
     "BATTLE_CHAR_PAL": Emit("BattleCharacterPalette", "battle_character_palette.h"),
 }
 
+# The file-scope ceilings the game counts against (const.inc:65-67). These are
+# plain constants, not enumerations, so they get their own header rather than a
+# one-member enum. Each maps its upstream name to the C++ name and the sentence
+# that documents it.
+LIMITS = (
+    ("MAX_GIL", "kMaxGil", "The most gil the party can hold."),
+    ("MAX_STEPS", "kMaxSteps", "The most steps the step counter records."),
+    ("MAX_EXPERIENCE", "kMaxExperience",
+     "The most experience a character can accumulate."),
+)
+
+# Every limit is a 24-bit quantity in the original — three bytes read a byte at
+# a time — and is held here in the smallest standard type that fits.
+LIMIT_TYPE = "std::uint32_t"
+LIMIT_CEILING = 0xFFFFFF
+
 # Parsed for the status-layout assertion; NOT emitted as C++ enums (their
 # views become StatusSet accessors).
 STATUS_LAYOUT = ("STATUS1", "STATUS2", "STATUS3", "STATUS4")
@@ -161,6 +181,53 @@ def _render_fixture(emitted_enums):
     return "".join(lines)
 
 
+def read_limits(parsed, const_inc):
+    """The limit values, hard-erroring when one is missing or out of range."""
+    values = []
+    for upstream, cpp_name, _text in LIMITS:
+        if upstream not in parsed.globals:
+            raise ParseError(const_inc, 0,
+                             "expected constant '{}' not found in source"
+                             .format(upstream))
+        value = parsed.globals[upstream]
+        if not 0 < value <= LIMIT_CEILING:
+            raise ParseError(const_inc, 0,
+                             "{} is {}, outside the 24 bits the original counts "
+                             "it in".format(upstream, value))
+        values.append((upstream, cpp_name, value))
+    return values
+
+
+def _render_limits(limits):
+    """Render the limit constants to a C++ header string."""
+    lines = [_AUTOGEN_BANNER,
+             "// Source: original-src/include/const.inc  (file-scope constants)\n"
+             "//\n"
+             "// The ceilings the game counts against. Each is a 24-bit quantity\n"
+             "// in the original, read a byte at a time; a counter that reaches\n"
+             "// its limit stops there rather than wrapping.\n"
+             "#pragma once\n\n#include <cstdint>\n\nnamespace ostinato {\n\n"]
+    text_by_name = {cpp: text for _up, cpp, text in LIMITS}
+    for _upstream, cpp_name, value in limits:
+        lines.append("// {}\n".format(text_by_name[cpp_name]))
+        lines.append("inline constexpr {} {} = {};\n\n".format(
+            LIMIT_TYPE, cpp_name, value))
+    lines.append("}  // namespace ostinato\n")
+    return "".join(lines)
+
+
+def _render_limits_fixture(limits):
+    """Render the X-macro fixture over the limits."""
+    lines = [_AUTOGEN_BANNER,
+             "// Expected values for every emitted limit.\n"
+             "// X(name, expected_value) — consumed by tests/test_game_limits.cpp.\n"
+             "#pragma once\n\n#define OSTINATO_LIMIT_EXPECTED(X) \\\n"]
+    lines.append(" \\\n".join("    X({}, {})".format(cpp_name, value)
+                              for _up, cpp_name, value in limits))
+    lines.append("\n")
+    return "".join(lines)
+
+
 def assert_coverage(parsed):
     """Every .enum in the file must be dispositioned. Hard-error otherwise."""
     known = set(EMIT) | set(STATUS_LAYOUT) | set(SKIP)
@@ -218,17 +285,20 @@ def assert_status_layout(parsed):
                 .format(i, sid.name, bank.name, sid.name, mapped, expected_bit))
 
 
-def run(const_inc, out_include_dir, fixture_out, check_only=False):
+def run(const_inc, out_include_dir, fixture_out, limits_fixture_out,
+        check_only=False):
     parsed = common.parse_ca65_constants(const_inc, skip_body_enums=SKIP)
     assert_coverage(parsed)
     assert_status_layout(parsed)
 
     emitted = [(parsed.enum(up), EMIT[up]) for up in EMIT]
+    limits = read_limits(parsed, const_inc)
 
     if check_only:
         n_members = sum(len(e.members) for e, _ in emitted)
-        print("OK: {} emitted enums, {} enumerators; coverage + STATUS layout "
-              "verified.".format(len(emitted), n_members))
+        print("OK: {} emitted enums, {} enumerators, {} limits; coverage + "
+              "STATUS layout verified.".format(len(emitted), n_members,
+                                               len(limits)))
         return 0
 
     if not os.path.isdir(out_include_dir):
@@ -237,15 +307,22 @@ def run(const_inc, out_include_dir, fixture_out, check_only=False):
         path = os.path.join(out_include_dir, emit.filename)
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(_render_enum(enum, emit))
-    fixture_dir = os.path.dirname(fixture_out)
-    if fixture_dir and not os.path.isdir(fixture_dir):
-        os.makedirs(fixture_dir)
-    with open(fixture_out, "w", encoding="utf-8") as fh:
-        fh.write(_render_fixture(emitted))
+    with open(os.path.join(out_include_dir, "game_limits.h"), "w",
+              encoding="utf-8") as fh:
+        fh.write(_render_limits(limits))
+    for path, text in ((fixture_out, _render_fixture(emitted)),
+                       (limits_fixture_out, _render_limits_fixture(limits))):
+        directory = os.path.dirname(path)
+        if directory and not os.path.isdir(directory):
+            os.makedirs(directory)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(text)
 
     n_members = sum(len(e.members) for e, _ in emitted)
-    print("Emitted {} enum headers -> {}".format(len(emitted), out_include_dir))
+    print("Emitted {} enum headers + {} limits -> {}".format(
+        len(emitted), len(limits), out_include_dir))
     print("Emitted fixture ({} enumerators) -> {}".format(n_members, fixture_out))
+    print("Emitted limits fixture -> {}".format(limits_fixture_out))
     return 0
 
 
@@ -266,6 +343,9 @@ def main(argv=None):
                     help="output directory for emitted enum headers")
     ap.add_argument("--fixture-out", default="tests/fixtures/enums_expected.h",
                     help="output path for the X-macro fixture")
+    ap.add_argument("--limits-fixture-out",
+                    default="tests/fixtures/game_limits_expected.h",
+                    help="output path for the limits X-macro fixture")
     ap.add_argument("--check-only", action="store_true",
                     help="validate + assert without writing files")
     args = ap.parse_args(argv)
@@ -275,7 +355,7 @@ def main(argv=None):
         ap.error("one of --const-inc or --source-root is required")
     try:
         return run(const_inc, args.out_include_dir, args.fixture_out,
-                   check_only=args.check_only)
+                   args.limits_fixture_out, check_only=args.check_only)
     except ParseError as exc:
         sys.stderr.write("PARSE ERROR: {}\n".format(exc))
         return 2

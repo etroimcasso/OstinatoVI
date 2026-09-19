@@ -28,6 +28,7 @@
 #include "ostinato/event_dir.h"         // EventDir
 #include "ostinato/event_obj_id.h"      // EventObjId
 #include "ostinato/ai_script_command.h" // AiScriptCommand
+#include "ostinato/game_limits.h"       // kMaxGil, kMaxSteps, kMaxExperience
 ```
 
 Every game-domain identity is an `enum class` in namespace `ostinato`, each
@@ -181,6 +182,24 @@ and `LevelMod` bits 2–3 (`NORMAL=0x00, HIGH=0x04, VERY_HIGH=0x08, LOW=0x0C`), 
 with a `MASK` enumerator. Packing them is a plain OR — see `CharacterTraits` in
 [typed-wrappers.md](typed-wrappers.md).
 
+## Counting limits
+
+```cpp
+#include "ostinato/game_limits.h"
+
+ostinato::kMaxGil;         // 9,999,999 — the most gil the party can hold
+ostinato::kMaxSteps;       // 9,999,999 — the most steps the counter records
+ostinato::kMaxExperience;  // 15,000,000 — the most experience a character gets
+```
+
+Three ceilings, `std::uint32_t` because each is a 24-bit quantity in the
+original. A counter that reaches its limit stops there rather than wrapping: the
+step counter compares against `kMaxSteps` before each increment, and gil and
+experience are clamped to their limits when an award would pass them.
+
+They come from the same `const.inc` the enums do and are emitted by the same
+script, so they carry the `AUTO-GENERATED` banner too.
+
 ## Regenerating
 
 Each `AUTO-GENERATED` header names its source `.enum` block and the script that
@@ -194,4 +213,5 @@ across the 23 generated headers — against the generated fixture
 (`tests/fixtures/enums_expected.h`), plus the `GameVersion` predicates and the
 `ElementSet` / `StatusSet` bit mappings. The generator's own tests under
 `tools/asm_parser/` verify the extraction end-to-end against the disassembly
-checkout.
+checkout. `tests/test_game_limits.cpp` covers the three counting limits the same
+way, against `tests/fixtures/game_limits_expected.h`.

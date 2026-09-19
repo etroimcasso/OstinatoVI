@@ -65,6 +65,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/battle_commands.cpp
     src/data/battle_magic_points.cpp
     src/data/battle_tables.cpp
+    src/data/blitz_codes.cpp
     src/data/character.cpp
     src/data/dance_properties.cpp
     src/data/esper_properties.cpp
@@ -77,6 +78,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/map_animations.cpp
     src/data/map_properties.cpp
     src/data/map_triggers.cpp
+    src/data/menu_orders.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
     src/data/monster_attacks.cpp
@@ -92,8 +94,11 @@ add_library(ostinato-vi-lib STATIC
     src/data/text_metadata.cpp
     src/data/text_offsets.cpp
     src/data/train_ride.cpp
+    src/data/trig_tables.cpp
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
+    src/data/battle_backgrounds.cpp
+    src/data/char_ai.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp)
 # src/ is on the public include path for the data-layer headers
@@ -368,3 +373,31 @@ target_compile_options(ostinato-vi-world-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-world-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-world-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-world-tests)
+
+# Battle background tests: all 56 BattleBGProp records full-corpus memcmp'd
+# against the ROM-assembled fixture, plus the packed graphics/palette slot
+# decodes, the $FF-versus-0 distinction the loaders draw, and the named-builder
+# round-trips. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-background-tests
+    tests/test_battle_backgrounds.cpp
+    tests/test_char_ai.cpp)
+target_compile_features(ostinato-vi-background-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-background-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-background-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-background-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-background-tests)
+
+# The remaining small tables: the blitz input sequences and the masks their
+# inputs accept, and the battle graphics trig tables — each compared in full
+# against the ROM-assembled fixture, plus the traced values, the builders and
+# the formula checks. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-misc-tests
+    tests/test_blitz_codes.cpp
+    tests/test_game_limits.cpp
+    tests/test_menu_orders.cpp
+    tests/test_trig_tables.cpp)
+target_compile_features(ostinato-vi-misc-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-misc-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-misc-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-misc-tests)
