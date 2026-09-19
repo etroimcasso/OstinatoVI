@@ -233,6 +233,56 @@ class StructuralAssertTests(unittest.TestCase):
         self.assertIn("disposition", str(ctx.exception))
 
 
+# --- The counting limits ----------------------------------------------------
+
+def _limits_fragment(gil=9999999, steps=9999999, experience=15000000,
+                     omit=None):
+    lines = [("MAX_GIL", gil), ("MAX_STEPS", steps),
+             ("MAX_EXPERIENCE", experience)]
+    return "".join("{} = {}\n".format(name, value)
+                   for name, value in lines if name != omit)
+
+
+class LimitTests(unittest.TestCase):
+
+    def read(self, text):
+        return pce.read_limits(parse_fragment(text), "const.inc")
+
+    def test_the_three_limits_are_read_in_order(self):
+        self.assertEqual(self.read(_limits_fragment()),
+                         [("MAX_GIL", "kMaxGil", 9999999),
+                          ("MAX_STEPS", "kMaxSteps", 9999999),
+                          ("MAX_EXPERIENCE", "kMaxExperience", 15000000)])
+
+    def test_a_missing_limit_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            self.read(_limits_fragment(omit="MAX_STEPS"))
+        self.assertIn("MAX_STEPS", str(ctx.exception))
+
+    def test_a_limit_past_three_bytes_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            self.read(_limits_fragment(gil=0x1000000))
+        self.assertIn("outside the 24 bits", str(ctx.exception))
+
+    def test_a_zero_limit_raises(self):
+        with self.assertRaises(ParseError) as ctx:
+            self.read(_limits_fragment(steps=0))
+        self.assertIn("MAX_STEPS", str(ctx.exception))
+
+    def test_the_header_names_every_limit_with_its_value(self):
+        text = pce._render_limits(self.read(_limits_fragment()))
+        self.assertIn("inline constexpr std::uint32_t kMaxGil = 9999999;", text)
+        self.assertIn("kMaxSteps = 9999999;", text)
+        self.assertIn("kMaxExperience = 15000000;", text)
+        self.assertIn("The most gil the party can hold.", text)
+
+    def test_the_fixture_is_an_x_macro_over_every_limit(self):
+        text = pce._render_limits_fixture(self.read(_limits_fragment()))
+        self.assertIn("#define OSTINATO_LIMIT_EXPECTED(X)", text)
+        self.assertIn("X(kMaxGil, 9999999)", text)
+        self.assertIn("X(kMaxExperience, 15000000)", text)
+
+
 # --- Layer 3: end-to-end against the real contract --------------------------
 
 def _find_const_inc():
@@ -288,6 +338,12 @@ class EndToEndTests(unittest.TestCase):
     def test_coverage_and_status_layout(self):
         pce.assert_coverage(self.parsed)
         pce.assert_status_layout(self.parsed)
+
+    def test_the_real_limits(self):
+        self.assertEqual(pce.read_limits(self.parsed, _find_const_inc()),
+                         [("MAX_GIL", "kMaxGil", 9999999),
+                          ("MAX_STEPS", "kMaxSteps", 9999999),
+                          ("MAX_EXPERIENCE", "kMaxExperience", 15000000)])
 
 
 if __name__ == "__main__":

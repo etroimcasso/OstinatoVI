@@ -40,7 +40,7 @@ Two include roots serve the data layer, both on the public include path:
 
 | File | Covers |
 |---|---|
-| [foundational-enums.md](foundational-enums.md) | The typed vocabulary — every game-domain `enum class`: characters, attacks, monsters, items, statuses, elements, commands, espers, dances, and the `GameVersion` axis. |
+| [foundational-enums.md](foundational-enums.md) | The typed vocabulary — every game-domain `enum class`: characters, attacks, monsters, items, statuses, elements, commands, espers, dances, the `GameVersion` axis, and the gil / step / experience limits. |
 | [typed-wrappers.md](typed-wrappers.md) | The hand-written value types over packed ROM bytes — `ElementSet`, `StatusSet`, `FlagSet<F>`, `Targeting`, `CharacterTraits`, and the attack flag enums. |
 | [characters.md](characters.md) | Character base stats — the 64-record 22-byte table: starting stats, battle commands, initial equipment, traits. |
 | [rng.md](rng.md) | The 256-byte random-number table and `rngByte`. |
