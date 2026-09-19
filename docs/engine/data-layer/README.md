@@ -40,7 +40,7 @@ Two include roots serve the data layer, both on the public include path:
 
 | File | Covers |
 |---|---|
-| [foundational-enums.md](foundational-enums.md) | The typed vocabulary — every game-domain `enum class`: characters, attacks, monsters, items, statuses, elements, commands, espers, dances, and the `GameVersion` axis. |
+| [foundational-enums.md](foundational-enums.md) | The typed vocabulary — every game-domain `enum class`: characters, attacks, monsters, items, statuses, elements, commands, espers, dances, the `GameVersion` axis, and the gil / step / experience limits. |
 | [typed-wrappers.md](typed-wrappers.md) | The hand-written value types over packed ROM bytes — `ElementSet`, `StatusSet`, `FlagSet<F>`, `Targeting`, `CharacterTraits`, and the attack flag enums. |
 | [characters.md](characters.md) | Character base stats — the 64-record 22-byte table: starting stats, battle commands, initial equipment, traits. |
 | [rng.md](rng.md) | The 256-byte random-number table and `rngByte`. |
@@ -66,3 +66,8 @@ Two include roots serve the data layer, both on the public include path:
 | [world-animations.md](world-animations.md) | The overworld's 108 sprite-composition frames — read in place out of the player's cartridge behind decode views — the frame id space that names them, the packed sprite row, and the frame-sequence tables the chocobo, damaged airship and bird step through. |
 | [train-ride.md](train-ride.md) | The Magitek train ride's steering curves — pitch, yaw and scenery, one 32-frame item per script step — the falloff curve read at two offsets, the twenty twelve-tile tunnel arrangements, the roll angles, and the airship's 32-frame takeoff and landing camera move. |
 | [world-cutscenes.md](world-cutscenes.md) | The overworld's set-piece tables — the ending scene's nine expanding circles, Figaro Castle's six moving pieces, the strafe bearings and the five direction masks they do not cover, and the 48 words nothing in the game reads. |
+| [battle-backgrounds.md](battle-backgrounds.md) | The 56 battle backgrounds — the graphics blocks, tilemaps and palette that compose each one, the double-width and wavy-effect flags packed into two of the six bytes, and the three backgrounds that build themselves without a first graphics block. |
+| [character-ai.md](character-ai.md) | The 24 scripted battle setups — the four character slots each one places, whether a slot fights as an enemy or sits outside the party, the A.I. script that drives it, and the background and music overrides that stage the battle. |
+| [blitz-codes.md](blitz-codes.md) | The eight blitz button sequences, the controller's twelve inputs, and the mask each sequence step accepts. |
+| [menu-orders.md](menu-orders.md) | The menu ordering lists — each esper's place in the esper list, the six magic-order settings, and the items an imp can equip. |
+| [trig-tables.md](trig-tables.md) | The battle graphics angle tables — the 32×32 arctangent grid and the 16-bit and 8-bit sine tables, in 256ths of a turn. |
