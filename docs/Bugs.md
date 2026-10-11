@@ -145,3 +145,38 @@ are covered.
 choosing bearings for direction combinations the game never assigned any, which
 is new behaviour rather than a repair. Refusing to strafe on an uncovered mask is
 the smaller change and is what falling through `strafeAngle()` already gives you.
+
+---
+
+## Dialogue drops a glyph that would cross the right margin
+
+**What happens.** When the next glyph of a dialogue message would reach the text
+area's right edge, the line breaks — and the glyph is skipped. It is not carried
+to the new line; the message continues with the glyph after it.
+
+**Where the original does it.** `DrawDlgText` (`field/text.asm:926-934`) checks
+the glyph's width against the margin and, when it does not fit, calls `NewLine`
+and returns without drawing. Both of its callers then step past the glyph
+regardless (`:459-460`, `:827-828`), so nothing ever draws it.
+
+In English the word wrap (`CalcTextWidth`, `:189-318`) measures each word before
+it starts and breaks the line early, so whole words never reach the margin. What
+does reach it is the space after a word that ends near the edge: with everyone's
+default name, the shipped English script drops **305** spaces this way and
+**no other glyph** — every one of those drops is invisible. The only text the
+word wrap does not measure is a tab's fill, a choice marker's space, a gold
+amount and a spell name; none of those sits near a margin in the shipped script.
+Japanese text has no word wrap at all, so there the check is the only thing
+keeping a line inside the window, and a glyph lost at the margin is a real
+character missing from the message.
+
+**Where the port keeps it.** `tickDialogue()` (`src/text/dialogue.cpp`) breaks
+the line and drops the glyph exactly as the original does, and records each one
+in `DialogueState::droppedAtMargin` with where it would have gone.
+`tests/test_dialogue.cpp` pins the behaviour on a hand-built message and the
+305 / 0 count over the whole English script.
+
+**If you want to change it.** Carrying the glyph to the start of the new line is
+the obvious repair. On the English script it changes nothing visible, since only
+spaces are affected; on Japanese text, or on English text with a renamed
+character long enough to reach the margin, it changes where words break.
