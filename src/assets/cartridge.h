@@ -24,6 +24,7 @@
 #include "data/text_corpus.h"
 #include "data/world_map.h"
 #include "ostinato/game_version.h"
+#include "text/font.h"
 
 namespace ostinato::assets {
 
@@ -76,6 +77,7 @@ struct IngestedContent {
     GameVersion version{};
     TextCorpus text;
     WorldTilePool worldTiles;
+    text::DialogueFont dialogueFont;
 };
 
 // Read a cartridge image already in memory: host it on a VM, take the families the game needs, and

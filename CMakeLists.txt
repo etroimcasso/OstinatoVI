@@ -101,7 +101,14 @@ add_library(ostinato-vi-lib STATIC
     src/data/char_ai.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
-    src/text/dialogue.cpp)
+    src/render/sprite_layer.cpp
+    src/render/text/dialogue_cursor.cpp
+    src/render/text/dialogue_text.cpp
+    src/render/text/dialogue_wipe.cpp
+    src/render/text/glyph.cpp
+    src/render/text/map_title.cpp
+    src/text/dialogue.cpp
+    src/text/font.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -406,9 +413,13 @@ gtest_discover_tests(ostinato-vi-misc-tests)
 # The field dialogue text engine: every control code's frame cost, the word wrap, the splices,
 # the choice cursor, the page wipe and the map title, driven frame by frame over hand-built
 # messages — then every English message in the cartridge run to its end with the real font
-# widths. Own binary so the other baselines stay frozen.
+# widths. The font's widths, glyph artwork and choice arrow as the cartridge holds them, the
+# sheets built from them, and the rendering components read back from what they return. Own
+# binary so the other baselines stay frozen.
 add_executable(ostinato-vi-text-engine-tests
-    tests/test_dialogue.cpp)
+    tests/test_dialogue.cpp
+    tests/test_dialogue_components.cpp
+    tests/test_font.cpp)
 target_compile_features(ostinato-vi-text-engine-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-text-engine-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-text-engine-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

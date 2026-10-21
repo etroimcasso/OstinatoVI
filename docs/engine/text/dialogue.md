@@ -18,7 +18,7 @@ this page is about using and changing the code.
 using namespace ostinato::text;
 
 DialogueContext context;
-context.metrics = FontMetrics{widths};     // the dialogue font's advance widths
+context.metrics = content.dialogueFont.metrics;  // the font's widths, from the cartridge
 context.corpus = &corpus;                  // the TextCorpus the message comes from
 context.names[0] = terraName;              // each character's current name
 
@@ -61,7 +61,7 @@ it every frame:
 | Field | Used by |
 |---|---|
 | `language` | Everything that differs between English and Japanese: the word wrap, the tab fill glyph, the digit glyphs, name conversion, title centering. |
-| `metrics` | A `FontMetrics` view over the font's width table — how far the pen moves per glyph, and what the word wrap adds up. |
+| `metrics` | A `FontMetrics` view over the font's width table — how far the pen moves per glyph, and what the word wrap adds up. The cartridge's is `DialogueFont::metrics` ([font.md](font.md)). |
 | `corpus` | `startDialogue(index)`, and the item-name and spell-name splices. |
 | `mte` | The Japanese multi-tile table; unused in English. |
 | `names` | The character-name splice: character *n*'s current name in the menu font's encoding, ended early by `kNameEnd`. |
@@ -76,15 +76,53 @@ The state is the picture's data. The fields a rendering component needs:
 
 | Field | Meaning |
 |---|---|
-| `placed` | Every glyph on the current page, in drawing order: `{page, line, x, glyph}`. `x` is the pen position the glyph was drawn at — the left edge of its ink. Its 16-pixel cell starts 4 pixels left of that, on row `kGlyphRowOffset` of the line's `kLineHeight`-pixel strip. |
+| `placed` | Every glyph on the current page, in drawing order: `{page, line, x, glyph}`. `x` is the pen position the glyph was drawn at — the left edge of its ink. Its artwork starts `kGlyphArtLeftOfPen` pixels left of that, on row `kGlyphRowOffset` of the line's `kLineHeight`-pixel strip. |
 | `page` | Counts every page the state has shown. It is part of a glyph's identity: a glyph on page 7 and a glyph at the same spot on page 8 are different things, and a key built from `{page, line, ordinal}` keeps them apart. |
 | `cursor` | Where the choice arrow is, if it is on screen: a line and the pen x of its 16-pixel column. The arrow draws at the column's left edge. |
+| `titleShowing` | Whether the glyphs in `placed` are a map title that is up. |
 | `halfLinesCleared()` / `isWiped()` | A dismissed page leaves half a line at a time over eight frames, top line first, left half before right. A glyph or cursor on a half-line that has gone is not drawn. |
 
-A frame's dialogue picture is therefore: each glyph in `placed` that is not wiped, drawn twice
-(the glyph in the font colour at `(x − 4, line·16 + 4)`, the same glyph in black one pixel right
-and one down beneath it), plus the cursor if present and not wiped. Nothing else is needed and
+A frame's dialogue picture is therefore: each glyph in `placed`, drawn twice — in the font
+colour with its artwork at `(x − kGlyphArtLeftOfPen, line · kLineHeight + kGlyphRowOffset)`, and
+in black one pixel right and one down (`kShadowDx`, `kShadowDy`) beneath every letter — plus
+the arrow if present, its shadow one pixel to the right only (`kCursorShadowDx`,
+`kCursorShadowDy`), with every half-line that has gone left out. Nothing else is needed and
 nothing is remembered between frames.
+
+## Drawing it
+
+The rendering components do exactly that, one per piece of the picture
+([../rendering/components.md](../rendering/components.md)):
+
+```cpp
+#include "render/layers.h"
+#include "render/sprite_layer.h"
+#include "render/text/dialogue_cursor.h"
+#include "render/text/dialogue_text.h"
+#include "render/text/dialogue_wipe.h"
+#include "render/text/map_title.h"
+
+using namespace ostinato::render;
+
+frame.layers.push_back(SpriteLayer(
+    "dialogue", kDialogueTextZ,
+    {DialogueText(state, textX, textY, glyphSheet, ink, shadow),
+     DialogueCursor(state, textX, textY, arrowSheet, ink, shadow),
+     MapTitle(state, textX, textY, glyphSheet, ink, shadow)},
+    {.regions = DialogueWipe(state, textX, textY)}));
+```
+
+| Component | Draws |
+|---|---|
+| `DialogueText` | The page's glyphs and their shadows; nothing while a map title is up. |
+| `MapTitle` | The map title's glyphs while it is up. |
+| `DialogueCursor` | The choice arrow and its shadow, when there is one. |
+| `DialogueWipe` | One see-through region per half-line a dismissed page has lost, for the layer's `regions`. |
+
+`glyphSheet` and `arrowSheet` are the font's two sheets, uploaded once
+([font.md](font.md)); `ink` and `shadow` are the palettes for the font colour and the shadow
+black. The engine is advanced in the frame's update and these are called in its draw, so the
+picture always matches the state the frame ended on.
 
 ## How a message types
 
@@ -148,8 +186,11 @@ spaces, nothing visible).
 | How a word is measured | `measureWord()` in `src/text/dialogue.cpp`. |
 | How a splice is built | The `*Glyphs()` functions in `src/text/dialogue.cpp`. |
 | How the cursor moves | `kChoiceMoves` and `moveChoiceCursor()` in `src/text/dialogue.cpp`. |
+| How any of it is drawn | The components under `src/render/text/` ([../rendering/components.md](../rendering/components.md)). |
 | The expected behaviour | `docs/contracts/text_engine.md`, then `tests/test_dialogue.cpp`, which is written from it. |
 
 The tests in `tests/test_dialogue.cpp` drive the engine frame by frame over hand-built
 messages with a synthetic font, then run every English message in the cartridge to its end
 with the real font widths. A change that alters any observable behaviour shows up there.
+`tests/test_dialogue_components.cpp` reads back what each component returns, including over a
+running message as its page is dismissed and wiped.

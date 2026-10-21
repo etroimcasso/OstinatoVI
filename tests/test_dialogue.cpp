@@ -798,27 +798,14 @@ TEST(DialogueJapanese, TitleCentersByGlyphCount) {
 class DialogueCorpusTest : public ::testing::Test {
 protected:
     inline static test::IngestedCartridge cartridge_;
-    inline static std::vector<std::uint8_t> widths_;
 
-    static void SetUpTestSuite() {
-        cartridge_ = test::ingestVanilla();
-        if (cartridge_.available()) {
-            // The width table sits immediately before the font's graphics.
-            const auto place = romRegion(RomAsset::LARGE_FONT, Language::EN);
-            const std::size_t fontOffset =
-                static_cast<std::size_t>((place->at >> 16) & 0x3F) << 16 | (place->at & 0xFFFF);
-            const std::size_t widthCount = 256;
-            widths_.assign(cartridge_.image.begin() +
-                               static_cast<std::ptrdiff_t>(fontOffset - widthCount),
-                           cartridge_.image.begin() + static_cast<std::ptrdiff_t>(fontOffset));
-        }
-    }
+    static void SetUpTestSuite() { cartridge_ = test::ingestVanilla(); }
 
     static const TextCorpus& corpus() { return cartridge_.content->text; }
 
     static DialogueContext context() {
         DialogueContext c;
-        c.metrics = FontMetrics{widths_};
+        c.metrics = cartridge_.content->dialogueFont.metrics;
         c.corpus = &corpus();
         for (std::size_t i = 0; i < kCharacterCount; ++i) {
             c.names[i] = corpus().charName(i);  // everyone's default name

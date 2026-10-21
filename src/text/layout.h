@@ -24,9 +24,18 @@ inline constexpr int kLineHeight = 16;
 inline constexpr int kGlyphRowOffset = 4;
 inline constexpr int kGlyphRows = 11;
 
+// A glyph's artwork starts this many pixels left of the pen, and its ink starts this far into the
+// artwork, so the pen is the ink's left edge.
+inline constexpr int kGlyphArtLeftOfPen = 4;
+
 // The drop shadow's offset from its glyph.
 inline constexpr int kShadowDx = 1;
 inline constexpr int kShadowDy = 1;
+
+// The choice arrow sits at the same height in the line as a glyph, and its shadow falls one pixel
+// to the right only.
+inline constexpr int kCursorShadowDx = 1;
+inline constexpr int kCursorShadowDy = 0;
 
 // The width of one column of the text area. A choice's cursor arrow sits at the left edge of the
 // column the choice marker was in.

@@ -173,10 +173,29 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
     // between where each begins in the cartridge.
     const auto poolOffsetInBlock = static_cast<std::uint16_t>(poolPlace->at - firstList->at);
 
+    // The dialogue font: its artwork and widths, which every cartridge places, and the choice
+    // arrow, whose place is known on the US cartridges only.
+    const std::optional<retropp::MemoryRegion> glyphPlace = romRegion(RomAsset::LARGE_FONT, spoken);
+    const std::optional<retropp::MemoryRegion> widthPlace = romRegion(RomAsset::FONT_WIDTH, spoken);
+    if (!glyphPlace || !widthPlace) {
+        throw std::runtime_error("The cartridge has no dialogue font.");
+    }
+    const retropp::DataId glyphArt = library.uploadData(cartridge.read(*glyphPlace));
+    const retropp::DataId widths = library.uploadData(cartridge.read(*widthPlace));
+    text::CursorArt cursor;
+    if (const auto cursorPlace = romRegion(RomAsset::DLG_CURSOR_GFX, spoken)) {
+        cursor = text::CursorArt{library.data(library.uploadData(cartridge.read(*cursorPlace)))};
+    }
+
     return IngestedContent{
         .version = *version,
         .text = TextCorpus{std::move(corpus)},
         .worldTiles = WorldTilePool{library.data(pool), poolOffsetInBlock},
+        .dialogueFont = text::DialogueFont{
+            .glyphArt = library.data(glyphArt),
+            .metrics = text::FontMetrics{library.data(widths)},
+            .cursor = cursor,
+        },
     };
 }
 
