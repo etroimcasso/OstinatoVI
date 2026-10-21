@@ -1,6 +1,6 @@
-# The dialogue font
+# The dialog font
 
-The font the field dialogue and the map title are typed in: each glyph's artwork, how far the
+The font the field dialog and the map title are typed in: each glyph's artwork, how far the
 pen moves after it, and the arrow drawn beside the selected choice. All three come from the
 player's cartridge when the game starts; none of it is compiled into the program.
 
@@ -11,17 +11,17 @@ caller uploads.
 ## Where it comes from
 
 `assets::ingestCartridge()` reads the three families and hands them back as one
-`text::DialogueFont`:
+`text::DialogFont`:
 
 ```cpp
 #include "assets/cartridge.h"
 #include "text/font.h"
 
 const assets::IngestedContent content = assets::ingestCartridge();
-const text::DialogueFont& font = content.dialogueFont;
+const text::DialogFont& font = content.dialogFont;
 
 font.glyphArt;      // every glyph's artwork
-font.metrics;       // the width table — what DialogueContext::metrics wants
+font.metrics;       // the width table — what DialogContext::metrics wants
 font.cursor;        // the choice arrow
 font.glyphCount();  // 224 on a US cartridge, 1,248 on the Japanese one
 ```
@@ -32,7 +32,7 @@ font.glyphCount();  // 224 on a US cartridge, 1,248 on the Japanese one
 | Widths | `FONT_WIDTH` | 256 / 1,280 bytes | One per glyph code from `$00`. It sits between the two font files, in both languages. |
 | Choice arrow | `DLG_CURSOR_GFX` | 12 bytes | US cartridges only — see [Gotchas](#gotchas). |
 
-The spans in `DialogueFont` stay valid for the life of the program; the engine's data library
+The spans in `DialogFont` stay valid for the life of the program; the engine's data library
 keeps the bytes.
 
 ## The width table
@@ -45,7 +45,7 @@ width of 12 and are never drawn; the space `$7F` is 5 pixels and the wide space 
 
 A glyph's artwork is `kGlyphRows` (11) rows of `kGlyphArtWidth` (16) pixels. Each row is two
 bytes, low byte first, with the leftmost pixel in the top bit. Every glyph's ink starts
-`kGlyphArtLeftOfPen` (4) pixels into its artwork, which is why the dialogue draws a glyph's
+`kGlyphArtLeftOfPen` (4) pixels into its artwork, which is why the dialog draws a glyph's
 artwork that far to the left of the pen.
 
 The arrow is `kCursorRows` (12) rows of `kCursorWidth` (8) pixels, one byte per row, leftmost pixel
@@ -69,9 +69,9 @@ const std::size_t cell = text::glyphSlot(0x20);  // 'A' -> 0
 
 Every pixel is `kBlankPixel` (0) or `kInkPixel` (1). Upload both sheets with the blank pixel as
 a structural hole (`retropp::TransparentIndices::of({text::kBlankPixel})`), so a sprite shows
-only its ink and the palette it draws through colours it. The same glyph sheet serves the letter
+only its ink and the palette it draws through colors it. The same glyph sheet serves the letter
 and its shadow — they differ only in palette and position. The upload calls are shown in
-[../rendering/components.md](../rendering/components.md#the-dialogue-components).
+[../rendering/components.md](../rendering/components.md#the-dialog-components).
 
 Both cell sizes are whole multiples of the 8-pixel grid the engine reads sprites on.
 
@@ -80,7 +80,7 @@ Both cell sizes are whole multiples of the 8-pixel grid the engine reads sprites
 - **The Japanese cartridge has no arrow.** The Japanese build moves the field code, and with it
   the arrow, by an amount only assembling that build would settle, and no Japanese cartridge is
   available to check one against. Its `DLG_CURSOR_GFX` region is absent, so `font.cursor` is
-  empty (`loaded()` is false). Don't call `buildCursorSheet` without checking; `DialogueCursor`
+  empty (`loaded()` is false). Don't call `buildCursorSheet` without checking; `DialogCursor`
   draws nothing given an empty sheet. The two US cartridges place the arrow identically.
 - **The views don't own the bytes.** `FontMetrics` and `CursorArt` hold spans. The ones
   `ingestCartridge` returns are good for the life of the program; a view you build over your own

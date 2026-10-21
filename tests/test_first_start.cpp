@@ -39,7 +39,7 @@ bool runFlow(FlowLog& log, std::vector<DialogResult> dialogs, InstallResult inst
             const std::size_t index = static_cast<std::size_t>(log.dialogsShown);
             ++log.dialogsShown;
             return index < dialogs.size() ? dialogs[index]
-                                          : DialogResult{DialogEnd::Cancelled, {}};
+                                          : DialogResult{DialogEnd::Canceled, {}};
         },
         [&](const fs::path& rom) {
             ++log.installsRun;
@@ -72,7 +72,7 @@ TEST(FirstStart, AChosenCartridgeIsInstalledAndStartupContinues) {
 TEST(FirstStart, ADismissedDialogIsAskedOnceMore) {
     FlowLog log;
     EXPECT_TRUE(runFlow(log,
-                        {{DialogEnd::Cancelled, {}}, {DialogEnd::Chosen, "/tmp/ff6.sfc"}},
+                        {{DialogEnd::Canceled, {}}, {DialogEnd::Chosen, "/tmp/ff6.sfc"}},
                         kInstalled, false, true));
     EXPECT_EQ(log.dialogsShown, 2);
     EXPECT_EQ(log.installsRun, 1);
@@ -81,7 +81,7 @@ TEST(FirstStart, ADismissedDialogIsAskedOnceMore) {
 
 TEST(FirstStart, TwoDismissalsAreAnAnswer) {
     FlowLog log;
-    EXPECT_FALSE(runFlow(log, {{DialogEnd::Cancelled, {}}, {DialogEnd::Cancelled, {}}},
+    EXPECT_FALSE(runFlow(log, {{DialogEnd::Canceled, {}}, {DialogEnd::Canceled, {}}},
                          kInstalled, false, true));
     EXPECT_EQ(log.dialogsShown, 2);
     EXPECT_EQ(log.installsRun, 0);

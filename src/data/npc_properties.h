@@ -1,4 +1,4 @@
-// The per-map NPC-properties table: every field NPC's placement and behaviour
+// The per-map NPC-properties table: every field NPC's placement and behavior
 // (npc_prop.asm, ROM c4/1d52). 2,193 records of 9 packed bytes, shared across
 // maps through the per-map offset table (the same MapTriggerOffsetEntry shape as
 // the event-trigger and map-trigger families). The row data is generated
@@ -75,7 +75,7 @@ struct NpcProperties {
     constexpr MapSpritePal pal() const {
         return static_cast<MapSpritePal>((bytes[2] >> 2) & 0x07);
     }
-    // Autonomous movement behaviour (byte 7 bits 0-3).
+    // Autonomous movement behavior (byte 7 bits 0-3).
     constexpr NpcMovement movement() const {
         return static_cast<NpcMovement>(bytes[7] & 0x0F);
     }

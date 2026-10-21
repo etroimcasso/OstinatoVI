@@ -59,7 +59,7 @@ Game data carrying exact original values (stats, tables, formulas) is emitted by
 
 The line is the content's **nature**, not its file format or its size, and it is drawn once for the whole project rather than re-argued at each table:
 
-- **Extracted from the player's ROM, never compiled in and never committed:** game text (dialogue, names, descriptions, battle and menu strings), map layouts and tilemaps, artwork of every kind (backgrounds, sprites, fonts, portraits), and music and sound. These are authored expression.
+- **Extracted from the player's ROM, never compiled in and never committed:** game text (dialog, names, descriptions, battle and menu strings), map layouts and tilemaps, artwork of every kind (backgrounds, sprites, fonts, portraits), and music and sound. These are authored expression.
 - **Compiled into the binary:** the mechanics and the numeric tables that encode them — stats, formulas, encounter and formation tables, passability and terrain bits, animation and command properties, ids, curves. These are rules, not expression.
 
 A borderline case is decided by asking what the bytes *are*: a table of tile indices that draws a piece of the world is content even when it is small (the world map's tile patches moved to extraction on exactly this reasoning), while a byte that says whether the party can walk on a tile is mechanics even when it sits beside one.
@@ -87,7 +87,7 @@ Framework (FF Pixel Remaster / Halo MCC model): the default install plays exactl
 ## Licensing notes
 
 - Upstream disassembly is **GPL-3.0**. It serves as the derivation reference (intent, mechanics, data). Deriving *shipped code* from its expression — including its Python tooling such as `extract_assets.py` — requires a recorded license determination in `docs/licensing/LICENSING.md` first.
-- Mechanical game data (stats, tables, formulas) is uncopyrightable mechanics; specific expression (sprites, music sequences, dialogue text) is copyrighted (Square Enix) and never ships, never enters the tree.
+- Mechanical game data (stats, tables, formulas) is uncopyrightable mechanics; specific expression (sprites, music sequences, dialog text) is copyrighted (Square Enix) and never ships, never enters the tree.
 - Engine (`engine/`) is its own repo with its own license; SameBoy (MIT) and SDL (zlib) ride inside it.
 
 ## Open questions

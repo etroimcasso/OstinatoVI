@@ -1,7 +1,7 @@
 // Text-codec tests (Approach B): the three tokenizers turned loose on the whole
 // corpus, plus targeted grammar checks.
 //
-//   1. Full-corpus tokenize — every dialogue, battle, and menu-description
+//   1. Full-corpus tokenize — every dialog, battle, and menu-description
 //      record tokenizes without throwing. Because the tokenizers throw on any
 //      control byte the grammar does not define, a clean sweep of all ~3,850
 //      records is a proof that the grammar is complete over the real corpus.
@@ -94,13 +94,13 @@ std::vector<std::uint8_t> reassembleBattle(
 // Synthetic grammar checks — no corpus.
 // ---------------------------------------------------------------------------
 
-TEST(TextCodecDialogue, DteCodeExpandsToTwoGlyphs) {
+TEST(TextCodecDialog, DteCodeExpandsToTwoGlyphs) {
     const std::vector<std::uint8_t> dteBytes = syntheticDteBytes();
     const DteTable dte(dteBytes);
     // 0x80 expands to {0x80, 0x7F}; then a direct glyph 'A' (0x41 is < 0x80 and
     // >= 0x20 so it is a literal), then END.
     const std::vector<std::uint8_t> record{0x80, 0x41, 0x00};
-    const auto tokens = tokenizeDialogue(record, dte);
+    const auto tokens = tokenizeDialog(record, dte);
     ASSERT_EQ(tokens.size(), 2u);  // one glyph run, one END control
     const auto& run = std::get<GlyphRun>(tokens[0]);
     ASSERT_EQ(run.glyphs.size(), 3u);
@@ -111,12 +111,12 @@ TEST(TextCodecDialogue, DteCodeExpandsToTwoGlyphs) {
     EXPECT_EQ(end.command, FieldTextCommand::END);
 }
 
-TEST(TextCodecDialogue, OperandCarryingControlsConsumeOneByte) {
+TEST(TextCodecDialog, OperandCarryingControlsConsumeOneByte) {
     const DteTable dte(syntheticDteBytes());
     // WAIT_FRAMES(0x11) op=5, TAB(0x14) op=8, KEY_TIMED(0x16) op=30, END.
     const std::vector<std::uint8_t> record{0x11, 0x05, 0x14, 0x08,
                                            0x16, 0x1E, 0x00};
-    const auto tokens = tokenizeDialogue(record, dte);
+    const auto tokens = tokenizeDialog(record, dte);
     ASSERT_EQ(tokens.size(), 4u);
     EXPECT_EQ(std::get<FieldControl>(tokens[0]).command,
               FieldTextCommand::WAIT_FRAMES);
@@ -129,11 +129,11 @@ TEST(TextCodecDialogue, OperandCarryingControlsConsumeOneByte) {
     EXPECT_EQ(std::get<FieldControl>(tokens[3]).command, FieldTextCommand::END);
 }
 
-TEST(TextCodecDialogue, CharacterNameCodeCarriesMemberInLowNibble) {
+TEST(TextCodecDialog, CharacterNameCodeCarriesMemberInLowNibble) {
     const DteTable dte(syntheticDteBytes());
     // 0x02..0x0f splice a party member; operand is (code - 0x02).
     const std::vector<std::uint8_t> record{0x02, 0x05, 0x00};
-    const auto tokens = tokenizeDialogue(record, dte);
+    const auto tokens = tokenizeDialog(record, dte);
     ASSERT_EQ(tokens.size(), 3u);
     EXPECT_EQ(std::get<FieldControl>(tokens[0]).command,
               FieldTextCommand::CHARACTER_NAME);
@@ -143,17 +143,17 @@ TEST(TextCodecDialogue, CharacterNameCodeCarriesMemberInLowNibble) {
     EXPECT_EQ(std::get<FieldControl>(tokens[1]).operand, 3);  // 0x05 - 0x02
 }
 
-TEST(TextCodecDialogue, UnknownControlByteThrows) {
+TEST(TextCodecDialog, UnknownControlByteThrows) {
     const DteTable dte(syntheticDteBytes());
     // 0x17 is not defined in the field grammar (and not a name-splice code).
     const std::vector<std::uint8_t> record{0x41, 0x17, 0x00};
-    EXPECT_THROW(tokenizeDialogue(record, dte), std::runtime_error);
+    EXPECT_THROW(tokenizeDialog(record, dte), std::runtime_error);
 }
 
-TEST(TextCodecDialogue, MissingOperandThrows) {
+TEST(TextCodecDialog, MissingOperandThrows) {
     const DteTable dte(syntheticDteBytes());
     const std::vector<std::uint8_t> record{0x11};  // WAIT_FRAMES with no operand
-    EXPECT_THROW(tokenizeDialogue(record, dte), std::runtime_error);
+    EXPECT_THROW(tokenizeDialog(record, dte), std::runtime_error);
 }
 
 TEST(TextCodecBattle, OperandCarryingControlsConsumeOneByte) {
@@ -233,22 +233,22 @@ protected:
     }
 };
 
-// Every dialogue record tokenizes without throwing -> the field grammar is
-// complete over the whole dialogue corpus (any undefined control byte would
+// Every dialog record tokenizes without throwing -> the field grammar is
+// complete over the whole dialog corpus (any undefined control byte would
 // throw). DTE codes expand through the real table.
-TEST_F(TextCodecRipTest, EveryDialogueRecordTokenizes) {
+TEST_F(TextCodecRipTest, EveryDialogRecordTokenizes) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const DteTable dte = corpus().dte();
     ASSERT_TRUE(dte.loaded());
     const std::size_t count = textClassMetadata(TextClass::DLG1).recordCount +
                               textClassMetadata(TextClass::DLG2).recordCount;
     for (std::size_t i = 0; i < count; ++i) {
-        EXPECT_NO_THROW({ tokenizeDialogue(corpus().dialogue(i), dte); })
-            << "dialogue " << i;
+        EXPECT_NO_THROW({ tokenizeDialog(corpus().dialog(i), dte); })
+            << "dialog " << i;
     }
 }
 
-// Every battle-text record tokenizes and reassembles byte-for-byte (no DTE in
+// Every battle-text record tokenizes and reassembles to the same bytes (no DTE in
 // this family, so the token stream is a lossless split of the record bytes).
 TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
@@ -263,10 +263,10 @@ TEST_F(TextCodecRipTest, BattleRecordsTokenizeAndRoundTrip) {
                     record = corpus().attackMessage(static_cast<AttackId>(i));
                     break;
                 case TextClass::BATTLE_DLG:
-                    record = corpus().battleDialogue(i);
+                    record = corpus().battleDialog(i);
                     break;
                 default:
-                    record = corpus().monsterDialogue(i);
+                    record = corpus().monsterDialog(i);
                     break;
             }
             std::vector<BattleTextToken> tokens;
@@ -390,7 +390,7 @@ TEST_F(TextCodecRipTest, MenuDescriptionsCrossCheckUpstreamText) {
 // ---------------------------------------------------------------------------
 
 TEST(TextCodecJp, TokenizerBranchesValidationDeferred) {
-    GTEST_SKIP() << "JP dialogue/battle corpus not ripped (U-ROM only); "
+    GTEST_SKIP() << "JP dialog/battle corpus not ripped (U-ROM only); "
                     "tokenizer branches (MTE, kanji planes, name splices) "
                     "built, byte validation deferred to a J ROM";
 }

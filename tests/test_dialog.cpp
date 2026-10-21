@@ -1,4 +1,4 @@
-// The field dialogue text engine, checked against docs/contracts/text_engine.md.
+// The field dialog text engine, checked against docs/contracts/text_engine.md.
 //
 // Most cases drive the engine frame by frame over a small hand-built message, with a synthetic
 // font in which every glyph is 8 pixels wide except the ones the contract names (the space $7F
@@ -26,7 +26,7 @@
 #include "ostinato/rom_asset.h"
 #include "ostinato/text_class.h"
 #include "ostinato/text_token.h"
-#include "text/dialogue.h"
+#include "text/dialog.h"
 #include "text/layout.h"
 #include "vanilla_rom.h"
 
@@ -66,18 +66,18 @@ std::vector<std::uint8_t> repeated(std::size_t count, std::uint8_t glyph = kA) {
     return std::vector<std::uint8_t>(count, glyph);
 }
 
-const DialogueInput kNothing{};
-const DialogueInput kConfirm{.confirmHeld = true};
-const DialogueInput kUp{.up = true};
-const DialogueInput kDown{.down = true};
-const DialogueInput kLeft{.left = true};
-const DialogueInput kRight{.right = true};
+const DialogInput kNothing{};
+const DialogInput kConfirm{.confirmHeld = true};
+const DialogInput kUp{.up = true};
+const DialogInput kDown{.down = true};
+const DialogInput kLeft{.left = true};
+const DialogInput kRight{.right = true};
 
-// A dialogue engine over the synthetic font, plus the bits of context a case sets.
+// A dialog engine over the synthetic font, plus the bits of context a case sets.
 struct Harness {
     std::vector<std::uint8_t> widths = syntheticWidths(256);
-    DialogueContext context;
-    DialogueState state;
+    DialogContext context;
+    DialogState state;
 
     explicit Harness(TextLanguage language = TextLanguage::EN) {
         context.language = language;
@@ -85,12 +85,12 @@ struct Harness {
             widths = syntheticWidths(1280);
         }
         context.metrics = FontMetrics{widths};
-        initDialogue(state);
+        initDialog(state);
     }
 
-    void start(std::vector<FieldTextToken> tokens) { startDialogue(state, std::move(tokens)); }
-    void tick(const DialogueInput& input = kNothing) { tickDialogue(state, input, context); }
-    void ticks(int count, const DialogueInput& input = kNothing) {
+    void start(std::vector<FieldTextToken> tokens) { startDialog(state, std::move(tokens)); }
+    void tick(const DialogInput& input = kNothing) { tickDialog(state, input, context); }
+    void ticks(int count, const DialogInput& input = kNothing) {
         for (int i = 0; i < count; ++i) {
             tick(input);
         }
@@ -108,7 +108,7 @@ struct Harness {
 
 // --- the per-frame order and pacing ----------------------------------------------------------------
 
-TEST(DialogueInit, ResetsPenAndText) {
+TEST(DialogInit, ResetsPenAndText) {
     Harness h;
     EXPECT_EQ(h.state.status, MessageStatus::Idle);
     EXPECT_EQ(h.state.x, kTextLeft);
@@ -118,7 +118,7 @@ TEST(DialogueInit, ResetsPenAndText) {
     EXPECT_EQ(h.state.pageClearFrames, 0);
 }
 
-TEST(DialoguePacing, OneGlyphPerFrameAdvancingByWidth) {
+TEST(DialogPacing, OneGlyphPerFrameAdvancingByWidth) {
     Harness h;
     h.start({run({kA, kB, kC}), end()});
     EXPECT_EQ(h.state.status, MessageStatus::Showing);
@@ -133,7 +133,7 @@ TEST(DialoguePacing, OneGlyphPerFrameAdvancingByWidth) {
     EXPECT_EQ(h.state.x, 4 + 3 * kGlyphWidth);
 }
 
-TEST(DialoguePacing, IdleEngineDoesNothing) {
+TEST(DialogPacing, IdleEngineDoesNothing) {
     Harness h;
     h.ticks(10);
     EXPECT_TRUE(h.state.placed.empty());
@@ -142,7 +142,7 @@ TEST(DialoguePacing, IdleEngineDoesNothing) {
 
 // The full end-of-message sequence: END, release, press, nine wipe frames, then the close
 // request on the frame after.
-TEST(DialoguePacing, EndWaitsForReleaseThenPressThenWipesThenRequestsClose) {
+TEST(DialogPacing, EndWaitsForReleaseThenPressThenWipesThenRequestsClose) {
     Harness h;
     h.start({run({kA}), end()});
     h.tick();  // A
@@ -172,7 +172,7 @@ TEST(DialoguePacing, EndWaitsForReleaseThenPressThenWipesThenRequestsClose) {
     EXPECT_EQ(h.state.status, MessageStatus::Idle);
 }
 
-TEST(DialoguePacing, HeldConfirmDoesNotDismissAPage) {
+TEST(DialogPacing, HeldConfirmDoesNotDismissAPage) {
     Harness h;
     h.start({run({kA}), end()});
     h.ticks(2, kConfirm);  // A held all the way through the page end
@@ -181,7 +181,7 @@ TEST(DialoguePacing, HeldConfirmDoesNotDismissAPage) {
     EXPECT_EQ(h.state.pageClearFrames, kPageClearFrames);
 }
 
-TEST(DialoguePacing, WaitPausesSixtyFrames) {
+TEST(DialogPacing, WaitPausesSixtyFrames) {
     Harness h;
     h.start({control(FieldTextCommand::WAIT), run({kA}), end()});
     h.tick();  // WAIT
@@ -191,7 +191,7 @@ TEST(DialoguePacing, WaitPausesSixtyFrames) {
     EXPECT_EQ(h.placedCount(), 1u);
 }
 
-TEST(DialoguePacing, WaitFramesPausesFifteenTimesItsOperand) {
+TEST(DialogPacing, WaitFramesPausesFifteenTimesItsOperand) {
     Harness h;
     h.start({control(FieldTextCommand::WAIT_FRAMES, 3), run({kA}), end()});
     h.tick();
@@ -203,14 +203,14 @@ TEST(DialoguePacing, WaitFramesPausesFifteenTimesItsOperand) {
 
 // --- lines, pages and the wipe ------------------------------------------------------------------
 
-TEST(DialogueLines, NewlineResetsPenAndStepsLine) {
+TEST(DialogLines, NewlineResetsPenAndStepsLine) {
     Harness h;
     h.start({run({kA}), control(FieldTextCommand::NEWLINE), run({kB}), end()});
     h.ticks(3);
     EXPECT_EQ(h.lastPlaced(), (PlacedGlyph{.page = h.state.page, .line = 1, .x = 4, .glyph = kB}));
 }
 
-TEST(DialogueLines, BreakingPastTheFourthLineEndsThePage) {
+TEST(DialogLines, BreakingPastTheFourthLineEndsThePage) {
     Harness h;
     std::vector<FieldTextToken> tokens;
     for (int line = 0; line < kLinesPerPage; ++line) {
@@ -227,7 +227,7 @@ TEST(DialogueLines, BreakingPastTheFourthLineEndsThePage) {
     EXPECT_EQ(h.state.status, MessageStatus::Showing);  // a page end, not the message end
 }
 
-TEST(DialogueLines, NextPageTypesOnTheFrameAfterTheWipe) {
+TEST(DialogLines, NextPageTypesOnTheFrameAfterTheWipe) {
     Harness h;
     h.start({run({kA}), control(FieldTextCommand::NEWLINE), run({kA}),
              control(FieldTextCommand::PAGE), run({kB}), end()});
@@ -243,7 +243,7 @@ TEST(DialogueLines, NextPageTypesOnTheFrameAfterTheWipe) {
 }
 
 // The wipe clears one half-line per frame, top line first, left half before right.
-TEST(DialogueLines, WipeClearsHalfLinesTopDown) {
+TEST(DialogLines, WipeClearsHalfLinesTopDown) {
     Harness h;
     h.start({run({kA}), end()});
     h.ticks(2);
@@ -264,7 +264,7 @@ TEST(DialogueLines, WipeClearsHalfLinesTopDown) {
 // 25 glyphs take the pen to 204; a space to 209; a three-glyph word (24) would reach 233, so the
 // line breaks instead — one frame, nothing drawn, the cursor unmoved — and the word types on the
 // next line.
-TEST(DialogueWrap, WordThatDoesNotFitBreaksTheLineFirst) {
+TEST(DialogWrap, WordThatDoesNotFitBreaksTheLineFirst) {
     Harness h;
     std::vector<std::uint8_t> first = repeated(25);
     first.push_back(static_cast<std::uint8_t>(kSpaceGlyph));
@@ -284,7 +284,7 @@ TEST(DialogueWrap, WordThatDoesNotFitBreaksTheLineFirst) {
 }
 
 // The measure stops at the space, so a short word fits even when the text after it would not.
-TEST(DialogueWrap, MeasureStopsAtTheSpace) {
+TEST(DialogWrap, MeasureStopsAtTheSpace) {
     Harness h;
     std::vector<std::uint8_t> glyphs = repeated(26);  // pen to 212
     glyphs.push_back(kB);                              // 212 + 8 = 220: fits
@@ -298,7 +298,7 @@ TEST(DialogueWrap, MeasureStopsAtTheSpace) {
 
 // A word's width counts only its undrawn glyphs, so a word that started on a line is never
 // pulled off it partway through.
-TEST(DialogueWrap, MeasureStartsAtTheNextUndrawnGlyph) {
+TEST(DialogWrap, MeasureStartsAtTheNextUndrawnGlyph) {
     Harness h;
     std::vector<std::uint8_t> glyphs = repeated(20);  // pen to 164
     glyphs.push_back(static_cast<std::uint8_t>(kSpaceGlyph));  // 169
@@ -314,7 +314,7 @@ TEST(DialogueWrap, MeasureStartsAtTheNextUndrawnGlyph) {
 // A glyph that would cross the margin is not drawn: the line breaks and the glyph is lost. The
 // gold amount is never measured, so digits typed at the end of a line reach the margin glyph by
 // glyph.
-TEST(DialogueWrap, GlyphCrossingTheMarginIsDropped) {
+TEST(DialogWrap, GlyphCrossingTheMarginIsDropped) {
     Harness h;
     h.context.goldAmount = 234;
     h.start({run(repeated(26)), control(FieldTextCommand::GP), end()});
@@ -339,7 +339,7 @@ TEST(DialogueWrap, GlyphCrossingTheMarginIsDropped) {
 
 // The margin is exclusive: a glyph whose right edge lands exactly on 224 is dropped. (A gold
 // amount is never measured, and the synthetic digit 1 is 12 wide.)
-TEST(DialogueWrap, GlyphEndingExactlyOnTheMarginIsDropped) {
+TEST(DialogWrap, GlyphEndingExactlyOnTheMarginIsDropped) {
     Harness h;
     h.context.goldAmount = 1;
     h.start({run(repeated(26)), control(FieldTextCommand::GP), run({kA}), end()});
@@ -356,7 +356,7 @@ TEST(DialogueWrap, GlyphEndingExactlyOnTheMarginIsDropped) {
 
 // A name is measured as one word and the measure stops after it, so letters glued to it are
 // measured on their own when the cursor reaches them.
-TEST(DialogueWrap, NameIsMeasuredAloneAndGluedLettersSeparately) {
+TEST(DialogWrap, NameIsMeasuredAloneAndGluedLettersSeparately) {
     Harness h;
     const std::array<std::uint8_t, 6> name{0x80, 0x81, 0x82, kNameEnd, kNameEnd, kNameEnd};
     h.context.names[0] = name;
@@ -376,7 +376,7 @@ TEST(DialogueWrap, NameIsMeasuredAloneAndGluedLettersSeparately) {
 
 // --- control codes ---------------------------------------------------------------------------
 
-TEST(DialogueControls, TabQueuesFillGlyphsWithoutDrawingThisFrame) {
+TEST(DialogControls, TabQueuesFillGlyphsWithoutDrawingThisFrame) {
     Harness h;
     h.start({control(FieldTextCommand::TAB, 3), run({kA}), end()});
     h.tick();  // TAB
@@ -395,7 +395,7 @@ TEST(DialogueControls, TabQueuesFillGlyphsWithoutDrawingThisFrame) {
 
 // While a tab's fill drains, nothing is measured: a long word after it is not looked at until
 // the fill is done.
-TEST(DialogueControls, TabFillIsNotMeasured) {
+TEST(DialogControls, TabFillIsNotMeasured) {
     Harness h;
     // Pen to 196; tab 4 (20) reaches 216; the word after (16) does not fit at 196 + 20 + 16.
     h.start({run(repeated(24)), control(FieldTextCommand::TAB, 4), run({kB, kB}), end()});
@@ -410,7 +410,7 @@ TEST(DialogueControls, TabFillIsNotMeasured) {
 
 // KEY arms the key timer without waiting: typing continues, and two frames later the timer runs
 // out and clears the choice count.
-TEST(DialogueControls, KeyDoesNotWaitButClearsChoicesTwoFramesLater) {
+TEST(DialogControls, KeyDoesNotWaitButClearsChoicesTwoFramesLater) {
     Harness h;
     h.start({control(FieldTextCommand::CHOICE), control(FieldTextCommand::CHOICE),
              control(FieldTextCommand::KEY), run({kA, kB, kC}), end()});
@@ -425,7 +425,7 @@ TEST(DialogueControls, KeyDoesNotWaitButClearsChoicesTwoFramesLater) {
     EXPECT_EQ(h.lastPlaced().glyph, kB);
 }
 
-TEST(DialogueControls, KeyTimedAdvancesWhenItsTimerRunsOut) {
+TEST(DialogControls, KeyTimedAdvancesWhenItsTimerRunsOut) {
     Harness h;
     h.start({control(FieldTextCommand::KEY_TIMED, 2), run({kA}), end()});
     h.tick();
@@ -438,7 +438,7 @@ TEST(DialogueControls, KeyTimedAdvancesWhenItsTimerRunsOut) {
     EXPECT_EQ(h.placedCount(), 1u);
 }
 
-TEST(DialogueControls, KeyTimedAdvancesEarlyOnAPress) {
+TEST(DialogControls, KeyTimedAdvancesEarlyOnAPress) {
     Harness h;
     h.start({control(FieldTextCommand::KEY_TIMED, 8), run({kA}), end()});
     h.tick();
@@ -454,23 +454,23 @@ TEST(DialogueControls, KeyTimedAdvancesEarlyOnAPress) {
 
 // English names are converted from the menu font, end at $FF, and the first letter draws on the
 // same frame the control is read.
-TEST(DialogueSplices, CharacterNameConvertsAndStopsAtItsEnd) {
+TEST(DialogSplices, CharacterNameConvertsAndStopsAtItsEnd) {
     Harness h;
     const std::array<std::uint8_t, 6> name{0x80, 0x8E, 0x91, kNameEnd, 0x99, 0x99};
     h.context.names[3] = name;
     h.start({control(FieldTextCommand::CHARACTER_NAME, 3), run({kA}), end()});
     h.tick();
     ASSERT_EQ(h.placedCount(), 1u);
-    EXPECT_EQ(h.lastPlaced().glyph, 0x80 - kMenuToDialogueOffset);
+    EXPECT_EQ(h.lastPlaced().glyph, 0x80 - kMenuToDialogOffset);
     h.ticks(2);
     ASSERT_EQ(h.placedCount(), 3u);
-    EXPECT_EQ(h.state.placed[1].glyph, 0x8E - kMenuToDialogueOffset);
-    EXPECT_EQ(h.state.placed[2].glyph, 0x91 - kMenuToDialogueOffset);
+    EXPECT_EQ(h.state.placed[1].glyph, 0x8E - kMenuToDialogOffset);
+    EXPECT_EQ(h.state.placed[2].glyph, 0x91 - kMenuToDialogOffset);
     h.tick();
     EXPECT_EQ(h.lastPlaced().glyph, kA);
 }
 
-TEST(DialogueSplices, CharacterNameTakesAtMostSixGlyphs) {
+TEST(DialogSplices, CharacterNameTakesAtMostSixGlyphs) {
     Harness h;
     const std::array<std::uint8_t, 8> name{0x80, 0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87};
     h.context.names[0] = name;
@@ -497,7 +497,7 @@ TextCorpus spliceCorpus(ItemId item, std::span<const std::uint8_t> itemRecord,
 }
 
 // The item splice skips the record's first byte (the icon) and takes up to 12 letters.
-TEST(DialogueSplices, ItemNameSkipsTheIconByte) {
+TEST(DialogSplices, ItemNameSkipsTheIconByte) {
     const std::array<std::uint8_t, 13> record{0xD8, 0x80, 0x81, 0x82, kNameEnd, 0x90, 0x90,
                                               0x90, 0x90, 0x90, 0x90, 0x90, 0x90};
     const TextCorpus corpus = spliceCorpus(ItemId::MITHRILKNIFE, record, {});
@@ -507,8 +507,8 @@ TEST(DialogueSplices, ItemNameSkipsTheIconByte) {
     h.start({control(FieldTextCommand::ITEM_NAME), end()});
     h.ticks(3);
     ASSERT_EQ(h.placedCount(), 3u);
-    EXPECT_EQ(h.state.placed[0].glyph, 0x80 - kMenuToDialogueOffset);
-    EXPECT_EQ(h.state.placed[2].glyph, 0x82 - kMenuToDialogueOffset);
+    EXPECT_EQ(h.state.placed[0].glyph, 0x80 - kMenuToDialogOffset);
+    EXPECT_EQ(h.state.placed[2].glyph, 0x82 - kMenuToDialogOffset);
     h.tick();  // END, not a fourth letter
     EXPECT_EQ(h.placedCount(), 3u);
     EXPECT_EQ(h.state.status, MessageStatus::Finished);
@@ -516,7 +516,7 @@ TEST(DialogueSplices, ItemNameSkipsTheIconByte) {
 
 // The spell splice reads at a stride of 4, one byte in, and copies 4 bytes — so spell 1 starts at
 // byte 5 of the table, inside spell 0's 7-byte record.
-TEST(DialogueSplices, SpellNameReadsAtStrideFourAndCopiesFour) {
+TEST(DialogSplices, SpellNameReadsAtStrideFourAndCopiesFour) {
     std::vector<std::uint8_t> table(64, 0x90);
     for (std::size_t i = 0; i < table.size(); ++i) {
         table[i] = static_cast<std::uint8_t>(0x80 + i);
@@ -529,12 +529,12 @@ TEST(DialogueSplices, SpellNameReadsAtStrideFourAndCopiesFour) {
     h.ticks(kSpellNameGlyphs + 1);
     ASSERT_EQ(h.placedCount(), kSpellNameGlyphs + 1);
     for (std::size_t i = 0; i < kSpellNameGlyphs; ++i) {
-        EXPECT_EQ(h.state.placed[i].glyph, 0x80 + 5 + i - kMenuToDialogueOffset);
+        EXPECT_EQ(h.state.placed[i].glyph, 0x80 + 5 + i - kMenuToDialogOffset);
     }
     EXPECT_EQ(h.lastPlaced().glyph, kA);
 }
 
-TEST(DialogueSplices, GoldSuppressesLeadingZeros) {
+TEST(DialogSplices, GoldSuppressesLeadingZeros) {
     Harness h;
     h.context.goldAmount = 2050;
     h.start({control(FieldTextCommand::GP), end()});
@@ -548,7 +548,7 @@ TEST(DialogueSplices, GoldSuppressesLeadingZeros) {
     EXPECT_EQ(h.state.status, MessageStatus::Finished);
 }
 
-TEST(DialogueSplices, GoldPrintsSevenDigitsAtMost) {
+TEST(DialogSplices, GoldPrintsSevenDigitsAtMost) {
     Harness h;
     h.context.goldAmount = 9'999'999;
     h.start({control(FieldTextCommand::GP), end()});
@@ -558,7 +558,7 @@ TEST(DialogueSplices, GoldPrintsSevenDigitsAtMost) {
 }
 
 // A splice with nothing in it draws nothing; the frame is spent and the message goes on.
-TEST(DialogueSplices, EmptySpliceDrawsNothing) {
+TEST(DialogSplices, EmptySpliceDrawsNothing) {
     Harness h;
     h.context.goldAmount = 0;
     h.start({control(FieldTextCommand::GP), run({kA}), end()});
@@ -574,7 +574,7 @@ TEST(DialogueSplices, EmptySpliceDrawsNothing) {
 
 // A choice records the left edge of the 16-pixel column the pen is in — the arrow snaps to the
 // column, not the marker's pixel — and draws the 6-pixel wide space.
-TEST(DialogueChoices, ChoiceRecordsTheColumnAndDrawsAWideSpace) {
+TEST(DialogChoices, ChoiceRecordsTheColumnAndDrawsAWideSpace) {
     Harness h;
     h.start({run(repeated(3)), control(FieldTextCommand::CHOICE), run({kA}),
              control(FieldTextCommand::NEWLINE), control(FieldTextCommand::CHOICE), run({kB}),
@@ -599,7 +599,7 @@ Harness threeChoices() {
     return h;
 }
 
-TEST(DialogueChoices, CursorAppearsOnceTheEngineWaits) {
+TEST(DialogChoices, CursorAppearsOnceTheEngineWaits) {
     Harness h = threeChoices();
     EXPECT_FALSE(h.state.cursor.has_value());
     h.tick();
@@ -607,7 +607,7 @@ TEST(DialogueChoices, CursorAppearsOnceTheEngineWaits) {
     EXPECT_EQ(*h.state.cursor, (ChoicePosition{.line = 0, .x = 0}));
 }
 
-TEST(DialogueChoices, OneMovePerPress) {
+TEST(DialogChoices, OneMovePerPress) {
     Harness h = threeChoices();
     h.tick();
     h.tick(kDown);
@@ -620,13 +620,13 @@ TEST(DialogueChoices, OneMovePerPress) {
     EXPECT_EQ(*h.state.cursor, (ChoicePosition{.line = 2, .x = 0}));
 }
 
-TEST(DialogueChoices, BlockedStepsLeaveTheSelectionFreeToMove) {
+TEST(DialogChoices, BlockedStepsLeaveTheSelectionFreeToMove) {
     Harness h = threeChoices();
     h.tick();
     h.tick(kUp);  // already on the first: blocked
     EXPECT_EQ(h.state.choices.selection, 0u);
     EXPECT_FALSE(h.state.choices.selectionChanging);
-    h.tick(DialogueInput{.up = true, .down = true});  // up/left is tested first, and blocks
+    h.tick(DialogInput{.up = true, .down = true});  // up/left is tested first, and blocks
     EXPECT_EQ(h.state.choices.selection, 0u);
     h.tick(kNothing);
     h.tick(kDown);
@@ -643,7 +643,7 @@ TEST(DialogueChoices, BlockedStepsLeaveTheSelectionFreeToMove) {
 
 // The press stops the cursor following the selection, but it stays on screen until the wipe takes
 // its half-line, and goes with the page.
-TEST(DialogueChoices, CursorStaysUntilTheWipeReachesIt) {
+TEST(DialogChoices, CursorStaysUntilTheWipeReachesIt) {
     Harness h = threeChoices();
     h.tick();
     h.tick(kDown);
@@ -662,7 +662,7 @@ TEST(DialogueChoices, CursorStaysUntilTheWipeReachesIt) {
     EXPECT_FALSE(h.state.cursor.has_value());
 }
 
-TEST(DialogueChoices, SelectionPersistsUntilCleared) {
+TEST(DialogChoices, SelectionPersistsUntilCleared) {
     Harness h = threeChoices();
     h.tick();
     h.tick(kDown);
@@ -675,7 +675,7 @@ TEST(DialogueChoices, SelectionPersistsUntilCleared) {
     EXPECT_EQ(selection(h.state), 0u);
 }
 
-TEST(DialogueChoices, OneChoiceShowsNoCursor) {
+TEST(DialogChoices, OneChoiceShowsNoCursor) {
     Harness h;
     h.start({control(FieldTextCommand::CHOICE), run({kA}), end()});
     h.ticks(3);
@@ -687,7 +687,7 @@ TEST(DialogueChoices, OneChoiceShowsNoCursor) {
 
 // English centering adds the record's byte widths: three 8-pixel glyphs are 24 wide, so the
 // title starts at (224 - 24) / 2 = 100. It is placed whole, at once, and asks for no window close.
-TEST(DialogueTitle, CenteredAndPlacedAtOnce) {
+TEST(DialogTitle, CenteredAndPlacedAtOnce) {
     Harness h;
     const std::array<std::uint8_t, 4> record{kA, kB, kC, 0x00};
     showMapTitle(h.state, record, h.context);
@@ -703,7 +703,7 @@ TEST(DialogueTitle, CenteredAndPlacedAtOnce) {
     EXPECT_FALSE(windowCloseRequested(h.state));
 }
 
-TEST(DialogueTitle, TimerClosesTheTitleAndTheNextMessageTypesNineFramesLate) {
+TEST(DialogTitle, TimerClosesTheTitleAndTheNextMessageTypesNineFramesLate) {
     Harness h;
     const std::array<std::uint8_t, 2> record{kA, 0x00};
     showMapTitle(h.state, record, h.context);
@@ -723,7 +723,7 @@ TEST(DialogueTitle, TimerClosesTheTitleAndTheNextMessageTypesNineFramesLate) {
     EXPECT_EQ(h.lastPlaced(), (PlacedGlyph{.page = h.state.page, .line = 0, .x = 4, .glyph = kB}));
 }
 
-TEST(DialogueTitle, CloseDoesNothingWithoutATitle) {
+TEST(DialogTitle, CloseDoesNothingWithoutATitle) {
     Harness h;
     h.start({run({kA, kB}), end()});
     h.tick();
@@ -732,7 +732,7 @@ TEST(DialogueTitle, CloseDoesNothingWithoutATitle) {
     EXPECT_EQ(h.state.pageClearFrames, 0);
 }
 
-TEST(DialogueTitle, EarlyCloseStopsAShowingMessage) {
+TEST(DialogTitle, EarlyCloseStopsAShowingMessage) {
     Harness h;
     const std::array<std::uint8_t, 2> record{kA, 0x00};
     showMapTitle(h.state, record, h.context);
@@ -748,7 +748,7 @@ TEST(DialogueTitle, EarlyCloseStopsAShowingMessage) {
 
 // Japanese has no word wrap: a word that would not fit is typed until a glyph reaches the margin,
 // which is dropped.
-TEST(DialogueJapanese, NeverWordWraps) {
+TEST(DialogJapanese, NeverWordWraps) {
     Harness h{TextLanguage::JP};
     std::vector<std::uint8_t> glyphs = repeated(25);  // pen to 204
     glyphs.insert(glyphs.end(), {kB, kB, kB});
@@ -763,7 +763,7 @@ TEST(DialogueJapanese, NeverWordWraps) {
 }
 
 // A byte below $20 in a Japanese run opens a two-byte glyph.
-TEST(DialogueJapanese, TwoByteGlyphs) {
+TEST(DialogJapanese, TwoByteGlyphs) {
     Harness h{TextLanguage::JP};
     h.start({run({0x1C, 0x05, kA}), end()});
     h.tick();
@@ -772,7 +772,7 @@ TEST(DialogueJapanese, TwoByteGlyphs) {
     EXPECT_EQ(h.lastPlaced().glyph, kA);
 }
 
-TEST(DialogueJapanese, TabFillsWithTheWideSpaceAndDigitsUseTheirOwnBase) {
+TEST(DialogJapanese, TabFillsWithTheWideSpaceAndDigitsUseTheirOwnBase) {
     Harness h{TextLanguage::JP};
     h.context.goldAmount = 7;
     h.start({control(FieldTextCommand::TAB, 1), control(FieldTextCommand::GP), end()});
@@ -784,7 +784,7 @@ TEST(DialogueJapanese, TabFillsWithTheWideSpaceAndDigitsUseTheirOwnBase) {
 
 // Japanese centering counts glyphs at 12 pixels each, whatever their real widths: two 8-pixel
 // glyphs count as 24, so the title starts at 100.
-TEST(DialogueJapanese, TitleCentersByGlyphCount) {
+TEST(DialogJapanese, TitleCentersByGlyphCount) {
     Harness h{TextLanguage::JP};
     const std::array<std::uint8_t, 3> record{kA, kB, 0x00};
     showMapTitle(h.state, record, h.context);
@@ -795,7 +795,7 @@ TEST(DialogueJapanese, TitleCentersByGlyphCount) {
 
 // --- the whole English script ----------------------------------------------------------------------
 
-class DialogueCorpusTest : public ::testing::Test {
+class DialogCorpusTest : public ::testing::Test {
 protected:
     inline static test::IngestedCartridge cartridge_;
 
@@ -803,9 +803,9 @@ protected:
 
     static const TextCorpus& corpus() { return cartridge_.content->text; }
 
-    static DialogueContext context() {
-        DialogueContext c;
-        c.metrics = cartridge_.content->dialogueFont.metrics;
+    static DialogContext context() {
+        DialogContext c;
+        c.metrics = cartridge_.content->dialogFont.metrics;
         c.corpus = &corpus();
         for (std::size_t i = 0; i < kCharacterCount; ++i) {
             c.names[i] = corpus().charName(i);  // everyone's default name
@@ -826,16 +826,16 @@ struct MessageRun {
 
 // Drive message `index` to its window-close request, pressing A whenever the engine waits for a
 // press and releasing it otherwise.
-MessageRun runMessage(std::size_t index, const DialogueContext& context) {
+MessageRun runMessage(std::size_t index, const DialogContext& context) {
     constexpr int kFrameLimit = 1'000'000;
     MessageRun result;
-    DialogueState state;
-    initDialogue(state);
-    startDialogue(state, index, context);
+    DialogState state;
+    initDialog(state);
+    startDialog(state, index, context);
     for (int frame = 0; frame < kFrameLimit; ++frame) {
-        const DialogueInput input{.confirmHeld = state.keyState == KeyState::WaitingForPress};
+        const DialogInput input{.confirmHeld = state.keyState == KeyState::WaitingForPress};
         const std::size_t before = state.choices.count;
-        tickDialogue(state, input, context);
+        tickDialog(state, input, context);
         if (state.choices.count > before) {
             result.choicesRecorded += state.choices.count - before;
         }
@@ -856,10 +856,10 @@ MessageRun runMessage(std::size_t index, const DialogueContext& context) {
 
 // Every English message types to the end, records 328 choices in all — 148 messages with two or
 // more — and never places a glyph past the margin.
-TEST_F(DialogueCorpusTest, EveryMessageRunsToItsEnd) {
+TEST_F(DialogCorpusTest, EveryMessageRunsToItsEnd) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
-    const DialogueContext c = context();
-    const std::size_t count = dialogueOffsets().size();
+    const DialogContext c = context();
+    const std::size_t count = dialogOffsets().size();
     ASSERT_EQ(count, 3084u);
 
     std::size_t choicesRecorded = 0;
@@ -868,7 +868,7 @@ TEST_F(DialogueCorpusTest, EveryMessageRunsToItsEnd) {
         const MessageRun r = runMessage(index, c);
         EXPECT_TRUE(r.finished) << "message " << index << " did not finish";
         EXPECT_FALSE(r.glyphPastMargin) << "message " << index;
-        if (!corpus().dialogue(index).empty()) {
+        if (!corpus().dialog(index).empty()) {
             choicesRecorded += r.choicesRecorded;
             if (r.mostChoices >= 2) {
                 ++messagesByChoiceCount[r.mostChoices];
@@ -887,19 +887,19 @@ constexpr std::size_t kExpectedDroppedSpaces = 305;
 constexpr std::size_t kExpectedDroppedVisibleGlyphs = 0;
 constexpr std::size_t kExpectedMessagesLosingText = 0;
 
-TEST_F(DialogueCorpusTest, GlyphsDroppedAtTheMarginWithDefaultNames) {
+TEST_F(DialogCorpusTest, GlyphsDroppedAtTheMarginWithDefaultNames) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
-    const DialogueContext c = context();
+    const DialogContext c = context();
     std::size_t spaces = 0;
     std::size_t visible = 0;
     std::size_t messagesLosingText = 0;
-    for (std::size_t index = 0; index < dialogueOffsets().size(); ++index) {
-        DialogueState state;
-        initDialogue(state);
-        startDialogue(state, index, c);
+    for (std::size_t index = 0; index < dialogOffsets().size(); ++index) {
+        DialogState state;
+        initDialog(state);
+        startDialog(state, index, c);
         for (int frame = 0; frame < 1'000'000 && !windowCloseRequested(state); ++frame) {
-            tickDialogue(state,
-                         DialogueInput{.confirmHeld = state.keyState == KeyState::WaitingForPress},
+            tickDialog(state,
+                         DialogInput{.confirmHeld = state.keyState == KeyState::WaitingForPress},
                          c);
         }
         bool lostText = false;
@@ -925,19 +925,19 @@ TEST_F(DialogueCorpusTest, GlyphsDroppedAtTheMarginWithDefaultNames) {
 }
 
 // Empty records show the record after them, and a record with no END runs on into the next.
-TEST_F(DialogueCorpusTest, RecordsRunOnUntilAnEnd) {
+TEST_F(DialogCorpusTest, RecordsRunOnUntilAnEnd) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
-    const DialogueContext c = context();
+    const DialogContext c = context();
     for (const std::size_t index : {std::size_t{0}, std::size_t{1422}, std::size_t{1655},
                                     std::size_t{2125}}) {
-        DialogueState runOn;
-        startDialogue(runOn, index, c);
-        DialogueState next;
-        startDialogue(next, index + 1, c);
+        DialogState runOn;
+        startDialog(runOn, index, c);
+        DialogState next;
+        startDialog(next, index + 1, c);
         // None of these records ends itself, so the message is its own tokens followed by the
         // next record's.
         const std::vector<FieldTextToken> own =
-            tokenizeDialogue(corpus().dialogue(index), corpus().dte());
+            tokenizeDialog(corpus().dialog(index), corpus().dte());
         const auto endsMessage = [](const FieldTextToken& token) {
             const auto* control = std::get_if<FieldControl>(&token);
             return control != nullptr && control->command == FieldTextCommand::END;
@@ -947,14 +947,14 @@ TEST_F(DialogueCorpusTest, RecordsRunOnUntilAnEnd) {
     }
 }
 
-// Every map title is centred inside the window.
-TEST_F(DialogueCorpusTest, EveryMapTitleFits) {
+// Every map title is centered inside the window.
+TEST_F(DialogCorpusTest, EveryMapTitleFits) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
-    const DialogueContext c = context();
+    const DialogContext c = context();
     const std::size_t titles = pointerOffsets(TextClass::MAP_TITLE).size();
     for (std::size_t index = 0; index < titles; ++index) {
-        DialogueState state;
-        initDialogue(state);
+        DialogState state;
+        initDialog(state);
         showMapTitle(state, corpus().mapTitle(index), c);
         for (const PlacedGlyph& g : state.placed) {
             EXPECT_EQ(g.line, 0) << "title " << index;
@@ -965,7 +965,7 @@ TEST_F(DialogueCorpusTest, EveryMapTitleFits) {
     }
 }
 
-TEST(DialogueJapaneseCorpus, EveryMessageRunsToItsEnd) {
+TEST(DialogJapaneseCorpus, EveryMessageRunsToItsEnd) {
     GTEST_SKIP() << "Needs a Japanese cartridge (FF6 1.0 J); none is available to validate the "
                     "Japanese script against.";
 }

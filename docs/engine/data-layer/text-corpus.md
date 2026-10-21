@@ -1,7 +1,7 @@
 # Game text — the runtime corpus and its codecs
 
 Final Fantasy VI's text — character and item names, spell descriptions, battle
-messages, and the field dialogue — is **copyrighted expression**, so unlike the
+messages, and the field dialog — is **copyrighted expression**, so unlike the
 rest of the data layer it is never compiled into the binary. It ships as raw
 byte `.dat` files that the game reads from disk at runtime and decodes itself.
 
@@ -36,11 +36,11 @@ std::span<const std::uint8_t> ch   = corpus.charName(0);   // decimal index
 
 // Variable-length records — located by the class's offset table.
 std::span<const std::uint8_t> msg  = corpus.attackMessage(AttackId{9});
-std::span<const std::uint8_t> line = corpus.dialogue(1203);  // combined dlg1+dlg2
+std::span<const std::uint8_t> line = corpus.dialog(1203);  // combined dlg1+dlg2
 std::span<const std::uint8_t> desc = corpus.itemDescription(ItemId{5});
 
 // Decode a record into tokens.
-auto tokens = tokenizeDialogue(line, corpus.dte());   // field dialogue
+auto tokens = tokenizeDialog(line, corpus.dte());   // field dialog
 auto btoks  = tokenizeBattle(msg);                    // battle text
 auto glyphs = decodeMenuDescription(desc);            // plain glyph bytes
 ```
@@ -90,12 +90,12 @@ struct TextClassMetadata {
   (`src/data/text_offsets.h`): record `i` is `[offset[i], offset[i+1])`, and the
   last record runs to the end of the file.
 
-### Dialogue offsets
+### Dialog offsets
 
-Field dialogue is split into two files (`dlg1`, `dlg2`) in the rip, but the
-accessor exposes them as **one** stream: `dialogue(index)` takes an index
+Field dialog is split into two files (`dlg1`, `dlg2`) in the rip, but the
+accessor exposes them as **one** stream: `dialog(index)` takes an index
 `0…3083` over the concatenation (dlg1's 1574 records, then dlg2's 1510), and
-`dialogueOffsets()` is a single array of offsets into that combined stream. The
+`dialogOffsets()` is a single array of offsets into that combined stream. The
 original ROM's 16-bit-pointer-plus-bank-increment addressing does not appear in
 the surface.
 
@@ -104,7 +104,7 @@ the surface.
 A few records share a pointer with the next record — the offset table has two
 equal consecutive offsets, so the earlier record slices to **zero length**. This
 is preserved verbatim (the ROM's pointer table really does alias them); the
-game, following the pointer, reads the shared string for both. The dialogue
+game, following the pointer, reads the shared string for both. The dialog
 `_0`/`_1` pair at offset 0 is the canonical example.
 
 ## Codecs
@@ -113,8 +113,8 @@ Three tokenizers cover the corpus, selected by class family:
 
 | Codec | Classes | Bytes |
 |---|---|---|
-| `tokenizeDialogue` | field dialogue, map titles | glyphs, controls `< 0x20`, DTE pairs `≥ 0x80` |
-| `tokenizeBattle` | battle dialogue, attack messages, monster dialogue | glyphs, controls `< 0x20`, no DTE |
+| `tokenizeDialog` | field dialog, map titles | glyphs, controls `< 0x20`, DTE pairs `≥ 0x80` |
+| `tokenizeBattle` | battle dialog, attack messages, monster dialog | glyphs, controls `< 0x20`, no DTE |
 | `decodeMenuDescription` | item / magic / lore / … descriptions | plain glyph bytes to the `0x00` terminator |
 
 A tokenizer returns a `std::vector` of tokens — each token is either a
@@ -147,12 +147,12 @@ belongs to the presentation layer.
 
 ### DTE and MTE
 
-Field dialogue is compressed with **DTE** (dual-tile encoding): a byte `≥ 0x80`
+Field dialog is compressed with **DTE** (dual-tile encoding): a byte `≥ 0x80`
 expands to a pair of glyph bytes via the `DteTable` loaded from `dte_tbl.dat`
 (`corpus.dte()`), and the tokenizer expands DTE codes into the glyph run inline.
 The Japanese path additionally expands **MTE** (multi-tile) codes through an
 `MteTable`; the Japanese glyph ranges (direct, multi-tile, name-splice, wide
-space) are handled by the same `tokenizeDialogue` when passed
+space) are handled by the same `tokenizeDialog` when passed
 `TextLanguage::JP`.
 
 ## Japanese
@@ -190,13 +190,13 @@ decode.
 
 - `tests/test_text_corpus.cpp` — the metadata table against its fixture; the
   loader (both the filesystem seam and the buffer path) on synthetic inputs; and
-  every fixed-length name class round-tripped byte-for-byte against the raw rip,
+  every fixed-length name class round-tripped against the raw rip, every byte,
   with the id-keyed and decimal-index accessors and DTE expansion checked
   against the raw pairs.
 - `tests/test_text_offsets.cpp` — every offset array against the independent
   fixture, and every variable-length accessor returning exactly the
-  fixture-defined slice of the raw `.dat` (dialogue over the combined stream).
-- `tests/test_text_codec.cpp` — every dialogue, battle, and description record
+  fixture-defined slice of the raw `.dat` (dialog over the combined stream).
+- `tests/test_text_codec.cpp` — every dialog, battle, and description record
   tokenized without error (a proof that the grammar covers the whole corpus);
   byte-exact round-trip of the DTE-free families; the DTE, operand, and
   unknown-byte rules pinned with synthetic records; and the description records

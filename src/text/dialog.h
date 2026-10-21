@@ -1,22 +1,22 @@
-// The field dialogue text engine: the state machine that types a message into the dialogue
+// The field dialog text engine: the state machine that types a message into the dialog
 // window one glyph per frame, breaks its lines, pauses where the script says, waits on the
 // player between pages, runs the multiple-choice cursor, and types the map title when a map
 // opens.
 //
 // This is logic only. It holds no picture: it records where each glyph went (`placed`), where
 // the choice cursor is, and how far the page wipe has got, and the rendering components read
-// that. Advance it with tickDialogue() once per field frame — nothing about dialogue changes
+// that. Advance it with tickDialog() once per field frame — nothing about dialog changes
 // anywhere else.
 //
-//     DialogueState state;
-//     initDialogue(state);                          // at map load
-//     startDialogue(state, 1203, context);          // an event shows message 1203
+//     DialogState state;
+//     initDialog(state);                          // at map load
+//     startDialog(state, 1203, context);          // an event shows message 1203
 //     while (...) {
-//         tickDialogue(state, input, context);      // once per frame
+//         tickDialog(state, input, context);      // once per frame
 //         if (windowCloseRequested(state)) { ... }  // the message is done
 //     }
 //
-// The behaviour, and the line in the original each rule comes from, is specified in
+// The behavior, and the line in the original each rule comes from, is specified in
 // docs/contracts/text_engine.md.
 #pragma once
 
@@ -60,7 +60,7 @@ struct ChoicePosition {
 };
 
 // The multiple-choice state. Only the first `count` positions belong to the message showing now.
-struct DialogueChoices {
+struct DialogChoices {
     std::size_t count = 0;      // choices recorded since the last time the count was cleared
     std::size_t selection = 0;  // which one is selected; kept until clearSelection()
     std::vector<ChoicePosition> positions;
@@ -79,7 +79,7 @@ struct PlacedGlyph {
 
 // The player's buttons this frame, as held levels (not presses). `confirmHeld` is A after the
 // player's button mapping; the directions are the D-pad.
-struct DialogueInput {
+struct DialogInput {
     bool confirmHeld = false;
     bool up = false;
     bool down = false;
@@ -89,11 +89,11 @@ struct DialogueInput {
 
 // Everything a message reads from outside the engine: the language, the font's widths, the
 // text corpus, and what the splices insert.
-struct DialogueContext {
+struct DialogContext {
     TextLanguage language = TextLanguage::EN;
     FontMetrics metrics;
 
-    // The corpus messages, item names and spell names come from. Required by startDialogue()
+    // The corpus messages, item names and spell names come from. Required by startDialog()
     // and by the item and spell splices.
     const TextCorpus* corpus = nullptr;
 
@@ -117,7 +117,7 @@ struct DialogueContext {
 
 // The whole of the engine's state. Every field is read by the rendering components or by the
 // event system; only the functions below write it.
-struct DialogueState {
+struct DialogState {
     // --- the message ---------------------------------------------------------------------------
     std::vector<FieldTextToken> tokens;  // the message being typed
     std::size_t token = 0;               // the cursor: which token...
@@ -152,7 +152,7 @@ struct DialogueState {
     // --- what is on screen ---------------------------------------------------------------------
     std::vector<PlacedGlyph> placed;  // every glyph on the current page, in drawing order
 
-    DialogueChoices choices;
+    DialogChoices choices;
 
     // Where the choice cursor is, if it is on screen. It appears once the engine waits on the
     // player with two or more choices, follows the selection, and goes with the page's wipe.
@@ -165,7 +165,7 @@ struct DialogueState {
     // --- for the event system ------------------------------------------------------------------
     bool windowCloseRequest = false;  // read and cleared by windowCloseRequested()
 
-    // Every glyph dropped at the right margin since the last initDialogue(), with where it would
+    // Every glyph dropped at the right margin since the last initDialog(), with where it would
     // have gone (docs/Bugs.md). A space ending a line is dropped this way routinely and shows
     // nothing; anything else is text the player does not see.
     std::vector<PlacedGlyph> droppedAtMargin;
@@ -173,49 +173,49 @@ struct DialogueState {
 
 // Reset everything, as on entering a map: no message, an empty text area, the pen at the top
 // left, no choices.
-void initDialogue(DialogueState& state);
+void initDialog(DialogState& state);
 
 // Begin typing a message. Only the message changes: the pen, the page and the choice selection
 // carry on from wherever the last message left them (a finished message has already reset the
 // pen to the top left).
 //
-// The index form reads dialogue `index` from `context.corpus` the way the original does — from
+// The index form reads dialog `index` from `context.corpus` the way the original does — from
 // the record's first byte until an END, running on into the following record when a record has
 // none. The token form takes an already-decoded message.
-void startDialogue(DialogueState& state, std::size_t index, const DialogueContext& context);
-void startDialogue(DialogueState& state, std::vector<FieldTextToken> tokens);
+void startDialog(DialogState& state, std::size_t index, const DialogContext& context);
+void startDialog(DialogState& state, std::vector<FieldTextToken> tokens);
 
 // Advance the engine by one field frame.
-void tickDialogue(DialogueState& state, const DialogueInput& input,
-                  const DialogueContext& context);
+void tickDialog(DialogState& state, const DialogInput& input,
+                  const DialogContext& context);
 
 // Type a map title, once the caller has decided one is shown. The whole title is placed at
-// once, centred on line 0, and stays up for kTitleFrames frames. `record` is the title's raw
+// once, centered on line 0, and stays up for kTitleFrames frames. `record` is the title's raw
 // bytes (TextCorpus::mapTitle()).
-void showMapTitle(DialogueState& state, std::span<const std::uint8_t> record,
-                  const DialogueContext& context);
+void showMapTitle(DialogState& state, std::span<const std::uint8_t> record,
+                  const DialogContext& context);
 
 // Take the map title down early, as any event starting does. Does nothing unless a title is
 // showing. Stops any message, and leaves the text area to be wiped when the next message
 // starts.
-void closeMapTitle(DialogueState& state);
+void closeMapTitle(DialogState& state);
 
 // Whether the message has fully displayed the current page and is waiting for A.
-bool awaitingKeypress(const DialogueState& state);
+bool awaitingKeypress(const DialogState& state);
 
 // Whether a message finished this frame and wants its window closed. Reading it clears it.
-bool windowCloseRequested(DialogueState& state);
+bool windowCloseRequested(DialogState& state);
 
 // The choice the player selected, and forgetting it once acted on.
-std::size_t selection(const DialogueState& state);
-void clearSelection(DialogueState& state);
+std::size_t selection(const DialogState& state);
+void clearSelection(DialogState& state);
 
 // How many half-lines of a dismissed page have gone so far, in the order they go: line 0 left,
 // line 0 right, line 1 left, … line 3 right. 0 while nothing is being wiped.
-int halfLinesCleared(const DialogueState& state);
+int halfLinesCleared(const DialogState& state);
 
 // Whether the wipe has already taken the half-line that pen x on `line` falls in — that is,
 // whether a glyph or cursor placed there is no longer shown.
-bool isWiped(const DialogueState& state, int line, int x);
+bool isWiped(const DialogState& state, int line, int x);
 
 }  // namespace ostinato::text

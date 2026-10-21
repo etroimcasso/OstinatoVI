@@ -1,6 +1,6 @@
-// Every number the field dialogue text engine works in: the text area's geometry, the timings
+// Every number the field dialog text engine works in: the text area's geometry, the timings
 // its control codes count in, the limits of its splices, and the glyph codes the interpreter
-// treats specially. The logic (dialogue.cpp) and the rendering components read these and nothing
+// treats specially. The logic (dialog.cpp) and the rendering components read these and nothing
 // else, so changing one here changes it everywhere it is used.
 #pragma once
 
@@ -89,10 +89,10 @@ inline constexpr std::uint16_t kWideSpaceGlyph = 0xFF;
 inline constexpr std::uint8_t kNameEnd = 0xFF;
 
 // English names are stored in the menu font's encoding; this much below each byte is the same
-// letter in the dialogue font.
-inline constexpr std::uint8_t kMenuToDialogueOffset = 0x60;
+// letter in the dialog font.
+inline constexpr std::uint8_t kMenuToDialogOffset = 0x60;
 
-// The dialogue glyph for digit 0 in each language; digits 1-9 follow it.
+// The dialog glyph for digit 0 in each language; digits 1-9 follow it.
 inline constexpr std::uint16_t kEnglishDigitGlyph = 0x54;
 inline constexpr std::uint16_t kJapaneseDigitGlyph = 0x53;
 

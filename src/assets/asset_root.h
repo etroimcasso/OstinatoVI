@@ -23,7 +23,7 @@ namespace ostinato::assets {
 // Answers the project root when `executableDir` is inside it (or is it), and nothing otherwise.
 // Comparison is per path component, so a sibling directory whose name merely begins with the
 // project's does not count as being inside it. Both paths are taken as given; a caller that wants
-// symlinks and `..` resolved should normalise before calling.
+// symlinks and `..` resolved should normalize before calling.
 [[nodiscard]] std::optional<std::filesystem::path> developmentAssetRoot(
     const std::filesystem::path& executableDir, const std::filesystem::path& projectRoot);
 

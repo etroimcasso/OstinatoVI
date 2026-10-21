@@ -1,9 +1,9 @@
-// DialogueText — the glyphs on the dialogue's current page.
+// DialogText — the glyphs on the dialog's current page.
 //
-//     SpriteLayer("dialogue", kDialogueTextZ,
-//                 {DialogueText(state, textX, textY, glyphs, ink, shadow),
-//                  DialogueCursor(state, textX, textY, arrow, ink, shadow)},
-//                 {.regions = DialogueWipe(state, textX, textY)});
+//     SpriteLayer("dialog", kDialogTextZ,
+//                 {DialogText(state, textX, textY, glyphs, ink, shadow),
+//                  DialogCursor(state, textX, textY, arrow, ink, shadow)},
+//                 {.regions = DialogWipe(state, textX, textY)});
 //
 // (x, y) is the top-left corner of the text area on screen. Each glyph the engine has placed is
 // drawn on its line kGlyphRowOffset pixels below the line's top with its ink starting at its pen x
@@ -20,11 +20,11 @@
 #include "retropp/palette.h"
 
 #include "render/types.h"
-#include "text/dialogue.h"
+#include "text/dialog.h"
 
 namespace ostinato::render {
 
-[[nodiscard]] Sprites DialogueText(const text::DialogueState& state, int x, int y,
+[[nodiscard]] Sprites DialogText(const text::DialogState& state, int x, int y,
                                    const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                                    retropp::PaletteId shadow);
 

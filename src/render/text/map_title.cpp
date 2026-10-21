@@ -8,7 +8,7 @@
 
 namespace ostinato::render {
 
-Sprites MapTitle(const text::DialogueState& state, int x, int y,
+Sprites MapTitle(const text::DialogState& state, int x, int y,
                  const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                  retropp::PaletteId shadow) {
     Sprites sprites;

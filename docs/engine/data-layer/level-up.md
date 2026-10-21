@@ -40,7 +40,7 @@ ostinato::levelUpExp(99);   // 11111
 ```
 
 The level-99 step is a visible outlier against the smooth ramp below it (the
-neighbouring steps climb by roughly 200). It is the original value and is carried
+neighboring steps climb by roughly 200). It is the original value and is carried
 as-is.
 
 ## HP and MP
@@ -139,7 +139,7 @@ mask and shift it to a `LevelMod` before calling.
 ## Backing data / where to change
 
 Rows live in `src/data/generated/level_up_data.inc`, `#include`d at namespace
-scope in `src/data/level_up.h`. To make levelling faster, edit the `exp` steps; to
+scope in `src/data/level_up.h`. To make leveling faster, edit the `exp` steps; to
 change a character's growth, edit the `gain` columns; to move an ability earlier,
 edit its `level`. A deliberate change must also update the matching entry in
 `tests/fixtures/level_up_expected.h`, which holds the original ROM values.

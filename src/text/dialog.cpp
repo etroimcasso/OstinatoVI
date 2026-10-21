@@ -1,4 +1,4 @@
-#include "text/dialogue.h"
+#include "text/dialog.h"
 
 #include <algorithm>
 #include <cassert>
@@ -10,7 +10,7 @@ namespace ostinato::text {
 
 namespace {
 
-bool isEnglish(const DialogueContext& context) {
+bool isEnglish(const DialogContext& context) {
     return context.language == TextLanguage::EN;
 }
 
@@ -33,30 +33,30 @@ RunGlyph glyphAt(const GlyphRun& run, std::size_t offset, TextLanguage language)
     return {first, 1};
 }
 
-void advancePastToken(DialogueState& state) {
+void advancePastToken(DialogState& state) {
     ++state.token;
     state.glyphOffset = 0;
 }
 
-void advanceInRun(DialogueState& state, const GlyphRun& run, std::size_t bytes) {
+void advanceInRun(DialogState& state, const GlyphRun& run, std::size_t bytes) {
     state.glyphOffset += bytes;
     if (state.glyphOffset >= run.glyphs.size()) {
         advancePastToken(state);
     }
 }
 
-bool spliceDraining(const DialogueState& state) {
+bool spliceDraining(const DialogState& state) {
     return state.spliceNext < state.splice.size();
 }
 
 // --- lines and pages (field/text.asm:966-1018) ---------------------------------------------------
 
-void armPageEnd(DialogueState& state) {
+void armPageEnd(DialogState& state) {
     state.pageClearFrames = kPageClearFrames;
     state.keyState = KeyState::WaitingForRelease;
 }
 
-void breakLine(DialogueState& state) {
+void breakLine(DialogState& state) {
     state.x = kTextLeft;
     state.line = (state.line + 1) % kLinesPerPage;
     if (state.line == 0) {
@@ -64,14 +64,14 @@ void breakLine(DialogueState& state) {
     }
 }
 
-void endPage(DialogueState& state) {
+void endPage(DialogState& state) {
     state.x = kTextLeft;
     state.line = 0;
     armPageEnd(state);
 }
 
 // The wipe is over: the page and everything on it are gone.
-void clearPage(DialogueState& state) {
+void clearPage(DialogState& state) {
     state.placed.clear();
     state.cursor.reset();
     ++state.page;
@@ -79,7 +79,7 @@ void clearPage(DialogueState& state) {
 
 // Draw one glyph at the pen, unless it would reach the right margin — then the line breaks and
 // the glyph is lost (field/text.asm:926-934; docs/Bugs.md).
-void drawGlyph(DialogueState& state, std::uint16_t glyph, const DialogueContext& context) {
+void drawGlyph(DialogState& state, std::uint16_t glyph, const DialogContext& context) {
     const int width = context.metrics.width(glyph);
     const PlacedGlyph placement{.page = state.page, .line = state.line, .x = state.x, .glyph = glyph};
     if (state.x + width >= kTextRight) {
@@ -93,14 +93,14 @@ void drawGlyph(DialogueState& state, std::uint16_t glyph, const DialogueContext&
 
 // --- splices (field/text.asm:560-812) ------------------------------------------------------------
 
-// A name byte as a dialogue glyph: English names are stored in the menu font's encoding.
-std::uint16_t nameGlyph(std::uint8_t byte, const DialogueContext& context) {
-    return isEnglish(context) ? static_cast<std::uint8_t>(byte - kMenuToDialogueOffset) : byte;
+// A name byte as a dialog glyph: English names are stored in the menu font's encoding.
+std::uint16_t nameGlyph(std::uint8_t byte, const DialogContext& context) {
+    return isEnglish(context) ? static_cast<std::uint8_t>(byte - kMenuToDialogOffset) : byte;
 }
 
 // The glyphs of a name: up to `limit` bytes of `bytes`, ending early at kNameEnd.
 std::vector<std::uint16_t> nameGlyphs(std::span<const std::uint8_t> bytes, std::size_t limit,
-                                      const DialogueContext& context) {
+                                      const DialogContext& context) {
     std::vector<std::uint16_t> glyphs;
     for (std::size_t i = 0; i < std::min(limit, bytes.size()) && bytes[i] != kNameEnd; ++i) {
         glyphs.push_back(nameGlyph(bytes[i], context));
@@ -109,7 +109,7 @@ std::vector<std::uint16_t> nameGlyphs(std::span<const std::uint8_t> bytes, std::
 }
 
 std::vector<std::uint16_t> characterNameGlyphs(std::uint8_t character,
-                                               const DialogueContext& context) {
+                                               const DialogContext& context) {
     assert(character < kCharacterCount && "character name splice outside the character table");
     const std::span<const std::uint8_t> name = context.names[character];
     if (isEnglish(context)) {
@@ -127,18 +127,18 @@ std::vector<std::uint16_t> characterNameGlyphs(std::uint8_t character,
 }
 
 // The item's name record without its first byte, which is the item's icon.
-std::span<const std::uint8_t> itemNameLetters(const DialogueContext& context) {
+std::span<const std::uint8_t> itemNameLetters(const DialogContext& context) {
     assert(context.corpus != nullptr && "the item splice needs a corpus");
     return context.corpus->itemName(context.item).subspan(1);
 }
 
-std::vector<std::uint16_t> itemNameGlyphs(const DialogueContext& context) {
+std::vector<std::uint16_t> itemNameGlyphs(const DialogContext& context) {
     return nameGlyphs(itemNameLetters(context), kItemNameGlyphs, context);
 }
 
 // The spell splice reads the spell-name table at a stride of 4 and copies 4 bytes; upstream notes
 // both should be 7 (field/text.asm:783, :804). Nothing in the shipped game reaches it.
-std::vector<std::uint16_t> spellNameGlyphs(const DialogueContext& context) {
+std::vector<std::uint16_t> spellNameGlyphs(const DialogContext& context) {
     assert(context.corpus != nullptr && "the spell splice needs a corpus");
     const std::span<const std::uint8_t> table = context.corpus->rawBytes(TextClass::MAGIC_NAME);
     const std::size_t start = static_cast<std::size_t>(context.spellIndex) * kSpellNameStride + 1;
@@ -148,7 +148,7 @@ std::vector<std::uint16_t> spellNameGlyphs(const DialogueContext& context) {
 
 // The amount's decimal digits, the low kGoldDigits places, without leading zeros
 // (field/text.asm:714-739).
-std::vector<std::uint16_t> goldGlyphs(const DialogueContext& context) {
+std::vector<std::uint16_t> goldGlyphs(const DialogContext& context) {
     const std::uint16_t zero = isEnglish(context) ? kEnglishDigitGlyph : kJapaneseDigitGlyph;
     std::vector<std::uint16_t> glyphs;
     std::uint32_t place = 1;
@@ -166,12 +166,12 @@ std::vector<std::uint16_t> goldGlyphs(const DialogueContext& context) {
     return glyphs;
 }
 
-std::vector<std::uint16_t> tabGlyphs(std::uint8_t count, const DialogueContext& context) {
+std::vector<std::uint16_t> tabGlyphs(std::uint8_t count, const DialogContext& context) {
     return std::vector<std::uint16_t>(count, isEnglish(context) ? kSpaceGlyph : kWideSpaceGlyph);
 }
 
 // Draw the next queued glyph. Drawing the last moves the cursor past the control that queued them.
-void drawSpliceGlyph(DialogueState& state, const DialogueContext& context) {
+void drawSpliceGlyph(DialogState& state, const DialogContext& context) {
     const std::uint16_t glyph = state.splice[state.spliceNext++];
     if (!spliceDraining(state)) {
         state.splice.clear();
@@ -183,8 +183,8 @@ void drawSpliceGlyph(DialogueState& state, const DialogueContext& context) {
 
 // Queue a splice's glyphs and draw the first. A splice with nothing in it draws nothing and the
 // frame is spent (docs/contracts/text_engine.md § One step).
-void splice(DialogueState& state, std::vector<std::uint16_t> glyphs,
-            const DialogueContext& context) {
+void splice(DialogState& state, std::vector<std::uint16_t> glyphs,
+            const DialogContext& context) {
     if (glyphs.empty()) {
         advancePastToken(state);
         return;
@@ -196,7 +196,7 @@ void splice(DialogueState& state, std::vector<std::uint16_t> glyphs,
 
 // --- the English word wrap (field/text.asm:189-318) ----------------------------------------------
 
-int glyphsWidth(const std::vector<std::uint16_t>& glyphs, const DialogueContext& context) {
+int glyphsWidth(const std::vector<std::uint16_t>& glyphs, const DialogContext& context) {
     int width = 0;
     for (const std::uint16_t glyph : glyphs) {
         width += context.metrics.width(glyph);
@@ -207,7 +207,7 @@ int glyphsWidth(const std::vector<std::uint16_t>& glyphs, const DialogueContext&
 // The width of the word at the cursor: the glyphs from the next undrawn one to the next space or
 // control, plus a character or item name's own glyphs when the cursor is on the control that
 // splices it. While a splice drains the width is 0 (docs/contracts/text_engine.md § Word wrap).
-int measureWord(const DialogueState& state, const DialogueContext& context) {
+int measureWord(const DialogState& state, const DialogContext& context) {
     if (spliceDraining(state)) {
         return 0;
     }
@@ -236,13 +236,13 @@ int measureWord(const DialogueState& state, const DialogueContext& context) {
 
 // --- one step (field/text.asm:438-878) ----------------------------------------------------------
 
-void finishMessage(DialogueState& state) {
+void finishMessage(DialogState& state) {
     endPage(state);
     state.status = MessageStatus::Finished;
 }
 
-void runControl(DialogueState& state, const FieldControl& control,
-                const DialogueContext& context) {
+void runControl(DialogState& state, const FieldControl& control,
+                const DialogContext& context) {
     switch (control.command) {
         case FieldTextCommand::END:
             finishMessage(state);
@@ -283,7 +283,7 @@ void runControl(DialogueState& state, const FieldControl& control,
             return;
         }
         case FieldTextCommand::CHOICE: {
-            DialogueChoices& choices = state.choices;
+            DialogChoices& choices = state.choices;
             const ChoicePosition position{.line = state.line, .x = state.x / kCellPx * kCellPx};
             if (choices.count < choices.positions.size()) {
                 choices.positions[choices.count] = position;
@@ -314,7 +314,7 @@ void runControl(DialogueState& state, const FieldControl& control,
 }
 
 // Consume one glyph or one control.
-void step(DialogueState& state, const DialogueContext& context) {
+void step(DialogState& state, const DialogContext& context) {
     if (isEnglish(context) && state.x + measureWord(state, context) >= kTextRight) {
         breakLine(state);
         return;
@@ -342,22 +342,22 @@ void step(DialogueState& state, const DialogueContext& context) {
 // Listed in the order the original tests them; the first whose buttons are held is the only one
 // tried.
 struct ChoiceMove {
-    bool (*held)(const DialogueInput&);
+    bool (*held)(const DialogInput&);
     int step;
 };
 
 constexpr ChoiceMove kChoiceMoves[] = {
-    {[](const DialogueInput& in) { return in.up || in.left; }, -1},
-    {[](const DialogueInput& in) { return in.down || in.right; }, +1},
+    {[](const DialogInput& in) { return in.up || in.left; }, -1},
+    {[](const DialogInput& in) { return in.down || in.right; }, +1},
 };
 
-bool anyDirection(const DialogueInput& input) {
+bool anyDirection(const DialogInput& input) {
     return input.up || input.down || input.left || input.right;
 }
 
 // Move the selection by the held direction, one step per press, then put the cursor on it.
-void moveChoiceCursor(DialogueState& state, const DialogueInput& input) {
-    DialogueChoices& choices = state.choices;
+void moveChoiceCursor(DialogState& state, const DialogInput& input) {
+    DialogChoices& choices = state.choices;
     if (!anyDirection(input)) {
         choices.selectionChanging = false;
     } else if (choices.selectionChanging) {
@@ -382,12 +382,12 @@ void moveChoiceCursor(DialogueState& state, const DialogueInput& input) {
     }
 }
 
-void disarmKeyTimer(DialogueState& state) {
+void disarmKeyTimer(DialogState& state) {
     state.keyTimerArmed = false;
     state.keyTimerFrames = 0;
 }
 
-void respondToPlayer(DialogueState& state, const DialogueInput& input) {
+void respondToPlayer(DialogState& state, const DialogInput& input) {
     if (state.choices.count >= 2) {
         moveChoiceCursor(state, input);
     }
@@ -405,7 +405,7 @@ void respondToPlayer(DialogueState& state, const DialogueInput& input) {
 }
 
 // Start typing `tokens` from the top, as a message or a title.
-void loadMessage(DialogueState& state, std::vector<FieldTextToken> tokens) {
+void loadMessage(DialogState& state, std::vector<FieldTextToken> tokens) {
     state.tokens = std::move(tokens);
     state.token = 0;
     state.glyphOffset = 0;
@@ -421,8 +421,8 @@ bool endsWithEnd(const std::vector<FieldTextToken>& tokens) {
     return last != nullptr && last->command == FieldTextCommand::END;
 }
 
-// The width the original centres a title by (field/text.asm:123-156).
-int titleWidth(std::span<const std::uint8_t> record, const DialogueContext& context) {
+// The width the original centers a title by (field/text.asm:123-156).
+int titleWidth(std::span<const std::uint8_t> record, const DialogContext& context) {
     int width = 0;
     if (isEnglish(context)) {
         for (std::size_t i = 0; i < record.size() && record[i] != 0; ++i) {
@@ -441,42 +441,42 @@ int titleWidth(std::span<const std::uint8_t> record, const DialogueContext& cont
 
 }  // namespace
 
-void initDialogue(DialogueState& state) {
+void initDialog(DialogState& state) {
     // The page counter runs on so nothing typed after the reset shares a key with what was
     // there before.
     const std::uint32_t nextPage = state.page + 1;
-    state = DialogueState{};
+    state = DialogState{};
     state.page = nextPage;
 }
 
-void startDialogue(DialogueState& state, std::size_t index, const DialogueContext& context) {
-    assert(context.corpus != nullptr && "startDialogue needs a corpus");
+void startDialog(DialogState& state, std::size_t index, const DialogContext& context) {
+    assert(context.corpus != nullptr && "startDialog needs a corpus");
     const TextCorpus& corpus = *context.corpus;
-    const std::size_t count = dialogueOffsets().size();
-    assert(index < count && "dialogue index past the script");
+    const std::size_t count = dialogOffsets().size();
+    assert(index < count && "dialog index past the script");
 
     // Read on from the record's first byte to an END, the way the original follows its pointer:
     // an empty record shows the next one's text, and a record with no END continues into the next.
     std::vector<std::uint8_t> bytes;
     std::vector<FieldTextToken> tokens;
     for (std::size_t i = index; i < count; ++i) {
-        const std::span<const std::uint8_t> record = corpus.dialogue(i);
+        const std::span<const std::uint8_t> record = corpus.dialog(i);
         bytes.insert(bytes.end(), record.begin(), record.end());
-        tokens = tokenizeDialogue(bytes, corpus.dte(), context.language, context.mte);
+        tokens = tokenizeDialog(bytes, corpus.dte(), context.language, context.mte);
         if (endsWithEnd(tokens)) {
             break;
         }
     }
-    startDialogue(state, std::move(tokens));
+    startDialog(state, std::move(tokens));
 }
 
-void startDialogue(DialogueState& state, std::vector<FieldTextToken> tokens) {
+void startDialog(DialogState& state, std::vector<FieldTextToken> tokens) {
     loadMessage(state, std::move(tokens));
     state.status = MessageStatus::Showing;
 }
 
-void tickDialogue(DialogueState& state, const DialogueInput& input,
-                  const DialogueContext& context) {
+void tickDialog(DialogState& state, const DialogInput& input,
+                  const DialogContext& context) {
     if (state.titleFrames > 0 && --state.titleFrames == 0) {
         closeMapTitle(state);
     }
@@ -514,14 +514,14 @@ void tickDialogue(DialogueState& state, const DialogueInput& input,
     step(state, context);
 }
 
-void showMapTitle(DialogueState& state, std::span<const std::uint8_t> record,
-                  const DialogueContext& context) {
+void showMapTitle(DialogState& state, std::span<const std::uint8_t> record,
+                  const DialogContext& context) {
     state.titleShowing = true;
     state.titleFrames = kTitleFrames;
     state.x = (kTextRight - titleWidth(record, context)) / 2;
 
     const DteTable dte = context.corpus != nullptr ? context.corpus->dte() : DteTable{};
-    loadMessage(state, tokenizeDialogue(record, dte, context.language, context.mte));
+    loadMessage(state, tokenizeDialog(record, dte, context.language, context.mte));
     state.status = MessageStatus::Showing;
     while (state.status != MessageStatus::Finished) {
         step(state, context);
@@ -533,7 +533,7 @@ void showMapTitle(DialogueState& state, std::span<const std::uint8_t> record,
     state.status = MessageStatus::Idle;
 }
 
-void closeMapTitle(DialogueState& state) {
+void closeMapTitle(DialogState& state) {
     if (!state.titleShowing) {
         return;
     }
@@ -543,30 +543,30 @@ void closeMapTitle(DialogueState& state) {
     state.pageClearFrames = kPageClearFrames;
 }
 
-bool awaitingKeypress(const DialogueState& state) {
+bool awaitingKeypress(const DialogState& state) {
     return state.keyState == KeyState::WaitingForPress;
 }
 
-bool windowCloseRequested(DialogueState& state) {
+bool windowCloseRequested(DialogState& state) {
     return std::exchange(state.windowCloseRequest, false);
 }
 
-std::size_t selection(const DialogueState& state) {
+std::size_t selection(const DialogState& state) {
     return state.choices.selection;
 }
 
-void clearSelection(DialogueState& state) {
+void clearSelection(DialogState& state) {
     state.choices.selection = 0;
 }
 
-int halfLinesCleared(const DialogueState& state) {
+int halfLinesCleared(const DialogState& state) {
     if (state.pageClearFrames < 1 || state.pageClearFrames > kWipeSteps) {
         return 0;
     }
     return kPageClearFrames - state.pageClearFrames;
 }
 
-bool isWiped(const DialogueState& state, int line, int x) {
+bool isWiped(const DialogState& state, int line, int x) {
     const int halfLine = line * 2 + (x >= kHalfLinePx ? 1 : 0);
     return halfLine < halfLinesCleared(state);
 }

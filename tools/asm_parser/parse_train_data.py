@@ -100,7 +100,7 @@ _RE_ADDR_PREFIX = re.compile(r"^@([0-9a-f]{4}):")
 _RE_DATA_DIR = re.compile(r"^(?:@[0-9a-f]{4}:)?\s*\.(byte|word)\s+(.+)$")
 
 # The corpus names the items of two of the five curve tables and nothing else.
-# These are its own words, kept verbatim; the tables it leaves unlabelled keep a
+# These are its own words, kept verbatim; the tables it leaves unlabeled keep a
 # decimal selector rather than gaining invented names.
 YAW_TYPES = (                       # world/train_script.asm:513-515
     ("STRAIGHT", "straight"),

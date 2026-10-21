@@ -27,7 +27,7 @@ Everything the overworld animates — the airship, chocobos, the party leader, t
 ship, the bird, the Blackjack and the Falcon — is drawn from a set of 108
 **frames**. A frame is one arrangement of hardware sprites: how many to place,
 and for each, where it sits relative to the object, which tile it shows, and how
-that tile is coloured, layered and mirrored.
+that tile is colored, layered and mirrored.
 
 Those arrangements are game artwork, so they are **not** part of this repository.
 They live in the player's cartridge and are read in place, the same way the

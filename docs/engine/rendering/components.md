@@ -7,20 +7,20 @@ same arguments it returns the same result, and it remembers nothing between fram
 ```cpp
 #include "render/layers.h"
 #include "render/sprite_layer.h"
-#include "render/text/dialogue_cursor.h"
-#include "render/text/dialogue_text.h"
-#include "render/text/dialogue_wipe.h"
+#include "render/text/dialog_cursor.h"
+#include "render/text/dialog_text.h"
+#include "render/text/dialog_wipe.h"
 
 using namespace ostinato::render;
 
 frame.layers.push_back(SpriteLayer(
-    "dialogue", kDialogueTextZ,
-    {DialogueText(dialogue, textX, textY, glyphSheet, inkPalette, shadowPalette),
-     DialogueCursor(dialogue, textX, textY, arrowSheet, inkPalette, shadowPalette)},
-    {.regions = DialogueWipe(dialogue, textX, textY)}));
+    "dialog", kDialogTextZ,
+    {DialogText(dialog, textX, textY, glyphSheet, inkPalette, shadowPalette),
+     DialogCursor(dialog, textX, textY, arrowSheet, inkPalette, shadowPalette)},
+    {.regions = DialogWipe(dialog, textX, textY)}));
 ```
 
-That one statement is the whole dialogue picture for a frame: the page's glyphs and their
+That one statement is the whole dialog picture for a frame: the page's glyphs and their
 shadows, the choice arrow, and the part of a dismissed page that has already gone.
 
 ## The shared vocabulary
@@ -41,22 +41,22 @@ effect to part of a layer); a parent returns what its children returned.
 | Name | What it is |
 |---|---|
 | `kScreenSize` | The screen, 256 × 224 (`retropp::ViewportResolution::Snes`). Every sprite layer covers it. |
-| `kDialogueTextZ` | The depth of the dialogue text, its arrow and the map title: 30. The field's world and sprite layers take the depths below it. |
+| `kDialogTextZ` | The depth of the dialog text, its arrow and the map title: 30. The field's world and sprite layers take the depths below it. |
 | `kShadowSpriteZ`, `kInkSpriteZ` | Within a sprite layer, every drop shadow (0) sits beneath every piece of ink (1), so no shadow ever darkens a letter. |
-| `kDialogueGlyphKey`, `kTitleGlyphKey`, `kDialogueCursorKey`, `kDialogueWipeKey`, `kShadowKeySuffix` | The names sprites and regions go by. See [Keys](#keys). |
+| `kDialogGlyphKey`, `kTitleGlyphKey`, `kDialogCursorKey`, `kDialogWipeKey`, `kShadowKeySuffix` | The names sprites and regions go by. See [Keys](#keys). |
 
 A new layer takes its depth from this table, and a new kind of sprite takes its key prefix from
 it, so two components never collide.
 
 ### Keys
 
-The engine recognises an object from one frame to the next by its key: an object that keeps
+The engine recognizes an object from one frame to the next by its key: an object that keeps
 its key eases to wherever it is now, and a new key appears where it is put. A key therefore
 names the thing, never its position in a list.
 
 | Object | Key | So that |
 |---|---|---|
-| A dialogue glyph | `dlg:<page>:<line>:<n>` — the *n*-th glyph of a line | A glyph on the next page is a new object, not this one moved. The page count runs on for the life of the dialogue state. |
+| A dialog glyph | `dlg:<page>:<line>:<n>` — the *n*-th glyph of a line | A glyph on the next page is a new object, not this one moved. The page count runs on for the life of the dialog state. |
 | A map title glyph | `title:<n>` | — |
 | The choice arrow | `dlgc:<page>:<choice>` | Moving the selection puts the arrow straight at the new choice instead of sliding it. |
 | A wiped half-line | `dlgw:<line>:<half>` | — |
@@ -82,7 +82,7 @@ are SpriteLayer's; everything else comes from `options`.
 | `alpha` | `1.0` | Fades the whole layer. |
 | `blend` | `Normal` | How the layer combines with what is beneath it. |
 | `effects` | none | Effects over the whole layer. |
-| `regions` | none | Effects confined to shapes — `DialogueWipe`'s see-through rectangles go here. |
+| `regions` | none | Effects confined to shapes — `DialogWipe`'s see-through rectangles go here. |
 | `transform` | identity | Scales, rotates, skews or warps the layer. |
 | `transformEdge` | `Blank` | What a transformed layer shows where it no longer covers. |
 
@@ -98,14 +98,14 @@ Every default is the engine's own, so a layer given no options draws exactly as 
   kept, leaving both layers showing the second one's sprites. The engine already requires a
   layer's key to be unique within a frame.
 
-## The dialogue components
+## The dialog components
 
-All of them read a `text::DialogueState` and take `(x, y)`, the top-left corner of the text area
+All of them read a `text::DialogState` and take `(x, y)`, the top-left corner of the text area
 on screen. They draw from two sheets built from the cartridge's own font and uploaded at load
 time (see [../text/font.md](../text/font.md)):
 
 ```cpp
-const text::DialogueFont& font = content.dialogueFont;
+const text::DialogFont& font = content.dialogFont;
 
 const text::IndexedImage glyphs = text::buildGlyphSheet(font.glyphArt, font.glyphCount());
 const retropp::AtlasManifest glyphSheet = renderer.uploadAtlas(
@@ -123,8 +123,8 @@ const retropp::AtlasManifest arrowSheet = renderer.uploadAtlas(
 ```
 
 The blank pixel is a hole in both sheets, so a sprite shows only its ink, and the ink takes
-its colour from the palette the sprite draws through. Two palettes do all the dialogue's
-colouring: one whose ink entry is the font colour (white by default) and one whose ink entry is
+its color from the palette the sprite draws through. Two palettes do all the dialog's
+coloring: one whose ink entry is the font color (white by default) and one whose ink entry is
 black, for the shadows.
 
 ### `Glyph`
@@ -139,10 +139,10 @@ One letter and its drop shadow: the shadow first, the same cell one pixel right 
 through `shadow`, then the letter at `(x, y)` through `ink`. `(x, y)` is where the top-left of
 the glyph's artwork goes. The other text components are lists of these.
 
-### `DialogueText`
+### `DialogText`
 
 ```cpp
-Sprites DialogueText(const text::DialogueState& state, int x, int y,
+Sprites DialogText(const text::DialogState& state, int x, int y,
                      const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                      retropp::PaletteId shadow);
 ```
@@ -159,7 +159,7 @@ seen depends on the window the layer sits in.
 ### `MapTitle`
 
 ```cpp
-Sprites MapTitle(const text::DialogueState& state, int x, int y,
+Sprites MapTitle(const text::DialogState& state, int x, int y,
                  const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                  retropp::PaletteId shadow);
 ```
@@ -167,24 +167,24 @@ Sprites MapTitle(const text::DialogueState& state, int x, int y,
 The map title's glyphs, placed the same way, keyed `title:<n>`. Returns nothing once the title is
 down.
 
-### `DialogueCursor`
+### `DialogCursor`
 
 ```cpp
-Sprites DialogueCursor(const text::DialogueState& state, int x, int y,
+Sprites DialogCursor(const text::DialogState& state, int x, int y,
                        const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                        retropp::PaletteId shadow);
 ```
 
-The arrow beside the selected choice, when the dialogue shows one (`state.cursor`): at the left
+The arrow beside the selected choice, when the dialog shows one (`state.cursor`): at the left
 edge of the choice's 16-pixel column, at a glyph's height in the line, with its shadow one pixel
 to the right only (`text::kCursorShadowDx`, `text::kCursorShadowDy`). Returns nothing without an
 arrow on screen, and nothing given an empty sheet — the Japanese cartridge's arrow has no known
 place, so it has no artwork to upload.
 
-### `DialogueWipe`
+### `DialogWipe`
 
 ```cpp
-Regions DialogueWipe(const text::DialogueState& state, int x, int y);
+Regions DialogWipe(const text::DialogState& state, int x, int y);
 ```
 
 A page the player dismisses goes half a line per frame — line 0's left half, then its right half,
@@ -204,15 +204,15 @@ through `LayerOptions::regions`.
    aggregate of the same shape — rather than building a `DrawLayer` inside the component.
 4. Take its depth and key prefix from `layers.h`.
 5. Test what it returns: call it with a known state and read back the sprites, regions or layer
-   (`tests/test_dialogue_components.cpp` builds its sheets with `retropp::sliceLayout`, so no
+   (`tests/test_dialog_components.cpp` builds its sheets with `retropp::sliceLayout`, so no
    renderer is needed).
 
 ## Where to change things
 
 | To change | Edit |
 |---|---|
-| Where the dialogue sits on screen | The `(x, y)` the caller passes. |
+| Where the dialog sits on screen | The `(x, y)` the caller passes. |
 | The shadow's offset, the text area's geometry, where glyphs sit in a line | `src/text/layout.h` |
 | A layer's depth, the screen size, a key's name | `src/render/layers.h` |
 | How a glyph and its shadow are drawn | `src/render/text/glyph.cpp` |
-| The font colour or the shadow colour | The two palettes the caller uploads and passes in. |
+| The font color or the shadow color | The two palettes the caller uploads and passes in. |

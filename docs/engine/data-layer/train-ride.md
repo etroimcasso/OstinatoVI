@@ -37,7 +37,7 @@ scenery — and the ride then walks all three for 32 frames, one entry per frame
 before the script advances.
 
 This page covers the data those curves hold. The script that selects them, and
-the commands it carries, belong to the ride's behaviour and are not here.
+the commands it carries, belong to the ride's behavior and are not here.
 
 The airship's takeoff and landing camera move sits on this page too. It is
 unrelated to the train, but it is the same kind of thing: a curve of per-frame

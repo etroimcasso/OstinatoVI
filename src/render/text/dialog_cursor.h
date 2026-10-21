@@ -1,7 +1,7 @@
-// DialogueCursor — the arrow beside the selected choice.
+// DialogCursor — the arrow beside the selected choice.
 //
-//     SpriteLayer("dialogue", kDialogueTextZ,
-//                 {DialogueText(...), DialogueCursor(state, textX, textY, arrow, ink, shadow)});
+//     SpriteLayer("dialog", kDialogTextZ,
+//                 {DialogText(...), DialogCursor(state, textX, textY, arrow, ink, shadow)});
 //
 // (x, y) is the top-left corner of the text area on screen. When the engine shows the arrow
 // (state.cursor), it is drawn at the left edge of the selected choice's column, at a glyph's height
@@ -17,11 +17,11 @@
 #include "retropp/palette.h"
 
 #include "render/types.h"
-#include "text/dialogue.h"
+#include "text/dialog.h"
 
 namespace ostinato::render {
 
-[[nodiscard]] Sprites DialogueCursor(const text::DialogueState& state, int x, int y,
+[[nodiscard]] Sprites DialogCursor(const text::DialogState& state, int x, int y,
                                      const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                                      retropp::PaletteId shadow);
 

@@ -40,7 +40,7 @@ the string `"rom/cartridge.sfc"` literally. The engine's build scan reads these 
 of the source text, so a path held in a variable or returned from a helper is invisible
 to it.
 
-## Recognising a cartridge
+## Recognizing a cartridge
 
 Three revisions are accepted: Final Fantasy VI 1.0 (J), Final Fantasy III 1.0 (U), and
 Final Fantasy III 1.1 (U). Recognition is by size and CRC32 over the whole image, so a
@@ -49,7 +49,7 @@ modified or mis-dumped file is refused outright rather than half-read.
 ```cpp
 #include "assets/cartridge.h"
 
-// Some dumps carry a 512-byte copier header. It is recognised by length and dropped
+// Some dumps carry a 512-byte copier header. It is recognized by length and dropped
 // before anything reads or identifies the bytes.
 const std::span<const std::uint8_t> image = assets::stripCopierHeader(bytes);
 
@@ -97,7 +97,7 @@ its banks straight onto the image, so an address becomes an offset by arithmetic
 `assets::HiRomImage` (`src/assets/rom_reader.h`) is the one place that knows how, and it
 is the only place in the port that does arithmetic on a cartridge address.
 
-The spans inside `IngestedContent` outlive the call: the tile pool is catalogued with the
+The spans inside `IngestedContent` outlive the call: the tile pool is cataloged with the
 engine's data library, which resolves an entry once and keeps it for the life of the
 program.
 
@@ -114,7 +114,7 @@ is a real problem, and an empty corpus would look like a game with nothing to sa
 ```cpp
 #include "data/rom_regions.h"
 
-// Where the dialogue lives in a US cartridge.
+// Where the dialog lives in a US cartridge.
 const std::optional<retropp::MemoryRegion> place = romRegion(RomAsset::DLG1, Language::EN);
 
 // The family a text class's records live in.
@@ -129,7 +129,7 @@ const RomAsset asset = textClassAsset(TextClass::ITEM_NAME);
 - `romRegions()` is the whole 309-row table, for iteration.
 
 Addresses are the cartridge's own. A family wider than the bank it starts in reads
-straight through — the dialogue bank does exactly this — because a read is one extent
+straight through — the dialog bank does exactly this — because a read is one extent
 rather than a per-bank walk.
 
 ## World tile patches

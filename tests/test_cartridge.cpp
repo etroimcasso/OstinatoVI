@@ -1,4 +1,4 @@
-// Tests for the cartridge route: recognising an image, keeping it, and reading it.
+// Tests for the cartridge route: recognizing an image, keeping it, and reading it.
 //
 // Recognition and refusal are exercised with synthetic images. The install round-trip and the read
 // need a real cartridge, and a machine that cannot supply one fails rather than skipping.
@@ -53,7 +53,7 @@ std::vector<std::uint8_t> imageOfRightSizeWrongContent() {
     return std::vector<std::uint8_t>(kRomSizeBytes, 0x5A);
 }
 
-// --- recognising an image ----------------------------------------------------
+// --- recognizing an image ----------------------------------------------------
 
 TEST(Cartridge, CopierHeaderIsDroppedByLength) {
     const std::vector<std::uint8_t> headered(kRomSizeBytes + kCopierHeaderBytes, 0x00);
@@ -85,7 +85,7 @@ TEST(Cartridge, AnImageWithTheWrongContentIsNotACartridge) {
     EXPECT_FALSE(assets::identifyRom(imageOfRightSizeWrongContent()).has_value());
 }
 
-TEST(Cartridge, TheVanillaCartridgeIsRecognised) {
+TEST(Cartridge, TheVanillaCartridgeIsRecognized) {
     const std::vector<std::uint8_t> rom = test::vanillaRom();
     const auto version = assets::identifyRom(assets::stripCopierHeader(rom));
     ASSERT_TRUE(version.has_value());
@@ -96,7 +96,7 @@ TEST(Cartridge, TheVanillaCartridgeIsRecognised) {
 
 // --- keeping one -------------------------------------------------------------
 
-TEST(Cartridge, AnUnrecognisedImageIsRefusedAndNothingIsWritten) {
+TEST(Cartridge, AnUnrecognizedImageIsRefusedAndNothingIsWritten) {
     const TempRoot root;
     const auto result = assets::installCartridge(imageOfRightSizeWrongContent(), root.path());
     EXPECT_FALSE(result.succeeded);
@@ -165,7 +165,7 @@ TEST(Cartridge, ReadingACartridgeYieldsItsContent) {
     EXPECT_EQ(content.worldTiles.offsetInBlock, 0x48u);
 }
 
-TEST(Cartridge, ReadingAnUnrecognisedImageThrows) {
+TEST(Cartridge, ReadingAnUnrecognizedImageThrows) {
     EXPECT_THROW((void)assets::ingestCartridge(imageOfRightSizeWrongContent()), std::runtime_error);
 }
 
@@ -198,7 +198,7 @@ TEST(HiRomImage, ABankNumberPicksItsSliceOfTheImage) {
 }
 
 TEST(HiRomImage, AReadRunsStraightThroughABankBoundary) {
-    // The dialogue bank genuinely does this, which is why a read is one extent.
+    // The dialog bank genuinely does this, which is why a read is one extent.
     const auto image = countingImage();
     const assets::HiRomImage cartridge{image};
     const auto bytes = cartridge.read({.at = 0xCDFFFE, .size = 4});

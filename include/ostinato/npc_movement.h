@@ -5,7 +5,7 @@
 
 #include <cstdint>
 
-// An NPC's autonomous movement behaviour (npc_prop byte 7 bits 0-3).
+// An NPC's autonomous movement behavior (npc_prop byte 7 bits 0-3).
 namespace ostinato {
 
 enum class NpcMovement : std::uint8_t {

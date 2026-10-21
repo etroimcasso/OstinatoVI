@@ -87,8 +87,8 @@ TEST(RomRegions, CharacterNamesHoldExactlyTheirRecords) {
     EXPECT_EQ(place->size, static_cast<std::uint32_t>(meta.recordCount) * meta.recordSize);
 }
 
-TEST(RomRegions, DialogueCrossesABankBoundary) {
-    // The first dialogue bank runs past the end of the bank it starts in. Nothing here has to care:
+TEST(RomRegions, DialogCrossesABankBoundary) {
+    // The first dialog bank runs past the end of the bank it starts in. Nothing here has to care:
     // the machine resolves the address, and a read runs straight through.
     const auto place = romRegion(RomAsset::DLG1, Language::EN);
     ASSERT_TRUE(place.has_value());

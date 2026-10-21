@@ -1,6 +1,6 @@
-// The dialogue font's per-glyph advance widths, as a view over the table the cartridge holds.
+// The dialog font's per-glyph advance widths, as a view over the table the cartridge holds.
 //
-// The table sits immediately before the dialogue font's graphics in every cartridge: 256 bytes
+// The table sits immediately before the dialog font's graphics in every cartridge: 256 bytes
 // in English (one per glyph code $00-$FF) and 1,280 in Japanese (glyph codes $000-$4FF). The
 // width of a glyph is how far the pen moves after drawing it, and what the English word wrap
 // adds up.

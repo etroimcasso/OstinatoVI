@@ -11,7 +11,7 @@
 // Each graphics block is 64 tiles (4096 bytes), or 128 when the first block
 // sets its double-width flag. Tilemaps are 32x32, of which only the first 19
 // rows are visible unless the background scrolls vertically. Palettes hold 48
-// colours and load into BG palettes 5, 6 and 7.
+// colors and load into BG palettes 5, 6 and 7.
 #pragma once
 
 #include <cstddef>

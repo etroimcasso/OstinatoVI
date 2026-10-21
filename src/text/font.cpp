@@ -27,7 +27,7 @@ bool CursorArt::ink(int x, int y) const {
     return (rows_[static_cast<std::size_t>(y)] >> cursorBit(x)) & 1u;
 }
 
-std::size_t DialogueFont::glyphCount() const {
+std::size_t DialogFont::glyphCount() const {
     return metrics.size() > kFirstDrawnGlyph ? metrics.size() - kFirstDrawnGlyph : 0;
 }
 

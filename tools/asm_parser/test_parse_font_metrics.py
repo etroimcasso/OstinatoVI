@@ -254,7 +254,7 @@ class FontWidthPlacementTest(unittest.TestCase):
                                   _rom_with(0xC48FC0, cartridge))
         self.assertIn("glyph $7f", str(caught.exception))
 
-    def test_a_missing_neighbour_is_an_error(self):
+    def test_a_missing_neighbor_is_an_error(self):
         rows = _bracketing_rows()
         rows["jp"] = rows["jp"][:1]
         with self.assertRaises(ParseError):

@@ -1,9 +1,9 @@
 // Text codecs: turn a raw text record (the glyph + control byte stream returned
 // by TextCorpus) into a token stream. Three codec families cover the corpus:
 //
-//   - Field dialogue (dlg1, dlg2, map titles): glyphs, control codes below
+//   - Field dialog (dlg1, dlg2, map titles): glyphs, control codes below
 //     0x20, and DTE-compressed byte pairs at 0x80 and above.
-//   - Battle text (battle dialogue, attack messages, monster dialogue): glyphs
+//   - Battle text (battle dialog, attack messages, monster dialog): glyphs
 //     and control codes below 0x20; no DTE.
 //   - Menu descriptions (item/magic/lore/... descriptions): plain glyph bytes
 //     up to a 0x00 terminator; no control codes, no DTE.
@@ -23,7 +23,7 @@
 namespace ostinato {
 
 // Which ROM language a record was ripped from. Selects the glyph-range and
-// escape grammar the dialogue and battle codecs apply.
+// escape grammar the dialog and battle codecs apply.
 enum class TextLanguage : std::uint8_t { EN, JP };
 
 // The Japanese multi-tile encoding table: variable-length glyph expansions, one
@@ -48,11 +48,11 @@ private:
     std::span<const std::uint32_t> offsets_{};
 };
 
-// Tokenize a field-dialogue record. DTE codes are expanded through `dte`; on
+// Tokenize a field-dialog record. DTE codes are expanded through `dte`; on
 // the Japanese path multi-tile codes are expanded through `mte`. Stops at the
 // end-of-record control code (or the end of the span). Throws
 // std::runtime_error on a control byte the grammar does not define.
-std::vector<FieldTextToken> tokenizeDialogue(
+std::vector<FieldTextToken> tokenizeDialog(
     std::span<const std::uint8_t> record, const DteTable& dte,
     TextLanguage lang = TextLanguage::EN, const MteTable& mte = MteTable{});
 

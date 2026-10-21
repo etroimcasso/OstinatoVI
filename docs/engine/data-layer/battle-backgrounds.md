@@ -51,7 +51,7 @@ Three graphics blocks, a tilemap, and a palette:
 - **Tilemaps** are 32×32. Only the first nineteen rows are on screen unless the
   background scrolls vertically, which is how the clouds and the waterfall
   work. Every record names a tilemap twice; only the first is read.
-- **The palette** holds 48 colours and loads into background palettes 5, 6 and
+- **The palette** holds 48 colors and loads into background palettes 5, 6 and
   7. Its flag turns on the rippling effect used by the desert.
 
 A graphics slot holding `NONE` loads nothing. Three backgrounds — Narshe's

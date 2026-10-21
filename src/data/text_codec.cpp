@@ -46,7 +46,7 @@ std::span<const std::uint8_t> MteTable::expand(std::size_t index) const {
 
 namespace {
 
-// Field-dialogue control grammar. `pos` points at the code byte.
+// Field-dialog control grammar. `pos` points at the code byte.
 DecodedControl decodeFieldControl(std::span<const std::uint8_t> record,
                                    std::size_t pos) {
     const std::uint8_t byte = record[pos];
@@ -159,7 +159,7 @@ DecodedControl decodeBattleControl(std::span<const std::uint8_t> record,
 
 }  // namespace
 
-std::vector<FieldTextToken> tokenizeDialogue(std::span<const std::uint8_t> record,
+std::vector<FieldTextToken> tokenizeDialog(std::span<const std::uint8_t> record,
                                              const DteTable& dte,
                                              TextLanguage lang,
                                              const MteTable& mte) {

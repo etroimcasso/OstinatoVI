@@ -1,13 +1,13 @@
-// The dialogue font, as the player's cartridge holds it: each glyph's artwork, how far the pen
+// The dialog font, as the player's cartridge holds it: each glyph's artwork, how far the pen
 // moves after it, and the arrow drawn beside the selected choice. Nothing here is compiled in — the
 // cartridge is read once at launch (assets::ingestCartridge) and this is the view over what it held.
 //
 // The two builders turn the cartridge's one-bit artwork into indexed images ready to upload as
-// sprite sheets: every pixel is kBlankPixel or kInkPixel, and colour comes from the palette a sprite
+// sprite sheets: every pixel is kBlankPixel or kInkPixel, and color comes from the palette a sprite
 // draws through. The same glyph sheet serves the letter and its drop shadow; the rendering
-// components (src/render/text/) decide where and in which colour each is drawn.
+// components (src/render/text/) decide where and in which color each is drawn.
 //
-//     const DialogueFont& font = content.dialogueFont;
+//     const DialogFont& font = content.dialogFont;
 //     const IndexedImage glyphs = buildGlyphSheet(font.glyphArt, font.glyphCount());
 //     const IndexedImage arrow = buildCursorSheet(font.cursor);
 //     // glyph g is cell glyphSlot(g) of the glyph sheet, read in rows of kSheetColumns
@@ -82,8 +82,8 @@ private:
     std::span<const std::uint8_t> rows_{};
 };
 
-// Everything the cartridge holds for the dialogue font.
-struct DialogueFont {
+// Everything the cartridge holds for the dialog font.
+struct DialogFont {
     // Every drawn glyph's artwork, kGlyphArtBytes per glyph from kFirstDrawnGlyph up. The English
     // cartridge stores a little past its last glyph; glyphCount() says how many there are.
     std::span<const std::uint8_t> glyphArt;

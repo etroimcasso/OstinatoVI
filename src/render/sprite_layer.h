@@ -1,8 +1,8 @@
 // SpriteLayer — gathers sprite components onto one screen-sized layer.
 //
-//     frame.layers.push_back(SpriteLayer("dialogue", kDialogueTextZ,
-//                                        {DialogueText(...), DialogueCursor(...)},
-//                                        {.regions = DialogueWipe(...)}));
+//     frame.layers.push_back(SpriteLayer("dialog", kDialogTextZ,
+//                                        {DialogText(...), DialogCursor(...)},
+//                                        {.regions = DialogWipe(...)}));
 //
 // The children are declared as a list and drawn in that order; a sprite's own z orders it within
 // the layer before that. Everything in `options` passes straight onto the layer.

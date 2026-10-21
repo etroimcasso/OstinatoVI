@@ -1,6 +1,6 @@
-// The dialogue's rendering components, read back from what they return.
+// The dialog's rendering components, read back from what they return.
 //
-// Each component is a function of the dialogue state, so each case builds a state — by hand where
+// Each component is a function of the dialog state, so each case builds a state — by hand where
 // only the geometry matters, by driving the engine where the timing does — calls the component, and
 // reads the sprites, regions or layer it returns. No renderer is involved: the sheets are carved
 // with the engine's own slicer, exactly as an upload would carve them.
@@ -20,13 +20,13 @@
 #include "render/layer_options.h"
 #include "render/layers.h"
 #include "render/sprite_layer.h"
-#include "render/text/dialogue_cursor.h"
-#include "render/text/dialogue_text.h"
-#include "render/text/dialogue_wipe.h"
+#include "render/text/dialog_cursor.h"
+#include "render/text/dialog_text.h"
+#include "render/text/dialog_wipe.h"
 #include "render/text/glyph.h"
 #include "render/text/map_title.h"
 #include "render/types.h"
-#include "text/dialogue.h"
+#include "text/dialog.h"
 #include "text/font.h"
 #include "text/layout.h"
 
@@ -80,8 +80,8 @@ const retropp::Sprite* find(const Sprites& sprites, std::string_view key) {
 }
 
 // A page with three glyphs on line 0 and one on line 2.
-text::DialogueState pageOfGlyphs() {
-    text::DialogueState state;
+text::DialogState pageOfGlyphs() {
+    text::DialogState state;
     state.page = 3;
     state.placed = {
         {.page = 3, .line = 0, .x = 4, .glyph = 0x20},
@@ -196,17 +196,17 @@ TEST(Glyph, IsTheShadowThenTheLetterFromOneCell) {
     }
 }
 
-// --- DialogueText -------------------------------------------------------------------------------
+// --- DialogText -------------------------------------------------------------------------------
 
-TEST(DialogueText, DrawsEveryPlacedGlyphWithItsShadow) {
-    const text::DialogueState state = pageOfGlyphs();
-    const Sprites sprites = DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
+TEST(DialogText, DrawsEveryPlacedGlyphWithItsShadow) {
+    const text::DialogState state = pageOfGlyphs();
+    const Sprites sprites = DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
     EXPECT_EQ(sprites.size(), 2 * state.placed.size());
 }
 
-TEST(DialogueText, PutsTheInkAtThePenOnTheGlyphsLine) {
-    const text::DialogueState state = pageOfGlyphs();
-    const Sprites sprites = DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
+TEST(DialogText, PutsTheInkAtThePenOnTheGlyphsLine) {
+    const text::DialogState state = pageOfGlyphs();
+    const Sprites sprites = DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
 
     // The second glyph on line 0, at pen x 12.
     const retropp::Sprite* second = find(sprites, "dlg:3:0:1");
@@ -227,9 +227,9 @@ TEST(DialogueText, PutsTheInkAtThePenOnTheGlyphsLine) {
     EXPECT_EQ(shadow->y, third->y + text::kShadowDy);
 }
 
-TEST(DialogueText, KeysCountGlyphsWithinTheirLineAndPage) {
+TEST(DialogText, KeysCountGlyphsWithinTheirLineAndPage) {
     const Sprites sprites =
-        DialogueText(pageOfGlyphs(), kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
+        DialogText(pageOfGlyphs(), kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
     std::vector<std::string> letters;
     for (const retropp::Sprite& s : sprites) {
         if (s.z == kInkSpriteZ) {
@@ -240,9 +240,9 @@ TEST(DialogueText, KeysCountGlyphsWithinTheirLineAndPage) {
               (std::vector<std::string>{"dlg:3:0:0", "dlg:3:0:1", "dlg:3:0:2", "dlg:3:2:0"}));
 }
 
-TEST(DialogueText, EveryShadowIsBeneathEveryLetter) {
+TEST(DialogText, EveryShadowIsBeneathEveryLetter) {
     const Sprites sprites =
-        DialogueText(pageOfGlyphs(), kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
+        DialogText(pageOfGlyphs(), kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
     for (const retropp::Sprite& s : sprites) {
         const bool isShadow = s.key.value.ends_with(kShadowKeySuffix);
         EXPECT_EQ(s.z, isShadow ? kShadowSpriteZ : kInkSpriteZ) << keyOf(s);
@@ -251,21 +251,21 @@ TEST(DialogueText, EveryShadowIsBeneathEveryLetter) {
     EXPECT_LT(kShadowSpriteZ, kInkSpriteZ);
 }
 
-TEST(DialogueText, LeavesAShowingMapTitleToMapTitle) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogText, LeavesAShowingMapTitleToMapTitle) {
+    text::DialogState state = pageOfGlyphs();
     state.titleShowing = true;
-    EXPECT_TRUE(DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
+    EXPECT_TRUE(DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
 }
 
-TEST(DialogueText, AnEmptyPageDrawsNothing) {
+TEST(DialogText, AnEmptyPageDrawsNothing) {
     EXPECT_TRUE(
-        DialogueText(text::DialogueState{}, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
+        DialogText(text::DialogState{}, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
 }
 
 // --- MapTitle -----------------------------------------------------------------------------------
 
 TEST(MapTitle, DrawsTheTitleWhileItIsUp) {
-    text::DialogueState state = pageOfGlyphs();
+    text::DialogState state = pageOfGlyphs();
     state.titleShowing = true;
     const Sprites sprites = MapTitle(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
     ASSERT_EQ(sprites.size(), 2 * state.placed.size());
@@ -281,25 +281,25 @@ TEST(MapTitle, DrawsNothingOnceTheTitleIsDown) {
     EXPECT_TRUE(MapTitle(pageOfGlyphs(), kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
 }
 
-// --- DialogueCursor -----------------------------------------------------------------------------
+// --- DialogCursor -----------------------------------------------------------------------------
 
-TEST(DialogueCursor, DrawsNothingWithoutAnArrowOnScreen) {
-    EXPECT_TRUE(DialogueCursor(pageOfGlyphs(), kAreaX, kAreaY, arrowSheet(), kInk, kShadow).empty());
+TEST(DialogCursor, DrawsNothingWithoutAnArrowOnScreen) {
+    EXPECT_TRUE(DialogCursor(pageOfGlyphs(), kAreaX, kAreaY, arrowSheet(), kInk, kShadow).empty());
 }
 
-TEST(DialogueCursor, DrawsNothingWithoutArrowArtwork) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogCursor, DrawsNothingWithoutArrowArtwork) {
+    text::DialogState state = pageOfGlyphs();
     state.cursor = text::ChoicePosition{.line = 1, .x = 48};
     EXPECT_TRUE(
-        DialogueCursor(state, kAreaX, kAreaY, retropp::AtlasManifest{}, kInk, kShadow).empty());
+        DialogCursor(state, kAreaX, kAreaY, retropp::AtlasManifest{}, kInk, kShadow).empty());
 }
 
-TEST(DialogueCursor, SitsAtTheChoicesColumnWithItsShadowToTheRight) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogCursor, SitsAtTheChoicesColumnWithItsShadowToTheRight) {
+    text::DialogState state = pageOfGlyphs();
     state.choices.selection = 1;
     state.cursor = text::ChoicePosition{.line = 2, .x = 64};
     const retropp::AtlasManifest sheet = arrowSheet();
-    const Sprites sprites = DialogueCursor(state, kAreaX, kAreaY, sheet, kInk, kShadow);
+    const Sprites sprites = DialogCursor(state, kAreaX, kAreaY, sheet, kInk, kShadow);
     ASSERT_EQ(sprites.size(), 2u);
     const retropp::Sprite& shadow = sprites[0];
     const retropp::Sprite& arrow = sprites[1];
@@ -318,37 +318,37 @@ TEST(DialogueCursor, SitsAtTheChoicesColumnWithItsShadowToTheRight) {
     EXPECT_EQ(arrow.size, (retropp::AssetDimensions{text::kCursorWidth, text::kCursorCellHeight}));
 }
 
-TEST(DialogueCursor, MovingTheSelectionMakesANewArrow) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogCursor, MovingTheSelectionMakesANewArrow) {
+    text::DialogState state = pageOfGlyphs();
     state.cursor = text::ChoicePosition{.line = 2, .x = 64};
     state.choices.selection = 0;
-    const Sprites before = DialogueCursor(state, kAreaX, kAreaY, arrowSheet(), kInk, kShadow);
+    const Sprites before = DialogCursor(state, kAreaX, kAreaY, arrowSheet(), kInk, kShadow);
     state.choices.selection = 1;
     state.cursor = text::ChoicePosition{.line = 2, .x = 128};
-    const Sprites after = DialogueCursor(state, kAreaX, kAreaY, arrowSheet(), kInk, kShadow);
+    const Sprites after = DialogCursor(state, kAreaX, kAreaY, arrowSheet(), kInk, kShadow);
     EXPECT_NE(keyOf(before[1]), keyOf(after[1]));
 }
 
-// --- DialogueWipe -------------------------------------------------------------------------------
+// --- DialogWipe -------------------------------------------------------------------------------
 
-TEST(DialogueWipe, NothingIsGoneWhileNoPageIsWiped) {
-    EXPECT_TRUE(DialogueWipe(pageOfGlyphs(), kAreaX, kAreaY).empty());
+TEST(DialogWipe, NothingIsGoneWhileNoPageIsWiped) {
+    EXPECT_TRUE(DialogWipe(pageOfGlyphs(), kAreaX, kAreaY).empty());
 }
 
-TEST(DialogueWipe, OneRegionPerHalfLineGone) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogWipe, OneRegionPerHalfLineGone) {
+    text::DialogState state = pageOfGlyphs();
     for (int frames = text::kPageClearFrames; frames >= 0; --frames) {
         state.pageClearFrames = frames;
-        EXPECT_EQ(static_cast<int>(DialogueWipe(state, kAreaX, kAreaY).size()),
+        EXPECT_EQ(static_cast<int>(DialogWipe(state, kAreaX, kAreaY).size()),
                   text::halfLinesCleared(state))
             << frames;
     }
 }
 
-TEST(DialogueWipe, HalfLinesGoLeftThenRightTopLineFirst) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogWipe, HalfLinesGoLeftThenRightTopLineFirst) {
+    text::DialogState state = pageOfGlyphs();
     state.pageClearFrames = 1;  // the last frame of the wipe: every half-line is gone
-    const Regions regions = DialogueWipe(state, kAreaX, kAreaY);
+    const Regions regions = DialogWipe(state, kAreaX, kAreaY);
     ASSERT_EQ(static_cast<int>(regions.size()), text::kWipeSteps);
 
     for (int i = 0; i < text::kWipeSteps; ++i) {
@@ -371,76 +371,76 @@ TEST(DialogueWipe, HalfLinesGoLeftThenRightTopLineFirst) {
     }
 }
 
-// --- the components over a running dialogue ------------------------------------------------------
+// --- the components over a running dialog ------------------------------------------------------
 
 std::vector<std::uint8_t> evenWidths() { return std::vector<std::uint8_t>(256, 8); }
 
-TEST(DialogueComponents, ADismissedPageGoesHalfALineAFrame) {
+TEST(DialogComponents, ADismissedPageGoesHalfALineAFrame) {
     const std::vector<std::uint8_t> widths = evenWidths();
-    text::DialogueContext context;
+    text::DialogContext context;
     context.metrics = text::FontMetrics{widths};
-    text::DialogueState state;
-    text::initDialogue(state);
+    text::DialogState state;
+    text::initDialog(state);
 
     // Four lines, one glyph each; the fourth line break ends the page.
     const auto glyphs = GlyphRun{{0x20}};
     const auto newline = FieldControl{FieldTextCommand::NEWLINE, 0};
-    text::startDialogue(state, {glyphs, newline, glyphs, newline, glyphs, newline, glyphs, newline,
+    text::startDialog(state, {glyphs, newline, glyphs, newline, glyphs, newline, glyphs, newline,
                                 glyphs, FieldControl{FieldTextCommand::END, 0}});
-    const text::DialogueInput nothing{};
-    const text::DialogueInput confirm{.confirmHeld = true};
+    const text::DialogInput nothing{};
+    const text::DialogInput confirm{.confirmHeld = true};
     for (int frame = 0; frame < 8; ++frame) {
-        text::tickDialogue(state, nothing, context);
+        text::tickDialog(state, nothing, context);
     }
     ASSERT_EQ(state.placed.size(), 4u);
-    EXPECT_TRUE(DialogueWipe(state, kAreaX, kAreaY).empty());
+    EXPECT_TRUE(DialogWipe(state, kAreaX, kAreaY).empty());
 
     // Release, then press: the page is dismissed and goes over the next eight frames.
-    text::tickDialogue(state, nothing, context);
-    text::tickDialogue(state, confirm, context);
+    text::tickDialog(state, nothing, context);
+    text::tickDialog(state, confirm, context);
     for (int gone = 1; gone <= text::kWipeSteps; ++gone) {
-        text::tickDialogue(state, nothing, context);
-        EXPECT_EQ(static_cast<int>(DialogueWipe(state, kAreaX, kAreaY).size()), gone);
-        EXPECT_EQ(DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).size(), 8u);
+        text::tickDialog(state, nothing, context);
+        EXPECT_EQ(static_cast<int>(DialogWipe(state, kAreaX, kAreaY).size()), gone);
+        EXPECT_EQ(DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).size(), 8u);
     }
 
     // Then the page is gone and nothing is left to hide.
-    text::tickDialogue(state, nothing, context);
-    EXPECT_TRUE(DialogueWipe(state, kAreaX, kAreaY).empty());
-    EXPECT_TRUE(DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
+    text::tickDialog(state, nothing, context);
+    EXPECT_TRUE(DialogWipe(state, kAreaX, kAreaY).empty());
+    EXPECT_TRUE(DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow).empty());
 }
 
 // A glyph across the middle of a line: the right half-line's region starts inside it, so the wipe
 // takes exactly the part of it that lies in the right half.
-TEST(DialogueComponents, TheWipeSplitsAGlyphAcrossTheMiddle) {
-    text::DialogueState state;
+TEST(DialogComponents, TheWipeSplitsAGlyphAcrossTheMiddle) {
+    text::DialogState state;
     state.page = 1;
     state.placed = {{.page = 1, .line = 0, .x = text::kHalfLinePx - 3, .glyph = 0x20}};
     state.pageClearFrames = text::kPageClearFrames - 2;  // line 0's two halves are gone
 
-    const Sprites sprites = DialogueText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
+    const Sprites sprites = DialogText(state, kAreaX, kAreaY, glyphSheet(), kInk, kShadow);
     const retropp::Sprite* letter = find(sprites, "dlg:1:0:0");
     ASSERT_NE(letter, nullptr);
-    const Regions regions = DialogueWipe(state, kAreaX, kAreaY);
+    const Regions regions = DialogWipe(state, kAreaX, kAreaY);
     ASSERT_EQ(regions.size(), 2u);
     const float middle = regions[1].shape.points[0].x;
     EXPECT_GT(middle, static_cast<float>(letter->x));
     EXPECT_LT(middle, static_cast<float>(letter->x + text::kGlyphCellPx));
 }
 
-TEST(DialogueComponents, OneLayerHoldsTheTextTheArrowAndTheWipe) {
-    text::DialogueState state = pageOfGlyphs();
+TEST(DialogComponents, OneLayerHoldsTheTextTheArrowAndTheWipe) {
+    text::DialogState state = pageOfGlyphs();
     state.cursor = text::ChoicePosition{.line = 2, .x = 64};
     state.pageClearFrames = text::kPageClearFrames - 1;
     const retropp::AtlasManifest glyphs = glyphSheet();
     const retropp::AtlasManifest arrow = arrowSheet();
 
     const retropp::DrawLayer layer = SpriteLayer(
-        "dialogue", kDialogueTextZ,
-        {DialogueText(state, kAreaX, kAreaY, glyphs, kInk, kShadow),
-         DialogueCursor(state, kAreaX, kAreaY, arrow, kInk, kShadow)},
-        {.regions = DialogueWipe(state, kAreaX, kAreaY)});
-    EXPECT_EQ(layer.z, kDialogueTextZ);
+        "dialog", kDialogTextZ,
+        {DialogText(state, kAreaX, kAreaY, glyphs, kInk, kShadow),
+         DialogCursor(state, kAreaX, kAreaY, arrow, kInk, kShadow)},
+        {.regions = DialogWipe(state, kAreaX, kAreaY)});
+    EXPECT_EQ(layer.z, kDialogTextZ);
     EXPECT_EQ(std::get<retropp::SpriteContent>(layer.content).sprites.size(),
               2 * state.placed.size() + 2);
     EXPECT_EQ(layer.regions.size(), 1u);

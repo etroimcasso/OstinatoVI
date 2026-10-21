@@ -119,7 +119,7 @@ kickoff.
   purely graphics and `src/sound/` is purely audio — a clean 1:1 module→pack copy with **zero
   per-file interpretation**, which is deliberate. Every other upstream module (`battle`, `btlgfx`,
   `cutscene`, `field`, `menu`, `text`, `world`, `event`) produces `.dat` **game-data** tables
-  (monster props, map props, event scripts, dialogue) that later work parses into C++
+  (monster props, map props, event scripts, dialog) that later work parses into C++
   **directly from `original-src/`** — they are not presentation packs and have no home in a
   two-target pack model. `btlgfx`'s battle *graphics* bitplanes already live in `src/gfx/`; its own
   dir holds battle *animation data*, so excluding it from the gfx pack is correct.

@@ -18,7 +18,7 @@ Sources:
     world animation frames are one: their artwork is ripped but the records
     arranging it are left in the assembly, so their extent is resolved from the
     assembly and proved against the cartridge instead (see _ASM_REGIONS). The
-    dialogue font's width table and the choice-cursor arrow are two more.
+    dialog font's width table and the choice-cursor arrow are two more.
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
@@ -48,7 +48,7 @@ Structural guarantees, hard-errored at emit time:
   * the stems that carry multiple families are EXACTLY the ten _ROLE_NAMES
     covers — a new one is a grammar change, not something to name on the fly;
   * every assembly-sourced region is identical to the cartridge over its whole
-    extent, or sits exactly between two ripped neighbours, which is what makes
+    extent, or sits exactly between two ripped neighbors, which is what makes
     its address trustworthy without a rip list to state it;
   * every fixed-record text range is exactly recordCount x recordSize bytes;
   * extract_assets.py holds exactly three CRC branches, each naming a ROM this
@@ -97,7 +97,7 @@ class AsmRegion(object):
     in each language it can state and returns one parse_font_metrics.Placement
     per language, each carrying how many of its bytes were compared with the
     cartridge. A language is stated only when its address is proved — against
-    the cartridge, or by ripped neighbours that bracket it exactly. Where the
+    the cartridge, or by ripped neighbors that bracket it exactly. Where the
     assembly's own addresses shift in the Japanese build by an amount only an
     assembler can work out, no Japanese row is emitted rather than a guessed one.
     """
@@ -124,7 +124,7 @@ def _load_rom_if_present(source_root):
 
 
 def _resolve_font_width(source_root, rip_rows):
-    """The dialogue font's widths: between the two ripped fonts, both languages."""
+    """The dialog font's widths: between the two ripped fonts, both languages."""
     return parse_font_metrics.place_font_widths(
         parse_font_metrics.read_font_widths(source_root), rip_rows,
         _load_rom_if_present(source_root))
@@ -140,7 +140,7 @@ def _resolve_cursor_art(source_root, _rip_rows):
 
 # The families sourced from the assembly: the world animation frames, whose
 # artwork upstream rips but whose arrangements it leaves in the assembly; the
-# dialogue font's width table, between two ripped fonts; and the choice-cursor
+# dialog font's width table, between two ripped fonts; and the choice-cursor
 # arrow, inside the field code.
 _ASM_REGIONS = (
     AsmRegion(asset="WORLD_ANIM_FRAMES",
@@ -349,7 +349,7 @@ def read_asm_regions(source_root, rom_size, rip_rows_by_language):
 
     Returns ({language: rows}, checked_bytes). The proof is the resolver's own:
     it compares the family's bytes at the address it derived, or pins the
-    address between ripped neighbours, so a wrong address cannot reach the
+    address between ripped neighbors, so a wrong address cannot reach the
     emitted table.
     """
     rows = {"en": [], "jp": []}
@@ -622,7 +622,7 @@ def _banner(source_lines):
 
 
 _SECTION_COMMENTS = {
-    "text": "// The script: name tables, dialogue banks, descriptions, and the\n"
+    "text": "// The script: name tables, dialog banks, descriptions, and the\n"
             "// DTE pair table. Every one is language-specific.",
     "data": "// Graphics, palettes, tile sheets, sound samples, and the numeric\n"
             "// tables the game reads directly.",

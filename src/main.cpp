@@ -30,7 +30,7 @@ namespace {
 void configureAssetRoot() {
 #ifdef OSTINATO_PROJECT_ROOT
     // assetRoot() is the engine's default at this point: an absolute path to the executable's
-    // directory, resolved by EngineConfig::setActive. Both sides are canonicalised so that symlinks
+    // directory, resolved by EngineConfig::setActive. Both sides are canonicalized so that symlinks
     // and `..` cannot make an inside path look like an outside one.
     std::error_code ec;
     const std::filesystem::path here =

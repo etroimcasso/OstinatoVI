@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Locate the dialogue font's width table and the choice-cursor arrow.
+"""Locate the dialog font's width table and the choice-cursor arrow.
 
 Port-time tooling (NOT a build/CI dependency). Both are cartridge content the
 game reads at run time: the width table says how far the pen moves after each
@@ -15,11 +15,11 @@ repository: the game and the tests read them from the cartridge.
 Sources:
 
   * src/gfx/font_gfx.asm — the width table (`FontWidth`), between the small
-    font's graphics and the dialogue font's in one segment. English states 256
+    font's graphics and the dialog font's in one segment. English states 256
     widths as `.byte` rows; Japanese reserves 1,280 with `.res` runs.
   * The rip lists' SMALL_FONT and LARGE_FONT rows — the two files bracketing the
     table. Their addresses settle the table's in each language: it starts where
-    the small font ends and ends where the dialogue font begins.
+    the small font ends and ends where the dialog font begins.
   * src/field/text.asm — the arrow (`DlgCursorGfx`, 12 `.byte` rows) and the one
     instruction that reads it (`lda f:DlgCursorGfx,x` in DrawDlgCursor).
   * The vanilla cartridge — the oracle. The English widths are compared with

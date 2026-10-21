@@ -1,4 +1,4 @@
-// The dialogue font as the cartridge holds it — the width table, the glyph artwork, and the choice
+// The dialog font as the cartridge holds it — the width table, the glyph artwork, and the choice
 // arrow — and the two sheets built from them.
 //
 // All three are cartridge content, so nothing here is compared against a stored copy: the widths
@@ -30,13 +30,13 @@ constexpr std::size_t kJapaneseGlyphs = 1248;
 // The English letter A (tools/char_table/dialog_en.json: 0x20).
 constexpr std::uint16_t kLetterA = 0x20;
 
-class DialogueFontTest : public ::testing::Test {
+class DialogFontTest : public ::testing::Test {
 protected:
     inline static test::IngestedCartridge cartridge_;
 
     static void SetUpTestSuite() { cartridge_ = test::ingestVanilla(); }
 
-    static const DialogueFont& font() { return cartridge_.content->dialogueFont; }
+    static const DialogFont& font() { return cartridge_.content->dialogFont; }
 
     // Whether the cartridge's artwork for `slot` has ink at (x, row), read the way the format is
     // documented: the row is a 16-bit word, low byte first, leftmost pixel in bit 15.
@@ -51,7 +51,7 @@ protected:
 
 // The width table has no file of its own; it is the gap between the two font files, in both
 // languages.
-TEST(DialogueFontRegions, WidthTableFillsTheGapBetweenTheFonts) {
+TEST(DialogFontRegions, WidthTableFillsTheGapBetweenTheFonts) {
     for (const Language language : {Language::EN, Language::JP}) {
         const auto small = romRegion(RomAsset::SMALL_FONT, language);
         const auto widths = romRegion(RomAsset::FONT_WIDTH, language);
@@ -67,7 +67,7 @@ TEST(DialogueFontRegions, WidthTableFillsTheGapBetweenTheFonts) {
 // The Japanese field code moves the arrow by an amount only assembling the source would settle,
 // and no Japanese cartridge is available to check a derived address against. The row is left out
 // rather than guessed.
-TEST(DialogueFontRegions, NoJapaneseArrowAddressIsClaimed) {
+TEST(DialogFontRegions, NoJapaneseArrowAddressIsClaimed) {
     EXPECT_TRUE(romRegion(RomAsset::DLG_CURSOR_GFX, Language::EN).has_value());
     EXPECT_FALSE(romRegion(RomAsset::DLG_CURSOR_GFX, Language::JP).has_value());
     EXPECT_EQ(romRegion(RomAsset::DLG_CURSOR_GFX, Language::EN)->size,
@@ -76,7 +76,7 @@ TEST(DialogueFontRegions, NoJapaneseArrowAddressIsClaimed) {
 
 // --- the widths --------------------------------------------------------------------------------
 
-TEST_F(DialogueFontTest, WidthsAreTheCartridgesTable) {
+TEST_F(DialogFontTest, WidthsAreTheCartridgesTable) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const FontMetrics& metrics = font().metrics;
     ASSERT_EQ(metrics.size(), kEnglishWidths);
@@ -88,7 +88,7 @@ TEST_F(DialogueFontTest, WidthsAreTheCartridgesTable) {
     }
 }
 
-TEST_F(DialogueFontTest, WidthsHoldTheValuesTheSourceStates) {
+TEST_F(DialogFontTest, WidthsHoldTheValuesTheSourceStates) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const FontMetrics& metrics = font().metrics;
     // gfx/font_gfx.asm:16-31.
@@ -102,7 +102,7 @@ TEST_F(DialogueFontTest, WidthsHoldTheValuesTheSourceStates) {
 
 // --- the arrow ---------------------------------------------------------------------------------
 
-TEST_F(DialogueFontTest, ArrowIsTheCartridgesArt) {
+TEST_F(DialogFontTest, ArrowIsTheCartridgesArt) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const CursorArt& arrow = font().cursor;
     ASSERT_TRUE(arrow.loaded());
@@ -124,21 +124,21 @@ TEST_F(DialogueFontTest, ArrowIsTheCartridgesArt) {
 
 // --- the glyph artwork --------------------------------------------------------------------------
 
-TEST(DialogueFontGlyphs, EveryCodeWithAWidthFromTheFirstDrawnOneHasArtwork) {
+TEST(DialogFontGlyphs, EveryCodeWithAWidthFromTheFirstDrawnOneHasArtwork) {
     const std::vector<std::uint8_t> english(kEnglishWidths);
     const std::vector<std::uint8_t> japanese(kJapaneseWidths);
-    EXPECT_EQ((DialogueFont{.metrics = FontMetrics{english}}.glyphCount()), kEnglishGlyphs);
-    EXPECT_EQ((DialogueFont{.metrics = FontMetrics{japanese}}.glyphCount()), kJapaneseGlyphs);
-    EXPECT_EQ(DialogueFont{}.glyphCount(), 0u);
+    EXPECT_EQ((DialogFont{.metrics = FontMetrics{english}}.glyphCount()), kEnglishGlyphs);
+    EXPECT_EQ((DialogFont{.metrics = FontMetrics{japanese}}.glyphCount()), kJapaneseGlyphs);
+    EXPECT_EQ(DialogFont{}.glyphCount(), 0u);
 }
 
-TEST(DialogueFontGlyphs, SlotsCountFromTheFirstDrawnGlyph) {
+TEST(DialogFontGlyphs, SlotsCountFromTheFirstDrawnGlyph) {
     EXPECT_EQ(glyphSlot(kFirstDrawnGlyph), 0u);
     EXPECT_EQ(glyphSlot(kLetterA), 0u);
     EXPECT_EQ(glyphSlot(kWideSpaceGlyph), kEnglishGlyphs - 1);
 }
 
-TEST_F(DialogueFontTest, CartridgeHoldsArtworkForEveryGlyph) {
+TEST_F(DialogFontTest, CartridgeHoldsArtworkForEveryGlyph) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     EXPECT_EQ(font().glyphCount(), kEnglishGlyphs);
     EXPECT_GE(font().glyphArt.size(), kEnglishGlyphs * kGlyphArtBytes);
@@ -183,7 +183,7 @@ TEST(GlyphSheet, GlyphsFillRowsOfSixteenCells) {
     EXPECT_EQ(sheet.at(kGlyphCellPx, kGlyphCellPx), kBlankPixel);
 }
 
-TEST_F(DialogueFontTest, SheetMatchesTheCartridgeForEveryGlyph) {
+TEST_F(DialogFontTest, SheetMatchesTheCartridgeForEveryGlyph) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const IndexedImage sheet = buildGlyphSheet(font().glyphArt, font().glyphCount());
     ASSERT_EQ(sheet.width, kSheetColumns * kGlyphCellPx);
@@ -212,7 +212,7 @@ TEST_F(DialogueFontTest, SheetMatchesTheCartridgeForEveryGlyph) {
 //     ....######......
 //     ....##..##......   x3
 // Its ink starts four pixels into the cell — the pen is the ink's left edge.
-TEST_F(DialogueFontTest, LetterAMatchesItsTrace) {
+TEST_F(DialogFontTest, LetterAMatchesItsTrace) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const IndexedImage sheet = buildGlyphSheet(font().glyphArt, font().glyphCount());
     auto row = [&](int y) {
@@ -235,7 +235,7 @@ TEST_F(DialogueFontTest, LetterAMatchesItsTrace) {
 
 // --- the arrow sheet ----------------------------------------------------------------------------
 
-TEST_F(DialogueFontTest, ArrowSheetIsOneCellOfTheArrow) {
+TEST_F(DialogFontTest, ArrowSheetIsOneCellOfTheArrow) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     const CursorArt& arrow = font().cursor;
     const IndexedImage sheet = buildCursorSheet(arrow);

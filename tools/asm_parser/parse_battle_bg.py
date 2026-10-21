@@ -335,7 +335,7 @@ _TILES_BLURB = (
     "// unless the background scrolls vertically.\n")
 
 _PAL_BLURB = (
-    "// One battle-background palette (48 colours, BG palettes 5-7).\n")
+    "// One battle-background palette (48 colors, BG palettes 5-7).\n")
 
 
 # --- rendering: the .inc and the fixture ---------------------------------------

@@ -22,7 +22,7 @@
 namespace ostinato {
 
 enum class RomAsset : std::uint8_t {
-    // The script: name tables, dialogue banks, descriptions, and the
+    // The script: name tables, dialog banks, descriptions, and the
     // DTE pair table. Every one is language-specific.
     ATTACK_MSG,
     ATTACK_NAME,

@@ -489,7 +489,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(row.begin, 0xC478C0)
         self.assertEqual(row.size, 64 * 6)
 
-    def test_dialogue_crosses_a_bank_boundary(self):
+    def test_dialog_crosses_a_bank_boundary(self):
         # The VM resolves regions in decoded address space, so a family wider
         # than the bank it starts in is read straight through.
         row = next(r for r in self.regions
@@ -542,7 +542,7 @@ class EndToEndTests(unittest.TestCase):
             ("DLG_CURSOR_GFX", "en"): (0xC08832, 12),
         })
         # Every English byte is compared with the cartridge; the Japanese
-        # width table is placed by its neighbours alone.
+        # width table is placed by its neighbors alone.
         self.assertEqual(checked, 5294 + 256 + 12)
 
     def test_run_check_only_ok(self):

@@ -27,11 +27,11 @@ namespace ostinato::assets {
 // Which of the three ways the dialog can end actually happened. SDL reports a failure and a
 // cancellation through the same callback, distinguished only by whether the file list is null, and
 // conflating them tells a player whose dialog is broken that they declined.
-enum class DialogEnd { Chosen, Cancelled, Failed };
+enum class DialogEnd { Chosen, Canceled, Failed };
 
 // What one attempt at the dialog produced. `path` is meaningful only when `end` is Chosen.
 struct DialogResult {
-    DialogEnd end = DialogEnd::Cancelled;
+    DialogEnd end = DialogEnd::Canceled;
     std::filesystem::path path;
 };
 
@@ -47,7 +47,7 @@ struct DialogResult {
 // Run the whole sequence: check, and if nothing is installed, ask and install. Returns true when a
 // cartridge is installed afterwards and startup may continue.
 //
-// A cancelled dialog re-prompts once with the consequence stated, because the first dismissal is as
+// A canceled dialog re-prompts once with the consequence stated, because the first dismissal is as
 // often a misclick as a decision; a second dismissal is taken as an answer. A dialog that FAILED is
 // not re-prompted — it will fail again.
 //

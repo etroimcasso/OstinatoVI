@@ -2,7 +2,7 @@
 // Source: original-src/include/gfx/battle_bg.inc (ca65 .enum BATTLE_BG_PAL)
 // (original-src pinned at 1ea47b5)
 //
-// One battle-background palette (48 colours, BG palettes 5-7).
+// One battle-background palette (48 colors, BG palettes 5-7).
 #pragma once
 
 #include <cstdint>

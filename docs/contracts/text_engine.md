@@ -1,31 +1,31 @@
-# Field dialogue text engine — behavioral contract
+# Field dialog text engine — behavioral contract
 
-Behavioral specification for the field dialogue text engine: the per-frame state machine
+Behavioral specification for the field dialog text engine: the per-frame state machine
 that types a message one glyph at a time, its control codes, the English word-wrap law, the
 name / item / spell / gold splices, the multiple-choice cursor, the page wipe, and the map
 title. All citations point into the pinned reference tree `original-src/`
 (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/field/text.asm` unless another
-file is named. This document is the test authority for `tests/test_dialogue.cpp`.
+file is named. This document is the test authority for `tests/test_dialog.cpp`.
 
 ## Sources
 
-| Behaviour | Source | Port surface |
+| Behavior | Source | Port surface |
 |---|---|---|
-| Reset at map load | `InitDlgText` `:30-70` | `initDialogue()` |
-| Start a message | `GetDlgPtr` `:76-94`; event commands `$48` / `$4b` (`field/event.asm:1699-1784`) | `startDialogue()` |
-| The per-frame step | `UpdateDlgText` `:326-436`, called once per field frame (`field/reset.asm:131`) | `tickDialogue()` |
-| One glyph or control | `UpdateDlgTextOneLine` `:438-878` | (inside `tickDialogue()`) |
-| Word width | `CalcTextWidth` `:189-318` (English only) | (inside `tickDialogue()`) |
-| Margin check per glyph | `DrawDlgText` `:926-960` | (inside `tickDialogue()`) |
-| Line / page end | `NewLine` `:966-992`, `NewPage` `:998-1018` | (inside `tickDialogue()`) |
+| Reset at map load | `InitDlgText` `:30-70` | `initDialog()` |
+| Start a message | `GetDlgPtr` `:76-94`; event commands `$48` / `$4b` (`field/event.asm:1699-1784`) | `startDialog()` |
+| The per-frame step | `UpdateDlgText` `:326-436`, called once per field frame (`field/reset.asm:131`) | `tickDialog()` |
+| One glyph or control | `UpdateDlgTextOneLine` `:438-878` | (inside `tickDialog()`) |
+| Word width | `CalcTextWidth` `:189-318` (English only) | (inside `tickDialog()`) |
+| Margin check per glyph | `DrawDlgText` `:926-960` | (inside `tickDialog()`) |
+| Line / page end | `NewLine` `:966-992`, `NewPage` `:998-1018` | (inside `tickDialog()`) |
 | Map title | `ShowMapTitle` `:100-179`; `CloseMapTitleWindow` (`field/window.asm:160-195`) | `showMapTitle()`, `closeMapTitle()` |
-| Page wipe | `ClearDlgTextRegion` `:1050-1083` | `DialogueState::pageClearFrames`, `halfLinesCleared()`, `isWiped()` |
-| Choice cursor | `UpdateDlgText` `:368-413`, `DrawDlgCursor` `:1161-1197`, `TfrDlgCursorGfx` `:1203-1244` | `DialogueChoices` |
+| Page wipe | `ClearDlgTextRegion` `:1050-1083` | `DialogState::pageClearFrames`, `halfLinesCleared()`, `isWiped()` |
+| Choice cursor | `UpdateDlgText` `:368-413`, `DrawDlgCursor` `:1161-1197`, `TfrDlgCursorGfx` `:1203-1244` | `DialogChoices` |
 | Font widths | `FontWidth` (`gfx/font_gfx.asm:14-36`) | `FontMetrics` |
 
 ## Timing
 
-One call of `tickDialogue()` is one field frame. Nothing about dialogue advances anywhere
+One call of `tickDialog()` is one field frame. Nothing about dialog advances anywhere
 else. Every cost below is in those frames.
 
 ## The per-frame order
@@ -51,7 +51,7 @@ Each frame runs these steps in order; the first that returns ends the frame
    does not advance it: the release must be seen first.
 6. **Page wipe.** While a dismissed page is still going away, the wipe advances one frame and
    the frame returns (`:428-431`).
-7. **Completion.** A finished message requests the dialogue window to close, returns to
+7. **Completion.** A finished message requests the dialog window to close, returns to
    idle, and the frame returns (`:432-436`). The request is read once.
 8. **One step.** One glyph or one control is consumed (below).
 
@@ -101,7 +101,7 @@ screen refuses a name whose six bytes are all blank (`menu/name_change.asm:127-1
 The engine reads a message from its record's first byte until it meets `END`; the record
 boundary does not stop it. Three records are empty — their pointer equals the next record's
 — and so show the following record's text, and one record has no terminator and continues
-into the next. `startDialogue()` reads the same way.
+into the next. `startDialog()` reads the same way.
 
 ## Word wrap (English only)
 
@@ -207,7 +207,7 @@ The gold amount is the amount just found, not the party's total (`field/player.a
   terminator (`:123-137`). Japanese: 12 × the glyph count, where a byte below `$20` takes
   the byte after it into the same glyph (`:139-156`). `x = (224 − width) / 2`.
 - The whole title is typed **at once**, onto line 0 (`:171-174`), through the same step as
-  dialogue, until its `END`. The key state and the wipe count are then cleared, so the title
+  dialog, until its `END`. The key state and the wipe count are then cleared, so the title
   stays on screen.
 - The title's `END` does **not** request a window close. The original leaves the finished
   flag set and absorbs it the next frame with no observable effect (`UpdateDlgWindow`).
@@ -242,12 +242,12 @@ Recorded here as the contract the rendering components are built against.
   at pen x starts at pixel **x − 4** (`LoadLetterGfx` `:1380-1453`), so the pen is the ink's
   left edge.
 - The shadow is the glyph itself one pixel right and one row down, in black; the letter wins
-  wherever the two overlap, across neighbouring glyphs too.
+  wherever the two overlap, across neighboring glyphs too.
 - The choice cursor is a 6-pixel-wide, 11-row arrow at the left of its column, in rows 4-14,
   with a one-pixel shadow to its right only (`DrawDlgCursor` `:1161-1197`).
 
 ## Not in this engine
 
-The dialogue window itself, its open/close animation and the map title's window
+The dialog window itself, its open/close animation and the map title's window
 (`field/window.asm`); the event commands that start messages, wait on them and read the
-selection; the battle and menu text renderers; the debug menu; the font colour setting.
+selection; the battle and menu text renderers; the debug menu; the font color setting.

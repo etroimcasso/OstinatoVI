@@ -38,7 +38,7 @@ conveniences work against it.
   Zelda64 recompiled or Ship of Harkinian. (This flow is future work; see
   [`docs/features/asset-acquisition.md`](docs/features/asset-acquisition.md).)
 - **No copyrighted content is committed to or distributed with this repository.** No ROMs, no
-  extracted graphics/audio, no dialogue text. `.gitignore` bans ROM extensions and extracted
+  extracted graphics/audio, no dialog text. `.gitignore` bans ROM extensions and extracted
   asset content tree-wide.
 
 ## Repository layout

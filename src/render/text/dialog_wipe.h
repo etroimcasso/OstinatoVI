@@ -1,7 +1,7 @@
-// DialogueWipe — the half-lines a dismissed page has already lost.
+// DialogWipe — the half-lines a dismissed page has already lost.
 //
-//     SpriteLayer("dialogue", kDialogueTextZ, {DialogueText(...), DialogueCursor(...)},
-//                 {.regions = DialogueWipe(state, textX, textY)});
+//     SpriteLayer("dialog", kDialogTextZ, {DialogText(...), DialogCursor(...)},
+//                 {.regions = DialogWipe(state, textX, textY)});
 //
 // A page the player dismisses does not vanish at once: its text goes half a line per frame, left
 // half then right half, top line first, before the next page types (text::halfLinesCleared). This
@@ -12,10 +12,10 @@
 #pragma once
 
 #include "render/types.h"
-#include "text/dialogue.h"
+#include "text/dialog.h"
 
 namespace ostinato::render {
 
-[[nodiscard]] Regions DialogueWipe(const text::DialogueState& state, int x, int y);
+[[nodiscard]] Regions DialogWipe(const text::DialogState& state, int x, int y);
 
 }  // namespace ostinato::render

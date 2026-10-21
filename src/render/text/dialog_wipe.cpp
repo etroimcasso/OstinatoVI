@@ -1,4 +1,4 @@
-#include "render/text/dialogue_wipe.h"
+#include "render/text/dialog_wipe.h"
 
 #include <string>
 
@@ -14,7 +14,7 @@ constexpr int kHalvesPerLine = text::kWipeSteps / text::kLinesPerPage;
 
 }  // namespace
 
-Regions DialogueWipe(const text::DialogueState& state, int x, int y) {
+Regions DialogWipe(const text::DialogState& state, int x, int y) {
     Regions regions;
     const int gone = text::halfLinesCleared(state);
     regions.reserve(static_cast<std::size_t>(gone));
@@ -25,7 +25,7 @@ Regions DialogueWipe(const text::DialogueState& state, int x, int y) {
             .x = static_cast<float>(x + half * text::kHalfLinePx),
             .y = static_cast<float>(y + line * text::kLineHeight)};
         regions.push_back(retropp::Region{
-            .key = std::string{kDialogueWipeKey} + ":" + std::to_string(line) + ":" +
+            .key = std::string{kDialogWipeKey} + ":" + std::to_string(line) + ":" +
                    std::to_string(half),
             .shape = retropp::ShapePoints::rectangle(topLeft,
                                                      static_cast<float>(text::kHalfLinePx),

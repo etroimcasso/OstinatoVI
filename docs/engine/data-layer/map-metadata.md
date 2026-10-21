@@ -9,7 +9,7 @@ the trigger family — the treasures and entrances placed on each map.
 This layer is the **static data plus lookup accessors**. It carries *indices*,
 not content: a map's graphics/tileset/layout/palette fields are id numbers into
 the pack-side graphics sets, and the actual map transfer, animation playback, and
-treasure-award behaviour are runtime systems added later. What lands here is
+treasure-award behavior are runtime systems added later. What lands here is
 everything the field code reads out of the map tables.
 
 ## Placeholder ids

@@ -226,15 +226,15 @@ class OffsetTableTests(unittest.TestCase):
                 _ptr_row("dlg2", "DLG2", [0, 3, 7]),
                 _ptr_row("attack_msg", "ATTACK_MSG", [0, 9, 20])]
 
-    def test_dialogue_shifts_dlg2_by_dlg1_len(self):
+    def test_dialog_shifts_dlg2_by_dlg1_len(self):
         tables = ptm.build_offset_tables(self._rows(), self.tmp)
-        dlg = next(t for t in tables if t.cpp_name == "kDialogueOffsets")
+        dlg = next(t for t in tables if t.cpp_name == "kDialogOffsets")
         # dlg1 [0,0,5] then dlg2 [0,3,7] + 10 -> concatenated stream offsets.
         self.assertEqual(dlg.offsets, [0, 0, 5, 10, 13, 17])
 
-    def test_dialogue_preserves_dup_zero(self):
+    def test_dialog_preserves_dup_zero(self):
         tables = ptm.build_offset_tables(self._rows(), self.tmp)
-        dlg = next(t for t in tables if t.cpp_name == "kDialogueOffsets")
+        dlg = next(t for t in tables if t.cpp_name == "kDialogOffsets")
         self.assertEqual((dlg.offsets[0], dlg.offsets[1]), (0, 0))
 
     def test_self_contained_class_camelcased(self):
@@ -257,18 +257,18 @@ class OffsetTableTests(unittest.TestCase):
 class OffsetRendererTests(unittest.TestCase):
 
     def _tables(self):
-        return [ptm.OffsetTable("kDialogueOffsets", [0, 0, 5, 10], "d"),
+        return [ptm.OffsetTable("kDialogOffsets", [0, 0, 5, 10], "d"),
                 ptm.OffsetTable("kAttackMsgOffsets", [0, 9], "a")]
 
     def test_inc_emits_named_u32_arrays(self):
         inc = ptm.render_offsets_inc(self._tables())
-        self.assertIn("constexpr std::uint32_t kDialogueOffsets[4] = {", inc)
+        self.assertIn("constexpr std::uint32_t kDialogOffsets[4] = {", inc)
         self.assertIn("constexpr std::uint32_t kAttackMsgOffsets[2] = {", inc)
         self.assertIn("0, 0, 5, 10,", inc)
 
     def test_fixture_prefixes_expected_and_namespaces(self):
         fixture = ptm.render_offsets_fixture(self._tables())
-        self.assertIn("kExpectedDialogueOffsets[4]", fixture)
+        self.assertIn("kExpectedDialogOffsets[4]", fixture)
         self.assertIn("kExpectedAttackMsgOffsets[2]", fixture)
         self.assertIn("namespace ostinato::test", fixture)
 
@@ -477,7 +477,7 @@ class EndToEndTests(unittest.TestCase):
         tables = ptm.build_offset_tables(self.rows, self.src_text)
         by = {t.cpp_name: t for t in tables}
         # dlg1 (1574) + dlg2 (1510) collapse into one combined array.
-        dlg = by["kDialogueOffsets"].offsets
+        dlg = by["kDialogOffsets"].offsets
         self.assertEqual(len(dlg), 3084)
         self.assertEqual((dlg[0], dlg[1]), (0, 0))        # _0/_1 duplicate
         self.assertEqual(dlg[1573], 0xffed)               # last dlg1 offset

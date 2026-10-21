@@ -4,8 +4,8 @@
 // layer's own function knowing what any of it means. Every default is the engine's own: a layer
 // given no options draws exactly as a plain retropp::DrawLayer would.
 //
-//     SpriteLayer("dialogue", kDialogueTextZ, {DialogueText(...)},
-//                 {.alpha = 0.5f, .regions = DialogueWipe(...)});
+//     SpriteLayer("dialog", kDialogTextZ, {DialogText(...)},
+//                 {.alpha = 0.5f, .regions = DialogWipe(...)});
 #pragma once
 
 #include <vector>

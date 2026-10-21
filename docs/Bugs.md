@@ -1,8 +1,8 @@
 # Bugs in the original game
 
 Defects that exist in the original Final Fantasy VI and are reproduced here on
-purpose. The port matches the shipped game's behaviour, including where that
-behaviour is wrong, so anything listed on this page is deliberate and must not
+purpose. The port matches the shipped game's behavior, including where that
+behavior is wrong, so anything listed on this page is deliberate and must not
 be "fixed" without a decision to diverge.
 
 Each entry names what goes wrong, where the original does it, and where the port
@@ -37,7 +37,7 @@ despite this.
 **Where the port keeps it.** `src/data/world_tiles.h` exposes both reads as
 separate functions:
 
-| Function | Behaviour |
+| Function | Behavior |
 |---|---|
 | `worldTileProperties(world, tile)` | The correct lookup — the world's own table. |
 | `worldOfBalanceTileProperties(tile)` | The direct read, always the World of Balance table. |
@@ -47,7 +47,7 @@ the first. `tests/test_world_tiles.cpp` pins both, and asserts that the two
 tables really do differ, so the distinction cannot quietly collapse.
 
 **If you want to change it.** Making movement use `worldTileProperties()` would
-alter World of Ruin walking behaviour, so it is a gameplay change rather than a
+alter World of Ruin walking behavior, so it is a gameplay change rather than a
 repair. Anything that depends on it — routing, encounter rates, where the party
 can and cannot step in the second half of the game — shifts with it.
 
@@ -118,7 +118,7 @@ That leaves masks 11 through 15 — up with both left and right, and any mask
 holding both up and down — landing past the last entry, on the routine's own
 instructions read as a bearing.
 
-The gap looks like an oversight rather than a judgement about what a control pad
+The gap looks like an oversight rather than a judgment about what a control pad
 can do: masks 3 and 7 both hold left *and* right together, and both are present
 in the table, carrying a bearing of zero. Masks 11 and 15 hold the same opposed
 pair and are simply absent.
@@ -131,7 +131,7 @@ sixteen.
 **Where the port keeps it.** `src/data/world_cutscenes.h` exposes the table as it
 stands and reports the shortfall rather than papering over it:
 
-| Function | Behaviour |
+| Function | Behavior |
 |---|---|
 | `strafeAngle(mask)` | The bearing, or nothing when the mask falls past the table. |
 | `strafeMaskReadsPastTheTable(mask)` | Whether a mask is one of the five with no entry. |
@@ -143,14 +143,14 @@ are covered.
 
 **If you want to change it.** Extending the table to sixteen entries means
 choosing bearings for direction combinations the game never assigned any, which
-is new behaviour rather than a repair. Refusing to strafe on an uncovered mask is
+is new behavior rather than a repair. Refusing to strafe on an uncovered mask is
 the smaller change and is what falling through `strafeAngle()` already gives you.
 
 ---
 
-## Dialogue drops a glyph that would cross the right margin
+## Dialog drops a glyph that would cross the right margin
 
-**What happens.** When the next glyph of a dialogue message would reach the text
+**What happens.** When the next glyph of a dialog message would reach the text
 area's right edge, the line breaks — and the glyph is skipped. It is not carried
 to the new line; the message continues with the glyph after it.
 
@@ -170,10 +170,10 @@ Japanese text has no word wrap at all, so there the check is the only thing
 keeping a line inside the window, and a glyph lost at the margin is a real
 character missing from the message.
 
-**Where the port keeps it.** `tickDialogue()` (`src/text/dialogue.cpp`) breaks
+**Where the port keeps it.** `tickDialog()` (`src/text/dialog.cpp`) breaks
 the line and drops the glyph exactly as the original does, and records each one
-in `DialogueState::droppedAtMargin` with where it would have gone.
-`tests/test_dialogue.cpp` pins the behaviour on a hand-built message and the
+in `DialogState::droppedAtMargin` with where it would have gone.
+`tests/test_dialog.cpp` pins the behavior on a hand-built message and the
 305 / 0 count over the whole English script.
 
 **If you want to change it.** Carrying the glyph to the start of the new line is

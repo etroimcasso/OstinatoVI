@@ -1,4 +1,4 @@
-#include "render/text/dialogue_cursor.h"
+#include "render/text/dialog_cursor.h"
 
 #include <string>
 
@@ -7,7 +7,7 @@
 
 namespace ostinato::render {
 
-Sprites DialogueCursor(const text::DialogueState& state, int x, int y,
+Sprites DialogCursor(const text::DialogState& state, int x, int y,
                        const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                        retropp::PaletteId shadow) {
     if (!state.cursor || arrow.tileCount() == 0) {
@@ -18,7 +18,7 @@ Sprites DialogueCursor(const text::DialogueState& state, int x, int y,
     const int arrowX = x + at.x;
     const int arrowY = y + at.line * text::kLineHeight + text::kGlyphRowOffset;
 
-    const std::string key = std::string{kDialogueCursorKey} + ":" + std::to_string(state.page) +
+    const std::string key = std::string{kDialogCursorKey} + ":" + std::to_string(state.page) +
                             ":" + std::to_string(state.choices.selection);
     return {
         retropp::Sprite{.key = key + std::string{kShadowKeySuffix},
