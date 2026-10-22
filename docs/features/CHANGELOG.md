@@ -2,6 +2,8 @@
 
 Chronological feature state transitions, newest first.
 
+- **2026-10-21** — `text-engine`: stays 🟡 in progress. The dialog font comes from the cartridge — glyph artwork, the width table and the choice arrow, the last two as new region rows (`FONT_WIDTH`, `DLG_CURSOR_GFX`) — and `src/text/font` builds the glyph and arrow sheets. The render layer lands (`src/render/`: `SpriteLayer`, `LayerOptions`, the depth and key table) with the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`. The `text-engine` target grows to 87 cases. C++ baseline now **481/489/8** per platform; parser **953/953**.
+- **2026-10-21** — all features: the code, file names and docs use American English throughout (`dialog`, `color`, `behavior`, …), including the text corpus's surface (`TextCorpus::dialog`, `tokenizeDialog`).
 - **2026-10-10** — `text-engine`: created 🟡 in progress. The field dialog engine's logic lands (`src/text/`): the per-frame state machine, every control code, the English word wrap, the name/item/spell/gold splices, multiple choice, the page wipe and the map title, with no rendering type in it. New `ostinato-vi-text-engine-tests` target (49 cases; the Japanese-script run skips for want of a Japanese cartridge); every English message in the cartridge is driven to its end. C++ baseline now **443/451/8** per platform. `docs/Bugs.md` gains the margin-drop entry.
 - **2026-10-10** — `build-system`: scope grown (stays ✅ complete). Nineteenth target `ostinato-vi-text-engine-tests`; `src/text/dialog.cpp` joins the library.
 

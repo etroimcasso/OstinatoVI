@@ -90,7 +90,10 @@ const assets::IngestedContent content = assets::ingestCartridge();
 content.version;                       // which revision this is
 content.text.itemName(ItemId::POTION); // the corpus, read out of the cartridge
 content.worldTiles;                    // the world-map tile pool
+content.dialogFont;                    // the dialog font: artwork, widths, choice arrow
 ```
+
+`dialogFont` is described in [../text/font.md](../text/font.md).
 
 Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps
 its banks straight onto the image, so an address becomes an offset by arithmetic —
@@ -121,12 +124,19 @@ const std::optional<retropp::MemoryRegion> place = romRegion(RomAsset::DLG1, Lan
 const RomAsset asset = textClassAsset(TextClass::ITEM_NAME);
 ```
 
-- `RomAsset` (`include/ostinato/rom_asset.h`) names all 156 families — the script, the
+- `RomAsset` (`include/ostinato/rom_asset.h`) names all 159 families — the script, the
   graphics, the sound samples, and the numeric tables alike.
 - `romRegion` returns `nullopt` when a language does not ship a family. The US cartridges
   name item types and the Japanese one gives characters titles; neither has the other's
   table.
-- `romRegions()` is the whole 309-row table, for iteration.
+- `romRegions()` is the whole 313-row table, for iteration.
+
+Most families come from the rip lists upstream's extraction tooling walks. Three it leaves in
+the assembly — the world animation frames, the dialog font's width table and the choice
+arrow — are placed by `tools/asm_parser/parse_rom_regions.py` from the assembly, each proved
+against the cartridge or pinned exactly between two ripped neighbors. The world animation frames
+and the arrow have no Japanese row: the Japanese build moves them by an amount only assembling it
+would settle.
 
 Addresses are the cartridge's own. A family wider than the bank it starts in reads
 straight through — the dialog bank does exactly this — because a read is one extent
