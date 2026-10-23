@@ -151,7 +151,7 @@ TEST(TrainRide, PositionMultipliersMatchTheCartridge) {
 
 // The one curve is read at two different offsets into itself and both readings
 // are the original's. Walking each at its real bounds pins that the port keeps
-// them apart rather than normalising them to one base.
+// them apart rather than normalizing them to one base.
 TEST(TrainRide, BothFalloffReadingsLandWhereTheOriginalsDo) {
     // The offsets are written out rather than taken from the header, so this
     // pins where the reads land instead of restating whatever the header says.

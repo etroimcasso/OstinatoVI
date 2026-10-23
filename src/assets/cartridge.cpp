@@ -25,7 +25,7 @@ namespace {
 
 // CRC32 as the upstream tooling computes it (the ISO-HDLC polynomial in its reflected form). The
 // table is built once on first use; a cartridge is three megabytes, so a byte-at-a-time pass costs
-// nothing worth optimising.
+// nothing worth optimizing.
 constexpr std::uint32_t kCrcPolynomial = 0xEDB88320u;
 
 const std::array<std::uint32_t, 256>& crcTable() {
@@ -106,7 +106,7 @@ InstallResult installCartridge(std::span<const std::uint8_t> image,
         reinterpret_cast<const std::byte*>(payload.data()), payload.size()};
     if (!retropp::UserFiles::atPath(root).write("rom/cartridge.sfc", bytes)) {
         return {false, version,
-                "Recognised " + versionName(*version)
+                "Recognized " + versionName(*version)
                     + ", but the copy could not be written. Your previous cartridge, if any, is "
                       "untouched."};
     }
@@ -157,7 +157,7 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
         corpus[i].assign(bytes.begin(), bytes.end());
     }
 
-    // The tile pool is catalogued so the patches can be views over it: the library holds the bytes
+    // The tile pool is cataloged so the patches can be views over it: the library holds the bytes
     // for the life of the program, where a view into a caller's image would not outlive the call.
     const std::optional<retropp::MemoryRegion> poolPlace =
         romRegion(RomAsset::WORLD_MOD_TILES, spoken);
@@ -173,10 +173,29 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
     // between where each begins in the cartridge.
     const auto poolOffsetInBlock = static_cast<std::uint16_t>(poolPlace->at - firstList->at);
 
+    // The dialog font: its artwork and widths, which every cartridge places, and the choice
+    // arrow, whose place is known on the US cartridges only.
+    const std::optional<retropp::MemoryRegion> glyphPlace = romRegion(RomAsset::LARGE_FONT, spoken);
+    const std::optional<retropp::MemoryRegion> widthPlace = romRegion(RomAsset::FONT_WIDTH, spoken);
+    if (!glyphPlace || !widthPlace) {
+        throw std::runtime_error("The cartridge has no dialog font.");
+    }
+    const retropp::DataId glyphArt = library.uploadData(cartridge.read(*glyphPlace));
+    const retropp::DataId widths = library.uploadData(cartridge.read(*widthPlace));
+    text::CursorArt cursor;
+    if (const auto cursorPlace = romRegion(RomAsset::DLG_CURSOR_GFX, spoken)) {
+        cursor = text::CursorArt{library.data(library.uploadData(cartridge.read(*cursorPlace)))};
+    }
+
     return IngestedContent{
         .version = *version,
         .text = TextCorpus{std::move(corpus)},
         .worldTiles = WorldTilePool{library.data(pool), poolOffsetInBlock},
+        .dialogFont = text::DialogFont{
+            .glyphArt = library.data(glyphArt),
+            .metrics = text::FontMetrics{library.data(widths)},
+            .cursor = cursor,
+        },
     };
 }
 

@@ -1,6 +1,6 @@
 // One hardware sprite inside a world-map animation frame: where it sits
 // relative to the object being drawn, which tile it shows, and how that tile is
-// coloured, layered and mirrored.
+// colored, layered and mirrored.
 //
 // The four bytes are the cartridge's own, stored untouched and named through
 // accessors, so a caller asks a question instead of masking. Both world draw
@@ -33,7 +33,7 @@ struct WorldAnimSprite {
                                           ((attributes & 0x01) << 8));
     }
 
-    // Which of the eight sprite palettes colours the tile.
+    // Which of the eight sprite palettes colors the tile.
     constexpr std::uint8_t paletteIndex() const {
         return static_cast<std::uint8_t>((attributes >> 1) & 0x07);
     }

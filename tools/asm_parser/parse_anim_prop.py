@@ -189,7 +189,7 @@ def read_attack_anim(path):
     # The three animation words (sprite/bg1/bg3) and the special-graphics word
     # index btlgfx tables (LoadAnimGfxProp at InitAnimProp:23588/23603/23629);
     # range-validating each index against its target table is a cross-table
-    # check for when those tables are modelled (s2 / Phase 4). This layer's
+    # check for when those tables are modeled (s2 / Phase 4). This layer's
     # guarantee is byte identity via the full-corpus memcmp, so no numeric bound
     # is asserted on the words here beyond the $ffff = none sentinel handling.
     data = _read_dat(path, ATTACK_ANIM_WIDTH, ATTACK_ANIM_ROWS)

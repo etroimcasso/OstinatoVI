@@ -23,4 +23,4 @@ of the cartridge.
 
 | File | Covers |
 |---|---|
-| [rom-ingestion.md](rom-ingestion.md) | The whole route — recognising a cartridge, keeping it, and reading families out of it — plus the region table that says where each family lives and the identity table that says which cartridges are accepted. |
+| [rom-ingestion.md](rom-ingestion.md) | The whole route — recognizing a cartridge, keeping it, and reading families out of it — plus the region table that says where each family lives and the identity table that says which cartridges are accepted. |

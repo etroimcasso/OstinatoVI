@@ -29,18 +29,21 @@ Under the engine's asset root, at the literal path `rom/cartridge.sfc`.
 The asset root is the per-user data directory — the same place saves go — so a player's
 cartridge sits beside the rest of their files, wherever the program itself happens to be
 installed. A binary still sitting inside its own source checkout uses the checkout
-instead, so a developer's install lands in the tree they are working in. `configureAssetRoot`
-in `src/main.cpp` picks between the two; `assets::developmentAssetRoot`
-(`src/assets/asset_root.h`) is the decision, and it compares path components rather than
-strings so a sibling directory whose name merely begins with the project's is not
-mistaken for being inside it.
+instead, so a developer's install lands in the tree they are working in.
+`assets::configureAssetRoot` (`src/assets/asset_root.h`) picks between the two, and every
+program that reads the cartridge — the game and each developer preview under
+`tools/previews/` — calls it once at startup, after `EngineConfig::setActive`, so they all
+read the same cartridge. Each passes the project root its build baked in, or nothing.
+`assets::developmentAssetRoot` is the decision itself, and it compares path components
+rather than strings so a sibling directory whose name merely begins with the project's is
+not mistaken for being inside it.
 
 **Asset paths are always spelled in place.** Every site that names the cartridge writes
 the string `"rom/cartridge.sfc"` literally. The engine's build scan reads these paths out
 of the source text, so a path held in a variable or returned from a helper is invisible
 to it.
 
-## Recognising a cartridge
+## Recognizing a cartridge
 
 Three revisions are accepted: Final Fantasy VI 1.0 (J), Final Fantasy III 1.0 (U), and
 Final Fantasy III 1.1 (U). Recognition is by size and CRC32 over the whole image, so a
@@ -49,7 +52,7 @@ modified or mis-dumped file is refused outright rather than half-read.
 ```cpp
 #include "assets/cartridge.h"
 
-// Some dumps carry a 512-byte copier header. It is recognised by length and dropped
+// Some dumps carry a 512-byte copier header. It is recognized by length and dropped
 // before anything reads or identifies the bytes.
 const std::span<const std::uint8_t> image = assets::stripCopierHeader(bytes);
 
@@ -90,14 +93,17 @@ const assets::IngestedContent content = assets::ingestCartridge();
 content.version;                       // which revision this is
 content.text.itemName(ItemId::POTION); // the corpus, read out of the cartridge
 content.worldTiles;                    // the world-map tile pool
+content.dialogFont;                    // the dialog font: artwork, widths, choice arrow
 ```
+
+`dialogFont` is described in [../text/font.md](../text/font.md).
 
 Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps
 its banks straight onto the image, so an address becomes an offset by arithmetic —
 `assets::HiRomImage` (`src/assets/rom_reader.h`) is the one place that knows how, and it
 is the only place in the port that does arithmetic on a cartridge address.
 
-The spans inside `IngestedContent` outlive the call: the tile pool is catalogued with the
+The spans inside `IngestedContent` outlive the call: the tile pool is cataloged with the
 engine's data library, which resolves an entry once and keeps it for the life of the
 program.
 
@@ -114,22 +120,29 @@ is a real problem, and an empty corpus would look like a game with nothing to sa
 ```cpp
 #include "data/rom_regions.h"
 
-// Where the dialogue lives in a US cartridge.
+// Where the dialog lives in a US cartridge.
 const std::optional<retropp::MemoryRegion> place = romRegion(RomAsset::DLG1, Language::EN);
 
 // The family a text class's records live in.
 const RomAsset asset = textClassAsset(TextClass::ITEM_NAME);
 ```
 
-- `RomAsset` (`include/ostinato/rom_asset.h`) names all 156 families — the script, the
+- `RomAsset` (`include/ostinato/rom_asset.h`) names all 159 families — the script, the
   graphics, the sound samples, and the numeric tables alike.
 - `romRegion` returns `nullopt` when a language does not ship a family. The US cartridges
   name item types and the Japanese one gives characters titles; neither has the other's
   table.
-- `romRegions()` is the whole 309-row table, for iteration.
+- `romRegions()` is the whole 313-row table, for iteration.
+
+Most families come from the rip lists upstream's extraction tooling walks. Three it leaves in
+the assembly — the world animation frames, the dialog font's width table and the choice
+arrow — are placed by `tools/asm_parser/parse_rom_regions.py` from the assembly, each proved
+against the cartridge or pinned exactly between two ripped neighbors. The world animation frames
+and the arrow have no Japanese row: the Japanese build moves them by an amount only assembling it
+would settle.
 
 Addresses are the cartridge's own. A family wider than the bank it starts in reads
-straight through — the dialogue bank does exactly this — because a read is one extent
+straight through — the dialog bank does exactly this — because a read is one extent
 rather than a per-bank walk.
 
 ## World tile patches

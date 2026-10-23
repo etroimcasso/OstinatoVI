@@ -20,6 +20,10 @@ assets/text/*/*
 # Build output
 build/
 
+# The upstream disassembly, cloned locally for development (everything8215/ff6). It is never
+# part of this repository.
+/original-src/
+
 # Private working docs — local only, never pushed to the public remote.
 # (Tracked on pre-restructure local branches; ignored everywhere going forward.)
 docs-internal/

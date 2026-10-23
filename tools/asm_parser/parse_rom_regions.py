@@ -17,7 +17,8 @@ Sources:
   * The assembly sources, for the content families upstream does not rip. The
     world animation frames are one: their artwork is ripped but the records
     arranging it are left in the assembly, so their extent is resolved from the
-    assembly and proved against the cartridge instead (see _ASM_REGIONS).
+    assembly and proved against the cartridge instead (see _ASM_REGIONS). The
+    dialog font's width table and the choice-cursor arrow are two more.
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
@@ -47,8 +48,8 @@ Structural guarantees, hard-errored at emit time:
   * the stems that carry multiple families are EXACTLY the ten _ROLE_NAMES
     covers — a new one is a grammar change, not something to name on the fly;
   * every assembly-sourced region is identical to the cartridge over its whole
-    extent, which is what makes its address trustworthy without a rip list to
-    state it;
+    extent, or sits exactly between two ripped neighbors, which is what makes
+    its address trustworthy without a rip list to state it;
   * every fixed-record text range is exactly recordCount x recordSize bytes;
   * extract_assets.py holds exactly three CRC branches, each naming a ROM this
     port supports and assigning it the language that ROM's revision implies;
@@ -71,6 +72,7 @@ import re
 import sys
 
 import common
+import parse_font_metrics
 import parse_world_anim
 from common import ParseError
 
@@ -91,11 +93,13 @@ EMIT_SECTIONS = SECTIONS + ("asm",)
 class AsmRegion(object):
     """A content family that lives in the assembly rather than the rip list.
 
-    `resolve` reads the family out of the assembly and returns its SNES address,
-    its byte length, and the bytes themselves; those bytes are then required to
-    match the cartridge exactly. Only English is stated: the assembly's own
-    addresses shift in the Japanese build by an amount only an assembler can
-    work out, so no Japanese row is emitted rather than a guessed one.
+    `resolve(source_root, rip_rows_by_language)` works out where the family sits
+    in each language it can state and returns one parse_font_metrics.Placement
+    per language, each carrying how many of its bytes were compared with the
+    cartridge. A language is stated only when its address is proved — against
+    the cartridge, or by ripped neighbors that bracket it exactly. Where the
+    assembly's own addresses shift in the Japanese build by an amount only an
+    assembler can work out, no Japanese row is emitted rather than a guessed one.
     """
 
     def __init__(self, asset, path, resolve):
@@ -104,20 +108,50 @@ class AsmRegion(object):
         self.resolve = resolve
 
 
-def _resolve_world_anim(source_root):
+def _resolve_world_anim(source_root, _rip_rows):
     """The world animation frames: the pointer table and the records as one."""
     resolved = parse_world_anim.resolve(source_root)
-    parse_world_anim.assert_matches_rom(resolved, source_root)
-    return (resolved.region_at, resolved.region_size,
-            resolved.pointer_bytes + resolved.block_bytes)
+    note = parse_world_anim.assert_matches_rom(resolved, source_root)
+    return [parse_font_metrics.Placement(
+        language="en", begin=resolved.region_at, size=resolved.region_size,
+        proved=0 if note is None else resolved.region_size)]
 
 
-# The families sourced from the assembly. Each one is here because upstream's
-# rip writes its artwork but not the data arranging it.
+def _load_rom_if_present(source_root):
+    if common.find_vanilla_rom(source_root) is None:
+        return None
+    return common.load_vanilla_rom(source_root)
+
+
+def _resolve_font_width(source_root, rip_rows):
+    """The dialog font's widths: between the two ripped fonts, both languages."""
+    return parse_font_metrics.place_font_widths(
+        parse_font_metrics.read_font_widths(source_root), rip_rows,
+        _load_rom_if_present(source_root))
+
+
+def _resolve_cursor_art(source_root, _rip_rows):
+    """The choice-cursor arrow: English only, read off the cartridge."""
+    parse_font_metrics.assert_no_revision_conditionals(source_root)
+    return parse_font_metrics.place_cursor_art(
+        parse_font_metrics.read_cursor_art(source_root),
+        _load_rom_if_present(source_root))
+
+
+# The families sourced from the assembly: the world animation frames, whose
+# artwork upstream rips but whose arrangements it leaves in the assembly; the
+# dialog font's width table, between two ripped fonts; and the choice-cursor
+# arrow, inside the field code.
 _ASM_REGIONS = (
     AsmRegion(asset="WORLD_ANIM_FRAMES",
               path="src/world/world_anim.asm",
               resolve=_resolve_world_anim),
+    AsmRegion(asset="FONT_WIDTH",
+              path="src/gfx/font_gfx.asm",
+              resolve=_resolve_font_width),
+    AsmRegion(asset="DLG_CURSOR_GFX",
+              path="src/field/text.asm",
+              resolve=_resolve_cursor_art),
 )
 
 # Upstream ROM names -> the GameVersion enumerator each is. Every name the CRC
@@ -310,29 +344,31 @@ def read_rip_list(source_root, language, rom_size):
     return rows
 
 
-def read_asm_regions(source_root, rom_size):
-    """The assembly-sourced families, each proved against the cartridge.
+def read_asm_regions(source_root, rom_size, rip_rows_by_language):
+    """The assembly-sourced families, each one's place proved.
 
-    Returns (rows, checked_bytes). The proof is the resolver's own: it
-    reassembles the family from the assembly and compares every byte at the
-    address it derived, so a wrong address cannot reach the emitted table.
+    Returns ({language: rows}, checked_bytes). The proof is the resolver's own:
+    it compares the family's bytes at the address it derived, or pins the
+    address between ripped neighbors, so a wrong address cannot reach the
+    emitted table.
     """
-    rows = []
+    rows = {"en": [], "jp": []}
     checked = 0
     for region in _ASM_REGIONS:
-        begin, size, contents = region.resolve(source_root)
-        end = begin + size - 1
-        limit = ROM_REGION_BASE + rom_size
-        if begin < ROM_REGION_BASE or end >= limit:
-            raise ParseError(region.path, 0,
-                             "{}: ${:06x}-${:06x} falls outside the ROM region "
-                             "${:06x}-${:06x}"
-                             .format(region.asset, begin, end,
-                                     ROM_REGION_BASE, limit - 1))
-        rows.append(RegionRow(asset=region.asset, language="en", section="asm",
-                              path=region.path, begin=begin, end=end,
-                              item_size=None))
-        checked += len(contents)
+        for placed in region.resolve(source_root, rip_rows_by_language):
+            begin = placed.begin
+            end = begin + placed.size - 1
+            limit = ROM_REGION_BASE + rom_size
+            if begin < ROM_REGION_BASE or end >= limit:
+                raise ParseError(region.path, 0,
+                                 "{}: ${:06x}-${:06x} falls outside the ROM "
+                                 "region ${:06x}-${:06x}"
+                                 .format(region.asset, begin, end,
+                                         ROM_REGION_BASE, limit - 1))
+            rows[placed.language].append(RegionRow(
+                asset=region.asset, language=placed.language, section="asm",
+                path=region.path, begin=begin, end=end, item_size=None))
+            checked += placed.proved
     return rows, checked
 
 
@@ -586,14 +622,15 @@ def _banner(source_lines):
 
 
 _SECTION_COMMENTS = {
-    "text": "// The script: name tables, dialogue banks, descriptions, and the\n"
+    "text": "// The script: name tables, dialog banks, descriptions, and the\n"
             "// DTE pair table. Every one is language-specific.",
     "data": "// Graphics, palettes, tile sheets, sound samples, and the numeric\n"
             "// tables the game reads directly.",
     "array": "// Pointer-indexed arrays: a table of offsets followed by the\n"
              "// variable-length records it addresses.",
     "asm": "// Families the upstream rip leaves in the assembly. Their extent\n"
-           "// comes from the assembly and is proved against the cartridge.",
+           "// comes from the assembly and is proved against the cartridge, or\n"
+           "// sits exactly between two ripped families.",
 }
 
 
@@ -767,8 +804,11 @@ def run(source_root, repo_root, check_only=False):
     }
     assert_role_names_complete(rows_by_language, source_root)
 
-    asm_rows, asm_bytes = read_asm_regions(source_root, rom_size)
-    rows_by_language["en"] = rows_by_language["en"] + asm_rows
+    asm_rows, asm_bytes = read_asm_regions(source_root, rom_size,
+                                           rows_by_language)
+    for language in ("en", "jp"):
+        rows_by_language[language] = (rows_by_language[language]
+                                      + asm_rows[language])
 
     metadata = read_text_metadata(repo_root)
     fixed = assert_fixed_text_sizes(rows_by_language["en"], metadata, repo_root)
@@ -789,7 +829,7 @@ def run(source_root, repo_root, check_only=False):
                "header {} B, {} revisions; {} fixed text ranges verified; {}"
                .format(len(asset_order), len(region_rows),
                        len(rows_by_language["en"]), len(rows_by_language["jp"]),
-                       len(asm_rows), asm_bytes,
+                       len(asm_rows["en"]) + len(asm_rows["jp"]), asm_bytes,
                        rom_size, copier_header, len(identities), fixed,
                        rom_note))
 

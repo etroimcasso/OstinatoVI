@@ -289,7 +289,7 @@ data family.
 - `src/btlgfx/monster_overlap.asm` (ROM `CF/3600`, per-monster sprite
   priority y-shift; consumer `btlgfx_main.asm:4663`) is battle-graphics
   data, not part of this family.
-- Monster names, special-attack names, and dialogue are text-corpus data.
+- Monster names, special-attack names, and dialog are text-corpus data.
 - `monster_attack_anim_prop.dat` (ROM `EC/E6E8`) is battle-graphics
   animation data.
 - Formations / battle groups (`CF/4800` onward) are their own family.

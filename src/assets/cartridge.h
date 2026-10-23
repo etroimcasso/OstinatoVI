@@ -1,4 +1,4 @@
-// The player's cartridge: recognising one, keeping it, and reading the game's content out of it.
+// The player's cartridge: recognizing one, keeping it, and reading the game's content out of it.
 //
 // Nothing the game says or draws is compiled into this program. The script, the graphics, and the
 // tables all live in a Final Fantasy VI cartridge, and the player supplies one. It is copied into
@@ -24,12 +24,13 @@
 #include "data/text_corpus.h"
 #include "data/world_map.h"
 #include "ostinato/game_version.h"
+#include "text/font.h"
 
 namespace ostinato::assets {
 
-// --- recognising an image ----------------------------------------------------------------------
+// --- recognizing an image ----------------------------------------------------------------------
 
-// The image proper, with a copier header dropped if the dump carries one. A header is recognised
+// The image proper, with a copier header dropped if the dump carries one. A header is recognized
 // by length alone — a headered dump is exactly kCopierHeaderBytes longer than a cartridge — which
 // is what the upstream tooling asks a player to do by hand before extracting.
 [[nodiscard]] std::span<const std::uint8_t> stripCopierHeader(std::span<const std::uint8_t> image);
@@ -44,7 +45,7 @@ namespace ostinato::assets {
 // --- keeping one -------------------------------------------------------------------------------
 
 // What one install attempt did. `message` is player-facing either way: on a refusal it says which
-// cartridges are accepted, and on success which one was recognised.
+// cartridges are accepted, and on success which one was recognized.
 struct InstallResult {
     bool succeeded = false;
     std::optional<GameVersion> version{};
@@ -76,6 +77,7 @@ struct IngestedContent {
     GameVersion version{};
     TextCorpus text;
     WorldTilePool worldTiles;
+    text::DialogFont dialogFont;
 };
 
 // Read a cartridge image already in memory: host it on a VM, take the families the game needs, and

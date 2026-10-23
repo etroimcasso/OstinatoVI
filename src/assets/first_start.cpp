@@ -31,7 +31,7 @@ constexpr int kDialogAttempts = 2;
 struct DialogOutcome {
     std::mutex lock;
     std::string path;
-    DialogEnd end = DialogEnd::Cancelled;
+    DialogEnd end = DialogEnd::Canceled;
     std::string error;
     std::atomic<bool> finished{false};
 };
@@ -46,7 +46,7 @@ void onFileChosen(void* userdata, const char* const* filelist, int /*filter*/) {
             const char* why = SDL_GetError();
             outcome->error = (why != nullptr) ? why : "";
         } else if (filelist[0] == nullptr) {
-            outcome->end = DialogEnd::Cancelled;
+            outcome->end = DialogEnd::Canceled;
         } else {
             outcome->end = DialogEnd::Chosen;
             outcome->path = filelist[0];

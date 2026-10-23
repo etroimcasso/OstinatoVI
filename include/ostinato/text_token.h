@@ -14,13 +14,13 @@
 namespace ostinato {
 
 // A run of consecutive glyphs. Each byte is a glyph index into the game's font;
-// no readable-character mapping is shipped. Dialogue DTE codes are expanded
+// no readable-character mapping is shipped. Dialog DTE codes are expanded
 // into their glyph bytes here, so a run holds only plain glyph indices.
 struct GlyphRun {
     std::vector<std::uint8_t> glyphs;
 };
 
-// A field-dialogue control token: the command and its operand byte (0 when the
+// A field-dialog control token: the command and its operand byte (0 when the
 // command carries none).
 struct FieldControl {
     FieldTextCommand command;
@@ -34,7 +34,7 @@ struct BattleControl {
     std::uint8_t operand;
 };
 
-// One token of a decoded field-dialogue record: a glyph run or a control token.
+// One token of a decoded field-dialog record: a glyph run or a control token.
 using FieldTextToken = std::variant<GlyphRun, FieldControl>;
 
 // One token of a decoded battle-text record: a glyph run or a control token.

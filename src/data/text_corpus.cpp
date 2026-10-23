@@ -120,20 +120,20 @@ std::span<const std::uint8_t> TextCorpus::pointerRecord(TextClass klass,
     return std::span<const std::uint8_t>(buf).subspan(start, end - start);
 }
 
-std::span<const std::uint8_t> TextCorpus::dialogue(std::size_t index) const {
-    const std::span<const std::uint32_t> offsets = dialogueOffsets();
-    assert(index < offsets.size() && "dialogue index out of range");
+std::span<const std::uint8_t> TextCorpus::dialog(std::size_t index) const {
+    const std::span<const std::uint32_t> offsets = dialogOffsets();
+    assert(index < offsets.size() && "dialog index out of range");
     const std::vector<std::uint8_t>& dlg1 =
         buffers_[static_cast<std::size_t>(TextClass::DLG1)];
     const std::vector<std::uint8_t>& dlg2 =
         buffers_[static_cast<std::size_t>(TextClass::DLG2)];
-    assert(!dlg1.empty() && !dlg2.empty() && "dialogue banks not loaded");
+    assert(!dlg1.empty() && !dlg2.empty() && "dialog banks not loaded");
     // The combined offsets address a dlg1‖dlg2 concatenation; the split is
     // dlg1's byte length. Integrity: the emitted table's first dlg2 offset
     // must equal that length (both come from the same rip).
     const std::size_t split = dlg1.size();
     assert(offsets[textClassMetadata(TextClass::DLG1).recordCount] == split &&
-           "dialogue offset table split disagrees with dlg1 byte length");
+           "dialog offset table split disagrees with dlg1 byte length");
     const std::size_t start = offsets[index];
     const std::size_t end =
         (index + 1 < offsets.size()) ? offsets[index + 1] : split + dlg2.size();
@@ -212,10 +212,10 @@ std::span<const std::uint8_t> TextCorpus::itemDescription(ItemId id) const {
 }
 
 // Decimal-index pointer-record accessors.
-std::span<const std::uint8_t> TextCorpus::battleDialogue(std::size_t index) const {
+std::span<const std::uint8_t> TextCorpus::battleDialog(std::size_t index) const {
     return pointerRecord(TextClass::BATTLE_DLG, index);
 }
-std::span<const std::uint8_t> TextCorpus::monsterDialogue(
+std::span<const std::uint8_t> TextCorpus::monsterDialog(
     std::size_t index) const {
     return pointerRecord(TextClass::MONSTER_DLG, index);
 }

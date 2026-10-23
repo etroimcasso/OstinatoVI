@@ -100,7 +100,15 @@ add_library(ostinato-vi-lib STATIC
     src/data/battle_backgrounds.cpp
     src/data/char_ai.cpp
     src/data/world_map.cpp
-    src/data/world_tiles.cpp)
+    src/data/world_tiles.cpp
+    src/render/sprite_layer.cpp
+    src/render/text/dialog_cursor.cpp
+    src/render/text/dialog_text.cpp
+    src/render/text/dialog_wipe.cpp
+    src/render/text/glyph.cpp
+    src/render/text/map_title.cpp
+    src/text/dialog.cpp
+    src/text/font.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -137,6 +145,22 @@ if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
         COMMENT "ostinato-vi: stripping symbols from the Release binary"
         VERBATIM)
 endif()
+
+# ---------------------------------------------------------------------------
+# Developer previews: one small program per piece of the picture, each showing it running on the
+# installed cartridge in a window. Tools, not the game — nothing here ships, and each reads the
+# cartridge the same way the game does.
+# ---------------------------------------------------------------------------
+
+# ostinato-preview-dialog <index>: one field dialog message, typed by the text engine.
+add_executable(ostinato-preview-dialog
+    tools/previews/dialog/main.cpp
+    tools/previews/dialog/dialog_preview.cpp)
+target_compile_features(ostinato-preview-dialog PRIVATE cxx_std_20)
+target_compile_options(ostinato-preview-dialog PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-preview-dialog PRIVATE ostinato-vi-lib)
+target_compile_definitions(ostinato-preview-dialog PRIVATE
+    OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
@@ -401,3 +425,23 @@ target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-misc-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-misc-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-misc-tests)
+
+# The field dialog text engine: every control code's frame cost, the word wrap, the splices,
+# the choice cursor, the page wipe and the map title, driven frame by frame over hand-built
+# messages — then every English message in the cartridge run to its end with the real font
+# widths. The font's widths, glyph artwork and choice arrow as the cartridge holds them, the
+# sheets built from them, and the rendering components read back from what they return. Own
+# binary so the other baselines stay frozen.
+add_executable(ostinato-vi-text-engine-tests
+    tests/test_dialog.cpp
+    tests/test_dialog_components.cpp
+    tests/test_dialog_preview.cpp
+    tests/test_font.cpp
+    tools/previews/dialog/dialog_preview.cpp)
+target_compile_features(ostinato-vi-text-engine-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-text-engine-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-text-engine-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/dialog)
+target_link_libraries(ostinato-vi-text-engine-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-text-engine-tests)

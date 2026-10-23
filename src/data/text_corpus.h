@@ -8,7 +8,7 @@
 //
 // This layer ships RECORD STRUCTURE only — a span of the raw glyph/escape
 // bytes for a record. Turning those bytes into readable text (glyph mapping,
-// DTE expansion at the dialogue level, escape-token decoding) is the codec
+// DTE expansion at the dialog level, escape-token decoding) is the codec
 // layer; the fixed-length name records handled here need no decoding beyond
 // slicing, and the DTE char table is exposed for the codecs that do.
 //
@@ -40,14 +40,14 @@
 namespace ostinato {
 
 // The DTE (Dual-Tile Encoding) char table: 128 two-byte expansions, one for
-// each dialogue byte >= 0x80. A view over the loaded dte_tbl bytes (valid for
+// each dialog byte >= 0x80. A view over the loaded dte_tbl bytes (valid for
 // the lifetime of the owning TextCorpus).
 class DteTable {
 public:
     DteTable() = default;
     explicit DteTable(std::span<const std::uint8_t> bytes) : bytes_(bytes) {}
 
-    // A dialogue byte >= 0x80 is a DTE code; below that it is a literal glyph
+    // A dialog byte >= 0x80 is a DTE code; below that it is a literal glyph
     // or an escape.
     static constexpr bool isDteCode(std::uint8_t byte) { return byte >= 0x80; }
 
@@ -116,17 +116,17 @@ public:
     // escape stream, UNDECODED — see the codec layer for tokenizing). The
     // record is located by the class's offset table. Enum-keyed where the
     // class maps cleanly onto one of the game's id spaces, decimal index
-    // otherwise (dialogue, battle dialogue, map titles, subset descriptions).
+    // otherwise (dialog, battle dialog, map titles, subset descriptions).
 
-    // Combined field dialogue: index 0..3083 over the concatenated dlg1+dlg2
+    // Combined field dialog: index 0..3083 over the concatenated dlg1+dlg2
     // record space (dlg1's 1574 records then dlg2's 1510).
-    std::span<const std::uint8_t> dialogue(std::size_t index) const;
+    std::span<const std::uint8_t> dialog(std::size_t index) const;
 
     std::span<const std::uint8_t> attackMessage(AttackId id) const;
     std::span<const std::uint8_t> itemDescription(ItemId id) const;
 
-    std::span<const std::uint8_t> battleDialogue(std::size_t index) const;
-    std::span<const std::uint8_t> monsterDialogue(std::size_t index) const;
+    std::span<const std::uint8_t> battleDialog(std::size_t index) const;
+    std::span<const std::uint8_t> monsterDialog(std::size_t index) const;
     std::span<const std::uint8_t> mapTitle(std::size_t index) const;
     std::span<const std::uint8_t> magicDescription(std::size_t index) const;
     std::span<const std::uint8_t> loreDescription(std::size_t index) const;
@@ -136,7 +136,7 @@ public:
     std::span<const std::uint8_t> genjuBonusDescription(std::size_t index) const;
     std::span<const std::uint8_t> rareItemDescription(std::size_t index) const;
 
-    // The DTE char table (for the dialogue codec). Empty/unloaded if the
+    // The DTE char table (for the dialog codec). Empty/unloaded if the
     // corpus has no dte_tbl.
     DteTable dte() const;
 

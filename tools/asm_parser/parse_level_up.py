@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Emit the character level-progression tables from field/event.asm.
 
-Port-time tooling (NOT a build/CI dependency). Levelling up is driven by seven
+Port-time tooling (NOT a build/CI dependency). Leveling up is driven by seven
 tables that live with the field event code rather than the battle engine, and
 are imported by it:
 

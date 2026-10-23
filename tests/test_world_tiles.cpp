@@ -4,7 +4,7 @@
 // so any decode or re-emit drift fails loudly. On top of that: each named
 // tile-property bit is traced to a value its consumer reads, the background
 // selector is cross-checked against the shipped world battle-background table,
-// the two-reads-disagree behaviour the original ships is pinned, and the train
+// the two-reads-disagree behavior the original ships is pinned, and the train
 // tile offsets are checked against the sequence the ROM's own precomputed table
 // holds.
 #include <cstddef>

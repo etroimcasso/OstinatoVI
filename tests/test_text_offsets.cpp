@@ -2,13 +2,13 @@
 // variable-length text records.
 //
 // Two layers:
-//   1. Drift — the offset arrays compiled into text_offsets.cpp (dialogueOffsets
+//   1. Drift — the offset arrays compiled into text_offsets.cpp (dialogOffsets
 //      / pointerOffsets) must match the independent parser-emitted fixture
 //      (tests/fixtures/text_offsets_expected.h) entry for entry, so a hand edit
 //      or re-emit drift in either file fails. No corpus needed.
 //   2. Round-trip — against a real cartridge, every pointer-record accessor
 //      must return exactly the fixture-defined slice of the family's bytes
-//      ([off[i], off[i+1]), last record to end; dialogue over the concatenated
+//      ([off[i], off[i+1]), last record to end; dialog over the concatenated
 //      dlg1+dlg2 stream). This cross-checks the accessors, the production
 //      offsets, and the cartridge's own bytes against the fixture authority at
 //      once.
@@ -56,7 +56,7 @@ std::vector<OffsetCase> allOffsetCases() {
     using test::kExpectedBattleDlgOffsets;
     using test::kExpectedBlitzDescOffsets;
     using test::kExpectedBushidoDescOffsets;
-    using test::kExpectedDialogueOffsets;
+    using test::kExpectedDialogOffsets;
     using test::kExpectedGenjuAttackDescOffsets;
     using test::kExpectedGenjuBonusDescOffsets;
     using test::kExpectedItemDescOffsets;
@@ -66,7 +66,7 @@ std::vector<OffsetCase> allOffsetCases() {
     using test::kExpectedMonsterDlgOffsets;
     using test::kExpectedRareItemDescOffsets;
     return {
-        {"dialogue", dialogueOffsets(), kExpectedDialogueOffsets},
+        {"dialog", dialogOffsets(), kExpectedDialogOffsets},
         {"attack_msg", pointerOffsets(TextClass::ATTACK_MSG),
          kExpectedAttackMsgOffsets},
         {"battle_dlg", pointerOffsets(TextClass::BATTLE_DLG),
@@ -103,9 +103,9 @@ TEST(TextOffsets, EveryArrayMatchesFixture) {
     }
 }
 
-TEST(TextOffsets, DialogueOffsetsAreCombinedDlg1Dlg2) {
+TEST(TextOffsets, DialogOffsetsAreCombinedDlg1Dlg2) {
     // 3084 = dlg1 1574 + dlg2 1510.
-    const auto dlg = dialogueOffsets();
+    const auto dlg = dialogOffsets();
     EXPECT_EQ(dlg.size(), 3084u);
     EXPECT_EQ(dlg.size(), textClassMetadata(TextClass::DLG1).recordCount +
                               textClassMetadata(TextClass::DLG2).recordCount);
@@ -120,9 +120,9 @@ TEST(TextOffsets, DialogueOffsetsAreCombinedDlg1Dlg2) {
     }
 }
 
-TEST(TextOffsets, NonDialoguePointerClassAsserts) {
+TEST(TextOffsets, NonDialogPointerClassAsserts) {
     // pointerOffsets is only valid for the self-contained pointer classes;
-    // DLG1/DLG2 route through dialogueOffsets() instead. A fixed class has no
+    // DLG1/DLG2 route through dialogOffsets() instead. A fixed class has no
     // offset table at all. (The debug assert fires in a debug build; here we
     // only pin that a self-contained pointer class is well-formed.)
     EXPECT_FALSE(pointerOffsets(TextClass::ITEM_DESC).empty());
@@ -161,9 +161,9 @@ protected:
             case TextClass::ITEM_DESC:
                 return corpus().itemDescription(static_cast<ItemId>(i));
             case TextClass::BATTLE_DLG:
-                return corpus().battleDialogue(i);
+                return corpus().battleDialog(i);
             case TextClass::MONSTER_DLG:
-                return corpus().monsterDialogue(i);
+                return corpus().monsterDialog(i);
             case TextClass::MAP_TITLE:
                 return corpus().mapTitle(i);
             case TextClass::MAGIC_DESC:
@@ -192,7 +192,7 @@ TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     for (const auto& c : allOffsetCases()) {
         const std::string name = c.name;
-        if (name == "dialogue") continue;  // handled separately below
+        if (name == "dialog") continue;  // handled separately below
         const TextClass klass = [&] {
             for (const auto& meta : textClassMetadata()) {
                 if (std::string(meta.fileStem) == name) return meta.id;
@@ -214,21 +214,21 @@ TEST_F(TextOffsetsRipTest, SelfContainedAccessorsMatchFixtureSlices) {
     }
 }
 
-// Dialogue is the combined dlg1+dlg2 stream: record i comes from dlg1's bytes
+// Dialog is the combined dlg1+dlg2 stream: record i comes from dlg1's bytes
 // below the split, dlg2's above it, sliced by the same combined offset table.
-TEST_F(TextOffsetsRipTest, DialogueAccessorMatchesConcatenatedSlices) {
+TEST_F(TextOffsetsRipTest, DialogAccessorMatchesConcatenatedSlices) {
     OSTINATO_REQUIRE_CARTRIDGE(cartridge_);
     std::vector<std::uint8_t> concat = raw("dlg1");
     const std::vector<std::uint8_t> dlg2 = raw("dlg2");
     concat.insert(concat.end(), dlg2.begin(), dlg2.end());
-    const std::span<const std::uint32_t> off = dialogueOffsets();
+    const std::span<const std::uint32_t> off = dialogOffsets();
     ASSERT_EQ(off.back() <= concat.size(), true);
     for (std::size_t i = 0; i < off.size(); ++i) {
         const std::size_t start = off[i];
         const std::size_t end = (i + 1 < off.size()) ? off[i + 1] : concat.size();
         const std::span<const std::uint8_t> want(concat.data() + start,
                                                  end - start);
-        ASSERT_TRUE(spanEq(corpus().dialogue(i), want)) << "dialogue " << i;
+        ASSERT_TRUE(spanEq(corpus().dialog(i), want)) << "dialog " << i;
     }
 }
 

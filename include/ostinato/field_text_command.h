@@ -1,4 +1,4 @@
-// Control codes that appear in field (map) dialogue records. A dialogue byte
+// Control codes that appear in field (map) dialog records. A dialog byte
 // below 0x20 is a command rather than a glyph; these are the commands the field
 // text codec recognizes. Enumerator values are the code byte, and the names
 // follow the game's own escape table.

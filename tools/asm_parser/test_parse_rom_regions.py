@@ -23,6 +23,7 @@ import shutil
 import tempfile
 import unittest
 
+import common
 import parse_rom_regions as prr
 from common import ParseError
 
@@ -488,7 +489,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(row.begin, 0xC478C0)
         self.assertEqual(row.size, 64 * 6)
 
-    def test_dialogue_crosses_a_bank_boundary(self):
+    def test_dialog_crosses_a_bank_boundary(self):
         # The VM resolves regions in decoded address space, so a family wider
         # than the bank it starts in is read straight through.
         row = next(r for r in self.regions
@@ -524,6 +525,25 @@ class EndToEndTests(unittest.TestCase):
             self.skipTest("no vanilla ROM available (set FF6_VANILLA_ROM)")
         checked, _missing = result
         self.assertGreater(checked, 0)
+
+    @unittest.skipIf(common.find_vanilla_rom(_find_source_root()) is None,
+                     "no vanilla cartridge (set FF6_VANILLA_ROM)")
+    def test_assembly_sourced_rows(self):
+        rows, checked = prr.read_asm_regions(self.root, self.size, self.rows)
+        placed = {(r.asset, r.language): (r.begin, r.size)
+                  for language in ("en", "jp") for r in rows[language]}
+        self.assertEqual(placed, {
+            ("WORLD_ANIM_FRAMES", "en"): (0xEE573E, 5294),
+            # The width table sits between the two ripped fonts in both
+            # languages, so the Japanese place is stated too.
+            ("FONT_WIDTH", "en"): (0xC48FC0, 256),
+            ("FONT_WIDTH", "jp"): (0xC48FC0, 1280),
+            # The arrow moves with the Japanese field code, so only English.
+            ("DLG_CURSOR_GFX", "en"): (0xC08832, 12),
+        })
+        # Every English byte is compared with the cartridge; the Japanese
+        # width table is placed by its neighbors alone.
+        self.assertEqual(checked, 5294 + 256 + 12)
 
     def test_run_check_only_ok(self):
         self.assertEqual(prr.run(self.root, self.repo, check_only=True), 0)

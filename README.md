@@ -38,7 +38,7 @@ conveniences work against it.
   Zelda64 recompiled or Ship of Harkinian. (This flow is future work; see
   [`docs/features/asset-acquisition.md`](docs/features/asset-acquisition.md).)
 - **No copyrighted content is committed to or distributed with this repository.** No ROMs, no
-  extracted graphics/audio, no dialogue text. `.gitignore` bans ROM extensions and extracted
+  extracted graphics/audio, no dialog text. `.gitignore` bans ROM extensions and extracted
   asset content tree-wide.
 
 ## Repository layout
@@ -48,14 +48,24 @@ conveniences work against it.
 | `src/`, `include/ostinato/` | Port source and public headers |
 | `tests/` | GoogleTest suite |
 | `engine/` | [Polyrhythm](https://github.com/RetroPlusPlus/Polyrhythm) engine submodule |
-| `original-src/` | [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly submodule (GPL-3.0) — read-only derivation reference; development-time only, never required by the distribution |
+| `original-src/` | Not part of this repository (ignored). Developers clone the [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly (GPL-3.0) here as a read-only reference; nothing in the build or the distribution needs it |
 | `assets/{gfx,audio}/default/` | Canonical asset-pack load targets; contents are generated locally and never committed |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
 | `scripts/` | Development tooling |
 
-> **Note on submodules:** both submodules are public and initialize without credentials. The
-> `original-src/` disassembly is needed only for development; much of its data corpus is
-> generated locally by its `make rip` step against a user-supplied ROM.
+> **Note on the engine submodule:** it is public and initializes without credentials
+> (`git submodule update --init --recursive`).
+>
+> **The disassembly, for development only:** the data parsers under `tools/asm_parser/` read the
+> upstream disassembly from `original-src/`, which is not part of this repository. Clone it there
+> at the commit the parsers are written against:
+>
+> ```sh
+> git clone https://github.com/everything8215/ff6.git original-src
+> git -C original-src checkout 1ea47b50dae4549362c7bef8fa887895fc378209
+> ```
+>
+> Much of its data corpus is generated locally by its `make rip` step against a user-supplied ROM.
 
 ## Building
 

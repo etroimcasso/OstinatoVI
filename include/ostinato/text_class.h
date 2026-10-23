@@ -1,7 +1,7 @@
 // The FF6 text classes: the ~30 named byte tables the game text is stored in
-// (name tables, dialogue banks, description tables, and the DTE char table).
+// (name tables, dialog banks, description tables, and the DTE char table).
 // Each class ships as a raw `.dat` file the game reads at runtime; this enum
-// is the identity used to key the structural metadata table
+// is the identity that keys the structural metadata table
 // (src/data/text_metadata.h) and the TextCorpus loader (src/data/text_corpus.h).
 //
 // The enumerator ORDER is the metadata table's row order — a compile-time

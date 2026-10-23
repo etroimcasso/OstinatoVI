@@ -1,5 +1,5 @@
-// Control codes that appear in battle text records (battle dialogue, attack
-// messages, monster dialogue). A record byte below 0x20 is a command rather
+// Control codes that appear in battle text records (battle dialog, attack
+// messages, monster dialog). A record byte below 0x20 is a command rather
 // than a glyph; these are the commands the battle text codec recognizes.
 // Enumerator values are the code byte, and the names follow the game's own
 // escape table.
@@ -19,7 +19,7 @@ enum class BattleTextCommand : std::uint8_t {
     END = 0x00,             // end of the record
     NEWLINE = 0x01,         // line break
     CHARACTER_NAME = 0x02,  // splice a party member name, id from one operand byte
-    TEXT_COLOR = 0x04,      // toggle the text colour
+    TEXT_COLOR = 0x04,      // toggle the text color
     WAIT = 0x05,            // timed pause
     WAIT_FRAMES = 0x06,     // timed pause, length from one operand byte
     KEY = 0x07,             // wait for a keypress

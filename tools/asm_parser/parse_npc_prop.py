@@ -669,7 +669,7 @@ ENUM_HEADERS = [
      ["Which background layer an NPC scrolls with (npc_prop byte 2 bit 5).",
       "BG1 is the default; the value is the packed bit, not a logical 0/1."]),
     ("NPC_MOVEMENT", "NpcMovement", "npc_movement", "npc_prop", {"MASK"},
-     ["An NPC's autonomous movement behaviour (npc_prop byte 7 bits 0-3)."]),
+     ["An NPC's autonomous movement behavior (npc_prop byte 7 bits 0-3)."]),
     ("NPC_SPRITE_PRIORITY", "NpcSpritePriority", "npc_sprite_priority",
      "npc_prop", {"MASK"},
      ["Sprite-vs-sprite draw priority (npc_prop byte 7 bits 4-5). The value is",

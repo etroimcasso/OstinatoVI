@@ -2,7 +2,7 @@
 
 The per-map data the field engine reads to place actors and events on a map: the
 tile-triggered event scripts, each map's startup event, and every NPC's placement
-and behaviour. Three tables share one shape — a flat record pool located through a
+and behavior. Three tables share one shape — a flat record pool located through a
 per-map offset table — and one reference type, the opaque event-script offset.
 
 This layer is the **static data plus lookup accessors**. It carries *where* things

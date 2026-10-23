@@ -128,7 +128,7 @@ SONG_TABLES = (
 # The movement / presentation curves, in (label, source file, SNES address,
 # entry count, directive) form. Each length is proven twice: counted from the
 # source lines, and confirmed by the block ending exactly where the next
-# labelled thing begins, with every byte compared to the ROM.
+# labeled thing begins, with every byte compared to the ROM.
 CURVE_TABLES = (
     ("TrainBattleMosaicTbl", "move.asm", 0xEE1907, 41, "byte"),
     ("BattleZoomTbl", "move.asm", 0xEE224E, 34, "word"),
@@ -186,7 +186,7 @@ class WorldData(object):
 def parse_world_data_asm(path):
     """Parse world_data.asm: the mod pointer table, vehicle events, sine incbin.
 
-    Every line must match the expected grammar; anything unrecognised is a hard
+    Every line must match the expected grammar; anything unrecognized is a hard
     error rather than a silent skip, so a source change surfaces here.
     """
     with open(path, "r", encoding="utf-8") as fh:
@@ -394,7 +394,7 @@ def parse_event_proc_addresses(path):
             for export, proc in aliases.items() if proc in proc_addrs}
 
 
-# --- generic labelled-table reader -------------------------------------------
+# --- generic labeled-table reader -------------------------------------------
 
 _RE_DATA_DIR = re.compile(r"^(?:@[0-9a-f]{4}:)?\s*\.(byte|word)\s+(.+)$")
 _RE_ADDR_PREFIX = re.compile(r"^@([0-9a-f]{4}):")

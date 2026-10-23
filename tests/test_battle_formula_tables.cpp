@@ -319,7 +319,7 @@ TEST(LevelUpExp, IsByteIdenticalToRom) {
             << "exp step " << i;
     }
     EXPECT_EQ(ostinato::levelUpExp(2), 4u);
-    // The top of the ramp is an upstream outlier against its neighbours.
+    // The top of the ramp is an upstream outlier against its neighbors.
     EXPECT_EQ(ostinato::levelUpExp(99), 11111u);
     EXPECT_EQ(ostinato::levelUpExp(98), 9603u);
 }

@@ -100,7 +100,7 @@ TEST(MapTriggers, ShortEntranceOffsetsMatchRom) {
     EXPECT_EQ(offsets.back().offset, kShortEntranceRecordCount);
 }
 
-// --- per-map slice behaviour ------------------------------------------------
+// --- per-map slice behavior ------------------------------------------------
 
 TEST(MapTriggers, TreasuresForMapSlices) {
     // Every map's slice matches its offset-table window, and the accessor never

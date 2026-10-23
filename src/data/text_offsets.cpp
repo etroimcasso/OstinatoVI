@@ -11,7 +11,7 @@ namespace {
 
 }  // namespace
 
-std::span<const std::uint32_t> dialogueOffsets() { return kDialogueOffsets; }
+std::span<const std::uint32_t> dialogOffsets() { return kDialogOffsets; }
 
 std::span<const std::uint32_t> pointerOffsets(TextClass klass) {
     switch (klass) {
@@ -29,7 +29,7 @@ std::span<const std::uint32_t> pointerOffsets(TextClass klass) {
         case TextClass::RARE_ITEM_DESC:   return kRareItemDescOffsets;
         default:
             assert(false && "pointerOffsets: not a self-contained pointer class "
-                             "(dialogue uses dialogueOffsets())");
+                             "(dialog uses dialogOffsets())");
             return {};
     }
 }

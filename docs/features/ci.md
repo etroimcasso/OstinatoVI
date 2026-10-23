@@ -41,10 +41,10 @@ reports its full suite (currently 145 cases).
   Any future addition of `pull_request` / `pull_request_target` / `workflow_run`
   must be weighed against that, since write access to the repo equals code-execution
   access to the runners.
-- **Only the engine submodule is initialized in the build jobs.** The build consumes
-  the engine (`engine/`); it does not read the upstream disassembly submodule
-  (`original-src/`), which is a port-time asset source, not a build input. Skipping it
-  keeps build checkouts lean. The engine is a private repo, so its checkout uses the
+- **The engine is the only submodule, and the build jobs initialize only it.** The
+  build consumes the engine (`engine/`); it never reads the upstream disassembly
+  (`original-src/`), which is not part of the repository and is cloned only by the
+  parser job. The engine is a private repo, so its checkout uses the
   `ENGINE_PAT` repository secret, supplied per-invocation to git rather than written
   to the runner's config. (The parser job is the exception — it initializes
   `original-src`, which is public and needs no PAT.)
@@ -84,9 +84,11 @@ see.
 
 Job mechanics:
 
-- **`original-src` is initialized** (public submodule, no PAT) so each suite's
-  end-to-end layer runs against the real committed sources (`const.inc`,
-  `char_prop.asm`).
+- **`original-src` is cloned** into the workspace (ignored by the repository) from
+  the public upstream at the commit the parsers are written against, the
+  workflow's `ORIGINAL_SRC_COMMIT`, so each suite's end-to-end layer runs against
+  the real upstream sources (`const.inc`, `char_prop.asm`). A clone already on
+  the runner is reused and moved to that commit.
 - **Rip-product staging.** The ROM file is staged at ci-assets/ostinatovi and used as the source of all ripping operations.
 - **The rip needs numpy** (`tools/extract_assets.py` → `monster_stencil`). The job
   uses the runner's python3 when numpy imports; otherwise it builds a one-time
