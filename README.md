@@ -6,8 +6,10 @@ fidelity — same observable behavior as the original given the same inputs and 
 running as ordinary native code on Windows, macOS, and Linux. Not an emulator, and not a
 mechanical ASM translation: idiomatic modern C++ against a portable engine layer.
 
-**Status: early infrastructure.** The build system, test harness, and asset scaffolding are in
-place; game systems are not yet ported. The current binary prints the engine version and exits.
+**Status: early.** The data layer (every compiled-in mechanics table), the cartridge ingestion
+route, and the field dialog text engine are in place; the game is not yet playable. The game
+binary installs your cartridge on first launch, then prints the engine version and exits; the
+dialog engine runs in its own preview tool under `tools/previews/`.
 
 ## Version support
 
@@ -34,12 +36,14 @@ conveniences work against it.
 ## What ships and what doesn't
 
 - **You supply your own ROM.** On first launch the app asks you to select your legitimately
-  owned FF6 (J) or FF3 (US) ROM and extracts the assets it needs locally — the same model as
-  Zelda64 recompiled or Ship of Harkinian. (This flow is future work; see
-  [`docs/features/asset-acquisition.md`](docs/features/asset-acquisition.md).)
+  owned FF6 (J) or FF3 (US) ROM and copies it once into your own user files. Unlike
+  extraction-based recompilations (Zelda64 recompiled, Ship of Harkinian), **nothing is
+  extracted**: every launch reads the graphics, text and data it needs directly out of that
+  copy, and leaves no extracted files behind. See
+  [`docs/features/asset-acquisition.md`](docs/features/asset-acquisition.md).
 - **No copyrighted content is committed to or distributed with this repository.** No ROMs, no
-  extracted graphics/audio, no dialog text. `.gitignore` bans ROM extensions and extracted
-  asset content tree-wide.
+  graphics, no audio, no dialog text. `.gitignore` bans ROM extensions tree-wide, the installed
+  copy included.
 
 ## Repository layout
 
