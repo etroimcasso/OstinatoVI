@@ -50,8 +50,8 @@ jobs:
           ENGINE_PAT: ${{ secrets.ENGINE_PAT }}
         run: |
           cd "$GITHUB_WORKSPACE"
-          # Only the engine is initialized — the upstream disassembly submodule is a
-          # port-time asset source, not a build input, and nothing in this build reads it.
+          # The engine is the only submodule; nothing in this build reads the upstream
+          # disassembly.
           # A job's GITHUB_TOKEN is scoped to this repo only, so the credential is supplied
           # per-invocation with -c (git passes it down to the clone it spawns) rather than
           # written to the runner's git config.
@@ -407,14 +407,24 @@ jobs:
           # default clean here would wipe that job's persisted build/.
           clean: false
 
-      - name: Init upstream disassembly submodule (const.inc for parser e2e)
+      - name: Clone the upstream disassembly (const.inc for parser e2e)
+        env:
+          ORIGINAL_SRC_URL: https://github.com/everything8215/ff6.git
+          ORIGINAL_SRC_COMMIT: 1ea47b50dae4549362c7bef8fa887895fc378209
         run: |
           cd "$GITHUB_WORKSPACE"
-          # original-src is public (no PAT). const.inc and char_prop.asm are
-          # committed disassembly sources, so their end-to-end layers run against
-          # the real contract with no ROM. Rip products (rng_tbl.dat) come from
-          # the staging step below.
-          git submodule update --init -- original-src
+          # original-src is not part of this repository; it is cloned into the
+          # (ignored) workspace directory from the public upstream, no PAT.
+          # const.inc and char_prop.asm are upstream sources, so their end-to-end
+          # layers run against the real contract with no ROM. Rip products
+          # (rng_tbl.dat) come from the staging step below. A clone left on the
+          # runner by an earlier run is reused and moved to the pinned commit.
+          if ! git -C original-src rev-parse --git-dir >/dev/null 2>&1; then
+            rm -rf original-src
+            git clone "$ORIGINAL_SRC_URL" original-src
+          fi
+          git -C original-src fetch origin "$ORIGINAL_SRC_COMMIT"
+          git -C original-src checkout --detach "$ORIGINAL_SRC_COMMIT"
 
       - name: Stage vanilla ROM and rip (rip-product e2e corpus)
         run: |

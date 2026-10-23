@@ -288,7 +288,7 @@ class LimitTests(unittest.TestCase):
 def _find_const_inc():
     here = os.path.dirname(os.path.abspath(__file__))
     for root in (
-        os.path.join(here, "..", "..", "original-src"),  # in-repo submodule
+        os.path.join(here, "..", "..", "original-src"),  # the local clone
     ):
         candidate = os.path.join(root, "include", "const.inc")
         if os.path.isfile(candidate):

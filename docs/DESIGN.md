@@ -51,7 +51,7 @@ Game data carrying exact original values (stats, tables, formulas) is emitted by
 
 ## Distribution & asset model
 
-- **The distribution never requires the disassembly.** `original-src/` is a dev submodule only; the released artifact carries no disassembly gitlink and no build/runtime reference to it.
+- **The repository and the distribution never carry the disassembly.** `original-src/` is a local clone a developer makes for the parsers (ignored, never committed, no submodule entry); the released artifact has no build or runtime reference to it.
 - **End users supply their own ROM — selected in-app at first start** (Zelda64 / Ship of Harkinian model). The port's first launch with an empty pack presents a ROM-selection flow, runs extraction internally, and populates the canonical asset directories — the same layout the dev populate path produces. No separate manual tool step in the user experience. **No extraction product is ever committed or shipped.**
 - Full pack model in `docs/features/asset-acquisition.md`.
 
