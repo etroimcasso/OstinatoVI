@@ -147,6 +147,22 @@ if(NOT MSVC AND CMAKE_BUILD_TYPE STREQUAL "Release")
 endif()
 
 # ---------------------------------------------------------------------------
+# Developer previews: one small program per piece of the picture, each showing it running on the
+# installed cartridge in a window. Tools, not the game — nothing here ships, and each reads the
+# cartridge the same way the game does.
+# ---------------------------------------------------------------------------
+
+# ostinato-preview-dialog <index>: one field dialog message, typed by the text engine.
+add_executable(ostinato-preview-dialog
+    tools/previews/dialog/main.cpp
+    tools/previews/dialog/dialog_preview.cpp)
+target_compile_features(ostinato-preview-dialog PRIVATE cxx_std_20)
+target_compile_options(ostinato-preview-dialog PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-preview-dialog PRIVATE ostinato-vi-lib)
+target_compile_definitions(ostinato-preview-dialog PRIVATE
+    OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
 # ---------------------------------------------------------------------------
 include(FetchContent)
@@ -419,9 +435,13 @@ gtest_discover_tests(ostinato-vi-misc-tests)
 add_executable(ostinato-vi-text-engine-tests
     tests/test_dialog.cpp
     tests/test_dialog_components.cpp
-    tests/test_font.cpp)
+    tests/test_dialog_preview.cpp
+    tests/test_font.cpp
+    tools/previews/dialog/dialog_preview.cpp)
 target_compile_features(ostinato-vi-text-engine-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-text-engine-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-text-engine-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_include_directories(ostinato-vi-text-engine-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/dialog)
 target_link_libraries(ostinato-vi-text-engine-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-text-engine-tests)

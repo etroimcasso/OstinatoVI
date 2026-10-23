@@ -29,11 +29,14 @@ Under the engine's asset root, at the literal path `rom/cartridge.sfc`.
 The asset root is the per-user data directory — the same place saves go — so a player's
 cartridge sits beside the rest of their files, wherever the program itself happens to be
 installed. A binary still sitting inside its own source checkout uses the checkout
-instead, so a developer's install lands in the tree they are working in. `configureAssetRoot`
-in `src/main.cpp` picks between the two; `assets::developmentAssetRoot`
-(`src/assets/asset_root.h`) is the decision, and it compares path components rather than
-strings so a sibling directory whose name merely begins with the project's is not
-mistaken for being inside it.
+instead, so a developer's install lands in the tree they are working in.
+`assets::configureAssetRoot` (`src/assets/asset_root.h`) picks between the two, and every
+program that reads the cartridge — the game and each developer preview under
+`tools/previews/` — calls it once at startup, after `EngineConfig::setActive`, so they all
+read the same cartridge. Each passes the project root its build baked in, or nothing.
+`assets::developmentAssetRoot` is the decision itself, and it compares path components
+rather than strings so a sibling directory whose name merely begins with the project's is
+not mistaken for being inside it.
 
 **Asset paths are always spelled in place.** Every site that names the cartridge writes
 the string `"rom/cartridge.sfc"` literally. The engine's build scan reads these paths out

@@ -1,12 +1,10 @@
 #include <filesystem>
 #include <iostream>
+#include <optional>
 #include <string>
-#include <system_error>
 
 #include "retropp/asset_registry.h"
 #include "retropp/engine_config.h"
-#include "retropp/save_store.h"
-#include "retropp/user_files.h"
 #include "retropp/version.h"
 
 #include "assets/asset_root.h"
@@ -16,46 +14,14 @@
 
 namespace {
 
-// Where the player's cartridge lives, and where LoadFromPath assets resolve from.
-//
-// The cartridge is the player's own: read out of a game they own, belonging to them and to this
-// machine, so it lives in the per-user data directory beside their saves — the same place
-// UserFiles and SaveStore resolve. That is one directory wherever the binary itself happens to
-// sit, and it is writable, which the application directory of a real install frequently is not.
-//
-// A development build reads its project tree instead, so a developer exercises the shipped route
-// against the cartridge in their checkout. That applies only to a binary still inside that tree:
-// developmentAssetRoot decides, and assets/asset_root.h explains why a binary that has been moved
-// must not keep it.
-void configureAssetRoot() {
+// The project tree a development build reads its cartridge from while the binary still sits inside
+// it (assets/asset_root.h); a build without one reads the per-user directory.
+std::optional<std::filesystem::path> bakedProjectRoot() {
 #ifdef OSTINATO_PROJECT_ROOT
-    // assetRoot() is the engine's default at this point: an absolute path to the executable's
-    // directory, resolved by EngineConfig::setActive. Both sides are canonicalized so that symlinks
-    // and `..` cannot make an inside path look like an outside one.
-    std::error_code ec;
-    const std::filesystem::path here =
-        std::filesystem::weakly_canonical(retropp::assetRoot(), ec);
-    const std::filesystem::path root =
-        std::filesystem::weakly_canonical(std::filesystem::path{OSTINATO_PROJECT_ROOT}, ec);
-    if (!ec) {
-        if (const auto devRoot = ostinato::assets::developmentAssetRoot(here, root)) {
-            retropp::setAssetRoot(*devRoot);
-            return;
-        }
-    }
+    return std::filesystem::path{OSTINATO_PROJECT_ROOT};
+#else
+    return std::nullopt;
 #endif
-
-    // The per-user directory. Resolving it creates it, so it is writable by the time the install
-    // needs it. It can still fail — an identity the engine never published, or a platform that
-    // cannot answer — and that is worth saying out loud rather than aborting on: the engine's own
-    // default still resolves, so the run continues with the files beside the program instead.
-    try {
-        retropp::setAssetRoot(retropp::UserFiles{}.root());
-    } catch (const retropp::SaveStoreError& error) {
-        std::cerr << "Could not resolve the per-user data directory (" << error.what()
-                  << "). Falling back to the program's own directory, which works but is not "
-                     "where your files belong.\n";
-    }
 }
 
 // The headless half of the first-start flow: identify a cartridge and keep it, with no dialog and
@@ -105,7 +71,7 @@ int main(int argc, char** argv) {
     };
     retropp::EngineConfig::setActive(config);
 
-    configureAssetRoot();
+    ostinato::assets::configureAssetRoot(bakedProjectRoot());
 
     // Installing a cartridge is part of getting the game running, not a separate tool, so it lives
     // behind a flag on this binary rather than a second executable. It is answered here — after the

@@ -98,14 +98,28 @@ Logs `ostinato::portName()` + `retropp::version()` and exits 0. No window, no ru
 build standup free of platform/windowing surface decisions. (`EngineConfig::setActive` would
 otherwise require an identity; unneeded here.)
 
-### Timing lock (recorded now, consumed at first run-loop instantiation)
+### Timing
 
 The FF6 sim tick is the NTSC SNES field rate: master clock 236,250,000/11 Hz (≈21.4773 MHz);
 non-interlace frame = 262 lines × 1364 cycles − 2 = 357,366 master cycles; period =
-357,366 × 11 / 236,250,000 s = **16,639,265 ns** (≈60.0988 Hz). No consumer yet — recorded here
-and wired as a raw `TickPeriodNs` when the run loop is first stood up (there is no SNES
-timing preset in the engine yet). The 65C816 VM cycle budget is deferred to the engine VM-backend
-kickoff.
+357,366 × 11 / 236,250,000 s = **16,639,265 ns** (≈60.0988 Hz). It is
+`ostinato::kFieldTickPeriod` (`include/ostinato/ostinato.h`); a program that runs a loop sets it
+on its `EngineConfig` as `static_cast<retropp::TickPeriodNs>(kFieldTickPeriod.count())`, since
+the engine has no SNES timing preset. The 65C816 VM cycle budget is deferred to the engine
+VM-backend kickoff.
+
+### Developer previews (`tools/previews/`)
+
+One small program per piece of the picture, each showing that piece running on the installed
+cartridge with scripted input — nobody drives a preview. Each plays in a window that closes
+itself, or with `--capture <dir>` composes off screen and writes its frames to `<dir>`. They are tools, not the game: the game binary carries none of their
+code, and nothing under `tools/` ships. Each is its own target linking `ostinato-vi-lib`, with
+the project root baked in the way the game's is, and calls `assets::configureAssetRoot` so it
+reads the same cartridge.
+
+| Target | Source | Shows |
+|---|---|---|
+| `ostinato-preview-dialog [--capture <dir>] <index>...` | `tools/previews/dialog/` | Field dialog messages played by a scripted player — in a window that closes itself, or with no window and the frames written to `<dir>` ([`docs/engine/text/dialog.md`](../engine/text/dialog.md#preview)) |
 
 ### Dev-asset populate script (`scripts/setup-dev-assets.sh`)
 
@@ -162,5 +176,5 @@ it will grow as the port references real engine surface (windowing, renderer, au
   reshaped to match then (per `docs/features/asset-acquisition.md`). For now the two paths are not
   yet required to be byte-identical.
 - **`-Werror`** deferred until the port surface is real enough to hold a clean warnings baseline.
-- **Timing** is recorded, not wired — no run loop yet.
-- **Windowing / `EngineConfig`** deliberately untouched so far.
+- **The game binary runs no loop yet.** The first window and run loop are the dialog preview's;
+  the game's `main()` sets only its identity.

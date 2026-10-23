@@ -124,6 +124,52 @@ frame.layers.push_back(SpriteLayer(
 black. The engine is advanced in the frame's update and these are called in its draw, so the
 picture always matches the state the frame ended on.
 
+## Preview
+
+`ostinato-preview-dialog` plays messages from the installed cartridge through the text
+engine and the components above — the whole chain from the cartridge to the screen. It is a
+developer tool (`tools/previews/dialog/`), not part of the game: there is no dialog window
+around the text, no map behind it, and no event that started the message.
+
+```sh
+ostinato-vi --install-rom <path-to-rom>              # once, if no cartridge is installed
+ostinato-preview-dialog 0 10 224                     # play dialogs 0, 10 and 224 (of 0 to 3083) in a window
+ostinato-preview-dialog --capture shots 0 10 224     # the same with no window, frames written to shots/
+```
+
+Nobody drives it. A scripted player plays each message to its end: on every page that waits
+for A it holds the page, presses down once halfway through the hold on the first page that
+offers two or more choices, then presses A. In the window the hold is two seconds, the
+messages play one after another on the field tick (`kFieldTickPeriod`) at the SNES's
+256×224 with a second's pause between them, and the window closes itself after the last.
+A message that has not ended after ten minutes' worth of frames is reported and the exit
+status is nonzero.
+
+With `--capture <dir>` nothing opens. Each message plays straight through, and the screen is
+composed off screen and written to `<dir>` as binary PPM:
+
+| File | The screen when |
+|---|---|
+| `dialog-<index>-page<n>.ppm` | page *n* is fully typed and waits for A |
+| `dialog-<index>-page<n>-moved.ppm` | on the first page with two or more choices, the selection has moved down one |
+| `dialog-<index>-wipe.ppm` | the first page wipe has taken its first half-line |
+
+A page that moves on by itself — a timed wait, as in the opening narration — never waits
+for A, so it has no page file.
+
+Either way the splices insert fixed values: every character's default name, the Mithril
+Knife, and 500 gil. The text area's top-left corner sits at `(kPreviewTextX,
+kPreviewTextY)` — where a dialog window would put it is the window's business, not the text
+engine's. The drop shadow is black, so it does not show against the preview's black
+background.
+
+`DialogPreviewScreen(state, sheets)` (`tools/previews/dialog/dialog_preview.h`) is the
+screen: one `SpriteLayer` at `kDialogTextZ` gathering `DialogText`, `DialogCursor` and
+`MapTitle`, with `DialogWipe` as the layer's regions. `main.cpp` is the wiring — it uploads
+the two sheets and the two palettes once, advances the engine one field frame at a time with
+the scripted player's input, and assembles the screen for each picture. `tests/test_dialog_preview.cpp` reads back what the
+screen returns.
+
 ## How a message types
 
 Each frame does, in order: count down the title timer; return if idle; count down a pause;
@@ -187,6 +233,7 @@ spaces, nothing visible).
 | How a splice is built | The `*Glyphs()` functions in `src/text/dialog.cpp`. |
 | How the cursor moves | `kChoiceMoves` and `moveChoiceCursor()` in `src/text/dialog.cpp`. |
 | How any of it is drawn | The components under `src/render/text/` ([../rendering/components.md](../rendering/components.md)). |
+| The preview's scripted player, pacing, splice values or text position | `tools/previews/dialog/main.cpp` and `dialog_preview.h`. |
 | The expected behavior | `docs/contracts/text_engine.md`, then `tests/test_dialog.cpp`, which is written from it. |
 
 The tests in `tests/test_dialog.cpp` drive the engine frame by frame over hand-built

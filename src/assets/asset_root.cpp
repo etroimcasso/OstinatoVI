@@ -1,6 +1,12 @@
 #include "assets/asset_root.h"
 
 #include <algorithm>
+#include <iostream>
+#include <system_error>
+
+#include "retropp/asset_registry.h"
+#include "retropp/save_store.h"
+#include "retropp/user_files.h"
 
 namespace ostinato::assets {
 
@@ -21,6 +27,34 @@ std::optional<std::filesystem::path> developmentAssetRoot(
         return std::nullopt;
     }
     return projectRoot;
+}
+
+void configureAssetRoot(const std::optional<std::filesystem::path>& projectRoot) {
+    if (projectRoot) {
+        // assetRoot() is the engine's default at this point: an absolute path to the executable's
+        // directory, resolved by EngineConfig::setActive. Both sides are canonicalized so that
+        // symlinks and `..` cannot make an inside path look like an outside one.
+        std::error_code ec;
+        const std::filesystem::path here =
+            std::filesystem::weakly_canonical(retropp::assetRoot(), ec);
+        const std::filesystem::path root = std::filesystem::weakly_canonical(*projectRoot, ec);
+        if (!ec) {
+            if (const auto devRoot = developmentAssetRoot(here, root)) {
+                retropp::setAssetRoot(*devRoot);
+                return;
+            }
+        }
+    }
+
+    // The per-user directory. Resolving it creates it, so it is writable by the time an install
+    // needs it.
+    try {
+        retropp::setAssetRoot(retropp::UserFiles{}.root());
+    } catch (const retropp::SaveStoreError& error) {
+        std::cerr << "Could not resolve the per-user data directory (" << error.what()
+                  << "). Falling back to the program's own directory, which works but is not "
+                     "where your files belong.\n";
+    }
 }
 
 }  // namespace ostinato::assets
