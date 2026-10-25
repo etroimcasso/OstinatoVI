@@ -6,6 +6,7 @@
 
 #include "data/attack_properties.h"
 #include "data/battle_commands.h"
+#include "data/esper_properties.h"
 
 namespace ostinato::battle {
 
@@ -13,6 +14,11 @@ namespace {
 
 constexpr int kLongestAdvanceWait = 254;
 constexpr int kUnsetAdvanceWait = 255;
+
+bool isEsperSummon(AttackId attack) {
+    return attack >= AttackId::RAMUH && static_cast<std::size_t>(attack) - static_cast<std::size_t>(AttackId::RAMUH) <
+                                            kEsperProperties.size();
+}
 
 bool costsMp(BattleCommandId command) {
     return command == BattleCommandId::MAGIC || command == BattleCommandId::X_MAGIC ||
@@ -36,10 +42,14 @@ std::uint8_t commandMpCost(const BattleState& state, BattlerSlot slot, const Com
     if (slot.isMonster()) {
         return getAttackProperties(command.attack).mpCost;
     }
-    const auto& spells = state.at(slot).spellCosts;
-    const auto known = std::find_if(spells.begin(), spells.end(),
-                                    [&](const SpellCost& spell) { return spell.spell == command.attack; });
-    return known == spells.end() ? 0 : known->mpCost;
+    // A party member pays what the spell costs them; a summon costs what their esper's does. A
+    // spell not in their list costs nothing.
+    const SpellList& spells = state.at(slot).spells;
+    if (isEsperSummon(command.attack)) {
+        return spells.esper ? spells.summon.mpCost : 0;
+    }
+    const SpellListEntry* known = spells.find(command.attack);
+    return known == nullptr ? 0 : known->mpCost;
 }
 
 void addAction(BattleState& state, BattlerSlot slot, Action action) {

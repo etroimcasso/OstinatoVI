@@ -24,6 +24,9 @@ changing the code.
 | `src/battle/battle_clock.cpp` | battle time |
 | `src/battle/battle_loop.cpp` | the battle loop |
 
+How the party side of a battle is built before its first frame — the party's records, placing the
+party, equipment into stats, commands, spells and the battle inventory — is in [start.md](start.md).
+
 ## Driving a battle
 
 A host calls both clocks from its frame tick. Battle time runs on every displayed frame; the loop
@@ -83,7 +86,8 @@ The fields of `Battler` group as follows.
 |---|---|
 | Whose turn it is | `present`, `takesMenuInput`, `inBattleMenu`, `atbStopped`, `heldByStatus`, `heldByControl`, `actionQueued`, `menuMayOpen`, `skipAdvanceWait`, `defending`, `dotActionPending`, `emptyGaugeAfterAction`, `requeuePending`, `pendingUpdates`, `nearFatalSpellAvailable`, `airAnchored`, `mayActAfterJump` |
 | The clocks | `gauge`, `atbRate`, `advanceWait`, `advanceWaitCounter`, `statusTimer`, `statusTimerStep`, `stopTimer`, `reflectTimer`, `freezeTimer`, `sleepTimer`, `condemnedNumber`, `damageOverTimePhase`, `morphGauge`, `turnTimer`, `runProgress`, `runFactor` |
-| Who it is | `actor`, `hp`, `speed`, `status`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `firstStrike`, `harderToRunFrom`, `preventsEscape`, `blackBelt`, `spellCosts` |
+| Who it is | `actor`, `record`, `graphics`, `level`, `hp`, `maxHp`, `mp`, `maxMp`, `speed`, `vigor`, `stamina`, `magicPower`, `defense`, `magicDefense`, `evadeFactor`, `magicBlockFactor`, `status`, `innateStatuses`, `equipmentStatuses`, `inflictableStatuses`, `instantDeathProtected`, `backRow`, `human`, `undead`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `aiScript`, `firstStrike`, `harderToRunFrom`, `preventsEscape` |
+| A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
 | Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending` |
 | What it has waiting | `actions`, `counterActions` |
 
@@ -91,7 +95,9 @@ The fields of `Battler` group as follows.
 `actionQueue`, `counterQueue`, `immediateActions`), who is mid-turn (`actingBattler`,
 `counteringBattler`), Quick (`quickTarget`, `quickTurnsLeft`), the clocks, the sets of who is
 alive, joining, leaving, standing and fallen, the battle's flags, the story facts its end depends on,
-the action's report (`scratch`), Mimic's memory (`mimic`), the requests, and the outcome.
+the action's report (`scratch`), Mimic's memory (`mimic`), the requests, and the outcome. It also
+holds the battle's copy of the party (`party`), the battle inventory, and what the party knows
+([start.md](start.md)).
 
 ## The ATB gauge
 
@@ -163,15 +169,17 @@ removeAllActions(state, slot);
 | `addAutomaticAction()` | at the end of the battler's list, with its advance wait added and aimed |
 
 A command's MP cost is set when it is added (`commandMpCost()`): Magic, X-Magic, Lore and Summon cost
-a party member the cost in its `spellCosts` (nothing for a spell not there) and a monster the spell's
-base cost from the attack table. Setting `state.mimicking` makes the next action added free.
+a party member the cost in its spell list — a summon what its esper's entry costs, a spell not in the
+list nothing — and a monster the spell's base cost from the attack table. Setting `state.mimicking`
+makes the next action added free.
 
 `BattlerQueue` is a line of battlers: `push`, `pop`, `erase` (everywhere), `contains`, `size`,
 `at(i)`.
 
 ## The battle loop
 
-Each `stepBattle()` does the first of: an interrupting action; dropping the party's choices when Gau
+Each `stepBattle()` first works out again any party member whose equipment the Item menu changed,
+then does the first of: an interrupting action; dropping the party's choices when Gau
 has just joined; a counterattack; taking newly dead monsters off the field; the battle's end; a
 battler starting its advance wait; a battler's turn. A battler's turn runs its first action and,
 once the script has played, settles every battler (statuses, who is alive, who joins and leaves,
@@ -192,7 +200,7 @@ nothing.
 | `runAi(state, actor)` | a battler's AI takes its turn |
 | `runCounterAi(state, actor)` | a battler's counter AI answers |
 | `checkControl`, `releaseLinks`, `clearControl` | after every command, for control, Zinger, Love Token and Charm |
-| `refreshEnabledMagic`, `refreshCommandList`, `refreshMorph`, `checkNearFatal` | an action left those updates pending for a battler |
+| `refreshCommandList`, `refreshMorph`, `checkNearFatal` | an action left those updates pending for a battler; `refreshCommandList` also after an equipment change |
 | `tickMorph(state, slot)` | every time update, for the morphed battler |
 
 Before `execute` runs, the battle resets `state.scratch`; the command reports there whether its hit

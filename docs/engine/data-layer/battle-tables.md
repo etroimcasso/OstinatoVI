@@ -228,3 +228,7 @@ the original ROM values.
 compared against its fixture (no subsets), the unmodeled padding rows verified as
 padding, the signed evade and spell-order offsets checked against their
 two's-complement ROM bytes, and the accessors and wrapper decodes exercised.
+
+## Used by
+
+The party side of a battle's start ([battle/start.md](../battle/start.md)): `deriveEquipment()` reads `equipEvadeBoost()`, `buildSpellLists()` the three spell-order tables, and `battleItem()` `itemTypeBattleFlags()`.

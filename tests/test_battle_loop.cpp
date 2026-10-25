@@ -429,7 +429,7 @@ TEST(Counterattack, ABlackBeltAnswersAMonsterThreeTimesInFour) {
     for (bool answers : {true, false}) {
         BattleState state = makeBattle();
         RecordingExecutor executor;
-        state.at(kFriend).blackBelt = true;
+        state.at(kFriend).relicEffects4.set(RelicEffect4::RANDOM_COUNTER);
         executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
             s.at(kFriend).lastAttacker = kMonster;
             s.at(kFriend).retaliationPending = true;
@@ -513,7 +513,7 @@ TEST(AfterAction, AMonsterWithACounterLeftStaysStanding) {
 TEST(AfterAction, BanonFallingLosesTheBattle) {
     BattleState state = makeBattle();
     RecordingExecutor executor;
-    state.at(kFriend).actor = CharacterId::BANON;
+    state.at(kFriend).actor = CharacterPropId::BANON;
     executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
         s.at(kFriend).status.set(StatusId::DEAD);
     };
@@ -803,7 +803,7 @@ TEST(BattleEnd, GauMayTurnUpOnTheVeldt) {
     for (bool appears : {true, false}) {
         BattleState state = makeBattle();
         state.enemyCount = 0;
-        state.at(kFriend).actor = CharacterId::GAU;
+        state.at(kFriend).actor = CharacterPropId::GAU;
         state.gauMayAppear = true;
         state.rng = battle::BattleRng(appears ? positionDrawing(96, 160) : positionDrawing(160, 256));
         const auto outcome = stepOnce(state);
@@ -826,7 +826,7 @@ TEST(BattleEnd, ShadowMayWalkOff) {
     for (bool leaves : {true, false}) {
         BattleState state = makeBattle();
         state.enemyCount = 0;
-        state.at(kFriend).actor = CharacterId::SHADOW;
+        state.at(kFriend).actor = CharacterPropId::SHADOW;
         state.shadowAvailable = true;
         state.rng = battle::BattleRng(leaves ? positionDrawing(8, 16) : positionDrawing(16, 32));
         const auto outcome = stepOnce(state);
@@ -845,7 +845,7 @@ TEST(BattleEnd, ShadowMayWalkOff) {
 TEST(BattleEnd, ShadowStaysAfterAnythingButAFrontAttack) {
     BattleState state = makeBattle();
     state.enemyCount = 0;
-    state.at(kFriend).actor = CharacterId::SHADOW;
+    state.at(kFriend).actor = CharacterPropId::SHADOW;
     state.shadowAvailable = true;
     state.battleType = battle::BattleType::Back;
     state.rng = battle::BattleRng(positionDrawing(0, 16));

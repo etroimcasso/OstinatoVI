@@ -166,3 +166,7 @@ table compared in full against its fixture (no subsets), the two padding rows
 verified as unused, the `GetBitPtr`-order membership on all three masks, the
 `CommandTargetingInit` field decode, and the accessors hand-traced to their ROM
 values.
+
+## Used by
+
+The party side of a battle's start ([battle/start.md](../battle/start.md)): `buildCommandList()` reads `kRelicCommandSwaps` and each command's targeting.

@@ -8,6 +8,8 @@
 
 #include "battle/actions.h"
 #include "battle/battle_core.h"
+#include "battle/party_setup.h"
+#include "battle/spell_lists.h"
 #include "data/battle_commands.h"
 #include "data/battle_tables.h"
 #include "ostinato/battle_command_flags.h"
@@ -50,7 +52,7 @@ bool held(const Battler& battler) {
     return battler.heldByStatus || battler.heldByControl;
 }
 
-std::optional<BattlerSlot> partyMember(const BattleState& state, CharacterId actor) {
+std::optional<BattlerSlot> partyMember(const BattleState& state, CharacterPropId actor) {
     for (int position = kPartySlots - 1; position >= 0; --position) {
         const BattlerSlot slot = BattlerSlot::character(position);
         if (state.at(slot).actor == actor) {
@@ -161,7 +163,7 @@ void checkTheFallen(BattleState& state, ActionExecutor& executor) {
         if (!battler.status.has(StatusId::DEAD)) {
             return;
         }
-        if (slot.isCharacter() && battler.actor == CharacterId::BANON) {
+        if (slot.isCharacter() && battler.actor == CharacterPropId::BANON) {
             state.endOfBattleEvent = EndOfBattleEvent::BanonFell;
         }
         if (state.awayFromTheField.has(slot)) {
@@ -222,7 +224,7 @@ void checkCounterattacks(BattleState& state) {
                 return;
             }
         }
-        if (!state.scratch.blackBeltEligible.has(slot) || !battler.blackBelt) {
+        if (!state.scratch.blackBeltEligible.has(slot) || !battler.relicEffects4.has(RelicEffect4::RANDOM_COUNTER)) {
             return;
         }
         if (state.rng.next() >= kBlackBeltBelow) {
@@ -339,7 +341,7 @@ void checkMenuOpens(BattleState& state, BattlerSlot slot) {
         return;
     }
     Battler& battler = state.at(slot);
-    if (battler.actor == CharacterId::UMARO || battler.aiTakesTurns || state.colosseum) {
+    if (battler.actor == CharacterPropId::UMARO || battler.aiTakesTurns || state.colosseum) {
         return;
     }
     battler.takesMenuInput = true;
@@ -399,7 +401,7 @@ void settleAfterAction(BattleState& state, ActionExecutor& executor) {
         }
         const PendingUpdates pending = std::exchange(battler.pendingUpdates, PendingUpdates{});
         if (pending.leaveTheField) carryOff(state, slot);
-        if (pending.enabledMagic) executor.refreshEnabledMagic(state, slot);
+        if (pending.enabledMagic) refreshCastableSpells(state, slot);
         if (pending.removeAllActions) {
             removeAllActions(state, slot);
             battler.requeuePending = true;
@@ -724,7 +726,7 @@ EndCheck checkBattleEnd(BattleState& state) {
             return end(state, BattleEnded{.reason = BattleEndReason::FinalBattleNextStage, .nextFormation = next});
         }
     }
-    if (const auto gau = partyMember(state, CharacterId::GAU); gau && std::exchange(state.gauMayAppear, false)) {
+    if (const auto gau = partyMember(state, CharacterPropId::GAU); gau && std::exchange(state.gauMayAppear, false)) {
         if (state.rng.next() < kGauAppearsBelow && (state.gauRecruited || state.allyCount >= kAlliesForShadowOrGau)) {
             state.joiningAfterAction.add(*gau);
             state.at(*gau).actsAsEnemy = true;
@@ -733,7 +735,7 @@ EndCheck checkBattleEnd(BattleState& state) {
             return EndCheck::Interrupted;
         }
     }
-    if (const auto shadow = partyMember(state, CharacterId::SHADOW)) {
+    if (const auto shadow = partyMember(state, CharacterPropId::SHADOW)) {
         if (state.rng.next() < kShadowLeavesBelow && state.battleType == BattleType::Front &&
             state.allyCount >= kAlliesForShadowOrGau && !state.at(*shadow).status.hasAny(kFallen) &&
             !state.shadowStays && state.shadowAvailable) {
@@ -753,6 +755,7 @@ EndCheck checkBattleEnd(BattleState& state) {
 // What runs as one loop step after the frame boundary. Each branch that starts something ends
 // the step.
 void runLoopStep(BattleState& state, ActionExecutor& executor) {
+    applyEquipmentChanges(state, executor);
     for (int position = kPartySlots - 1; position >= 0; --position) {
         const BattlerSlot slot = BattlerSlot::character(position);
         if (state.menusToRefresh.has(slot)) {

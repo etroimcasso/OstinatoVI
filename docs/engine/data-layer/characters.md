@@ -98,6 +98,10 @@ in `tests/fixtures/char_prop_expected.h`, which holds the original ROM values.
 ## What's tested
 
 `tests/test_character_base.cpp` — every one of the 64 records `memcmp`-compared
-byte-for-byte against the fixture (identity fields checked on both sides), plus
+in full against the fixture (identity fields checked on both sides), plus
 semantic spot-checks of the lookup and the trait accessors (Terra's defaults;
 Banon's `VERY_LOW` run / `LOW` level / fixed-equip packing).
+
+## Used by
+
+The party side of a battle's start ([battle/start.md](../battle/start.md)): `deriveEquipment()` reads a character's battle power, defense, evade, magic block and run-factor trait.

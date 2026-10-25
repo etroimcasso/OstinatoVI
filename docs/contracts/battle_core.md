@@ -2,10 +2,13 @@
 
 Behavioral specification for the battle core: battle time (the ATB gauges, the advance waits and
 the status timers), the lines battlers wait in, the battle loop that takes turns, what happens
-after every action, and how a battle ends. All citations point into the pinned reference tree
-`original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm`
-unless another file is named. This document is the test authority for `tests/test_battle_state.cpp`,
-`tests/test_battle_clock.cpp`, `tests/test_action_queue.cpp` and `tests/test_battle_loop.cpp`.
+after every action, how a battle ends, and the party's side of a battle's start — who stands in
+the party slots, each member's battle stats from their equipment, their commands and spells, and
+the battle inventory. All citations point into the pinned reference tree `original-src/`
+(everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another
+file is named. This document is the test authority for `tests/test_battle_state.cpp`,
+`tests/test_battle_clock.cpp`, `tests/test_action_queue.cpp`, `tests/test_battle_loop.cpp`,
+`tests/test_party_setup.cpp` and `tests/test_spell_lists.cpp`.
 
 What each command does, how actions are aimed, how an AI chooses, and the status effects that tie
 two battlers together are outside this contract: the battle core calls them through
@@ -32,6 +35,17 @@ two battlers together are outside this contract: the battle core calls them thro
 | Removing actions | `RemoveAction` `:469-482`, `RemoveAllActions` `:1579-1600`, `QuetzEffect` `:1779-1803` | `removeAction()`, `removeAllActions()` |
 | The battle's end | `CheckBattleEnd` `:11891-12017`, `CheckFinalBattle` `:12245-12262` | `stepBattle()` → `BattleOutcome` |
 | Random numbers | `Rand` `:12378`, `RandA` `:12390`, `RandCarry` `:12367`, `RandBit` `:13495` | `BattleRng` |
+| Placing the party | `InitParty` `:7716-7919`, `GetCharID` `:7927-7934` | `placeParty()` |
+| Loading the party | `InitChars` `:6201-6222` | `loadParty()` |
+| Equipment into stats | `UpdateEquip` `:2289-2389`, `UpdateEquipTbl` `:2394-2450`, `CheckHPBoost` `:2456-2472`, `CalcEquipEffect` `:2480-2646`, `EquipEvadeTbl` `:2651-2662` | `deriveEquipment()` |
+| Stats into the battler | `UpdateEquipBattle` `:6733-6834`, `InvertEvade` `:6719-6727`, `FixImmuneStatus` `:6359-6380` | `applyDerivedStats()` |
+| HP, MP and statuses | `LoadCharProp` `:6602-6663`, `CalcMaxHPMP` `:6669-6712` | `loadPartyMember()`, `boostedMaximum()` |
+| Battle commands | `InitCmdList` `:13697-13807`, `InitCmd_00`-`_05` `:13813-13868`, `RelicCmdTbl1/2` `:13879-13886` | `buildCommandList()` |
+| Spell lists | `InitSpellList` `:14049-14200`, `ValidateSpellList` `:14206-14295`, `CalcMPCost` `:14321-14336`, `UpdateEnabledMagic` `:14362-14420` | `buildSpellLists()`, `loadSpellList()`, `refreshCastableSpells()` |
+| Status immunity | `UpdateImmuneStatus` `:6386-6433` | `refreshStatusImmunity()` |
+| The battle inventory | `InitInventory` `:13911-13956`, `LoadItemProp` `:13981-14037` | `loadBattleInventory()`, `battleItem()` |
+| Known skills | `InitSkills` `:14473-14513` | `loadKnownSkills()` |
+| Equipment changed mid-battle | `UpdateCharProp` `:5595-5631` | `applyEquipmentChanges()` |
 
 ## The two clocks
 
@@ -217,20 +231,22 @@ and the port keeps each list and line as a growable sequence with the same order
 Each `stepBattle()` serves, in this order, the first of these that has work, and that one thing is
 the step (`BattleLoop` `:67-144`):
 
-1. Characters whose menus need redrawing get `RefreshBattleMenu` (this never ends the step).
-2. An **interrupting action**.
-3. **Gau has just joined** on the Veldt: every living party member on the ground drops what it had
+1. Party members whose equipment the Item menu changed are worked out again (below, "Equipment
+   changed mid-battle"; this never ends the step).
+2. Characters whose menus need redrawing get `RefreshBattleMenu` (this never ends the step).
+3. An **interrupting action**.
+4. **Gau has just joined** on the Veldt: every living party member on the ground drops what it had
    chosen (`ResetForVeldtGau` `:1663-1673`).
-4. A **counterattack** in progress, else the next battler in the counter line.
-5. **Monsters that died** and are still standing leave the field.
-6. If the monster list changed, run difficulty is worked out again and `RefreshMonsterNames` is
+5. A **counterattack** in progress, else the next battler in the counter line.
+6. **Monsters that died** and are still standing leave the field.
+7. If the monster list changed, run difficulty is worked out again and `RefreshMonsterNames` is
    requested (this never ends the step). The escape may start again.
-7. **The battle's end** is checked.
-8. The battle forgets who was attacked and whose counter AI ran this pass, and that a counterattack
+8. **The battle's end** is checked.
+9. The battle forgets who was attacked and whose counter AI ran this pass, and that a counterattack
    was running.
-9. The next battler in the **advance-wait line** starts its wait.
-10. A battler **mid-turn**, else the next in the **action line**, takes its turn.
-11. With nothing in the action line, a battle that was being kept going may end.
+10. The next battler in the **advance-wait line** starts its wait.
+11. A battler **mid-turn**, else the next in the **action line**, takes its turn.
+12. With nothing in the action line, a battle that was being kept going may end.
 
 After the step, the random-number position moves on by one entry, and a Quick count that has run
 out is cleared (`:68-71`). A step that waits on a script does this only when it finishes.
@@ -345,7 +361,7 @@ battler, slot 9 first, while the command has not disabled counters:
    255, and joins the advance-wait line.
 9. **Settling** (`AfterAction2`), for each present battler, slot 9 first: its "hit, may answer" mark
    clears; a dead battler, or one whose action empties its gauge, has its menu, stopped and ready
-   marks cleared and its gauge emptied, and its menu is cancelled (below). Its pending updates run
+   marks cleared and its gauge emptied, and its menu is canceled (below). Its pending updates run
    once each, in this order: carried off by Palidor (marked away, gauge stopped, out of the action
    line, may not act after jumping, an advance wait of 224); its castable spells; removing all its
    actions (and marking it to go back in line); a condemned count starts — **20 + max(0, 60 − (L +
@@ -358,7 +374,7 @@ battler, slot 9 first, while the command has not disabled counters:
 
 **Its menu may open** (`CheckPlayerAction` `:1426-1463`), for party members other than Umaro, with no
 AI script, outside the colosseum: it takes menu input; the Quick target's gauge stops and its menu
-may open. Its menu is cancelled if it is leaving, seized or charmed, or is dead, petrified, a zombie,
+may open. Its menu is canceled if it is leaving, seized or charmed, or is dead, petrified, a zombie,
 asleep, confused, berserk, dancing, hidden or raging. Otherwise a battler whose menu may open and
 who has nothing chosen stops its gauge and opens its menu.
 
@@ -402,6 +418,186 @@ end-of-battle event ends the battle as that event says. A story countdown having
 
 The final battle's stages are `kFinalBattleFormations`; each but the last leads to the next
 (`CheckFinalBattle`). Once a battle has an outcome, `stepBattle()` returns it and does nothing more.
+
+## The party at the battle's start
+
+The party's records (`game::Party`, the sixteen character records and the party's inventory and
+learned abilities) are copied into `BattleState::party` when a battle starts; the battle reads and
+changes that copy.
+
+### Placing the party
+
+`placeParty()` (`InitParty` `:7716-7919`) fills the four party slots one of three ways:
+
+- **The current party.** Every character record whose party is the current one stands in its
+  lined-up slot. The records are walked from the last to the first (`:7757-7774`), so when two claim
+  one slot the lower record wins. **Gau may return from the Veldt** only when he has not been
+  recruited, the formation's sixth monster slot is empty, and fewer than four characters are in the
+  party (`:7775-7785`); otherwise `gauMayAppear` is cleared. When he may, the Veldt setup
+  (`GAU_VELDT`) is staged in place of the formation's own.
+- **A colosseum match** (`:7748-7756`): the chosen fighter stands alone in the first slot, the
+  battle is a colosseum battle, and the fighter enters at full strength like a scripted setup's cast.
+- **A stage of the final battle** (`:7721-7747`): the fighters still standing keep their slots, and
+  each empty slot takes the next character from `finalBattleReserve`, which is used up.
+
+**A scripted setup** (`CharAI`, `:7793-7844`) then places its cast. A setup that hides the party
+empties every slot first. Each cast member takes the slot of a party member who is that character
+and stands as an ordinary ally; failing that, the first empty slot; with none empty, it sits the
+battle out. It brings its flags (not in the party, fighting for the other side), its sprite unless
+it uses the character's own, and its AI script — script *n* of the setup is script 256 + *n*, and
+the character then takes its turns from it. The slots a setup filled are returned, and those
+characters enter at full strength.
+
+**Seating** (`:7845-7917`), for each filled slot: a character in the party is present; one fighting
+for the other side acts as an enemy. Every record holding the character supplies the row, the
+record, the sprite (unless the setup named one) and the bits an item's equippable-by mask must share
+for them to hold it in battle: Terra to Umaro each have a bit of their own; for anyone else it is
+the fifth and sixth bytes of their name (`:7891-7908` — see `docs/Bugs.md`). With two records
+holding the same character, the lower record's values are the ones kept.
+
+### Equipment into battle stats
+
+`deriveEquipment()` (`UpdateEquip` `:2289-2389`) starts from the character's battle properties —
+battle power in both hands, defense, magic defense, evade and magic block — and the record's
+vigor, speed, stamina and magic power. The run factor is 5 down to 2 for a run-factor trait of 0
+to 3 (`:2328-2332`).
+
+Each of the six slots is then added, **relic 2 first and the weapon last** (`:2342-2348`). For every
+item (`CalcEquipEffect` `:2480-2646`): its protections, the statuses it keeps on its wearer and its
+relic effects are gathered; its four stat boosts (−7 to +7) and its evade and magic-block boosts
+(`EquipEvadeTbl`) are added. **Gear worn the wrong way round for an Imp** — imp gear on someone who
+is not an Imp, or any other gear on an Imp — **counts as power 1** (`:2533-2545`).
+
+- A **weapon** (the empty slot is typed a weapon) in the weapon or shield slot sets that hand: its
+  element, power added to the hand's battle power (capped at 255), hit rate, spell and weapon
+  flags. In any other slot it adds nothing. A bare hand is the empty item: **power 10, hit rate 200**.
+- **Anything else** adds its power to defense and its magic defense to magic defense (each capped at
+  255), and its elements and the statuses it inflicts on its wearer.
+- An item that **raises magic damage** gives the single effect; a second one gives the double
+  (`:2576-2582`; in the shipped data the Earrings and the Hero Ring).
+- The weapon and shield slots' block effects are kept per hand, and a block graphic is noted for
+  physical and for magic blocks.
+
+An item's grant of the third status byte's first bit is Float, which the battle keeps among the
+fourth byte's statuses (`:6648-6659`).
+
+After the items: **HP and MP boosts** — +50% before +25% before +12.5% (`CheckHPBoost`); every stat
+and the evade and magic-block ratings are clamped to 0-255 (`:2363-2373`); the hands are settled
+(`UpdateEquipTbl`); a **Hyper Wrist** adds half the vigor again (`:2376-2383`).
+
+| Weapon slot | Shield slot | Attacks with | Two-handed grip |
+|---|---|---|---|
+| weapon | weapon | both (two weapons) | lost |
+| weapon | shield | weapon slot | lost |
+| weapon | bare | weapon slot | kept |
+| bare | weapon | shield slot | kept |
+| bare | shield | weapon slot | lost |
+| bare | bare | weapon slot | lost |
+| shield | weapon | shield slot | lost |
+| shield | bare | shield slot | lost |
+| shield | shield | both keep the character's battle power | kept |
+
+"Attacks with" names the hand that keeps its battle power; the other's is 0.
+
+### Stats into the battler
+
+`applyDerivedStats()` (`UpdateEquipBattle` `:6733-6834`):
+
+- A **Moogle Suit** draws its wearer as Mog.
+- A **Genji Glove** lets the battle's Item menu give the wearer two weapons. Its effect stays among
+  the relic effects only while the wearer does not hold two weapons (`:2749-2772`).
+- **Vigor is twice the character's**, capped at 255. A Hyper Wrist takes the character's vigor past
+  255 only from 171, and the most a character can reach is 128 (the level-up cap,
+  `:15936-15939`) plus 7 from each of six items, so the cap is never passed.
+- **Evade and magic block** are stored as the hit check reads them: 255 for a rating of 0,
+  256 − 2 × the rating below 128, and 1 for 128 or more (`InvertEvade`).
+- Relic effects; undead from a Relic Ring; every party member counts as human; the party's second
+  relic effects are gathered and never taken away.
+- Without a **Gauntlet** neither hand keeps the two-handed grip (`:6802-6806`).
+- The first sixteen statuses can be put on the battler unless its equipment protects against them.
+  Protection against **Dead** becomes protection against instant death instead, and Dead itself can
+  still be put on; a battler that **nullifies poison** cannot be poisoned (`FixImmuneStatus`).
+- A **Merit Award** lets the wearer hold heavy items (`:6830-6832`).
+
+### HP, MP and statuses
+
+`loadPartyMember()` (`LoadCharProp` `:6602-6663`): HP and MP are the record's; the maximums are the
+record's raised by the boosts — an eighth, a quarter or a half more, rounding down — and capped at
+**9999** and **999**. A character a setup brought in is **healed to full**, and their record keeps
+only Blind, Poison, Magitek and Imp of its first eight statuses (`:6622-6631`). The battle starts
+the battler with the record's first eight statuses, Interceptor and Float from the record, and the
+equipment's statuses. A record in **Magitek armor** leaves Mimic with Magitek's Fire Beam. Equipment
+that keeps **Condemned** on its wearer cancels the stop of the condemned count the battle's start
+leaves pending.
+
+### Battle commands
+
+`buildCommandList()` (`InitCmdList` `:13697-13807`), from the record's four commands:
+
+1. In **Magitek armor**, or where **only magic** works (Fanatics' Tower), every command but Item,
+   Mimic and Magic goes; Fight (and Gau's Rage) becomes Magitek. Where only magic works, Magitek then
+   becomes Magic and Magic goes.
+2. **Relic swaps** (`RelicCmdTbl1/2`): Fight → Jump, Magic → X-Magic, Sketch → Control, Slot →
+   GP Rain, Steal → Capture.
+3. **Commands with conditions:** Morph goes unless the story allows it, and with a permanent morph
+   the character starts morphed, the Morph supply is filled and the command goes; Leap goes off the
+   Veldt; Dance goes with no dance known; Magic and X-Magic go with no spell and no esper.
+4. Each row keeps the command, shown usable, and its targeting; an empty row has neither.
+5. A party member with no Magic, X-Magic or Lore has **no MP** (`:13797-13803`).
+
+### Spell lists
+
+`buildSpellLists()` (`InitSpellList` `:14049-14200`): the spells any party member among the first
+twelve characters has learned are laid out by the **spell-order setting** — black, effect and white
+magic each moved by their own offset (`BlackMagicOrderTbl`, `EffectMagicOrderTbl`,
+`WhiteMagicOrderTbl`) — then closed up **three at a time**: a group of three places with none known
+is left out. Lores have places of their own after the spells, Condemned first. Every party member
+gets the list with each spell's targeting and MP cost; **Step Mine** costs one MP per half hour of
+the play time **recorded at the last save** (`:14187-14192`, which reads the save's copy of the
+time).
+
+`loadSpellList()` (`ValidateSpellList` `:14206-14295`): the equipped esper becomes the list's
+summon. The first twelve characters keep the spells they have learned themselves and every lore;
+Gogo keeps everything; anyone else keeps nothing. Each kept entry's cost is the member's own
+(`CalcMPCost`): a **Gold Hairpin** halves it rounding up, an **Economizer** makes it 1. The spells
+kept, not counting lores, are the member's spell count.
+
+`refreshCastableSpells()` (`UpdateEnabledMagic` `:14362-14420`): an entry is castable when its cost
+is below the member's MP plus one, at most 255; an **Imp** can cast only Imp; an esper already
+summoned this battle cannot be summoned again. It runs whenever an action leaves it pending.
+
+**What a party member's spell costs** (`GetMPCost` `:12970-13013`): its entry's cost; a summon costs
+the list's summon; a spell not in the list costs nothing.
+
+### Status immunity
+
+`refreshStatusImmunity()` (`UpdateImmuneStatus` `:6386-6433`): Float can no longer be put on a
+battler whose equipment keeps Float on, nor Morph with a permanent morph, nor any of Silence,
+Berserk, Confuse, Sap, Regen, Slow, Haste, Shell, Protect and Reflect that its equipment keeps on it.
+Then **Regen and Sap**, and **Slow and Haste**, can each be put on only if both can. Nothing here
+makes a status possible again.
+
+### The battle inventory
+
+`loadBattleInventory()` (`InitInventory` `:13911-13956`): the party's 256 inventory slots, then
+what each party member holds in each hand (quantity 1). `battleItem()` (`LoadItemProp`
+`:13981-14037`) gives each item its targeting, whether it can be used in battle and thrown, whether
+it is a tool, a weapon or a shield (`ItemTypeMaskTbl`), and — for weapons, shields and consumables —
+which party slots' members can hold it: those whose equippable-by bits it shares. The tools the
+inventory holds are noted.
+
+### Known skills
+
+`loadKnownSkills()` (`InitSkills` `:14473-14513`): how many swdtechs and blitzes the party knows,
+which dances, and the rages known **among the first 255**, in order. The number of lores known is
+counted with the spell lists.
+
+### Equipment changed mid-battle
+
+When the battle's Item menu changes what a party member holds (`UpdateCharProp` `:5595-5631`), the
+next loop step writes the hands into their record, copies their first eight statuses into it, works
+out their stats again (above), asks for their battle commands to be refreshed, and works out their
+status immunity again.
 
 ## Random numbers
 

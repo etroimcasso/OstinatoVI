@@ -17,13 +17,27 @@
 #include <vector>
 
 #include "battle/action_queue.h"
+#include "battle/battle_inventory.h"
 #include "battle/battle_requests.h"
 #include "battle/battle_rng.h"
 #include "battle/battler_set.h"
-#include "ostinato/character_id.h"
+#include "battle/spell_lists.h"
+#include "data/item_properties.h"
+#include "game/character_record.h"
+#include "ostinato/battle_command_id.h"
+#include "ostinato/character_gfx_id.h"
+#include "ostinato/character_prop_id.h"
+#include "ostinato/dance_id.h"
+#include "ostinato/element_set.h"
+#include "ostinato/equip_permissions.h"
+#include "ostinato/esper_id.h"
 #include "ostinato/formation_id.h"
 #include "ostinato/game_version.h"
+#include "ostinato/item_effects.h"
+#include "ostinato/item_id.h"
+#include "ostinato/monster_id.h"
 #include "ostinato/status_set.h"
+#include "ostinato/targeting.h"
 
 namespace ostinato::battle {
 
@@ -98,11 +112,40 @@ struct BattlerTriggers {
     bool phantasm = false;      // Phantasm drains it like Sap
 };
 
-// A spell a party member can cast in battle, and the MP it costs that member.
-struct SpellCost {
-    AttackId spell{};
-    std::uint8_t mpCost = 0;
+// What a party member holds in one hand, as the battle uses it to attack. The weapon hand is the
+// record's weapon slot and the shield hand its shield slot; either can hold a weapon.
+struct Hand {
+    ItemId item = ItemId::EMPTY;
+    std::uint8_t battlePower = 0;     // the character's own plus the weapon's; 0 for a hand that does not attack
+    std::uint8_t hitRate = 0;
+    ElementSet element;
+    ItemSpellCast spellCast;
+    WeaponFlagSet weaponFlags;        // Two-hand is set only while a Gauntlet is worn
+    ItemSpecialEffect blockEffect;    // the item's block and weapon-effect byte
 };
+
+// The block animations a party member's equipment can show, one per BlockGraphic.
+struct BlockGraphicSet {
+    std::uint8_t bits = 0;
+
+    constexpr bool has(BlockGraphic graphic) const {
+        return (bits & (1u << static_cast<std::uint8_t>(graphic))) != 0;
+    }
+    constexpr void add(BlockGraphic graphic) {
+        bits = static_cast<std::uint8_t>(bits | (1u << static_cast<std::uint8_t>(graphic)));
+    }
+};
+
+// One row of a party member's battle command menu. A row whose command was taken away when the
+// battle started holds NONE.
+struct MenuCommand {
+    BattleCommandId command = BattleCommandId::NONE;
+    bool usable = false;  // shown in white rather than gray
+    Targeting targeting;
+};
+
+// Every status, for a battler that can be given any of them.
+inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
 // One of the ten battlers.
 struct Battler {
@@ -158,19 +201,74 @@ struct Battler {
     std::uint8_t runFactor = 0;
 
     // --- who and what it is ------------------------------------------------------------------
-    std::optional<CharacterId> actor;     // a party member: who it is
+    std::optional<CharacterPropId> actor;  // a party member: whose battle properties it uses
+    std::optional<std::size_t> record;     // a party member: its record in BattleState::party
+    CharacterGfxId graphics{};             // a party member: the sprite it is drawn with
+    std::uint8_t level = 0;
     std::uint16_t hp = 0;
+    std::uint16_t maxHp = 0;
+    std::uint16_t mp = 0;
+    std::uint16_t maxMp = 0;
     std::uint8_t speed = 0;
+    std::uint8_t vigor = 0;                // a party member's is twice the character's
+    std::uint8_t stamina = 0;
+    std::uint8_t magicPower = 0;
+    std::uint8_t defense = 0;
+    std::uint8_t magicDefense = 0;
+
+    // Evade and magic block as the hit check reads them: 256 less twice the rating, 255 for a
+    // rating of 0, and 1 for a rating of 128 or more.
+    std::uint8_t evadeFactor = 0;
+    std::uint8_t magicBlockFactor = 0;
+
     StatusSet status;
+    StatusSet innateStatuses;       // set on the battler when the battle starts
+    StatusSet equipmentStatuses;    // statuses its equipment keeps on it
+    StatusSet inflictableStatuses = kAllStatuses;  // the statuses that can be put on it
+    bool instantDeathProtected = false;  // immune to instant death (equipment that blocks Dead)
+    bool backRow = false;
+    bool human = false;
+    bool undead = false;
     BattlerTriggers triggers;
     bool actsAsEnemy = false;             // a party member fighting against the party
     bool aiTakesTurns = false;            // its actions come from an AI script
     bool hasCounterScript = false;        // its AI answers attacks
+    std::optional<std::uint16_t> aiScript;  // the script, for a party member a scripted battle drives
     bool firstStrike = false;             // a monster that acts at once when it appears
     bool harderToRunFrom = false;         // a monster that makes escaping slower
     bool preventsEscape = false;          // a monster the party cannot run from
-    bool blackBelt = false;               // wears a Black Belt: may answer a monster's hit
-    std::vector<SpellCost> spellCosts;    // a party member's castable spells
+
+    // --- a party member's equipment -----------------------------------------------------------
+    Hand weaponHand;
+    Hand shieldHand;
+    std::array<ItemId, 2> relics{ItemId::EMPTY, ItemId::EMPTY};
+    ElementSet elementsAbsorbed;
+    ElementSet elementsNullified;
+    ElementSet elementsWeak;
+    ElementSet elementsHalved;
+    BlockGraphicSet physicalBlockGraphics;  // what blocking a physical hit can show
+    BlockGraphicSet magicBlockGraphics;     // what blocking a spell can show
+
+    // Its relic effects from all six slots. Raise-magic-damage in the third set is one item that
+    // raises magic damage (Earrings, a Hero Ring); in the first set it is two of them, the doubled
+    // effect. Equip-2-weapons in the fourth set stays only while a Genji Glove is worn without a
+    // weapon in each hand.
+    RelicEffect1Set relicEffects1;
+    RelicEffect2Set relicEffects2;
+    RelicEffect3Set relicEffects3;
+    RelicEffect4Set relicEffects4;
+    RelicEffect5Set relicEffects5;
+    bool mayHoldTwoWeapons = false;       // a Genji Glove: the Item menu lets it hold two weapons
+
+    // The equippable-by bits an item must share for this party member to hold it.
+    EquipPermissions equipsAs;
+
+    // The battle's Item menu swapped what it holds; the battle re-derives it on its next step.
+    bool equipmentChanged = false;
+
+    std::array<MenuCommand, 4> commands{};
+    SpellList spells;
+    int spellCount = 0;                   // spells it can use from its list, not counting lores
 
     // --- links to other battlers --------------------------------------------------------------
     std::optional<BattlerSlot> controlledBy;
@@ -198,6 +296,7 @@ struct BattleConfig {
     bool waitMode = true;           // time stops while a command's sub-menu is open
     std::uint8_t speedSetting = 2;  // 0 (fastest) to 5, as the config menu shows it 1-6
     bool gaugeShown = true;
+    std::uint8_t magicOrder = 0;    // the spell-order setting, 0 to 5, as the menu shows it 1-6
 
     // How much the speed setting slows the monsters: 255 at the fastest, 24 less for each step.
     constexpr std::uint8_t monsterSpeedFactor() const {
@@ -279,6 +378,10 @@ struct ScriptWait {
 // The whole of a battle in progress.
 struct BattleState {
     std::array<Battler, kBattlerSlots> battlers{};
+
+    // The party the battle was started with. The battle reads and changes it as it goes; at its
+    // end the caller takes it back.
+    game::Party party;
 
     Battler& at(BattlerSlot slot) { return battlers[static_cast<std::size_t>(slot.index())]; }
     const Battler& at(BattlerSlot slot) const { return battlers[static_cast<std::size_t>(slot.index())]; }
@@ -362,6 +465,26 @@ struct BattleState {
     bool shadowStays = false;       // Shadow will not walk off after this battle
     bool shadowAvailable = false;
     bool eventTimerExpired = false; // a story countdown ran out during the battle
+
+    // Facts about the story that shape the party's commands.
+    bool magicOnly = false;         // only magic works here (Fanatics' Tower)
+    bool morphAvailable = false;    // Terra can Morph
+    bool permanentMorph = false;    // Terra stays morphed for the whole battle
+    bool onTheVeldt = false;
+
+    // The party's items and what it knows.
+    BattleInventory inventory;
+    RelicEffect2Set partyRelicEffects2;   // every party member's second relic effects together
+    BattlerSet espersSummoned;            // party members who have summoned their esper this battle
+    int swdtechsKnown = 0;
+    int blitzesKnown = 0;
+    int loresKnown = 0;
+    std::array<std::optional<DanceId>, 8> dancesKnown{};  // by DanceId; empty where not known
+    std::vector<MonsterId> ragesKnown;                    // in MonsterId order
+
+    // In the final battle, the record indices of the party members waiting to take a fallen
+    // fighter's place, in the order the player chose them.
+    std::deque<std::size_t> finalBattleReserve;
 
     // What the battle's end changed: Gau has just turned up, Shadow has walked off.
     bool gauJoining = false;

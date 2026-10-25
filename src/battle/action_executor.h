@@ -66,9 +66,8 @@ public:
     virtual void clearControl(BattleState&, BattlerSlot) {}
 
     // The updates an action can leave pending for a battler (PendingUpdates) that belong to other
-    // parts of the battle: its castable spells, its battle commands, its menu after Morph, and
-    // the spells a near-fatal relic casts.
-    virtual void refreshEnabledMagic(BattleState&, BattlerSlot) {}
+    // parts of the battle: its battle commands, its menu after Morph, and the spells a near-fatal
+    // relic casts.
     virtual void refreshCommandList(BattleState&, BattlerSlot) {}
     virtual void refreshMorph(BattleState&, BattlerSlot) {}
     virtual void checkNearFatal(BattleState&, BattlerSlot) {}

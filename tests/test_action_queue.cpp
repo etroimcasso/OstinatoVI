@@ -99,7 +99,7 @@ TEST(MpCost, MonstersPayTheSpellsBaseCost) {
 TEST(MpCost, PartyMembersPayWhatTheirSpellListSays) {
     // :12987-13003: the character's own list, byte 3 of the spell's entry; a spell not there is free.
     BattleState state = makeBattle();
-    state.at(kHero).spellCosts.push_back({.spell = AttackId::FIRE, .mpCost = 2});
+    state.at(kHero).spells.magic[0] = battle::SpellListEntry{.spell = AttackId::FIRE, .mpCost = 2};
     for (BattleCommandId command :
          {BattleCommandId::MAGIC, BattleCommandId::X_MAGIC, BattleCommandId::LORE, BattleCommandId::SUMMON}) {
         EXPECT_EQ(battle::commandMpCost(state, kHero, CommandAction{.command = command, .attack = AttackId::FIRE}),
@@ -110,10 +110,28 @@ TEST(MpCost, PartyMembersPayWhatTheirSpellListSays) {
               0);
 }
 
+TEST(MpCost, ASummonCostsWhatTheEquippedEsperDoes) {
+    // :12993-13002 with InitSpellList :14052-14054: an esper's spell-list place is the list's first
+    // entry, the equipped esper's, whichever esper the attack names.
+    BattleState state = makeBattle();
+    state.at(kHero).spells.esper = EsperId::SHIVA;
+    state.at(kHero).spells.summon = battle::SpellListEntry{.spell = AttackId::SHIVA, .mpCost = 17};
+    EXPECT_EQ(battle::commandMpCost(state, kHero, CommandAction{.command = BattleCommandId::SUMMON,
+                                                                 .attack = AttackId::SHIVA}),
+              17);
+    EXPECT_EQ(battle::commandMpCost(state, kHero, CommandAction{.command = BattleCommandId::SUMMON,
+                                                                 .attack = AttackId::RAMUH}),
+              17);
+    state.at(kHero).spells.esper.reset();
+    EXPECT_EQ(battle::commandMpCost(state, kHero, CommandAction{.command = BattleCommandId::SUMMON,
+                                                                 .attack = AttackId::SHIVA}),
+              0);
+}
+
 TEST(MpCost, AnActionMimicAddsIsFreeAndTheMarkIsUsedOnce) {
     // :12975-12977: the mark is taken by the next action created, whatever it is.
     BattleState state = makeBattle();
-    state.at(kHero).spellCosts.push_back({.spell = AttackId::FIRE, .mpCost = 2});
+    state.at(kHero).spells.magic[0] = battle::SpellListEntry{.spell = AttackId::FIRE, .mpCost = 2};
     const CommandAction fire{.command = BattleCommandId::MAGIC, .attack = AttackId::FIRE};
     state.mimicking = true;
     battle::addAction(state, kHero, fire);
