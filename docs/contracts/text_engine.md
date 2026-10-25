@@ -235,9 +235,11 @@ They skip until a Japanese cartridge is available.
 
 Recorded here as the contract the rendering components are built against.
 
-- The text area's pixel x is the pen's x. Each line is a 16-pixel strip; within it rows 0-3
-  are blank, a glyph's 11 rows are rows 4-14, and its shadow is rows 5-15
-  (`CopyDlgTextToBuf` `:1125-1155`).
+- The text area's pixel x is the pen's x. Below a line's top, rows 0-3 are blank, a glyph's
+  11 rows are rows 4-14, and its shadow is rows 5-15 (`CopyDlgTextToBuf` `:1125-1155`). How
+  far apart the lines are on screen, and where the text area sits, is the dialog window's: 15
+  pixels once its box is open, 16 while it opens (`docs/contracts/dialog_window.md` § Where the
+  text sits).
 - A glyph's artwork is a 16-pixel-wide cell whose ink begins 4 pixels in. The cell of a glyph
   at pen x starts at pixel **x − 4** (`LoadLetterGfx` `:1380-1453`), so the pen is the ink's
   left edge.
@@ -249,5 +251,5 @@ Recorded here as the contract the rendering components are built against.
 ## Not in this engine
 
 The dialog window itself, its open/close animation and the map title's window
-(`field/window.asm`); the event commands that start messages, wait on them and read the
+(`field/window.asm`; `docs/contracts/dialog_window.md`); the event commands that start messages, wait on them and read the
 selection; the battle and menu text renderers; the debug menu; the font color setting.

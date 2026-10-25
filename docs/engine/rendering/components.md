@@ -142,13 +142,17 @@ the glyph's artwork goes. The other text components are lists of these.
 ### `DialogText`
 
 ```cpp
-Sprites DialogText(const text::DialogState& state, int x, int y,
+Sprites DialogText(const text::DialogState& state, int x, int y, int linePitch,
                      const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                      retropp::PaletteId shadow);
 ```
 
 Every glyph on the current page (`state.placed`), each a `Glyph` with its ink starting at its pen
-x on its line, `text::kGlyphRowOffset` rows below the line's top. The artwork starts
+x on its line, `text::kGlyphRowOffset` rows below the line's top. `(x, y)` is the text area's
+top-left corner and line *n*'s top is `y + n · linePitch`; both come from the dialog window
+(`text::textAreaTop()`, `text::linePitch()`, [../text/window.md](../text/window.md)). The pitch
+changes when the window finishes opening, and each glyph keeps its key, so the lower lines move up
+rather than being replaced. The artwork starts
 `text::kGlyphArtLeftOfPen` to the left of the pen, because the font's artwork carries that
 much blank space before its ink.
 
@@ -164,18 +168,21 @@ Sprites MapTitle(const text::DialogState& state, int x, int y,
                  retropp::PaletteId shadow);
 ```
 
-The map title's glyphs, placed the same way, keyed `title:<n>`. Returns nothing once the title is
-down.
+The map title's glyphs, keyed `title:<n>`. The title is one line, so there is no pitch: each
+glyph is `text::kGlyphRowOffset` rows below `y`, the top of the title's text area
+(`text::titleTextAreaTop()`), which sits lower in the title box than a message's does in its box.
+Returns nothing once the title is down.
 
 ### `DialogCursor`
 
 ```cpp
-Sprites DialogCursor(const text::DialogState& state, int x, int y,
+Sprites DialogCursor(const text::DialogState& state, int x, int y, int linePitch,
                        const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                        retropp::PaletteId shadow);
 ```
 
-The arrow beside the selected choice, when the dialog shows one (`state.cursor`): at the left
+`(x, y)` and `linePitch` as for `DialogText`. The arrow beside the selected choice, when the
+dialog shows one (`state.cursor`): at the left
 edge of the choice's 16-pixel column, at a glyph's height in the line, with its shadow one pixel
 to the right only (`text::kCursorShadowDx`, `text::kCursorShadowDy`). Returns nothing without an
 arrow on screen, and nothing given an empty sheet — the Japanese cartridge's arrow has no known
@@ -184,13 +191,15 @@ place, so it has no artwork to upload.
 ### `DialogWipe`
 
 ```cpp
-Regions DialogWipe(const text::DialogState& state, int x, int y);
+Regions DialogWipe(const text::DialogState& state, int x, int y, int linePitch);
 ```
 
 A page the player dismisses goes half a line per frame — line 0's left half, then its right half,
 then line 1, down to line 3's right half — before the next page types. This returns one region
-per half-line gone so far, each the half-line's rectangle (`text::kHalfLinePx` by
-`text::kLineHeight`) made see-through on the layer it is given to. A glyph straddling the middle of
+per half-line gone so far, each the half-line's rectangle made see-through on the layer it is
+given to: `text::kHalfLinePx` wide, over the line's `text::kLineInkRows` rows — its glyphs, their
+shadows and the choice arrow, and nothing of the lines above or below. `(x, y)` and `linePitch`
+as for `DialogText`. A glyph straddling the middle of
 a line loses exactly the part inside the gone half. Give the result to the layer the text is on,
 through `LayerOptions::regions`.
 
@@ -211,7 +220,7 @@ through `LayerOptions::regions`.
 
 | To change | Edit |
 |---|---|
-| Where the dialog sits on screen | The `(x, y)` the caller passes. |
+| Where the dialog sits on screen, and how far apart its lines are | The `(x, y)` and `linePitch` the caller passes — the dialog window's ([../text/window.md](../text/window.md)). |
 | The shadow's offset, the text area's geometry, where glyphs sit in a line | `src/text/layout.h` |
 | A layer's depth, the screen size, a key's name | `src/render/layers.h` |
 | How a glyph and its shadow are drawn | `src/render/text/glyph.cpp` |

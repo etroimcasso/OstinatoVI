@@ -7,8 +7,10 @@
 // closes itself after the last one. With --capture nothing opens: each message is played straight
 // through and the screen is written to <dir> at the moments worth looking at (see runCapture).
 //
-// The wiring only: the engine, the cartridge's font uploaded once, the dialog engine advanced one
-// field frame at a time, and the screen (dialog_preview.h) assembled for each picture. Install a
+// The wiring only: the engine, the cartridge's font uploaded once, the dialog engine and its window
+// advanced one field frame at a time in the field's order — the text, then its close request, then
+// the window — and the screen (dialog_preview.h) assembled for each picture. Every message opens
+// in a box at the top of the screen and is finished once its window has closed. Install a
 // cartridge first with `ostinato-vi --install-rom <path>`; this reads the same one.
 
 #include <array>
@@ -49,6 +51,7 @@
 #include "ostinato/item_id.h"
 #include "ostinato/ostinato.h"
 #include "text/dialog.h"
+#include "text/dialog_window.h"
 #include "text/font.h"
 #include "text/layout.h"
 
@@ -201,6 +204,29 @@ preview::DialogSheets uploadSheets(retropp::Renderer& renderer, const text::Dial
     return sheets;
 }
 
+// --- the field frame ----------------------------------------------------------------------------
+
+// Start message `index` with its window opening, as the event that shows a message does.
+void startMessage(text::DialogState& state, text::DialogWindowState& window, std::size_t index,
+                  const text::DialogContext& context) {
+    text::initDialog(state);
+    text::initDialogWindow(window);
+    text::startDialog(state, index, context);
+    text::openDialogWindow(window, text::WindowPlacement::Top, false);
+}
+
+// One field frame of the message and its window. Returns whether the message is finished: its
+// window has closed.
+bool stepMessage(text::DialogState& state, text::DialogWindowState& window,
+                 const text::DialogInput& input, const text::DialogContext& context) {
+    text::tickDialog(state, input, context);
+    if (text::windowCloseRequested(state)) {
+        text::closeDialogWindow(window);
+    }
+    text::tickDialogWindow(window);
+    return text::isClosed(window);
+}
+
 // --- capture ----------------------------------------------------------------------------------
 
 // Write a captured screen as a binary PPM, which needs no encoder: a short text header, then the
@@ -219,9 +245,10 @@ bool writeCapture(const std::filesystem::path& file, std::span<const retropp::Rg
 
 // Compose the screen for `state` and write it to `file`, saying which.
 bool capture(retropp::Renderer& renderer, const text::DialogState& state,
-             const preview::DialogSheets& sheets, const std::filesystem::path& file,
-             retropp::PixelSize screen) {
-    const retropp::FrameDrawState frame{.layers = preview::DialogPreviewScreen(state, sheets)};
+             const text::DialogWindowState& window, const preview::DialogSheets& sheets,
+             const std::filesystem::path& file, retropp::PixelSize screen) {
+    const retropp::FrameDrawState frame{
+        .layers = preview::DialogPreviewScreen(state, window, sheets)};
     if (!writeCapture(file, renderer.captureViewport(frame), screen)) {
         std::cerr << "Could not write " << file.string() << "\n";
         return false;
@@ -262,8 +289,8 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
 
         for (const std::size_t index : indices) {
             text::DialogState state;
-            text::initDialog(state);
-            text::startDialog(state, index, context);
+            text::DialogWindowState window;
+            startMessage(state, window, index, context);
             ScriptedPlayer player{kCapturePageHoldFrames};
 
             const std::string stem = "dialog-" + std::to_string(index);
@@ -271,7 +298,8 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
             bool capturedWipe = false;
             bool finished = false;
             const auto save = [&](const std::string& name) {
-                if (!capture(renderer, state, sheets, directory / (name + ".ppm"), screen)) {
+                if (!capture(renderer, state, window, sheets, directory / (name + ".ppm"),
+                             screen)) {
                     status = 1;
                 }
             };
@@ -287,13 +315,12 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
                 if (step.input.confirmHeld) {
                     ++page;
                 }
-                text::tickDialog(state, step.input, context);
+                finished = stepMessage(state, window, step.input, context);
 
                 if (!capturedWipe && text::halfLinesCleared(state) == 1) {
                     save(stem + "-wipe");
                     capturedWipe = true;
                 }
-                finished = text::windowCloseRequested(state);
             }
 
             if (!finished) {
@@ -326,11 +353,11 @@ int runWindow(std::span<const std::size_t> indices, const assets::IngestedConten
     int messageFrames = 0;
     int status = 0;
     text::DialogState state;
+    text::DialogWindowState window;
     ScriptedPlayer player{kWindowPageHoldFrames};
 
     const auto start = [&](std::size_t index) {
-        text::initDialog(state);
-        text::startDialog(state, index, context);
+        startMessage(state, window, index, context);
         player = ScriptedPlayer{kWindowPageHoldFrames};
         messageFrames = 0;
         std::cout << "Dialog " << index << "\n";
@@ -345,9 +372,8 @@ int runWindow(std::span<const std::size_t> indices, const assets::IngestedConten
             return;
         }
 
-        text::tickDialog(state, player.next(state).input, context);
+        const bool finished = stepMessage(state, window, player.next(state).input, context);
         ++messageFrames;
-        const bool finished = text::windowCloseRequested(state);
         if (!finished && messageFrames < kMessageFrameLimit) {
             return;
         }
@@ -358,6 +384,7 @@ int runWindow(std::span<const std::size_t> indices, const assets::IngestedConten
         }
 
         text::initDialog(state);
+        text::initDialogWindow(window);
         if (++current == indices.size()) {
             loop.exitRequest();
         } else {
@@ -367,7 +394,7 @@ int runWindow(std::span<const std::size_t> indices, const assets::IngestedConten
 
     retropp::FrameDrawState frame;
     loop.renderLoop([&] {
-        frame.layers = preview::DialogPreviewScreen(state, sheets);
+        frame.layers = preview::DialogPreviewScreen(state, window, sheets);
         renderer.renderFrame(frame);
     });
 

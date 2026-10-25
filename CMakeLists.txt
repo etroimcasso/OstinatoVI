@@ -108,6 +108,7 @@ add_library(ostinato-vi-lib STATIC
     src/render/text/glyph.cpp
     src/render/text/map_title.cpp
     src/text/dialog.cpp
+    src/text/dialog_window.cpp
     src/text/font.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
@@ -445,3 +446,14 @@ target_include_directories(ostinato-vi-text-engine-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/dialog)
 target_link_libraries(ostinato-vi-text-engine-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-text-engine-tests)
+
+# The field dialog window: its open and close frame by frame, the text-only form, the map-title
+# box, and where the text sits inside the box, checked against the whole English script. Own
+# binary so the other baselines stay frozen.
+add_executable(ostinato-vi-dialog-window-tests
+    tests/test_dialog_window.cpp)
+target_compile_features(ostinato-vi-dialog-window-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-dialog-window-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-dialog-window-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-dialog-window-tests)

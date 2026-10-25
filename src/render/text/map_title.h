@@ -2,11 +2,14 @@
 //
 //     SpriteLayer("dialog", kDialogTextZ,
 //                 {DialogText(...), DialogCursor(...),
-//                  MapTitle(state, textX, textY, glyphs, ink, shadow)});
+//                  MapTitle(state, text::kTextAreaLeft, text::titleTextAreaTop(), glyphs, ink,
+//                           shadow)});
 //
-// (x, y) is the top-left corner of the text area on screen; the title's glyphs were placed centered
-// in it when the map opened (text::showMapTitle). Each is drawn with its shadow (Glyph), keyed
-// title:<n> by its place in the title. Returns nothing once the title is down.
+// (x, y) is the top-left corner of the title's text area on screen, which sits lower in the title
+// box than a message's does in its box (text::titleTextAreaTop). The title is one line; its glyphs
+// were placed centered on it when the map opened (text::showMapTitle), and each is drawn
+// kGlyphRowOffset pixels below the area's top with its shadow (Glyph), keyed title:<n> by its place
+// in the title. Returns nothing once the title is down.
 #pragma once
 
 #include "retropp/atlas_manifest.h"

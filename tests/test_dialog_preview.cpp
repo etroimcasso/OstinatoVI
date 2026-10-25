@@ -13,7 +13,9 @@
 #include "render/layers.h"
 #include "render/text/dialog_text.h"
 #include "render/text/dialog_wipe.h"
+#include "render/text/map_title.h"
 #include "text/dialog.h"
+#include "text/dialog_window.h"
 #include "text/font.h"
 #include "text/layout.h"
 
@@ -48,31 +50,73 @@ text::DialogState wipingPage() {
     return state;
 }
 
+// An open window at `placement`.
+text::DialogWindowState openWindow(text::WindowPlacement placement = text::WindowPlacement::Top) {
+    text::DialogWindowState window;
+    text::initDialogWindow(window);
+    text::openDialogWindow(window, placement, false);
+    for (int frame = 0; frame < text::kWindowOpenFrames; ++frame) {
+        text::tickDialogWindow(window);
+    }
+    return window;
+}
+
 TEST(DialogPreviewScreen, IsOneDialogLayerAtTheDialogDepth) {
-    const render::Layers layers = DialogPreviewScreen(wipingPage(), kSheets);
+    const render::Layers layers = DialogPreviewScreen(wipingPage(), openWindow(), kSheets);
     ASSERT_EQ(layers.size(), 1u);
     EXPECT_EQ(layers[0].key.value, "dialog");
     EXPECT_EQ(layers[0].z, render::kDialogTextZ);
 }
 
-TEST(DialogPreviewScreen, DrawsTheTextAtThePreviewsTextArea) {
+// The text sits in the window's text area, spaced as the window spaces it.
+TEST(DialogPreviewScreen, DrawsTheTextWhereTheWindowPutsIt) {
     const text::DialogState state = wipingPage();
-    const render::Layers layers = DialogPreviewScreen(state, kSheets);
-    const auto& sprites = std::get<retropp::SpriteContent>(layers[0].content).sprites;
-    const render::Sprites expected = render::DialogText(state, kPreviewTextX, kPreviewTextY,
-                                                        kSheets.glyphs, kSheets.ink, kSheets.shadow);
-    ASSERT_EQ(sprites.size(), expected.size());
-    for (std::size_t i = 0; i < expected.size(); ++i) {
-        EXPECT_EQ(sprites[i].key.value, expected[i].key.value);
-        EXPECT_EQ(sprites[i].x, expected[i].x);
-        EXPECT_EQ(sprites[i].y, expected[i].y);
+    for (const text::WindowPlacement placement :
+         {text::WindowPlacement::Top, text::WindowPlacement::Bottom}) {
+        const text::DialogWindowState window = openWindow(placement);
+        const render::Layers layers = DialogPreviewScreen(state, window, kSheets);
+        const auto& sprites = std::get<retropp::SpriteContent>(layers[0].content).sprites;
+        const render::Sprites expected =
+            render::DialogText(state, text::kTextAreaLeft, text::textAreaTop(window),
+                               text::linePitch(window), kSheets.glyphs, kSheets.ink,
+                               kSheets.shadow);
+        ASSERT_EQ(sprites.size(), expected.size());
+        for (std::size_t i = 0; i < expected.size(); ++i) {
+            EXPECT_EQ(sprites[i].key.value, expected[i].key.value);
+            EXPECT_EQ(sprites[i].x, expected[i].x);
+            EXPECT_EQ(sprites[i].y, expected[i].y);
+        }
     }
+}
+
+// The first glyph on line 1 of a top box: the text area starts at y 12, line 1 is 15 below it.
+TEST(DialogPreviewScreen, LineOneOfATopBoxIsFifteenBelowLineZero) {
+    const render::Layers layers = DialogPreviewScreen(wipingPage(), openWindow(), kSheets);
+    const auto& sprites = std::get<retropp::SpriteContent>(layers[0].content).sprites;
+    ASSERT_FALSE(sprites.empty());
+    EXPECT_EQ(sprites[1].y, 12 + 15 + text::kGlyphRowOffset);
+}
+
+TEST(DialogPreviewScreen, DrawsTheMapTitleInTheTitleBox) {
+    text::DialogState state = wipingPage();
+    state.titleShowing = true;
+    state.pageClearFrames = 0;
+    const render::Layers layers = DialogPreviewScreen(state, openWindow(), kSheets);
+    const auto& sprites = std::get<retropp::SpriteContent>(layers[0].content).sprites;
+    const render::Sprites expected =
+        render::MapTitle(state, text::kTextAreaLeft, text::titleTextAreaTop(), kSheets.glyphs,
+                         kSheets.ink, kSheets.shadow);
+    ASSERT_EQ(sprites.size(), expected.size());
+    ASSERT_FALSE(sprites.empty());
+    EXPECT_EQ(sprites[0].y, expected[0].y);
 }
 
 TEST(DialogPreviewScreen, CarriesThePageWipeAsTheLayersRegions) {
     const text::DialogState state = wipingPage();
-    const render::Layers layers = DialogPreviewScreen(state, kSheets);
-    const render::Regions expected = render::DialogWipe(state, kPreviewTextX, kPreviewTextY);
+    const text::DialogWindowState window = openWindow();
+    const render::Layers layers = DialogPreviewScreen(state, window, kSheets);
+    const render::Regions expected = render::DialogWipe(
+        state, text::kTextAreaLeft, text::textAreaTop(window), text::linePitch(window));
     ASSERT_EQ(expected.size(), 3u);
     ASSERT_EQ(layers[0].regions.size(), expected.size());
     for (std::size_t i = 0; i < expected.size(); ++i) {
@@ -83,7 +127,9 @@ TEST(DialogPreviewScreen, CarriesThePageWipeAsTheLayersRegions) {
 TEST(DialogPreviewScreen, AnIdleDialogIsAnEmptyLayer) {
     text::DialogState state;
     text::initDialog(state);
-    const render::Layers layers = DialogPreviewScreen(state, kSheets);
+    text::DialogWindowState window;
+    text::initDialogWindow(window);
+    const render::Layers layers = DialogPreviewScreen(state, window, kSheets);
     ASSERT_EQ(layers.size(), 1u);
     EXPECT_TRUE(std::get<retropp::SpriteContent>(layers[0].content).sprites.empty());
     EXPECT_TRUE(layers[0].regions.empty());
