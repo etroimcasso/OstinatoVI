@@ -133,49 +133,56 @@ its draw, so the picture always matches the state the frame ended on.
 ## Preview
 
 `ostinato-preview-dialog` plays messages from the installed cartridge through the text
-engine and the components above — the whole chain from the cartridge to the screen. It is a
-developer tool (`tools/previews/dialog/`), not part of the game. Each message opens a dialog
-window at the top of the screen, which places the text and spaces its lines, but the box itself
-is not drawn; there is no map behind it and no event that started the message.
+engine, the dialog window and their components — the whole chain from the cartridge to the
+screen. It is a developer tool (`tools/previews/dialog/`), not part of the game. Each message
+types into its box over a flat backdrop that stands in for the map; there is no event that started
+the message.
 
 ```sh
-ostinato-vi --install-rom <path-to-rom>              # once, if no cartridge is installed
-ostinato-preview-dialog 0 10 224                     # play dialogs 0, 10 and 224 (of 0 to 3083) in a window
-ostinato-preview-dialog --capture shots 0 10 224     # the same with no window, frames written to shots/
+ostinato-vi --install-rom <path-to-rom>                  # once, if no cartridge is installed
+ostinato-preview-dialog 0 10 224                         # play dialogs 0, 10 and 224 (of 0 to 3083) in a window
+ostinato-preview-dialog --capture shots 0 10 224         # the same with no window, frames written to shots/
+ostinato-preview-dialog --title 1 32 224 --text-only 10  # map 1's title first; dialog 10 with no box
 ```
 
 Nobody drives it. A scripted player plays each message to its end: on every page that waits
 for A it holds the page, presses down once halfway through the hold on the first page that
-offers two or more choices, then presses A. In the window the hold is two seconds, the
-messages play one after another on the field tick (`kFieldTickPeriod`) at the SNES's
-256×224 with a second's pause between them, and the window closes itself after the last.
-A message that has not ended after ten minutes' worth of frames is reported and the exit
-status is nonzero.
+offers two or more choices, then presses A. The messages' boxes alternate between the top and
+the bottom of the screen, starting at the top, and every message after `--text-only` shows no
+box. `--title <map>` shows that map's title first, for as long as the game shows one. In the
+window the hold is two seconds, the messages play one after another on the field tick
+(`kFieldTickPeriod`) at the SNES's 256×224 with a second's pause between them, and the window
+closes itself after the last. A message that has not ended after ten minutes' worth of frames is
+reported and the exit status is nonzero. A message is finished once its window has closed, five
+frames after the text asks for it.
 
-With `--capture <dir>` nothing opens. Each message plays straight through, and the screen is
-composed off screen and written to `<dir>` as binary PPM:
+With `--capture <dir>` nothing opens. The title and each message play straight through, and the
+screen is composed off screen and written to `<dir>` as binary PPM:
 
 | File | The screen when |
 |---|---|
+| `title-<map>.ppm` | the map title is up |
+| `dialog-<index>-open<rows>.ppm` | the box shows 1, 3, 5, 7 and then all 9 of its rows, on the five frames it opens over |
 | `dialog-<index>-page<n>.ppm` | page *n* is fully typed and waits for A |
 | `dialog-<index>-page<n>-moved.ppm` | on the first page with two or more choices, the selection has moved down one |
 | `dialog-<index>-wipe.ppm` | the first page wipe has taken its first half-line |
+| `dialog-<index>-close.ppm` | the box has started to close |
 
 A page that moves on by itself — a timed wait, as in the opening narration — never waits
 for A, so it has no page file.
 
 Either way the splices insert fixed values: every character's default name, the Mithril
-Knife, and 500 gil. The drop shadow is black, so it does not show against the preview's black
-background. A message is finished once its window has closed, five frames after the text asks
-for it.
+Knife, and 500 gil, and the box uses the first wallpaper in the cartridge's colors.
 
 `DialogPreviewScreen(state, window, sheets)` (`tools/previews/dialog/dialog_preview.h`) is the
-screen: one `SpriteLayer` at `kDialogTextZ` gathering `DialogText`, `DialogCursor` and
-`MapTitle`, with `DialogWipe` as the layer's regions, all placed where `window` puts the text.
-`main.cpp` is the wiring — it uploads the two sheets and the two palettes once, advances the
-engine and its window one field frame at a time in the field's order with the scripted
-player's input, and assembles the screen for each picture. `tests/test_dialog_preview.cpp` reads back what the
-screen returns.
+screen, back to front: the backdrop as a `TileLayer`; the box as a `TileLayer` at
+`kDialogWindowZ` with `WindowShading` and `WindowClip` as its regions and `WindowSquash` as its
+transform; and one `SpriteLayer` at `kDialogTextZ` gathering `DialogText`, `DialogCursor` and
+`MapTitle`, with `DialogWipe` and `WindowClip` as its regions — all placed where `window` puts
+them. `main.cpp` is the wiring — it uploads the sheets and palettes once, advances the engine and
+its window one field frame at a time in the field's order with the scripted player's input, and
+assembles the screen for each picture. `tests/test_dialog_preview.cpp` reads back what the screen
+returns.
 
 ## How a message types
 

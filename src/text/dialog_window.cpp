@@ -59,6 +59,13 @@ int rowsShown(const DialogWindowState& state) {
     return state.step == 0 ? 0 : 2 * state.step - 1;
 }
 
+int firstRowShown(const DialogWindowState& state) {
+    if (state.titleShowing) {
+        return 0;
+    }
+    return (kDialogWindowRows - rowsShown(state)) / 2;
+}
+
 int boxTopRow(const DialogWindowState& state) {
     if (state.titleShowing || state.placement == WindowPlacement::Top) {
         return kDialogWindowTopRow;

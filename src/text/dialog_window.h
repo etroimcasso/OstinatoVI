@@ -82,6 +82,10 @@ void closeMapTitleWindow(DialogWindowState& state);
 // message's box, kMapTitleWindowRows while the title box is up.
 int rowsShown(const DialogWindowState& state);
 
+// The first of the box's rows that shows, counting from its top border: the rows shown are always
+// the middle ones. 0 for the map-title box.
+int firstRowShown(const DialogWindowState& state);
+
 // The cell row of the box's top on screen: kDialogWindowTopRow or kDialogWindowBottomRow. The
 // title box is always at the top.
 int boxTopRow(const DialogWindowState& state);

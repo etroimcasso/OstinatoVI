@@ -5,7 +5,7 @@ five-frame opening and closing, the text-only form that shows no box, the map-ti
 text sits inside the box, and what the box looks like. All citations point into the pinned
 reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
 `src/field/window.asm` unless another file is named. This document is the test authority for
-`tests/test_dialog_window.cpp`.
+`tests/test_dialog_window.cpp`, `tests/test_window_art.cpp` and `tests/test_window_components.cpp`.
 
 ## Sources
 
