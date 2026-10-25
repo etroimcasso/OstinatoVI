@@ -40,7 +40,7 @@ The surfaces the mapping below draws on, all shipped in the engine at the pinned
 | `Region` + `ShapePoints` | Shape-confined effects: circle, capsule, polygon (concave OK), rounded, curves; stroke bands; `inverted()`; per-region `alpha` + `blend` |
 | `stencil()` / `Transparency` | Make a shape of a layer (or everything below it) see-through; `TransparentInside/Outside`, feather |
 | Built-in effects | `RowDisplacement, Ripple, Swirl, ColorFill, Gleam, ColorSaturation, Bloom, Glow, Transparency` at frame / layer (`Layer`/`Below` scope) / region / sprite sites |
-| `ScreenSpaceEffect::paramTable` | Per-row `Vec4` table an effect's shader reads by row (`paramRowAtUv`) — the arbitrary per-scanline-data door; consumed by `Custom` shaders |
+| `ScreenSpaceEffect::paramTable` | Per-row `Vec4` table an effect's shader reads by row (`paramRowAtUv`) — the general surface for arbitrary per-scanline data; consumed by `Custom` shaders |
 | `registerPostProcessStage` (`Custom`) | Game-authored fragment as a first-class effect at every site |
 | Indexed atlas + palette store | Per-cell/per-sprite atlas + palette handles, no per-layer set or cap; palettes re-uploadable / re-pointable per frame |
 | `Sprite` | Arbitrary `AssetDimensions`, per-sprite z/alpha/blend/transform/effects |
@@ -120,7 +120,7 @@ parallax (`src/world/rotate.asm:16`). Battle re-points three scroll channels per
 - **Wavy screen / water / heat shimmer** (sinusoidal tables): `RowDisplacement` — the built-in is
   exactly this effect, per layer or region-confined, with `Blank`/`Stretch` edge choice. Waveform
   fidelity to FF6's specific tables is a contract-time question; if the built-in's curve family
-  can't reproduce a specific table, the general door below applies.
+  can't reproduce a specific table, the general surface below applies.
 - **Arbitrary per-scanline scroll** (non-sinusoidal tables the game computes): `Custom` stage +
   `paramTable` — one `Vec4` per row, `paramRowAtUv` in the shader, the direct expression of "this
   frame's per-line offsets". Shipped surface; no engine change.
@@ -156,7 +156,7 @@ regions carrying their own per-region `blend` (a run of ColorFill rectangles col
 the engine). Layer selection bits (`bo4321`) become *which layers sit below the blend container's z*.
 CGRAM manipulation — the field's 20 palette-fade/manipulation modes (`src/field/color.asm:182-880`)
 — is palette data, not compositing: re-upload or re-point palettes per frame (`uploadPalette` /
-per-cell `PaletteId` rewrite), an existing engine door.
+per-cell `PaletteId` rewrite), an existing engine surface.
 
 **The gap:** SNES half color math also pairs with subtraction — `(dst − src)/2` — and FF6 uses it:
 `$d1` = half-subtract on OBJ+BG1 in menu initialization. The engine's `Half` is the add form only.
@@ -200,7 +200,7 @@ is a `Custom` stage + `paramTable` ramp — but the *faithful* observable is the
   to 64 vertices, or baked curve masks for smooth boundaries); window *logic* (AND/OR/XOR of two
   windows) maps to region composition — multiple regions, `inverted()` shapes, and stroke bands.
   Any mask whose per-scanline span table resists a clean shape description has the `paramTable`
-  door (§4).
+  surface (§4).
 
 ### 8. Mosaic — **Engine work item E1**
 
@@ -286,8 +286,7 @@ project's standing engine asks).
 
 ### Standing items (already recorded, not re-audited here)
 
-- **SNES audio backend** — SPC700 + S-DSP hosting for the original sound driver, plus the
-  audio-pack replacement backend.
+- **SNES audio backend** — SPC700 + S-DSP hosting for the original sound driver.
 - **65C816 VM backend** — for CPU-fidelity routines (RNG at minimum).
 
 ## Verdict summary

@@ -7,8 +7,7 @@
 
 The build rails for the port: a CMake project that consumes the Polyrhythm engine as a
 subproject, a seven-target topology (port library / game binary / five test runners), a GoogleTest
-smoke harness proving the engine compiles-links-runs consumer-side, and a dev-only script that
-stages ripped ROM assets into the canonical pack directories. Zero game behavior — this
+smoke harness proving the engine compiles-links-runs consumer-side. Zero game behavior — this
 stands up the infrastructure everything else builds on.
 
 ## Design decisions
@@ -121,33 +120,6 @@ reads the same cartridge.
 |---|---|---|
 | `ostinato-preview-dialog [--capture <dir>] <index>...` | `tools/previews/dialog/` | Field dialog messages played by a scripted player — in a window that closes itself, or with no window and the frames written to `<dir>` ([`docs/engine/text/dialog.md`](../engine/text/dialog.md#preview)) |
 
-### Dev-asset populate script (`scripts/setup-dev-assets.sh`)
-
-- **Scope:** stages raw rip products **verbatim** (no format conversion) from the two unambiguously
-  typed upstream modules into the two canonical pack targets:
-  - `original-src/src/gfx/` → `assets/gfx/default/` (bitplanes `.1bpp/2bpp/3bpp/4bpp`, palettes
-    `.pal`, screens `.scr`, `.cgx`, LZ-compressed `.lz`, and the module's `.asm`).
-  - `original-src/src/sound/` → `assets/audio/default/` (`.brr` samples, sfx/song data, the SPC
-    driver).
-- **Module-selection rationale.** The pack model has exactly two targets (gfx, audio). `src/gfx/` is
-  purely graphics and `src/sound/` is purely audio — a clean 1:1 module→pack copy with **zero
-  per-file interpretation**, which is deliberate. Every other upstream module (`battle`, `btlgfx`,
-  `cutscene`, `field`, `menu`, `text`, `world`, `event`) produces `.dat` **game-data** tables
-  (monster props, map props, event scripts, dialog) that later work parses into C++
-  **directly from `original-src/`** — they are not presentation packs and have no home in a
-  two-target pack model. `btlgfx`'s battle *graphics* bitplanes already live in `src/gfx/`; its own
-  dir holds battle *animation data*, so excluding it from the gfx pack is correct.
-- **macOS shell only** (`bash`) — dev populate is a dev-machine path; no `.ps1`.
-- **Clear error if the rip has not been run:** the script checks for a representative rip product in
-  each source module and aborts with the exact remedy (`make rip` in `original-src/` against a vanilla
-  ROM in `original-src/vanilla/`) rather than silently staging nothing.
-- **No transformation.** The engine-facing asset formats do not exist yet; any need for conversion or
-  upstream-layout interpretation beyond a copy is deliberately out of scope for this script. The
-  staged layout is regenerable and may be reshaped by the work that defines the engine formats and
-  the runtime extractor's canonical layout.
-- **Never commits anything.** `assets/*/default/*` is gitignored (only `.gitkeep` tracked); the script
-  writes only into those gitignored trees.
-
 ## Implementation details
 
 **Files created:**
@@ -157,8 +129,6 @@ reads the same cartridge.
 - `src/ostinato.cpp` — defines `ostinato::portName()` (the port library's first symbol).
 - `src/main.cpp` — prints port name + engine version, exits 0.
 - `tests/test_smoke.cpp` — the 1/1/0 smoke case.
-- `scripts/setup-dev-assets.sh` — dev populate.
-- `assets/gfx/default/.gitkeep`, `assets/audio/default/.gitkeep` — committed pack-dir placeholders.
 
 **Files modified:**
 - `engine` submodule pin `86f9d78` → `7c3707a`.
@@ -171,10 +141,6 @@ it will grow as the port references real engine surface (windowing, renderer, au
 
 ## Open questions / future work
 
-- **Populate layout is provisional.** The runtime ROM-extractor work defines the *canonical*
-  `assets/*/default/` layout that both populate paths must agree on; this dev-populate mapping is
-  reshaped to match then (per `docs/features/asset-acquisition.md`). For now the two paths are not
-  yet required to be byte-identical.
 - **`-Werror`** deferred until the port surface is real enough to hold a clean warnings baseline.
 - **The game binary runs no loop yet.** The first window and run loop are the dialog preview's;
   the game's `main()` sets only its identity.

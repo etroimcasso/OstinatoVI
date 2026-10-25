@@ -52,19 +52,19 @@ Game data carrying exact original values (stats, tables, formulas) is emitted by
 ## Distribution & asset model
 
 - **The repository and the distribution never carry the disassembly.** `original-src/` is a local clone a developer makes for the parsers (ignored, never committed, no submodule entry); the released artifact has no build or runtime reference to it.
-- **End users supply their own ROM — selected in-app at first start** (Zelda64 / Ship of Harkinian model). The port's first launch with an empty pack presents a ROM-selection flow, runs extraction internally, and populates the canonical asset directories — the same layout the dev populate path produces. No separate manual tool step in the user experience. **No extraction product is ever committed or shipped.**
-- Full pack model in `docs/features/asset-acquisition.md`.
+- **End users supply their own ROM — selected in-app at first start.** It is copied once into their user files and read in place on every launch; nothing is extracted to files. No ROM and nothing read from one is ever committed or shipped.
+- The acquisition model is in `docs/features/asset-acquisition.md`.
 
-### What is extracted, and what is compiled in
+### What is read from the cartridge, and what is compiled in
 
 The line is the content's **nature**, not its file format or its size, and it is drawn once for the whole project rather than re-argued at each table:
 
-- **Extracted from the player's ROM, never compiled in and never committed:** game text (dialog, names, descriptions, battle and menu strings), map layouts and tilemaps, artwork of every kind (backgrounds, sprites, fonts, portraits), and music and sound. These are authored expression.
+- **Read from the player's ROM, never compiled in and never committed:** game text (dialog, names, descriptions, battle and menu strings), map layouts and tilemaps, artwork of every kind (backgrounds, sprites, fonts, portraits), and music and sound. These are authored expression.
 - **Compiled into the binary:** the mechanics and the numeric tables that encode them — stats, formulas, encounter and formation tables, passability and terrain bits, animation and command properties, ids, curves. These are rules, not expression.
 
-A borderline case is decided by asking what the bytes *are*: a table of tile indices that draws a piece of the world is content even when it is small (the world map's tile patches moved to extraction on exactly this reasoning), while a byte that says whether the party can walk on a tile is mechanics even when it sits beside one.
+A borderline case is decided by asking what the bytes *are*: a table of tile indices that draws a piece of the world is content even when it is small, while a byte that says whether the party can walk on a tile is mechanics even when it sits beside one.
 
-**One extraction route, one code path.** The port's own extractor reads the ROM and writes the asset files; CI, a developer's machine and a player's install all populate the same way through the same binary. The upstream disassembly's own rip tooling is never a build or CI dependency — it is a design reference, not an asset supply.
+**One route, one code path.** Every launch reads the installed cartridge in place; CI, a developer's machine and a player's install all install it the same way through the same binary. The upstream disassembly's own rip tooling is never a build or CI dependency — it is a design reference, not an asset supply.
 
 ## Version support (decided 2026-08-02)
 
@@ -79,8 +79,7 @@ A borderline case is decided by asking what the bytes *are*: a table of tile ind
 
 Framework (FF Pixel Remaster / Halo MCC model): the default install plays exactly like the original ROM; every named enhancement is **user-opt-in, OFF by default, presentation-only** — never gameplay, RNG, AI, scripts, or cue timing.
 
-- **External audio packs** — per the engine's dual-audio-backend design: (a) original chiptune via VM-hosted SPC700 driver + emulated S-DSP; (b) user-supplied audio-pack replacement at engine cue points. Both backends are engine-mandatory; the pack side doubles as this port's first named enhancement.
-- Further named enhancements (output scaling ships engine-side already; anything FF6-specific): TBD — none currently planned.
+- Named enhancements (output scaling ships engine-side already; anything FF6-specific): none currently planned.
 
 **Opt-in developer tools (distinct class, decided 2026-08-02):** the original game's debug menu (assembled out of shipped ROMs by the upstream's `DEBUG` flag) will be ported as an opt-in facility, OFF by default. It is tracked separately from presentation enhancements because it mutates game state; the presentation-only rule above stays intact.
 

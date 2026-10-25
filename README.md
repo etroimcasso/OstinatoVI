@@ -11,6 +11,29 @@ route, and the field dialog text engine are in place; the game is not yet playab
 binary installs your cartridge on first launch, then prints the engine version and exits; the
 dialog engine runs in its own preview tool under `tools/previews/`.
 
+## Progress
+
+- [x] **Game data** — every compiled-in mechanics table: characters, magic and espers, items and
+  shops, monsters, formations and encounters, battle commands and formulas, attack animations,
+  maps, NPCs and event triggers, and the world map
+- [x] **Cartridge install** — your ROM identified and copied once, then read in place on every
+  launch, for all three releases
+- [x] **Game text** — the whole script and every name table, loaded and decoded
+- [x] **Field dialog text** — typing, word wrap, choices, the page wipe and the map title, drawn in
+  the game's own font, with a self-playing preview
+- [ ] **Field dialog window** — the box the text types into: opening and closing, top or bottom
+  placement, text-only messages, the map-title box *(in progress)*
+- [ ] **Battle engine**
+- [ ] **Battle presentation**
+- [ ] **Field engine** — maps, movement, NPCs, transitions, screen effects
+- [ ] **Event scripts**
+- [ ] **World map**
+- [ ] **Menus**
+- [ ] **Cutscenes**
+- [ ] **Audio** — the original music and sound effects
+- [ ] **Saving and loading**
+- [ ] **Packaging and release**
+
 ## Version support
 
 The port targets **all three releases** of the game: Final Fantasy VI 1.0 (Japan), Final
@@ -53,7 +76,6 @@ conveniences work against it.
 | `tests/` | GoogleTest suite |
 | `engine/` | [Polyrhythm](https://github.com/RetroPlusPlus/Polyrhythm) engine submodule |
 | `original-src/` | Not part of this repository (ignored). Developers clone the [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly (GPL-3.0) here as a read-only reference; nothing in the build or the distribution needs it |
-| `assets/{gfx,audio}/default/` | Canonical asset-pack load targets; contents are generated locally and never committed |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
 | `scripts/` | Development tooling |
 

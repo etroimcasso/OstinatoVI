@@ -8,7 +8,7 @@ the trigger family — the treasures and entrances placed on each map.
 
 This layer is the **static data plus lookup accessors**. It carries *indices*,
 not content: a map's graphics/tileset/layout/palette fields are id numbers into
-the pack-side graphics sets, and the actual map transfer, animation playback, and
+the map graphics sets, and the actual map transfer, animation playback, and
 treasure-award behavior are runtime systems added later. What lands here is
 everything the field code reads out of the map tables.
 
@@ -39,7 +39,7 @@ using namespace ostinato;
 
 // --- per-map properties (0-414) ---
 const MapProperties& m = mapProperties(32);
-m.graphics.gfx1();          // 7-bit index into the pack-side graphics sets
+m.graphics.gfx1();          // 7-bit index into the map graphics sets
 m.layouts.bg1Layout();      // 10-bit tilemap index (0 = no layer)
 m.effectFlags.warpEnabled(); m.effectFlags.xZoneEnabled();
 m.battleBackground.background();  // BattleBackgroundId for battles on this map
@@ -77,19 +77,19 @@ struct MapProperties {           // sizeof 33, offset-pinned per field
     MapEffectFlags effectFlags;  // +1  warp/x-zone/wavy/spotlights/timer toggles
     MapBattleBackground battleBackground;  // +2  battle bg + bg3-foreground bit
     std::uint8_t unknown3;       // +3  no consumer; preserved raw
-    std::uint8_t tilePropIndex;  // +4  -> tile-properties set (pack-side)
+    std::uint8_t tilePropIndex;  // +4  -> tile-properties set
     MapBattleFlags battleFlags;  // +5  random-battles-enabled bit
     std::uint8_t windowMask;     // +6  2-bit window-shape row
     MapGraphicsIds graphics;     // +7..+12  packed 48-bit id group
     MapLayoutIds layouts;        // +13..+16 packed 30-bit layout group
-    std::uint8_t overlayIndex;   // +17 -> overlay set (pack-side)
+    std::uint8_t overlayIndex;   // +17 -> overlay set
     std::uint8_t bg2ScrollX;     // +18
     std::uint8_t bg2ScrollY;     // +19
     std::uint8_t bg3ScrollX;     // +20
     std::uint8_t bg3ScrollY;     // +21
     std::uint8_t parallaxIndex;  // +22 -> mapParallax (0-20)
     MapBgSizes bgSizes;          // +23..+24 per-bg width/height size codes
-    std::uint8_t paletteIndex;   // +25 -> palette set (pack-side)
+    std::uint8_t paletteIndex;   // +25 -> palette set
     std::uint8_t palAnimIndex;   // +26 -> palette animation; 0 = none
     MapAnimationIndexes animation;  // +27 bg1/2 and bg3 animation indices
     std::uint8_t songId;         // +28 default music (placeholder id)
