@@ -113,4 +113,29 @@ TEST(StatusSet, CrossByteBoundaryMappingIsByteExact) {
     EXPECT_EQ(st.bytes[1], 0x00u);
 }
 
+// The original tests a group of statuses across all four bytes at once (peaflg STATUS12 /
+// STATUS34 with CheckStatus): hasAny is that test, hasAll its every-one form.
+TEST(StatusSet, GroupTestsSpanEveryByte) {
+    using ostinato::StatusId;
+    using ostinato::StatusSet;
+    const StatusSet group = StatusSet::of(StatusId::DEAD, StatusId::SLEEP, StatusId::HIDE);
+    StatusSet st = StatusSet::of(StatusId::HIDE, StatusId::BLIND);
+    EXPECT_TRUE(st.hasAny(group));
+    EXPECT_FALSE(st.hasAll(group));
+    st.set(StatusId::DEAD);
+    st.set(StatusId::SLEEP);
+    EXPECT_TRUE(st.hasAll(group));
+    EXPECT_FALSE(StatusSet::of(StatusId::BLIND).hasAny(group));
+    EXPECT_FALSE(st.hasAny(StatusSet{}));
+    EXPECT_TRUE(st.hasAll(StatusSet{}));
+}
+
+TEST(StatusSet, WithoutClearsOnlyTheGivenStatuses) {
+    using ostinato::StatusId;
+    using ostinato::StatusSet;
+    const StatusSet st = StatusSet::of(StatusId::DEAD, StatusId::HASTE, StatusId::FLOAT);
+    const StatusSet left = st.without(StatusSet::of(StatusId::DEAD, StatusId::FLOAT, StatusId::SLEEP));
+    EXPECT_EQ(left.bytes, StatusSet::of(StatusId::HASTE).bytes);
+}
+
 }  // namespace

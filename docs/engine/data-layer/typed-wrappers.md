@@ -65,6 +65,9 @@ struct StatusSet {
     constexpr bool has(StatusId id) const;
     constexpr void set(StatusId id);
     constexpr void clear(StatusId id);
+    constexpr bool hasAny(const StatusSet& other) const;
+    constexpr bool hasAll(const StatusSet& other) const;
+    constexpr StatusSet without(const StatusSet& other) const;
     static constexpr StatusSet of(auto... ids);
 };
 static_assert(sizeof(StatusSet) == 4);
@@ -76,6 +79,17 @@ owner of that packing rule — the original's combined 16-bit status views are
 expressible as accessors here rather than separate constants, and no consumer does
 the byte/bit split by hand. Example: `StatusId::SLEEP` (15) lives at byte 1,
 bit 7.
+
+A group of statuses is a `StatusSet` too, and the group tests read across all four
+bytes: `hasAny(group)` is whether any of them is set, `hasAll(group)` whether every one
+is, and `without(group)` is the set with the group cleared. An empty group has none set
+and all set.
+
+```cpp
+const StatusSet fallen = StatusSet::of(StatusId::DEAD, StatusId::PETRIFY, StatusId::ZOMBIE);
+if (battler.status.hasAny(fallen)) { ... }
+battler.status = battler.status.without(StatusSet::of(StatusId::DEAD, StatusId::HIDE));
+```
 
 ## `Targeting` — the attack targeting byte
 
