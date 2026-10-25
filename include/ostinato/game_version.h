@@ -11,7 +11,7 @@
 namespace ostinato {
 
 // The three supported ROM revisions. Ordering is arbitrary but stable; values
-// are never persisted as-is (a save/pack records the identified revision).
+// are never persisted as-is (a save records the identified revision).
 enum class GameVersion : std::uint8_t {
     JP_1_0,  // Final Fantasy VI (J) 1.0     — LANG_EN=0, ROM_VERSION=0
     US_1_0,  // Final Fantasy III (US) 1.0    — LANG_EN=1, ROM_VERSION=0

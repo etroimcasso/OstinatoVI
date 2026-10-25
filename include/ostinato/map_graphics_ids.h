@@ -5,7 +5,7 @@
 //   * gfx1-4    : bits 0-6, 7-13, 14-20, 21-27 (7 bits each) -> MapGfxPtrs
 //   * bg3 gfx   : bits 28-33 (6 bits) -> MapGfxBG3Ptrs
 //   * tileset1-2: bits 34-40, 41-47 (7 bits each) -> MapTilesetPtrs
-// The indices select pack-side graphics/tileset sets (Phase F1); this layer
+// The indices select the map's graphics and tileset sets; this layer
 // carries the indices only. sizeof == 6 keeps the group byte-identical to the
 // ROM.
 #pragma once

@@ -6,8 +6,8 @@
 //   * bg2 layout: bits 10-19 (word@+14, >>2 & $3ff)
 //   * bg3 layout: bits 20-29 (word@+15, >>4 & $3ff)
 // A layout index of 0 means the layer has no tilemap. Bits 30-31 have no
-// consumer and are preserved raw. The indices select pack-side sub_tilemap sets
-// (Phase F1); this layer carries the indices only. sizeof == 4 keeps the group
+// consumer and are preserved raw. The indices select the map's sub_tilemap
+// sets; this layer carries the indices only. sizeof == 4 keeps the group
 // byte-identical to the ROM.
 #pragma once
 

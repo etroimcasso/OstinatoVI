@@ -8,11 +8,10 @@
 // The route, start to finish:
 //
 //   1. installCartridge — identify the image and write it into the player's files. Once, ever.
-//   2. ingestCartridge  — host the copy on a VM, read each family, tear the VM down.
+//   2. ingestCartridge  — read each family out of the copy.
 //
-// There is no third way in. Nothing is decoded to intermediate files, so there is no half-populated
-// state to detect and no second code path that only developers exercise: a developer, a CI runner,
-// and a player all take the two steps above.
+// There is no third way in. Nothing is decoded to intermediate files. A developer, a CI runner and a
+// player all take the two steps above.
 #pragma once
 
 #include <cstdint>
