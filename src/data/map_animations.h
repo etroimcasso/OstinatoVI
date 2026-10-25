@@ -2,8 +2,8 @@
 // animation. Palette animation is a fixed 12-byte record per index (two 6-byte
 // slots); the two bg-animation families are pointer-table streams of tile
 // sub-records. The row data is generated (src/data/generated/*.inc); this header
-// owns the record types and accessors. The frame values index pack-side graphics
-// (MapAnimGfx, Phase F1); this layer carries the indices only.
+// owns the record types and accessors. The frame values index the map
+// animation graphics (MapAnimGfx); this layer carries the indices only.
 #pragma once
 
 #include <array>

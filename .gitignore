@@ -6,14 +6,13 @@
 *.smc
 *.fig
 
-# Extracted / ROM-derived asset content is never committed; directory
-# structure is preserved via .gitkeep when assets/ is scaffolded
+# ROM-derived content is never committed; directory structure is preserved
+# via .gitkeep
 assets/*/default/*
 !assets/*/default/.gitkeep
 
-# Text corpus: extracted ROM-derived text is copyrighted expression and is
-# never committed. No pack model here — the game reads raw .dat files from a
-# language directory directly under assets/text/. Structure kept via .gitkeep.
+# Text corpus directories: ROM-derived text is never committed. Structure kept
+# via .gitkeep.
 assets/text/*/*
 !assets/text/*/.gitkeep
 
