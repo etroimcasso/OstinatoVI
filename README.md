@@ -7,9 +7,9 @@ running as ordinary native code on Windows, macOS, and Linux. Not an emulator, a
 mechanical ASM translation: idiomatic modern C++ against a portable engine layer.
 
 **Status: early.** The data layer (every compiled-in mechanics table), the cartridge ingestion
-route, and the field dialog text engine are in place; the game is not yet playable. The game
-binary installs your cartridge on first launch, then prints the engine version and exits; the
-dialog engine runs in its own preview tool under `tools/previews/`.
+route, and the field dialog text engine and its window are in place; the game is not yet playable.
+The game binary installs your cartridge on first launch, then prints the engine version and exits;
+the dialog engine and its window run in their own preview tool under `tools/previews/`.
 
 ## Progress
 
@@ -21,8 +21,8 @@ dialog engine runs in its own preview tool under `tools/previews/`.
 - [x] **Game text** — the whole script and every name table, loaded and decoded
 - [x] **Field dialog text** — typing, word wrap, choices, the page wipe and the map title, drawn in
   the game's own font, with a self-playing preview
-- [ ] **Field dialog window** — the box the text types into: opening and closing, top or bottom
-  placement, text-only messages, the map-title box *(in progress)*
+- [x] **Field dialog window** — the box the text types into, drawn from the cartridge's own art:
+  opening and closing, top or bottom placement, text-only messages, the map-title box
 - [ ] **Battle engine**
 - [ ] **Battle presentation**
 - [ ] **Field engine** — maps, movement, NPCs, transitions, screen effects
