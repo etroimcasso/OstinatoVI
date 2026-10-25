@@ -23,7 +23,7 @@ the dialog engine and its window run in their own preview tool under `tools/prev
   the game's own font, with a self-playing preview
 - [x] **Field dialog window** — the box the text types into, drawn from the cartridge's own art:
   opening and closing, top or bottom placement, text-only messages, the map-title box
-- [ ] **Battle engine**
+- [ ] **Battle engine** *(in progress)*
 - [ ] **Battle presentation**
 - [ ] **Field engine** — maps, movement, NPCs, transitions, screen effects
 - [ ] **Event scripts**
