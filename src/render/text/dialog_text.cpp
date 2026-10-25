@@ -9,7 +9,7 @@
 
 namespace ostinato::render {
 
-Sprites DialogText(const text::DialogState& state, int x, int y,
+Sprites DialogText(const text::DialogState& state, int x, int y, int linePitch,
                      const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                      retropp::PaletteId shadow) {
     Sprites sprites;
@@ -25,7 +25,7 @@ Sprites DialogText(const text::DialogState& state, int x, int y,
                                 std::to_string(placed.page) + ":" + std::to_string(placed.line) +
                                 ":" + std::to_string(n);
         const int glyphX = x + placed.x - text::kGlyphArtLeftOfPen;
-        const int glyphY = y + placed.line * text::kLineHeight + text::kGlyphRowOffset;
+        const int glyphY = y + placed.line * linePitch + text::kGlyphRowOffset;
         for (retropp::Sprite& sprite :
              Glyph(key, placed.glyph, glyphX, glyphY, glyphs, ink, shadow)) {
             sprites.push_back(std::move(sprite));

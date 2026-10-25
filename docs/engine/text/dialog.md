@@ -76,14 +76,15 @@ The state is the picture's data. The fields a rendering component needs:
 
 | Field | Meaning |
 |---|---|
-| `placed` | Every glyph on the current page, in drawing order: `{page, line, x, glyph}`. `x` is the pen position the glyph was drawn at — the left edge of its ink. Its artwork starts `kGlyphArtLeftOfPen` pixels left of that, on row `kGlyphRowOffset` of the line's `kLineHeight`-pixel strip. |
+| `placed` | Every glyph on the current page, in drawing order: `{page, line, x, glyph}`. `x` is the pen position the glyph was drawn at — the left edge of its ink. Its artwork starts `kGlyphArtLeftOfPen` pixels left of that, `kGlyphRowOffset` rows below its line's top. How far apart the lines are is the dialog window's to say ([window.md](window.md)). |
 | `page` | Counts every page the state has shown. It is part of a glyph's identity: a glyph on page 7 and a glyph at the same spot on page 8 are different things, and a key built from `{page, line, ordinal}` keeps them apart. |
 | `cursor` | Where the choice arrow is, if it is on screen: a line and the pen x of its 16-pixel column. The arrow draws at the column's left edge. |
 | `titleShowing` | Whether the glyphs in `placed` are a map title that is up. |
 | `halfLinesCleared()` / `isWiped()` | A dismissed page leaves half a line at a time over eight frames, top line first, left half before right. A glyph or cursor on a half-line that has gone is not drawn. |
 
 A frame's dialog picture is therefore: each glyph in `placed`, drawn twice — in the font
-color with its artwork at `(x − kGlyphArtLeftOfPen, line · kLineHeight + kGlyphRowOffset)`, and
+color with its artwork at `(x − kGlyphArtLeftOfPen, line · pitch + kGlyphRowOffset)` in the text
+area, where `pitch` is the window's line spacing, and
 in black one pixel right and one down (`kShadowDx`, `kShadowDy`) beneath every letter — plus
 the arrow if present, its shadow one pixel to the right only (`kCursorShadowDx`,
 `kCursorShadowDy`), with every half-line that has gone left out. Nothing else is needed and
@@ -101,15 +102,19 @@ The rendering components do exactly that, one per piece of the picture
 #include "render/text/dialog_text.h"
 #include "render/text/dialog_wipe.h"
 #include "render/text/map_title.h"
+#include "text/dialog_window.h"
 
 using namespace ostinato::render;
 
+const int x = text::kTextAreaLeft;
+const int y = text::textAreaTop(window);      // the message's box, top or bottom
+const int pitch = text::linePitch(window);    // 16 while the box opens, 15 after
 frame.layers.push_back(SpriteLayer(
     "dialog", kDialogTextZ,
-    {DialogText(state, textX, textY, glyphSheet, ink, shadow),
-     DialogCursor(state, textX, textY, arrowSheet, ink, shadow),
-     MapTitle(state, textX, textY, glyphSheet, ink, shadow)},
-    {.regions = DialogWipe(state, textX, textY)}));
+    {DialogText(state, x, y, pitch, glyphSheet, ink, shadow),
+     DialogCursor(state, x, y, pitch, arrowSheet, ink, shadow),
+     MapTitle(state, x, text::titleTextAreaTop(), glyphSheet, ink, shadow)},
+    {.regions = DialogWipe(state, x, y, pitch)}));
 ```
 
 | Component | Draws |
@@ -121,54 +126,63 @@ frame.layers.push_back(SpriteLayer(
 
 `glyphSheet` and `arrowSheet` are the font's two sheets, uploaded once
 ([font.md](font.md)); `ink` and `shadow` are the palettes for the font color and the shadow
-black. The engine is advanced in the frame's update and these are called in its draw, so the
-picture always matches the state the frame ended on.
+black. `window` is the message's dialog window ([window.md](window.md)), which places the text
+area and spaces its lines. The engine is advanced in the frame's update and these are called in
+its draw, so the picture always matches the state the frame ended on.
 
 ## Preview
 
 `ostinato-preview-dialog` plays messages from the installed cartridge through the text
-engine and the components above — the whole chain from the cartridge to the screen. It is a
-developer tool (`tools/previews/dialog/`), not part of the game: there is no dialog window
-around the text, no map behind it, and no event that started the message.
+engine, the dialog window and their components — the whole chain from the cartridge to the
+screen. It is a developer tool (`tools/previews/dialog/`), not part of the game. Each message
+types into its box over a flat backdrop that stands in for the map; there is no event that started
+the message.
 
 ```sh
-ostinato-vi --install-rom <path-to-rom>              # once, if no cartridge is installed
-ostinato-preview-dialog 0 10 224                     # play dialogs 0, 10 and 224 (of 0 to 3083) in a window
-ostinato-preview-dialog --capture shots 0 10 224     # the same with no window, frames written to shots/
+ostinato-vi --install-rom <path-to-rom>                  # once, if no cartridge is installed
+ostinato-preview-dialog 0 10 224                         # play dialogs 0, 10 and 224 (of 0 to 3083) in a window
+ostinato-preview-dialog --capture shots 0 10 224         # the same with no window, frames written to shots/
+ostinato-preview-dialog --title 1 32 224 --text-only 10  # map 1's title first; dialog 10 with no box
 ```
 
 Nobody drives it. A scripted player plays each message to its end: on every page that waits
 for A it holds the page, presses down once halfway through the hold on the first page that
-offers two or more choices, then presses A. In the window the hold is two seconds, the
-messages play one after another on the field tick (`kFieldTickPeriod`) at the SNES's
-256×224 with a second's pause between them, and the window closes itself after the last.
-A message that has not ended after ten minutes' worth of frames is reported and the exit
-status is nonzero.
+offers two or more choices, then presses A. The messages' boxes alternate between the top and
+the bottom of the screen, starting at the top, and every message after `--text-only` shows no
+box. `--title <map>` shows that map's title first, for as long as the game shows one. In the
+window the hold is two seconds, the messages play one after another on the field tick
+(`kFieldTickPeriod`) at the SNES's 256×224 with a second's pause between them, and the window
+closes itself after the last. A message that has not ended after ten minutes' worth of frames is
+reported and the exit status is nonzero. A message is finished once its window has closed, five
+frames after the text asks for it.
 
-With `--capture <dir>` nothing opens. Each message plays straight through, and the screen is
-composed off screen and written to `<dir>` as binary PPM:
+With `--capture <dir>` nothing opens. The title and each message play straight through, and the
+screen is composed off screen and written to `<dir>` as binary PPM:
 
 | File | The screen when |
 |---|---|
+| `title-<map>.ppm` | the map title is up |
+| `dialog-<index>-open<rows>.ppm` | the box shows 1, 3, 5, 7 and then all 9 of its rows, on the five frames it opens over |
 | `dialog-<index>-page<n>.ppm` | page *n* is fully typed and waits for A |
 | `dialog-<index>-page<n>-moved.ppm` | on the first page with two or more choices, the selection has moved down one |
 | `dialog-<index>-wipe.ppm` | the first page wipe has taken its first half-line |
+| `dialog-<index>-close.ppm` | the box has started to close |
 
 A page that moves on by itself — a timed wait, as in the opening narration — never waits
 for A, so it has no page file.
 
 Either way the splices insert fixed values: every character's default name, the Mithril
-Knife, and 500 gil. The text area's top-left corner sits at `(kPreviewTextX,
-kPreviewTextY)` — where a dialog window would put it is the window's business, not the text
-engine's. The drop shadow is black, so it does not show against the preview's black
-background.
+Knife, and 500 gil, and the box uses the first wallpaper in the cartridge's colors.
 
-`DialogPreviewScreen(state, sheets)` (`tools/previews/dialog/dialog_preview.h`) is the
-screen: one `SpriteLayer` at `kDialogTextZ` gathering `DialogText`, `DialogCursor` and
-`MapTitle`, with `DialogWipe` as the layer's regions. `main.cpp` is the wiring — it uploads
-the two sheets and the two palettes once, advances the engine one field frame at a time with
-the scripted player's input, and assembles the screen for each picture. `tests/test_dialog_preview.cpp` reads back what the
-screen returns.
+`DialogPreviewScreen(state, window, sheets)` (`tools/previews/dialog/dialog_preview.h`) is the
+screen, back to front: the backdrop as a `TileLayer`; the box as a `TileLayer` at
+`kDialogWindowZ` with `WindowShading` and `WindowClip` as its regions and `WindowSquash` as its
+transform; and one `SpriteLayer` at `kDialogTextZ` gathering `DialogText`, `DialogCursor` and
+`MapTitle`, with `DialogWipe` and `WindowClip` as its regions — all placed where `window` puts
+them. `main.cpp` is the wiring — it uploads the sheets and palettes once, advances the engine and
+its window one field frame at a time in the field's order with the scripted player's input, and
+assembles the screen for each picture. `tests/test_dialog_preview.cpp` reads back what the screen
+returns.
 
 ## How a message types
 
@@ -227,13 +241,14 @@ spaces, nothing visible).
 
 | To change | Edit |
 |---|---|
-| The text area's geometry or any timing (margins, lines per page, pause lengths, the title's duration) | `src/text/layout.h` — every constant is named there and used nowhere by value. |
+| The text area's geometry or any timing (margins, lines per page, the line spacing, pause lengths, the title's duration) | `src/text/layout.h` — every constant is named there and used nowhere by value. |
+| Where the text area sits on screen | The dialog window ([window.md](window.md)). |
 | What a control code does | `runControl()` in `src/text/dialog.cpp`. |
 | How a word is measured | `measureWord()` in `src/text/dialog.cpp`. |
 | How a splice is built | The `*Glyphs()` functions in `src/text/dialog.cpp`. |
 | How the cursor moves | `kChoiceMoves` and `moveChoiceCursor()` in `src/text/dialog.cpp`. |
 | How any of it is drawn | The components under `src/render/text/` ([../rendering/components.md](../rendering/components.md)). |
-| The preview's scripted player, pacing, splice values or text position | `tools/previews/dialog/main.cpp` and `dialog_preview.h`. |
+| The preview's scripted player, pacing, splice values or window placement | `tools/previews/dialog/main.cpp` and `dialog_preview.h`. |
 | The expected behavior | `docs/contracts/text_engine.md`, then `tests/test_dialog.cpp`, which is written from it. |
 
 The tests in `tests/test_dialog.cpp` drive the engine frame by frame over hand-built

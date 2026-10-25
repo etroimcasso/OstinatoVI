@@ -94,9 +94,11 @@ content.version;                       // which revision this is
 content.text.itemName(ItemId::POTION); // the corpus, read out of the cartridge
 content.worldTiles;                    // the world-map tile pool
 content.dialogFont;                    // the dialog font: artwork, widths, choice arrow
+content.windowArt;                     // the dialog box's wallpapers and their palettes
 ```
 
-`dialogFont` is described in [../text/font.md](../text/font.md).
+`dialogFont` is described in [../text/font.md](../text/font.md), and `windowArt` in
+[../text/window.md](../text/window.md).
 
 Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps
 its banks straight onto the image, so an address becomes an offset by arithmetic —

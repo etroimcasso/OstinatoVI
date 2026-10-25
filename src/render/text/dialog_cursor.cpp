@@ -7,7 +7,7 @@
 
 namespace ostinato::render {
 
-Sprites DialogCursor(const text::DialogState& state, int x, int y,
+Sprites DialogCursor(const text::DialogState& state, int x, int y, int linePitch,
                        const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                        retropp::PaletteId shadow) {
     if (!state.cursor || arrow.tileCount() == 0) {
@@ -16,7 +16,7 @@ Sprites DialogCursor(const text::DialogState& state, int x, int y,
     const text::ChoicePosition& at = *state.cursor;
     const retropp::AssetSlot& cell = arrow[0];
     const int arrowX = x + at.x;
-    const int arrowY = y + at.line * text::kLineHeight + text::kGlyphRowOffset;
+    const int arrowY = y + at.line * linePitch + text::kGlyphRowOffset;
 
     const std::string key = std::string{kDialogCursorKey} + ":" + std::to_string(state.page) +
                             ":" + std::to_string(state.choices.selection);

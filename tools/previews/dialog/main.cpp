@@ -1,15 +1,20 @@
-// ostinato-preview-dialog [--capture <dir>] <index>... — play field dialog messages from the
-// installed cartridge.
+// ostinato-preview-dialog [--capture <dir>] [--title <map>] [--text-only] <index>... — play field
+// dialog messages from the installed cartridge.
 //
 // Nobody drives it. A scripted player plays every message to its end: it holds each page that
 // waits for A, moves the choice arrow down once on the first page that offers a choice, then
-// presses A. In a window the messages play one after another at the field rate and the window
-// closes itself after the last one. With --capture nothing opens: each message is played straight
-// through and the screen is written to <dir> at the moments worth looking at (see runCapture).
+// presses A. The messages' boxes alternate between the top and the bottom of the screen, starting
+// at the top; every message after --text-only shows no box. --title shows that map's title first,
+// for as long as the game shows it. In a window the messages play one after another at the field
+// rate and the window closes itself after the last one. With --capture nothing opens: each message
+// is played straight through and the screen is written to <dir> at the moments worth looking at
+// (see runCapture).
 //
-// The wiring only: the engine, the cartridge's font uploaded once, the dialog engine advanced one
-// field frame at a time, and the screen (dialog_preview.h) assembled for each picture. Install a
-// cartridge first with `ostinato-vi --install-rom <path>`; this reads the same one.
+// The wiring only: the engine, the cartridge's font and window art uploaded once, the dialog engine
+// and its window advanced one field frame at a time in the field's order — the text, then its close
+// request, then the window — and the screen (dialog_preview.h) assembled for each picture. A
+// message is finished once its window has closed. Install a cartridge first with
+// `ostinato-vi --install-rom <path>`; this reads the same one.
 
 #include <array>
 #include <charconv>
@@ -49,8 +54,11 @@
 #include "ostinato/item_id.h"
 #include "ostinato/ostinato.h"
 #include "text/dialog.h"
+#include "text/dialog_window.h"
 #include "text/font.h"
 #include "text/layout.h"
+#include "text/window_art.h"
+#include "ostinato/wallpaper_id.h"
 
 namespace {
 
@@ -69,6 +77,11 @@ constexpr std::uint32_t kPreviewGold = 500;
 // black.
 constexpr retropp::Rgba8 kFontColor{.r = 255, .g = 255, .b = 255};
 constexpr retropp::Rgba8 kShadowColor{.r = 0, .g = 0, .b = 0};
+
+// The window's wallpaper is the player's to choose; this is the one a new game starts with. The
+// backdrop stands in for the map behind the box.
+constexpr WallpaperId kPreviewWallpaper = WallpaperId::WALLPAPER_0;
+constexpr retropp::Rgba8 kBackdropColor{.r = 96, .g = 128, .b = 96};
 
 // --- pacing -----------------------------------------------------------------------------------
 
@@ -170,10 +183,14 @@ text::DialogContext dialogContext(const assets::IngestedContent& content) {
     return context;
 }
 
-// Upload the font's sheets and the two palettes. Pixel value kBlankPixel is a hole in both sheets,
-// so only each palette's kInkPixel entry is ever drawn.
-preview::DialogSheets uploadSheets(retropp::Renderer& renderer, const text::DialogFont& font) {
+// Upload the font's sheets and the two palettes, the window's wallpaper and colors, and the
+// backdrop's one tile and color. Pixel value kBlankPixel is a hole in the font's sheets, so only
+// each palette's kInkPixel entry is ever drawn; the wallpaper has no hole.
+preview::DialogSheets uploadSheets(retropp::Renderer& renderer,
+                                   const assets::IngestedContent& content) {
+    const text::DialogFont& font = content.dialogFont;
     const auto hole = retropp::TransparentIndices::of({text::kBlankPixel});
+    const retropp::AssetDimensions windowCell{text::kWindowTilePx, text::kWindowTilePx};
 
     const text::IndexedImage glyphs = text::buildGlyphSheet(font.glyphArt, font.glyphCount());
     preview::DialogSheets sheets{
@@ -198,7 +215,81 @@ preview::DialogSheets uploadSheets(retropp::Renderer& renderer, const text::Dial
     shadow[text::kInkPixel] = kShadowColor;
     sheets.ink = renderer.uploadPalette(ink);
     sheets.shadow = renderer.uploadPalette(shadow);
+
+    const text::IndexedImage wallpaper = text::buildWindowSheet(content.windowArt, kPreviewWallpaper);
+    sheets.window = renderer.uploadAtlas(
+        wallpaper.pixels.data(), wallpaper.width, wallpaper.height, windowCell,
+        retropp::ContentKind::Tileset, retropp::ReadOrder::LeftRightThenDown,
+        static_cast<int>(kWindowTileCount));
+    const text::WindowColors colors = text::defaultWindowColors(content.windowArt,
+                                                                kPreviewWallpaper);
+    std::array<retropp::Rgba8, text::kWindowColorCount + 1> windowPalette{};
+    for (std::size_t i = 0; i < colors.size(); ++i) {
+        windowPalette[i + 1] = colors[i];
+    }
+    sheets.windowColors = renderer.uploadPalette(windowPalette);
+
+    const std::vector<std::uint8_t> solid(
+        static_cast<std::size_t>(text::kWindowTilePx * text::kWindowTilePx), 1);
+    sheets.backdrop = renderer.uploadAtlas(solid.data(), text::kWindowTilePx, text::kWindowTilePx,
+                                           windowCell, retropp::ContentKind::Tileset,
+                                           retropp::ReadOrder::LeftRightThenDown, 1);
+    const std::array<retropp::Rgba8, 2> backdrop{retropp::Rgba8{}, kBackdropColor};
+    sheets.backdropColor = renderer.uploadPalette(backdrop);
     return sheets;
+}
+
+// --- what the run plays ------------------------------------------------------------------------
+
+// One message the run plays, and how its window shows it.
+struct Message {
+    std::size_t index = 0;
+    text::WindowPlacement placement = text::WindowPlacement::Top;
+    bool textOnly = false;
+};
+
+// --- the field frame ----------------------------------------------------------------------------
+
+// Start a message with its window opening, as the event that shows a message does.
+void startMessage(text::DialogState& state, text::DialogWindowState& window,
+                  const Message& message, const text::DialogContext& context) {
+    text::initDialog(state);
+    text::initDialogWindow(window);
+    text::startDialog(state, message.index, context);
+    text::openDialogWindow(window, message.placement, message.textOnly);
+}
+
+// Put map `map`'s title up with its box, as entering the map does.
+void startTitle(text::DialogState& state, text::DialogWindowState& window, std::size_t map,
+                const assets::IngestedContent& content, const text::DialogContext& context) {
+    text::initDialog(state);
+    text::initDialogWindow(window);
+    text::showMapTitle(state, content.text.mapTitle(map), context);
+    text::openMapTitleWindow(window);
+}
+
+// One field frame while a title is up. Returns whether it has gone: the title's timer ran out and
+// took its box down.
+bool stepTitle(text::DialogState& state, text::DialogWindowState& window,
+               const text::DialogContext& context) {
+    text::tickDialog(state, text::DialogInput{}, context);
+    if (!state.titleShowing) {
+        text::closeMapTitleWindow(window);
+    }
+    text::tickDialogWindow(window);
+    return !window.titleShowing;
+}
+
+// One field frame of the message and its window. Returns whether the message is finished: its
+// window has closed.
+bool stepMessage(text::DialogState& state, text::DialogWindowState& window,
+                 const text::DialogInput& input, const text::DialogContext& context) {
+    text::tickDialog(state, input, context);
+    if (text::windowCloseRequested(state)) {
+        text::closeDialogWindow(window);
+    }
+    text::tickDialogWindow(window);
+    return text::isClosed(window);
 }
 
 // --- capture ----------------------------------------------------------------------------------
@@ -219,9 +310,10 @@ bool writeCapture(const std::filesystem::path& file, std::span<const retropp::Rg
 
 // Compose the screen for `state` and write it to `file`, saying which.
 bool capture(retropp::Renderer& renderer, const text::DialogState& state,
-             const preview::DialogSheets& sheets, const std::filesystem::path& file,
-             retropp::PixelSize screen) {
-    const retropp::FrameDrawState frame{.layers = preview::DialogPreviewScreen(state, sheets)};
+             const text::DialogWindowState& window, const preview::DialogSheets& sheets,
+             const std::filesystem::path& file, retropp::PixelSize screen) {
+    const retropp::FrameDrawState frame{
+        .layers = preview::DialogPreviewScreen(state, window, sheets)};
     if (!writeCapture(file, renderer.captureViewport(frame), screen)) {
         std::cerr << "Could not write " << file.string() << "\n";
         return false;
@@ -232,13 +324,15 @@ bool capture(retropp::Renderer& renderer, const text::DialogState& state,
 
 // --- the two ways to run ----------------------------------------------------------------------
 
-// Play each message straight through with no window, writing the screen to `directory` as
-// dialog-<index>-page<n>.ppm when page n waits for A, dialog-<index>-page<n>-moved.ppm once the
-// arrow has moved on the first page with a choice, and dialog-<index>-wipe.ppm when the first page
-// wipe has taken its first half-line. The renderer composes off screen.
-int runCapture(std::span<const std::size_t> indices, const assets::IngestedContent& content,
-               const text::DialogContext& context, const std::filesystem::path& directory,
-               retropp::PixelSize screen) {
+// Play the title and each message straight through with no window, writing the screen to
+// `directory` as title-<map>.ppm while the title is up; dialog-<index>-open<rows>.ppm on each of
+// the five frames the box opens on (rows 1, 3, 5, 7, 9); dialog-<index>-page<n>.ppm when page n
+// waits for A; dialog-<index>-page<n>-moved.ppm once the arrow has moved on the first page with a
+// choice; dialog-<index>-wipe.ppm when the first page wipe has taken its first half-line; and
+// dialog-<index>-close.ppm on the first frame the box closes. The renderer composes off screen.
+int runCapture(std::optional<std::size_t> title, std::span<const Message> messages,
+               const assets::IngestedContent& content, const text::DialogContext& context,
+               const std::filesystem::path& directory, retropp::PixelSize screen) {
     std::error_code ec;
     std::filesystem::create_directories(directory, ec);
 
@@ -258,20 +352,34 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
     int status = 0;
     {
         retropp::Renderer renderer{device, nullptr};
-        const preview::DialogSheets sheets = uploadSheets(renderer, content.dialogFont);
+        const preview::DialogSheets sheets = uploadSheets(renderer, content);
 
-        for (const std::size_t index : indices) {
+        if (title) {
             text::DialogState state;
-            text::initDialog(state);
-            text::startDialog(state, index, context);
+            text::DialogWindowState window;
+            startTitle(state, window, *title, content, context);
+            const std::filesystem::path file =
+                directory / ("title-" + std::to_string(*title) + ".ppm");
+            if (!capture(renderer, state, window, sheets, file, screen)) {
+                status = 1;
+            }
+        }
+
+        for (const Message& message : messages) {
+            const std::size_t index = message.index;
+            text::DialogState state;
+            text::DialogWindowState window;
+            startMessage(state, window, message, context);
             ScriptedPlayer player{kCapturePageHoldFrames};
 
             const std::string stem = "dialog-" + std::to_string(index);
+            bool capturedClose = false;
             int page = 0;
             bool capturedWipe = false;
             bool finished = false;
             const auto save = [&](const std::string& name) {
-                if (!capture(renderer, state, sheets, directory / (name + ".ppm"), screen)) {
+                if (!capture(renderer, state, window, sheets, directory / (name + ".ppm"),
+                             screen)) {
                     status = 1;
                 }
             };
@@ -287,13 +395,21 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
                 if (step.input.confirmHeld) {
                     ++page;
                 }
-                text::tickDialog(state, step.input, context);
+                const bool wasOpening = window.phase == text::WindowPhase::Opening;
+                finished = stepMessage(state, window, step.input, context);
 
+                if (wasOpening) {
+                    save(stem + "-open" + std::to_string(text::rowsShown(window)));
+                }
+                if (!capturedClose && window.phase == text::WindowPhase::Closing &&
+                    text::rowsShown(window) > 0) {
+                    save(stem + "-close");
+                    capturedClose = true;
+                }
                 if (!capturedWipe && text::halfLinesCleared(state) == 1) {
                     save(stem + "-wipe");
                     capturedWipe = true;
                 }
-                finished = text::windowCloseRequested(state);
             }
 
             if (!finished) {
@@ -313,52 +429,65 @@ int runCapture(std::span<const std::size_t> indices, const assets::IngestedConte
 }
 
 // Play the messages one after another in a window at the field rate, then close it.
-int runWindow(std::span<const std::size_t> indices, const assets::IngestedContent& content,
-              const text::DialogContext& context) {
+int runWindow(std::optional<std::size_t> title, std::span<const Message> messages,
+              const assets::IngestedContent& content, const text::DialogContext& context) {
     retropp::SteadyClock clock;
     retropp::RunLoop loop{clock};
     retropp::SdlPlatform platform;
     retropp::Renderer renderer{platform.device(), platform.sdlWindow()};
-    const preview::DialogSheets sheets = uploadSheets(renderer, content.dialogFont);
+    const preview::DialogSheets sheets = uploadSheets(renderer, content);
 
     std::size_t current = 0;
+    bool showingTitle = title.has_value();
     int gapFrames = 0;
     int messageFrames = 0;
     int status = 0;
     text::DialogState state;
+    text::DialogWindowState window;
     ScriptedPlayer player{kWindowPageHoldFrames};
 
-    const auto start = [&](std::size_t index) {
-        text::initDialog(state);
-        text::startDialog(state, index, context);
+    const auto start = [&](const Message& message) {
+        startMessage(state, window, message, context);
         player = ScriptedPlayer{kWindowPageHoldFrames};
         messageFrames = 0;
-        std::cout << "Dialog " << index << "\n";
+        std::cout << "Dialog " << message.index << "\n";
     };
-    start(indices[current]);
+    if (showingTitle) {
+        startTitle(state, window, *title, content, context);
+        std::cout << "Map title " << *title << "\n";
+    } else {
+        start(messages[current]);
+    }
 
     loop.simTick([&](const retropp::InputState&) {
+        if (showingTitle) {
+            if (stepTitle(state, window, context)) {
+                showingTitle = false;
+                start(messages[current]);
+            }
+            return;
+        }
         if (gapFrames > 0) {
             if (--gapFrames == 0) {
-                start(indices[current]);
+                start(messages[current]);
             }
             return;
         }
 
-        text::tickDialog(state, player.next(state).input, context);
+        const bool finished = stepMessage(state, window, player.next(state).input, context);
         ++messageFrames;
-        const bool finished = text::windowCloseRequested(state);
         if (!finished && messageFrames < kMessageFrameLimit) {
             return;
         }
         if (!finished) {
-            std::cerr << "Dialog " << indices[current] << " did not finish within "
+            std::cerr << "Dialog " << messages[current].index << " did not finish within "
                       << kMessageFrameLimit << " frames.\n";
             status = 1;
         }
 
         text::initDialog(state);
-        if (++current == indices.size()) {
+        text::initDialogWindow(window);
+        if (++current == messages.size()) {
             loop.exitRequest();
         } else {
             gapFrames = kWindowMessageGapFrames;
@@ -367,7 +496,7 @@ int runWindow(std::span<const std::size_t> indices, const assets::IngestedConten
 
     retropp::FrameDrawState frame;
     loop.renderLoop([&] {
-        frame.layers = preview::DialogPreviewScreen(state, sheets);
+        frame.layers = preview::DialogPreviewScreen(state, window, sheets);
         renderer.renderFrame(frame);
     });
 
@@ -385,7 +514,7 @@ std::optional<std::size_t> parseIndex(std::string_view arg) {
 }
 
 constexpr std::string_view kUsage =
-    "usage: ostinato-preview-dialog [--capture <dir>] <index>...\n";
+    "usage: ostinato-preview-dialog [--capture <dir>] [--title <map>] [--text-only] <index>...\n";
 
 }  // namespace
 
@@ -401,20 +530,44 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    const std::size_t messages = dialogOffsets().size();
-    std::vector<std::size_t> indices;
+    const std::size_t dialogCount = dialogOffsets().size();
+    std::optional<std::size_t> title;
+    bool textOnly = false;
+    std::vector<Message> messages;
     for (int i = first; i < argc; ++i) {
-        const std::optional<std::size_t> index = parseIndex(argv[i]);
+        const std::string_view arg{argv[i]};
+        if (arg == "--text-only") {
+            textOnly = true;
+            continue;
+        }
+        if (arg == "--title" && i + 1 < argc) {
+            title = parseIndex(argv[++i]);
+            if (!title) {
+                std::cerr << kUsage;
+                return 1;
+            }
+            continue;
+        }
+        const std::optional<std::size_t> index = parseIndex(arg);
         if (!index) {
             std::cerr << kUsage;
             return 1;
         }
-        if (*index >= messages) {
+        if (*index >= dialogCount) {
             std::cerr << "There is no dialog " << *index << ": the script's messages are 0 to "
-                      << messages - 1 << ".\n";
+                      << dialogCount - 1 << ".\n";
             return 1;
         }
-        indices.push_back(*index);
+        messages.push_back(Message{
+            .index = *index,
+            .placement = messages.size() % 2 == 0 ? text::WindowPlacement::Top
+                                                  : text::WindowPlacement::Bottom,
+            .textOnly = textOnly,
+        });
+    }
+    if (messages.empty()) {
+        std::cerr << kUsage;
+        return 1;
     }
 
     // The game's own identity, so the per-user directory — and the cartridge in it — is the one the
@@ -437,7 +590,8 @@ int main(int argc, char** argv) {
     const text::DialogContext context = dialogContext(*content);
 
     if (captureDirectory) {
-        return runCapture(indices, *content, context, *captureDirectory, config.viewport.size());
+        return runCapture(title, messages, *content, context, *captureDirectory,
+                          config.viewport.size());
     }
-    return runWindow(indices, *content, context);
+    return runWindow(title, messages, *content, context);
 }

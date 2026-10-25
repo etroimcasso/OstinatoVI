@@ -187,6 +187,17 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
         cursor = text::CursorArt{library.data(library.uploadData(cartridge.read(*cursorPlace)))};
     }
 
+    // The dialog box's wallpapers and their palettes, which every cartridge places.
+    const std::optional<retropp::MemoryRegion> wallpaperPlace =
+        romRegion(RomAsset::WINDOW_GFX, spoken);
+    const std::optional<retropp::MemoryRegion> palettePlace =
+        romRegion(RomAsset::WINDOW_PAL, spoken);
+    if (!wallpaperPlace || !palettePlace) {
+        throw std::runtime_error("The cartridge has no dialog window artwork.");
+    }
+    const retropp::DataId wallpapers = library.uploadData(cartridge.read(*wallpaperPlace));
+    const retropp::DataId palettes = library.uploadData(cartridge.read(*palettePlace));
+
     return IngestedContent{
         .version = *version,
         .text = TextCorpus{std::move(corpus)},
@@ -195,6 +206,10 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
             .glyphArt = library.data(glyphArt),
             .metrics = text::FontMetrics{library.data(widths)},
             .cursor = cursor,
+        },
+        .windowArt = text::WindowArt{
+            .tiles = library.data(wallpapers),
+            .palettes = library.data(palettes),
         },
     };
 }

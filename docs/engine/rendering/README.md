@@ -13,8 +13,8 @@ made of. A frame is the list of what the components return.
 
 | Kind of component | Returns | Examples |
 |---|---|---|
-| A leaf, or a group of leaves | its `Sprites` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle` |
-| One that gathers components onto a layer | a `retropp::DrawLayer` | `SpriteLayer` |
+| A leaf, or a group of leaves | its `Sprites`, `Cells` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle`, `DialogWindow`, `WindowShading`, `WindowClip` |
+| One that gathers components onto a layer | a `retropp::DrawLayer` | `SpriteLayer`, `TileLayer` |
 | A screen | its `Layers` | — |
 
 The logic that decides *what* to show lives elsewhere, in modules with no rendering type in them
@@ -25,4 +25,4 @@ changes over time advances there, once per frame; a component only reads.
 
 | File | Covers |
 |---|---|
-| [components.md](components.md) | The return-type aliases (`types.h`); `SpriteLayer` and the `LayerOptions` it passes through; the depth table, the screen size and the key names (`layers.h`); the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`; how to add a component. |
+| [components.md](components.md) | The return-type aliases (`types.h`); `SpriteLayer`, `TileLayer` and the `LayerOptions` they pass through; the depth table, the screen size and the key names (`layers.h`); the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`; the dialog window components `DialogWindow`, `WindowShading`, `WindowSquash` and `WindowClip`; how to add a component. |

@@ -16,11 +16,16 @@ namespace ostinato::text {
 inline constexpr int kTextLeft = 4;
 inline constexpr int kTextRight = 224;
 
-// Lines per page, and the height of one line's strip in pixels.
+// Lines per page.
 inline constexpr int kLinesPerPage = 4;
-inline constexpr int kLineHeight = 16;
 
-// Within a line's strip: the blank rows above the glyph, and the glyph's own height.
+// How far apart the lines are, top to top: kLinePitch while the dialog window is open or closing,
+// kOpeningLinePitch while it opens (docs/contracts/dialog_window.md § Where the text sits). The
+// window reports which one applies (linePitch() in text/dialog_window.h).
+inline constexpr int kLinePitch = 15;
+inline constexpr int kOpeningLinePitch = 16;
+
+// Below a line's top: the blank rows above the glyph, and the glyph's own height.
 inline constexpr int kGlyphRowOffset = 4;
 inline constexpr int kGlyphRows = 11;
 
@@ -37,9 +42,34 @@ inline constexpr int kShadowDy = 1;
 inline constexpr int kCursorShadowDx = 1;
 inline constexpr int kCursorShadowDy = 0;
 
+// The rows of a line that show anything: the glyph's rows and its shadow's row below them. The
+// choice arrow fits within them too.
+inline constexpr int kLineInkRows = kGlyphRows + kShadowDy;
+
 // The width of one column of the text area. A choice's cursor arrow sits at the left edge of the
 // column the choice marker was in.
 inline constexpr int kCellPx = 16;
+
+// --- the dialog window ------------------------------------------------------------------------
+
+// The window is drawn in square cells this many pixels on a side, and a box is kDialogWindowRows
+// cells tall. Its top is cell row kDialogWindowTopRow for a message at the top of the screen and
+// kDialogWindowBottomRow for one at the bottom; the map-title box is always at the top and
+// kMapTitleWindowRows cells tall.
+inline constexpr int kWindowCellPx = 8;
+inline constexpr int kDialogWindowRows = 9;
+inline constexpr int kDialogWindowTopRow = 1;
+inline constexpr int kDialogWindowBottomRow = 18;
+inline constexpr int kMapTitleWindowRows = 4;
+
+// The frames a window takes to open: each shows two more of its rows, out from the middle one.
+inline constexpr int kWindowOpenFrames = (kDialogWindowRows + 1) / 2;
+
+// Where the text area sits: its left edge on screen, and its top below the top of the box it is in.
+// The map title's text area sits lower in its own box.
+inline constexpr int kTextAreaLeft = 16;
+inline constexpr int kTextAreaTopInBox = 4;
+inline constexpr int kTitleTextAreaTopInBox = 6;
 
 // --- the page wipe ----------------------------------------------------------------------------
 

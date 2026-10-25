@@ -14,12 +14,14 @@ no drawing code and includes no rendering type. The rendering components
 ([rendering/components.md](../rendering/components.md)) read its state and turn it into
 sprites, drawn from the dialog font the player's cartridge holds.
 
-The dialog *window* — the box the text sits in, its opening and closing — is a separate
-system and is not covered here.
+The dialog *window* is the box the text sits in: it opens and closes over five frames each, sits
+at the top or the bottom of the screen, places the text area and spaces its lines. It is logic in
+the same way, a plain struct advanced once per frame after the text.
 
 ## Index
 
 | File | Covers |
 |---|---|
 | [dialog.md](dialog.md) | The engine's state and its per-frame tick; starting a message; the control codes and what each costs; the English word wrap; the name, item, spell and gold splices; multiple choice; the page wipe; the map title; what the rendering reads and how it is drawn; the constants in `layout.h`. |
+| [window.md](window.md) | The dialog window's state and its per-frame tick; opening, closing and reopening; text-only messages; the map-title box; where the text area sits and how far apart its lines are; driving it beside the text engine. |
 | [font.md](font.md) | The dialog font read from the cartridge — the width table, the glyph artwork and the choice arrow (`DialogFont`, `FontMetrics`, `CursorArt`) — and the glyph and arrow sheets built from it. |

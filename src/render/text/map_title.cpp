@@ -21,7 +21,7 @@ Sprites MapTitle(const text::DialogState& state, int x, int y,
     for (const text::PlacedGlyph& placed : state.placed) {
         const std::string key = std::string{kTitleGlyphKey} + ":" + std::to_string(n++);
         const int glyphX = x + placed.x - text::kGlyphArtLeftOfPen;
-        const int glyphY = y + placed.line * text::kLineHeight + text::kGlyphRowOffset;
+        const int glyphY = y + text::kGlyphRowOffset;
         for (retropp::Sprite& sprite :
              Glyph(key, placed.glyph, glyphX, glyphY, glyphs, ink, shadow)) {
             sprites.push_back(std::move(sprite));

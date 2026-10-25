@@ -17,10 +17,13 @@ namespace ostinato::render {
 
 // --- the screen ---------------------------------------------------------------------------------
 
-// Every sprite layer covers the whole screen.
+// Every sprite and tile layer covers the whole screen.
 inline constexpr retropp::PixelSize kScreenSize = retropp::ViewportResolution::Snes.size();
 
 // --- depth --------------------------------------------------------------------------------------
+
+// The dialog box and the map-title box, beneath the text they hold and above the field.
+inline constexpr std::int32_t kDialogWindowZ = 25;
 
 // The dialog text, its choice arrow, and the map title.
 inline constexpr std::int32_t kDialogTextZ = 30;
@@ -45,6 +48,15 @@ inline constexpr std::string_view kDialogCursorKey = "dlgc";
 
 // A wiped half-line: dlgw:<line>:<half>.
 inline constexpr std::string_view kDialogWipeKey = "dlgw";
+
+// The dialog box's layer.
+inline constexpr std::string_view kDialogWindowKey = "dlgwin";
+
+// A run of the box's shading: dlgsh:<first row of the run>.
+inline constexpr std::string_view kWindowShadingKey = "dlgsh";
+
+// What hides the parts of a layer outside the box's rows shown while it opens and closes.
+inline constexpr std::string_view kWindowClipKey = "dlgclip";
 
 // What a sprite's shadow adds to the key of the sprite it falls from.
 inline constexpr std::string_view kShadowKeySuffix = ":shadow";

@@ -102,13 +102,20 @@ add_library(ostinato-vi-lib STATIC
     src/data/world_map.cpp
     src/data/world_tiles.cpp
     src/render/sprite_layer.cpp
+    src/render/tile_layer.cpp
     src/render/text/dialog_cursor.cpp
     src/render/text/dialog_text.cpp
     src/render/text/dialog_wipe.cpp
     src/render/text/glyph.cpp
     src/render/text/map_title.cpp
+    src/render/window/dialog_window.cpp
+    src/render/window/window_clip.cpp
+    src/render/window/window_shading.cpp
+    src/render/window/window_squash.cpp
     src/text/dialog.cpp
-    src/text/font.cpp)
+    src/text/dialog_window.cpp
+    src/text/font.cpp
+    src/text/window_art.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
 target_include_directories(ostinato-vi-lib PUBLIC include src)
@@ -445,3 +452,18 @@ target_include_directories(ostinato-vi-text-engine-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/dialog)
 target_link_libraries(ostinato-vi-text-engine-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-text-engine-tests)
+
+# The field dialog window: its open and close frame by frame, the text-only form, the map-title
+# box, and where the text sits inside the box, checked against the whole English script; the box's
+# tile formation and shading tables against the cartridge's bytes; the wallpaper art and colors as
+# the cartridge holds them; and the box's components read back from what they return. Own binary so
+# the other baselines stay frozen.
+add_executable(ostinato-vi-dialog-window-tests
+    tests/test_dialog_window.cpp
+    tests/test_window_art.cpp
+    tests/test_window_components.cpp)
+target_compile_features(ostinato-vi-dialog-window-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-dialog-window-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-dialog-window-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-dialog-window-tests)

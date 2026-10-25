@@ -15,13 +15,14 @@ using namespace ostinato::render;
 
 frame.layers.push_back(SpriteLayer(
     "dialog", kDialogTextZ,
-    {DialogText(dialog, textX, textY, glyphSheet, inkPalette, shadowPalette),
-     DialogCursor(dialog, textX, textY, arrowSheet, inkPalette, shadowPalette)},
-    {.regions = DialogWipe(dialog, textX, textY)}));
+    {DialogText(dialog, textX, textY, pitch, glyphSheet, inkPalette, shadowPalette),
+     DialogCursor(dialog, textX, textY, pitch, arrowSheet, inkPalette, shadowPalette)},
+    {.regions = DialogWipe(dialog, textX, textY, pitch)}));
 ```
 
-That one statement is the whole dialog picture for a frame: the page's glyphs and their
-shadows, the choice arrow, and the part of a dismissed page that has already gone.
+That one statement is the whole dialog text for a frame: the page's glyphs and their shadows,
+the choice arrow, and the part of a dismissed page that has already gone. The box behind it is a
+second layer, gathered the same way ([The dialog window components](#the-dialog-window-components)).
 
 ## The shared vocabulary
 
@@ -29,21 +30,25 @@ shadows, the choice arrow, and the part of a dismissed page that has already gon
 
 ```cpp
 using Sprites = std::vector<retropp::Sprite>;
+using Cells   = std::vector<retropp::TileCell>;
 using Regions = std::vector<retropp::Region>;
 using Layers  = std::vector<retropp::DrawLayer>;
 ```
 
-What components return. A leaf returns `Sprites` (or `Regions`, for a component that confines an
-effect to part of a layer); a parent returns what its children returned.
+What components return. A leaf returns `Sprites`, `Cells` (tiles, row by row, for a tile layer)
+or `Regions` (for a component that confines an effect to part of a layer); a parent returns what
+its children returned.
 
 ### `layers.h`
 
 | Name | What it is |
 |---|---|
-| `kScreenSize` | The screen, 256 × 224 (`retropp::ViewportResolution::Snes`). Every sprite layer covers it. |
-| `kDialogTextZ` | The depth of the dialog text, its arrow and the map title: 30. The field's world and sprite layers take the depths below it. |
+| `kScreenSize` | The screen, 256 × 224 (`retropp::ViewportResolution::Snes`). Every sprite and tile layer covers it. |
+| `kDialogWindowZ` | The depth of the dialog box and the map-title box: 25, beneath the text they hold. |
+| `kDialogTextZ` | The depth of the dialog text, its arrow and the map title: 30. The field's world and sprite layers take the depths below the box. |
 | `kShadowSpriteZ`, `kInkSpriteZ` | Within a sprite layer, every drop shadow (0) sits beneath every piece of ink (1), so no shadow ever darkens a letter. |
 | `kDialogGlyphKey`, `kTitleGlyphKey`, `kDialogCursorKey`, `kDialogWipeKey`, `kShadowKeySuffix` | The names sprites and regions go by. See [Keys](#keys). |
+| `kDialogWindowKey`, `kWindowShadingKey`, `kWindowClipKey` | The box's layer, its shading regions and its clip. |
 
 A new layer takes its depth from this table, and a new kind of sprite takes its key prefix from
 it, so two components never collide.
@@ -60,6 +65,9 @@ names the thing, never its position in a list.
 | A map title glyph | `title:<n>` | — |
 | The choice arrow | `dlgc:<page>:<choice>` | Moving the selection puts the arrow straight at the new choice instead of sliding it. |
 | A wiped half-line | `dlgw:<line>:<half>` | — |
+| The dialog box's layer | `dlgwin` | — |
+| A run of the box's shading | `dlgsh:<first row of the run>` | — |
+| The box's clip | `dlgclip` | — |
 | Any shadow | its sprite's key + `:shadow` | — |
 
 ## `SpriteLayer`
@@ -97,6 +105,24 @@ Every default is the engine's own, so a layer given no options draws exactly as 
 - **One call per key per frame.** A second call with the same key replaces what the first
   kept, leaving both layers showing the second one's sprites. The engine already requires a
   layer's key to be unique within a frame.
+
+## `TileLayer`
+
+```cpp
+retropp::DrawLayer TileLayer(std::string_view key, std::int32_t z, Cells cells,
+                             int widthInTiles, int heightInTiles, LayerOptions options = {});
+```
+
+Gathers tile cells onto one screen-sized, finite tile layer. `cells` is a row-major grid
+`widthInTiles` across and `heightInTiles` down, each cell naming its own sheet, tile and palette.
+The grid is finite (`retropp::TileWrap::Blank`): outside it the layer shows nothing and the layers
+beneath show through. `options.scroll` places the grid — screen pixel `(x, y)` shows grid pixel
+`(x + scroll.x, y + scroll.y)`, so a scroll of `{-8, -144}` puts the grid's top-left corner at
+`(8, 144)`. The layer's key, depth, size and content are TileLayer's; everything else comes from
+`options`.
+
+Its cells are a view the renderer reads, so TileLayer keeps them under `key` until the next call
+with that key, exactly as SpriteLayer keeps its sprites.
 
 ## The dialog components
 
@@ -142,13 +168,17 @@ the glyph's artwork goes. The other text components are lists of these.
 ### `DialogText`
 
 ```cpp
-Sprites DialogText(const text::DialogState& state, int x, int y,
+Sprites DialogText(const text::DialogState& state, int x, int y, int linePitch,
                      const retropp::AtlasManifest& glyphs, retropp::PaletteId ink,
                      retropp::PaletteId shadow);
 ```
 
 Every glyph on the current page (`state.placed`), each a `Glyph` with its ink starting at its pen
-x on its line, `text::kGlyphRowOffset` rows below the line's top. The artwork starts
+x on its line, `text::kGlyphRowOffset` rows below the line's top. `(x, y)` is the text area's
+top-left corner and line *n*'s top is `y + n · linePitch`; both come from the dialog window
+(`text::textAreaTop()`, `text::linePitch()`, [../text/window.md](../text/window.md)). The pitch
+changes when the window finishes opening, and each glyph keeps its key, so the lower lines move up
+rather than being replaced. The artwork starts
 `text::kGlyphArtLeftOfPen` to the left of the pen, because the font's artwork carries that
 much blank space before its ink.
 
@@ -164,18 +194,21 @@ Sprites MapTitle(const text::DialogState& state, int x, int y,
                  retropp::PaletteId shadow);
 ```
 
-The map title's glyphs, placed the same way, keyed `title:<n>`. Returns nothing once the title is
-down.
+The map title's glyphs, keyed `title:<n>`. The title is one line, so there is no pitch: each
+glyph is `text::kGlyphRowOffset` rows below `y`, the top of the title's text area
+(`text::titleTextAreaTop()`), which sits lower in the title box than a message's does in its box.
+Returns nothing once the title is down.
 
 ### `DialogCursor`
 
 ```cpp
-Sprites DialogCursor(const text::DialogState& state, int x, int y,
+Sprites DialogCursor(const text::DialogState& state, int x, int y, int linePitch,
                        const retropp::AtlasManifest& arrow, retropp::PaletteId ink,
                        retropp::PaletteId shadow);
 ```
 
-The arrow beside the selected choice, when the dialog shows one (`state.cursor`): at the left
+`(x, y)` and `linePitch` as for `DialogText`. The arrow beside the selected choice, when the
+dialog shows one (`state.cursor`): at the left
 edge of the choice's 16-pixel column, at a glyph's height in the line, with its shadow one pixel
 to the right only (`text::kCursorShadowDx`, `text::kCursorShadowDy`). Returns nothing without an
 arrow on screen, and nothing given an empty sheet — the Japanese cartridge's arrow has no known
@@ -184,15 +217,102 @@ place, so it has no artwork to upload.
 ### `DialogWipe`
 
 ```cpp
-Regions DialogWipe(const text::DialogState& state, int x, int y);
+Regions DialogWipe(const text::DialogState& state, int x, int y, int linePitch);
 ```
 
 A page the player dismisses goes half a line per frame — line 0's left half, then its right half,
 then line 1, down to line 3's right half — before the next page types. This returns one region
-per half-line gone so far, each the half-line's rectangle (`text::kHalfLinePx` by
-`text::kLineHeight`) made see-through on the layer it is given to. A glyph straddling the middle of
+per half-line gone so far, each the half-line's rectangle made see-through on the layer it is
+given to: `text::kHalfLinePx` wide, over the line's `text::kLineInkRows` rows — its glyphs, their
+shadows and the choice arrow, and nothing of the lines above or below. `(x, y)` and `linePitch`
+as for `DialogText`. A glyph straddling the middle of
 a line loses exactly the part inside the gone half. Give the result to the layer the text is on,
 through `LayerOptions::regions`.
+
+## The dialog window components
+
+The dialog box is its own tile layer at `kDialogWindowZ`, beneath the text layer. All four read a
+`text::DialogWindowState` ([../text/window.md](../text/window.md)); the three that place things take
+`boxTopLeft`, the screen position of the box's top-left visible corner. The box draws from the
+wallpaper sheet the cartridge's art is built into (`text::buildWindowSheet`), uploaded with 8 × 8
+cells and no see-through pixel, through a palette whose entries 1 to 7 are the window's colors.
+
+```cpp
+#include "render/tile_layer.h"
+#include "render/window/dialog_window.h"
+#include "render/window/window_clip.h"
+#include "render/window/window_shading.h"
+#include "render/window/window_squash.h"
+
+const retropp::Point boxTopLeft{.x = 8.0f,
+                                .y = static_cast<float>(text::boxTopRow(window) * 8)};
+const Regions clip = WindowClip(window, boxTopLeft);
+
+Regions boxRegions = WindowShading(window, boxTopLeft);
+boxRegions.insert(boxRegions.end(), clip.begin(), clip.end());
+
+Cells box = DialogWindow(window, wallpaperSheet, windowPalette);
+const int rows = static_cast<int>(box.size()) / text::kWindowVisibleColumns;
+frame.layers.push_back(TileLayer(
+    kDialogWindowKey, kDialogWindowZ, std::move(box), text::kWindowVisibleColumns, rows,
+    {.scroll = {.x = -8, .y = -static_cast<int>(boxTopLeft.y)},
+     .regions = std::move(boxRegions),
+     .transform = WindowSquash(window, boxTopLeft)}));
+// The text layer's regions are DialogWipe(...) followed by the same clip.
+```
+
+### `DialogWindow`
+
+```cpp
+Cells DialogWindow(const text::DialogWindowState& state, const retropp::AtlasManifest& sheet,
+                   retropp::PaletteId palette);
+```
+
+The box's tiles: the formation's 30 visible columns (`text::kDialogWindowFormation`, columns 1 to
+30), all nine rows whenever any of the box shows, or the map-title box's four. Each cell names
+`sheet`'s tile for its `WindowTile` and draws through `palette`. Returns nothing while the window is
+closed, before its first opening step, and for a text-only message.
+
+### `WindowShading`
+
+```cpp
+Regions WindowShading(const text::DialogWindowState& state, retropp::Point boxTopLeft);
+```
+
+The light and dark bands across the box: one region per run of rows sharing a shading level and a
+side of the middle, a `ColorFill` of that level in gray (level *n* is *n*/31 of full), with
+`BlendMode::Add` above the middle and `BlendMode::Subtract` from it down. Level 0 rows get none.
+While the box opens, each step shades the rows it shows with its own height's table; open and
+closing, the open box's table covers the rows that show. Give it to the box's layer only, so the
+text is not shaded.
+
+### `WindowSquash`
+
+```cpp
+retropp::Transform WindowSquash(const text::DialogWindowState& state, retropp::Point boxTopLeft);
+```
+
+On the first four opening frames, a vertical scale of (rows shown) / 9 about the box's middle row,
+so the whole box is drawn squashed into the 1, 3, 5 or 7 rows shown. The identity otherwise.
+
+### `WindowClip`
+
+```cpp
+Regions WindowClip(const text::DialogWindowState& state, retropp::Point boxTopLeft);
+```
+
+While the window opens or closes, a see-through region over everything outside the rows shown, the
+full width of the screen; with no rows shown, the whole layer. Nothing once open, when closed, and
+for the title box. On the box's layer it crops the closing box from the outside in; on the text's
+layer it keeps the text within the rows shown.
+
+### Gotchas
+
+- **Regions are in screen pixels.** The shading and the clip are placed on the screen, not in the
+  box's grid, so they stay where they are when the layer is squashed or scrolled.
+- **The clip goes on both layers.** Leaving it off the text layer shows text outside a half-open
+  box; leaving it off the box layer shows a closing box whole.
+- **The shading goes on the box's layer only.** On the text layer it would grade the letters.
 
 ## Adding a component
 
@@ -211,7 +331,9 @@ through `LayerOptions::regions`.
 
 | To change | Edit |
 |---|---|
-| Where the dialog sits on screen | The `(x, y)` the caller passes. |
+| Where the dialog sits on screen, and how far apart its lines are | The `(x, y)` and `linePitch` the caller passes — the dialog window's ([../text/window.md](../text/window.md)). |
+| How the box is drawn, shaded, squashed or cropped | `src/render/window/` |
+| The box's tiles, or its shading levels | `src/text/window_layout.h` and the tables it includes, generated by `tools/asm_parser/parse_window_data.py` |
 | The shadow's offset, the text area's geometry, where glyphs sit in a line | `src/text/layout.h` |
 | A layer's depth, the screen size, a key's name | `src/render/layers.h` |
 | How a glyph and its shadow are drawn | `src/render/text/glyph.cpp` |
