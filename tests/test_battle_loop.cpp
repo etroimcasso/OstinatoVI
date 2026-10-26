@@ -660,7 +660,7 @@ TEST(AfterAction, JoiningAndLeavingTheField) {
     RecordingExecutor executor;
     const BattlerSlot newcomer = BattlerSlot::monster(3);
     state.at(newcomer).status.set(StatusId::HIDE);
-    state.at(newcomer).firstStrike = true;
+    state.at(newcomer).monsterFlags.set(MonsterBattleFlag::FIRST_STRIKE);
     executor.onExecute = [&](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
         s.joiningAfterAction.add(newcomer);
         s.leavingAfterAction.add(kOtherMonster);
@@ -694,10 +694,10 @@ TEST(RunDifficulty, TwoPerMonsterAndSixForAHardOne) {
     BattleState state = makeBattle();
     battle::refreshRunDifficulty(state);
     EXPECT_EQ(state.runDifficulty, 4);
-    state.at(kOtherMonster).harderToRunFrom = true;
+    state.at(kOtherMonster).monsterFlags.set(MonsterBattleFlag::HARDER_TO_RUN);
     battle::refreshRunDifficulty(state);
     EXPECT_EQ(state.runDifficulty, 8);
-    state.at(kMonster).preventsEscape = true;
+    state.at(kMonster).monsterFlags.set(MonsterBattleFlag::CANT_RUN);
     battle::refreshRunDifficulty(state);
     EXPECT_TRUE(state.cannotRun);
     EXPECT_TRUE(state.escapeBlockedByMonster);
@@ -818,6 +818,24 @@ TEST(BattleEnd, GauMayTurnUpOnTheVeldt) {
         EXPECT_TRUE(state.gauJoining);
         ASSERT_EQ(state.immediateActions.size(), 1u);
         EXPECT_EQ(std::get<battle::BattleEventAction>(state.immediateActions[0]).event, battle::kGauJoinsEvent);
+    }
+}
+
+TEST(BattleEnd, GauTurnsUpForASmallPartyOnlyOnceHeHasJoined) {
+    // :11936-11941: with fewer than two allies standing, only the battle switch for "Gau has
+    // joined before" lets him appear.
+    for (bool obtained : {true, false}) {
+        BattleState state = makeBattle();
+        state.enemyCount = 0;
+        state.allyCount = 1;
+        state.at(kFriend).actor = CharacterPropId::GAU;
+        state.gauMayAppear = true;
+        state.gauObtained = obtained;
+        state.gauRecruited = !obtained;  // the roster bit plays no part here
+        state.rng = battle::BattleRng(positionDrawing(0, 160));
+        const auto outcome = stepOnce(state);
+        EXPECT_EQ(state.gauJoining, obtained);
+        EXPECT_EQ(outcome.has_value(), !obtained);
     }
 }
 

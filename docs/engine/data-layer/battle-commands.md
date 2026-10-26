@@ -170,3 +170,5 @@ values.
 ## Used by
 
 The party side of a battle's start ([battle/start.md](../battle/start.md)): `buildCommandList()` reads `kRelicCommandSwaps` and each command's targeting.
+
+The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` adds the bases in `kCommandAttackBases` and drops the targets of the commands in `kRetargetCommands`.

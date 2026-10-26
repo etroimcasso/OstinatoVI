@@ -90,11 +90,17 @@ struct BattleEventAction {
     std::uint8_t event = 0;
 };
 
+// A battle message is shown, such as the one naming a back attack as the battle opens.
+struct BattleMessageAction {
+    std::uint8_t message = 0;
+};
+
 // A battler reached the front of the line with nothing to do: its turn passes with no effect.
 struct NoAction {};
 
 using Action = std::variant<CommandAction, AiTurn, DamageOverTime, SpellWithoutCaster, StatusTimersExpired,
-                            PartyEscape, ResetBattlePose, SeizeDrain, BattleEventAction, NoAction>;
+                            PartyEscape, ResetBattlePose, SeizeDrain, BattleEventAction, BattleMessageAction,
+                            NoAction>;
 
 // The battle events the battle's end starts: Shadow walking off, and Gau turning up on the Veldt.
 inline constexpr std::uint8_t kShadowLeavesEvent = 11;

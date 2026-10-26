@@ -33,7 +33,14 @@ struct ReadyStance {
 // The battler that just acted goes back to its place.
 struct StepBack {};
 
-using BattleScriptCommand = std::variant<ReadyStance, StepBack>;
+// In the final battle, the next stage arrives: the background scrolls to `scroll` and the stage's
+// monsters appear.
+struct FinalBattleStageArrives {
+    std::uint8_t scroll = 0;
+    BattlerSet monsters;
+};
+
+using BattleScriptCommand = std::variant<ReadyStance, StepBack, FinalBattleStageArrives>;
 
 // Open the battle menu for a character. `controllingMonster` shows the menu of the monster the
 // character is controlling instead of the character's own.
@@ -60,7 +67,17 @@ struct RunBattleScript {
 // The monsters' names or numbers changed: redraw the list of them.
 struct RefreshMonsterNames {};
 
-using BattleRequest =
-    std::variant<OpenBattleMenu, CloseBattleMenu, RefreshBattleMenu, RunBattleScript, RefreshMonsterNames>;
+// The battle begins: its background, the party and the monsters come on screen.
+struct OpenBattleScene {};
+
+// In the final battle, a stage has been won: the background scrolls on toward the next.
+struct ScrollFinalBattleBackground {};
+
+// The battle is over: the scene fades out and the game goes back to where the battle started.
+struct CloseBattleScene {};
+
+using BattleRequest = std::variant<OpenBattleMenu, CloseBattleMenu, RefreshBattleMenu, RunBattleScript,
+                                   RefreshMonsterNames, OpenBattleScene, ScrollFinalBattleBackground,
+                                   CloseBattleScene>;
 
 }  // namespace ostinato::battle

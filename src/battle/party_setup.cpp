@@ -195,13 +195,6 @@ void settleHands(DerivedStats& stats, const std::array<HandContents, 2>& hands) 
     }
 }
 
-// The evade and magic-block values the hit check reads.
-std::uint8_t hitCheckFactor(int rating) {
-    if (rating == 0) return kStatMax;
-    if (rating >= 128) return 1;
-    return static_cast<std::uint8_t>(256 - 2 * rating);
-}
-
 RelicEffect2 relicSwapFlag(BattleCommandId from) {
     switch (from) {
         case BattleCommandId::FIGHT: return RelicEffect2::FIGHT_TO_JUMP;
@@ -332,6 +325,12 @@ void seat(BattleState& state, BattlerSlot slot, const Placement& placement) {
 
 }  // namespace
 
+std::uint8_t hitCheckFactor(int rating) {
+    if (rating == 0) return kStatMax;
+    if (rating >= 128) return 1;
+    return static_cast<std::uint8_t>(256 - 2 * rating);
+}
+
 // --- equipment -----------------------------------------------------------------------------------
 
 DerivedStats deriveEquipment(const game::CharacterRecord& record) {
@@ -453,8 +452,10 @@ void applyDerivedStats(BattleState& state, BattlerSlot slot, const DerivedStats&
     const auto heavyBit = static_cast<std::uint8_t>(static_cast<std::uint16_t>(EquipSpecial::HEAVY) >> 8);
     battler.equipsAs.hi = static_cast<std::uint8_t>(heavy ? battler.equipsAs.hi | heavyBit : battler.equipsAs.hi & ~heavyBit);
 
-    // Equipment that protects against Dead protects against instant death instead, and Dead can
-    // still be put on the battler; a battler that nullifies poison cannot be poisoned.
+    applyDeathAndPoisonImmunity(battler);
+}
+
+void applyDeathAndPoisonImmunity(Battler& battler) {
     battler.instantDeathProtected = !battler.inflictableStatuses.has(StatusId::DEAD);
     battler.inflictableStatuses.set(StatusId::DEAD);
     if (battler.elementsNullified.has(Element::POISON)) {

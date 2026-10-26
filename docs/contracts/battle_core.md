@@ -2,13 +2,16 @@
 
 Behavioral specification for the battle core: battle time (the ATB gauges, the advance waits and
 the status timers), the lines battlers wait in, the battle loop that takes turns, what happens
-after every action, how a battle ends, and the party's side of a battle's start — who stands in
-the party slots, each member's battle stats from their equipment, their commands and spells, and
-the battle inventory. All citations point into the pinned reference tree `original-src/`
+after every action, how a battle ends, a battle's start from a formation and the party — who
+stands in the party slots, each member's battle stats from their equipment, their commands and
+spells, the battle inventory, the monsters, the battle type and the starting gauges — the player's
+commands as the battle takes them in, what the game keeps when the battle ends, and a battle run
+from a frame tick. All citations point into the pinned reference tree `original-src/`
 (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another
 file is named. This document is the test authority for `tests/test_battle_state.cpp`,
 `tests/test_battle_clock.cpp`, `tests/test_action_queue.cpp`, `tests/test_battle_loop.cpp`,
-`tests/test_party_setup.cpp` and `tests/test_spell_lists.cpp`.
+`tests/test_party_setup.cpp`, `tests/test_spell_lists.cpp`, `tests/test_battle_start.cpp`,
+`tests/test_player_intake.cpp` and `tests/test_battle_sim.cpp`.
 
 What each command does, how actions are aimed, how an AI chooses, and the status effects that tie
 two battlers together are outside this contract: the battle core calls them through
@@ -46,6 +49,16 @@ two battlers together are outside this contract: the battle core calls them thro
 | The battle inventory | `InitInventory` `:13911-13956`, `LoadItemProp` `:13981-14037` | `loadBattleInventory()`, `battleItem()` |
 | Known skills | `InitSkills` `:14473-14513` | `loadKnownSkills()` |
 | Equipment changed mid-battle | `UpdateCharProp` `:5595-5631` | `applyEquipmentChanges()` |
+| A battle's start, in order | `InitRAM` `:6317-6332`, `InitBattle` `:6053-6195` | `startBattle()` |
+| The formation | `LoadBattleProp` `:7940-7992` | `chooseFormation()` |
+| The monsters | `InitMonsters` `:7672-7710`, `LoadMonsterProp` `:7307-7436`, `InitAI` `:7442-7466`, `CheckFirstStrike` `:7483-7498`, `LoadRageProp` `:7504-7550`, `AddHalf` `:11864-11873` | `loadMonster()` |
+| The battle type | `ChooseBattleType` `:7556-7578`, `RandBitWithRate` `:13525-13548`, `InitBattleType` `:7584-7666` | `chooseBattleType()`, `applyBattleType()` |
+| Status immunity at the start | `InitStatus` `:6439-6445` | `refreshStatusImmunity()` |
+| The starting gauges | `InitGauge` `:6228-6299` | `fillStartingGauges()` |
+| The player's commands | `GetPlayerAction` `:12620-12653`, `FixPlayerCmd` `:12671-12680`, `FixPlayerAttack` `:12686-12795` | `takePlayerActions()` |
+| What the game keeps | `UpdateSRAM` `:12092-12179`, `RemoveChar` `:11879-11885`, `ShadowLeaves` `:11990-11997` | `writeBack()` |
+| The final battle's stages | `CheckFinalBattle` `:12245-12262`, `BattleEnd_06` `:12204-12239` | `startNextFinalBattleStage()` |
+| A battle from a frame tick | `BattleLoop` `:67-144`, `UpdateBattleTime` `:2668-2722`, `TerminateBattle` `:150-154` | `BattleSim` |
 
 ## The two clocks
 
@@ -55,7 +68,9 @@ A battle runs on two clocks.
 graphics program calls `UpdateBattleTime` from both its own frame wait and the one it uses inside
 animations, unless it has stopped time itself (battle events other than Gau's and Wrexsoul's, the
 entry animation, the final battle's set pieces). `tickBattleTime(state, timeRunning, executor)` is
-called once per displayed frame; `timeRunning` carries the presentation's stop.
+called once per displayed frame; `timeRunning` carries the presentation's stop. Before anything
+else on a frame time runs, it takes in the commands the player has finished choosing (below, "The
+player's commands").
 
 **The battle loop** takes one step per frame while no battle script is playing. Its first act in
 each pass is to wait for the next frame (`:73-74`), and every command it runs waits for the
@@ -378,7 +393,7 @@ may open. Its menu is canceled if it is leaving, seized or charmed, or is dead, 
 asleep, confused, berserk, dancing, hidden or raging. Otherwise a battler whose menu may open and
 who has nothing chosen stops its gauge and opens its menu.
 
-**Cancelling the menu** (`CancelAction` `:1483-1506`): a battler not hidden, not a party member leaving,
+**Canceling the menu** (`CancelAction` `:1483-1506`): a battler not hidden, not a party member leaving,
 whose menu may open, loses that and joins the advance-wait line — it acts on its own; every battler
 stops taking menu input and leaves its menu; a party member's menu closes (`CloseBattleMenu`).
 
@@ -399,8 +414,9 @@ end-of-battle event ends the battle as that event says. A story countdown having
 - **Enemies left:** the battle goes on.
 - **No enemies left:** in the final battle, a stage with a next stage ends with
   `FinalBattleNextStage` and that stage's formation. Then, if Gau is in the party and may appear,
-  that chance is used up, and with the next entry below **160** (five times in eight) and Gau
-  recruited or two or more allies, **Gau joins**: he is set to join the field, fighting for the other
+  that chance is used up, and with the next entry below **160** (five times in eight) and either
+  Gau having joined the party before (the battle switch for it, `:11936-11938`) or two or more
+  allies, **Gau joins**: he is set to join the field, fighting for the other
   side, his battle event (27) interrupts the line, and the pass ends; the next pass drops the party's
   choices. Otherwise, if Shadow is in the party: with the next entry below **16**, a front attack,
   two or more allies, Shadow not dead, petrified or a zombie, not kept, and available, **Shadow
@@ -599,6 +615,219 @@ next loop step writes the hands into their record, copies their first eight stat
 out their stats again (above), asks for their battle commands to be refreshed, and works out their
 status immunity again.
 
+## A battle's start
+
+`startBattle()` builds a battle from a `BattleStart` (the formation, the background, what the field
+allows), the party, the battle switches and the game's text, in the original's order (`InitBattle`
+`:6053-6195`), so its random numbers are drawn in the same sequence:
+
+1. Mimic's memory starts as Mimic (`InitRAM` `:6329-6331`); the final battle is recognized when the
+   formation asked for is its first stage (`:6078-6082`).
+2. The random numbers start at **four times the frames part of the play clock** (`:6088-6090`).
+3. The formation (below).
+4. The party is placed (above, "Placing the party"): a final-battle stage, a colosseum match when
+   the formation is one of the last two, or the current party; the formation's scripted setup, if
+   it has one.
+5. Battle switches 63 and 64, 68 and 71 — party defeated, ran out of time, swallowed by Zone Eater —
+   are cleared (`:6093-6096`). The battle's rules are read from the switches: only magic, a
+   permanent morph, Morph available, Gau having joined before, Shadow kept.
+6. For every slot from the last to the first, one draw sets its **damage-over-time beat**, and the
+   updates for its castable spells, a condemned count's start and stop, its battle commands and its
+   ATB rate are left pending — its menu after Morph too, for a morphed battler (`:6097-6106`).
+7. The party is loaded (above), then the battle inventory and the known skills.
+8. The monsters (below).
+9. The statuses waiting to be set are put on (`executor.applyStatusChanges`); the after-command
+   checks run once — the fallen, then settling with condemned counts worked out at **level 20**
+   (`:6129-6132`); who is still fighting is worked out.
+10. The battle type (below); status immunity for every battler (`InitStatus`); what the battle type
+    does; the starting gauges (below); the opening message (below); run difficulty.
+11. A fighter still away from the field from the final battle's last stage comes down as the stage
+    opens: its gauge full and stopped, in the action line with a Jump (`:6166-6179`).
+12. The opening: `OpenBattleScene`, and the random numbers move on one entry — the loop's own once-a-
+    pass advance, which comes before its first wait (`:67-68`). A final-battle stage after the first
+    instead plays `FinalBattleStageArrives` — the background scrolls to the stage and its monsters
+    appear — and the loop waits for it (`:6180-6193`).
+
+### The formation
+
+`chooseFormation()` (`LoadBattleProp` `:7940-7992`): the eight **conditional battles** are checked
+from the last to the first; battle switch 48 + *n* turns on row *n*, and a turned-on row whose
+trigger is the formation asked for — its randomize flag included — replaces it with the row's
+replacement, which a lower row may replace again (`:7943-7955`). A formation with the randomize flag
+becomes itself plus the low two bits of one draw (`:7956-7965`). The formation the battle began with
+is remembered (`:7966-7970`): in the final battle it stays the first stage's, and Doom Gaze, the
+colosseum and the Veldt look at it.
+
+### The monsters
+
+Every monster slot is present or not by the formation (`:7675-7682`). The slots are then loaded
+from the last to the first (`:7686-7708`): a slot with a monster loads it; in a colosseum match
+every slot whose monster number is below 256 loads the opponent instead.
+
+`loadMonster()` (`LoadMonsterProp` `:7307-7436`) gives a monster, from its record:
+
+- its AI script, which is the monster's own (`executor.initAi` gets it ready, `InitAI`); its two
+  steal items;
+- its **name group**: the monster in the highest slot loaded so far, itself included, whose name
+  compares equal — the battle's list of monsters' names counts the group on one line
+  (`:7325-7359`). Names are compared eight bytes at a time, eight bytes into the name table per
+  monster. The Japanese table's names are eight bytes long; the English table's are ten, so in the
+  English versions two monsters with the same name are counted on separate lines unless the eight
+  bytes at their own offsets happen to match (`docs/Bugs.md`);
+- defense, magic defense, experience, gold, HP and MP (both full); Doom Gaze, in his own
+  formation, takes the HP he last fled with, kept in the battle switches, unless that is 0
+  (`:7378-7384`);
+- **stamina: 16 plus one for each 512 of maximum HP, at most 40** (`:7385-7392`);
+- attack power and the item whose animation its Fight borrows, as its weapon hand; evade and magic
+  block as the hit check reads them (`InvertEvade`); hit rate, level and speed; **magic power half
+  again, at most 255** (`AddHalf`);
+- its own Runic and its piranha mark (`:7412-7415`); its battle flags — first strike, harder to
+  run from, can't run, and the immunities to Suplex, Scan, Sketch and Control;
+- from `LoadRageProp` (`:7504-7550`): its special attack; its weak, absorbed and nullified
+  elements; which of the first three status bytes' statuses can be put on it; the statuses it
+  starts with — the record's first two status bytes, its third less the first bit, which is the
+  monster's flying flag and becomes **Float**, and of the fourth byte only Reraise and Float; its
+  second and third status bytes kept on it the way equipment keeps statuses, the flying flag again
+  as Float; the True Knight cover effect from the fourth byte's first bit; its Metamorph
+  information and its traits (dies at 0 MP, not shown in the list of names, human, Imp critical,
+  undead);
+- its special attack's animation;
+- **first strike** (`CheckFirstStrike`): a monster with first strike that is present starts with
+  its gauge full and stopped, its advance-wait counter's high byte at 255, in the advance-wait line,
+  and the battle menus shut until a battler finishes its last action (`:7423-7426`);
+- **vigor: 56 plus the low three bits of one draw** (`:7427-7431`);
+- protection from instant death and from poison as for a party member (`FixImmuneStatus`).
+
+### The battle type
+
+`chooseBattleType()` (`ChooseBattleType` `:7556-7578`) starts from the formation's possible types.
+A party wearing a **Back Guard** loses pincer attacks, then back attacks, each unless nothing else is
+left; a party of **fewer than three** allies loses side attacks, unless nothing else is left. Then
+`RandBitWithRate` (`:13525-13548`) with the battle-type row of `kRandomBitRates` (30, 7, 7, 207):
+each possible type takes its weight plus one, in the order side, pincer, back, front; one draw
+scaled to the total picks the first type whose running total it is below. With all four possible
+the bands are side below 31, pincer below 39, back below 47 and front up to 255 — a front attack
+four times in five.
+
+`applyBattleType()` (`InitBattleType` `:7584-7666`): anything but a front attack keeps Gau from
+appearing. In a front or side attack, unless the battle menus are shut or the formation forbids
+it, one draw below **32 (front) or 44 (side)** — twice that with a **Gale Hairpin** — is a
+**preemptive strike** (`:7621-7641`). A pincer attack puts every party slot in the front row; a back
+attack swaps every party slot's row; both are back attacks for the battle (`:7646-7666`).
+
+### The starting gauges
+
+`fillStartingGauges()` (`InitGauge` `:6228-6299`). Each of the ten slots, from the last to the
+first, is given one of the places 0-9 by a draw over the places left. A slot whose gauge is already
+set (a first strike) keeps it, and in a final-battle stage after the first no gauge is set at all,
+so every battler fills from one step short of full. Otherwise — empty slots included — with the
+place *p* and *e* the number of empty slots:
+
+| Side | Front | Back, pincer | Side attack | Preemptive strike |
+|---|---|---|---|---|
+| Party | random | 8*p* | not set | not set |
+| Monsters, and party members fighting for them | random | random | 1 | 1 |
+
+"Random" is speed + random(0 … speed − 1), then + 8*p*, then + 16*e*, stopping at 255 as soon as a
+sum passes it. The gauge's meter is that value plus one, or 255; a gauge **not set** fills at the
+battler's first update, so after a preemptive strike or in a side attack the party acts first and
+the monsters' meters start at 2.
+
+### The opening
+
+The opening message (`:6138-6161`) is a battle message action that interrupts the line: **35** for a
+back attack, **37** for a pincer, **36** for a side attack and **34** for a preemptive strike, which
+takes the side attack's place; a front attack without one shows none. A formation that forbids
+preemptive strikes shows no opening message at all.
+
+## The player's commands
+
+When the player finishes choosing a command, the battle menu adds a `PlayerAction` to
+`BattleState::chosenActions`. `takePlayerActions()` (`GetPlayerAction` `:12620-12653`) takes every
+one waiting, in the order chosen, on each frame battle time runs — first thing, before the wait-mode
+stop (`:2671`). For each: the character joins the advance-wait line, its menu is closed and may not
+open again until its gauge fills, and its command, settled as below, is added to its list. X-Magic
+adds two actions: the first spell as **Magic**, then the second as X-Magic.
+
+Settling a command (`FixPlayerAttack` `:12686-12785`, `FixPlayerCmd` `:12671-12680`):
+
+- **Summon** of the equipped esper becomes that esper, and the character is marked as having
+  summoned (`:12694-12704`).
+- **Item** and **Throw** put the item in the character's hand (`:12705-12711`).
+- **Slot**: the reel outcome becomes its spell (`kSlotOutcomes`). The two Joker Dooms take their
+  side's targets from `kJokerDoomTargets` — the first the party's, the second the monsters' — and
+  the party's targets then have every party member fighting for the other side switched; an outcome
+  whose spell is none calls a random esper (`executor.chooseRandomEsper`) (`:12712-12731`).
+- **Dance** remembers the dance for the dancer and as the last dance chosen, and the dancer's step
+  is chosen (`executor.chooseDanceStep`); **Rage** remembers the monster and its attack is chosen
+  (`executor.chooseRageAttack`). A dance or rage of none is chosen at random when it is used
+  (`:12732-12748`).
+- **Blitz**: a blitz the party has not learned becomes none (`:12749-12763`).
+- **Summon, Lore, Magitek, Blitz and Bushido** count their attack from a base
+  (`kCommandAttackBases`): the attack's place in its own list plus the base, and one that runs past
+  the last attack becomes the plain attack, `BATTLE` (`:12764-12774`).
+- The commands that **aim again** when they run (`kRetargetCommands`: Bushido, Blitz, Rage, Leap,
+  Dance) drop their targets (`:12775-12781`).
+- A **confused** or **zombie** character's targets are dropped, for both of X-Magic's spells.
+
+## What the game keeps
+
+`writeBack()` (`UpdateSRAM` `:12092-12179`) runs once a battle has an outcome, and returns a
+`BattleResult`:
+
+- For each party slot with a character: a **ghost** that is dead, petrified or a zombie, and anyone
+  **Possess** has taken, **leaves the party**. The record keeps the first eight statuses, and
+  Float and Interceptor; its HP; and its MP, unless the character has no MP at all.
+- The inventory is the battle inventory's 256 slots, an empty slot holding 0.
+- In the colosseum, the **wager is given up** — one from every inventory slot holding it, a slot
+  reaching 0 emptied — unless the match ran out of time, which forgets the wager (`:12135-12150`,
+  `:11972-11976`).
+- Doom Gaze's HP is kept in the battle switches.
+- The battle switches go back, with how the battle ended: **64** for a loss (`:15590`), **68** for
+  running out of time, **69** for a story countdown reaching zero, **71** for Zone Eater
+  (`:11900-11914`, `:11975`).
+- Shadow walking off takes him out of the party and unequips his esper (`:11990-11997`).
+- **The Veldt**: unless the formation is kept off it, and if a monster slot holds a monster
+  numbered below 256, the formation the battle began with joins those Gau can find on the Veldt —
+  if it is one of the first 512 (`:12163-12178`).
+
+## The final battle's stages
+
+A won stage that has a next stage ends with `FinalBattleNextStage` (above). The stage after it
+starts with `startNextFinalBattleStage()` (`BattleEnd_06` `:12204-12239`, then `InitBattle` again
+without `InitRAM`):
+
+- The background scroll for the next stage is entry 2*n* of `kFinalBattleScroll`, *n* being the
+  stage just won (`CheckFinalBattle` `:12245-12262`).
+- A party member who is present and not dead, petrified, a zombie or air-anchored **stands**: it
+  keeps its slot and its statuses, less Dance, Rage and Chant. Every other party member makes way,
+  and is no longer away from the field or marked as having summoned. Every monster's statuses are
+  cleared.
+- What lasts the whole final battle is carried on: statuses as above, the Reflect and Freeze timers,
+  Mimic's memory, who is away from the field, who has summoned, the morphed battler, the formation
+  the battle began with and the characters still waiting their turn.
+- Then the stage starts like any battle, with the standing fighters in their slots and the next
+  characters in line in the empty ones.
+
+## A battle from a frame tick
+
+`BattleSim` runs one battle from the host's frame. `tick(BattleInput)` adds the player's finished
+commands to the battle, runs `tickBattleTime()` with the presentation's `timeRunning`, and — only
+when the presentation is idle, no script still playing — one `stepBattle()`. Once the battle has an
+outcome, `executor.playBattleEnd` plays out its end, `writeBack()` hands the party back, and
+`CloseBattleScene` is requested (`TerminateBattle` `:150-154`); the result stays and nothing more
+runs. A won final-battle stage instead requests `ScrollFinalBattleBackground` (`:12235-12236`) and
+the next stage starts in its place. Requests come out of `takeRequests()` in the order they were
+made.
+
+## The battle switches
+
+`game::BattleSwitches` are the numbered switches and small counters the battle shares with event
+scripts and monster AI: switch *n* is bit *n* mod 8 of variable *n* / 8 of twenty. The battle reads
+48-55 (the conditional battles), 56 (only magic), 58 (permanent morph), 66 (Morph available), 73
+(Gau has joined before) and 75 (Shadow stays); it clears 63, 64, 68 and 71 as it starts and sets
+64, 68, 69 or 71 as it ends; variables 10 and 11 hold Doom Gaze's HP.
+
 ## Random numbers
 
 `BattleRng` reads the 256-entry RNG table (`rngByte`). `next()` moves the position on one entry, then
@@ -609,5 +838,7 @@ draws nothing. The position also moves on once per loop pass without drawing.
 
 ## Version differences
 
-The control-menu choice when a character's menu opens is the only version difference here: the
+The control-menu choice when a character's menu opens is the one place the code differs: the
 English versions read the control-menu flag and the Japanese version the Chant status (`:2795-2801`).
+The monsters' name groups come out differently from the same code, because the English name table's
+records are longer (above, "The monsters").

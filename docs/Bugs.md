@@ -209,3 +209,29 @@ gives a character past the fourteen the name's fifth and sixth bytes as
 anything into a hand in battle; giving them the bit `EquipPermissions::canEquip()`
 uses for their actor would match the field menus. Either changes which items a
 guest can hold.
+
+## Monsters with the same English name are listed on separate lines
+
+**What happens.** The battle's list of monsters' names counts monsters that
+share a name on one line. In the English versions, two different monsters with
+the same name usually get a line each, because the comparison does not read
+their names.
+
+**Where the original does it.** `LoadMonsterProp`
+(`battle/battle_main.asm:7319-7359`) indexes the monster name table at the
+monster number times eight and compares eight bytes. The Japanese table's
+records are eight bytes long, so it compares names. The English table's records
+are ten bytes long (`text/text_main.asm:180-187`), so for monster *n* it
+compares the eight bytes at offset 8*n* — part of one name and part of the next —
+and two monsters are grouped only when those windows match.
+`UpdateMonsterGfxBuf` (`:15218-15234`) builds the list from the result.
+
+**Where the port keeps it.** `loadMonster()` in `src/battle/battle_start.cpp`
+compares the same eight-byte windows of the cartridge's name table to set
+`Battler::nameGroup`. `tests/test_battle_start.cpp`
+(`StartMonstersOnTheCartridge.EnglishNamesAreComparedEightBytesApartInTenByteRecords`)
+pins it against the cartridge's names.
+
+**If you want to change it.** Comparing `TextCorpus::monsterName()` records
+would group the English names the way the Japanese ones are grouped; the list
+of names would then show fewer lines in some battles.

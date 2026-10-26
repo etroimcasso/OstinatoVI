@@ -84,6 +84,15 @@ int boostedMaximum(int maximum, MaxBoost boost);
 // Give the party member in `slot` the stats in `stats`.
 void applyDerivedStats(BattleState& state, BattlerSlot slot, const DerivedStats& stats);
 
+// An evade or magic-block rating as the hit check reads it (Battler::evadeFactor): 255 for a
+// rating of 0, 256 less twice the rating up to 127, and 1 from 128 on.
+std::uint8_t hitCheckFactor(int rating);
+
+// A battler that cannot be given Dead is protected from instant death instead, and Dead becomes
+// a status that can be put on it; a battler that nullifies poison cannot be poisoned. Party members
+// and monsters both get this once their immunities are set.
+void applyDeathAndPoisonImmunity(Battler& battler);
+
 // Narrow which statuses can be put on the battler in `slot`: not Float while its equipment keeps
 // Float on, not Morph with a permanent morph, not any of Silence, Berserk, Confuse, Sap, Regen,
 // Slow, Haste, Shell, Protect and Reflect its equipment keeps on it; and Regen and Sap, like Slow

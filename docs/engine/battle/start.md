@@ -1,23 +1,73 @@
-# Starting a battle: the party
+# Starting a battle, and what the game keeps
 
-Before a battle's first frame, its party side is built from the game's records: who stands in each
-of the four party slots, each member's battle stats with their equipment, their HP, MP and
-statuses, their battle command menu and spell list, the battle inventory, and what the party knows
-of its other abilities. Everything here works on `BattleState::party`, the battle's own copy of the
-game's party; the battle reads and changes that copy as it goes.
+Before a battle's first frame it is built from a formation and the game's records: which formation
+is fought, who stands in each of the four party slots, each member's battle stats with their
+equipment, their HP, MP and statuses, their battle command menu and spell list, the battle
+inventory, what the party knows, every monster from its record, the battle type, where each gauge
+starts and the opening message. When the battle is over, `writeBack()` returns what the game keeps.
+Everything works on `BattleState::party`, the battle's own copy of the game's party, and
+`BattleState::switches`, its copy of the battle switches.
 
 The rules, and the line of the original each is read from, are in
-[`docs/contracts/battle_core.md`](../../contracts/battle_core.md) § "The party at the battle's start".
+[`docs/contracts/battle_core.md`](../../contracts/battle_core.md) § "The party at the battle's start",
+"A battle's start", "What the game keeps" and "The final battle's stages".
 
 ## Files
 
 | File | Holds |
 |---|---|
+| `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `BattleStart`, `ColosseumMatch`, `BattleResult` |
+| `src/game/battle_switches.h` | `game::BattleSwitches` and the switch numbers the battle uses |
 | `src/game/character_record.h` | `game::CharacterRecord`, `game::Party`, `PartyMembership`, `SpellProgress`, `InventorySlot`, `PlayTime` |
-| `src/battle/party_setup.h` | `placeParty()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
+| `src/battle/party_setup.h` | `placeParty()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `hitCheckFactor()`, `applyDeathAndPoisonImmunity()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
 | `src/battle/spell_lists.h` | `SpellList`, `SpellListEntry`, `buildSpellLists()`, `loadSpellList()`, `refreshCastableSpells()` |
 | `src/battle/battle_inventory.h` | `BattleInventory`, `BattleItem`, `ToolSet`, `battleItem()`, `loadBattleInventory()`, `loadKnownSkills()` |
 | `src/battle/battle_state.h` | the battler's party-member fields: `Hand`, `MenuCommand`, `BlockGraphicSet` |
+
+## Starting a battle
+
+```cpp
+#include "battle/battle_start.h"
+
+using namespace ostinato;
+using namespace ostinato::battle;
+
+BattleStart start;
+start.formation = FormationRef::of(FormationId::LOBO);
+start.background = BattleBackgroundId::FIELD_WOB;
+start.config = playerSettings;
+start.playTimeFrames = playClock.frames;   // 0-59
+
+BattleState state = startBattle(start, party, switches, cartridge.text, executor);
+// ... run it (core.md) until stepBattle() returns an outcome ...
+const BattleResult result = writeBack(state);
+party = result.party;
+switches = result.switches;
+if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ }
+```
+
+`BattleStart` holds what the field sets for a battle:
+
+| Member | Is |
+|---|---|
+| `formation` | the formation asked for, with its randomize flag (`FormationRef`) |
+| `background` | the battle background |
+| `gauMayAppear`, `onTheVeldt`, `keepFieldMusic` | Gau may come back after this Veldt battle; Leap works; the field's music plays on |
+| `gauRecruited`, `shadowAvailable` | whether Gau and Shadow are among the characters the party can field now |
+| `colosseum` | a `ColosseumMatch` — wager, prize, opponent, fighter — for the colosseum's formations |
+| `finalBattleOrder` | the final battle: the character records in the order the player lined them up |
+| `config` | the player's battle settings (`BattleConfig`) |
+| `version` | the cartridge's `GameVersion` |
+| `playTimeFrames` | the frames part of the play clock; the battle's random numbers start at four times it |
+
+The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
+line in the list of names. The story's rules — only magic, a permanent morph, Morph available, Gau
+having joined before, Shadow kept — come from the battle switches.
+
+`startBattle()` runs, in order: the formation; the party placed and loaded (below), the battle
+inventory and known skills; the monsters; the statuses waiting to be set
+(`executor.applyStatusChanges`); the after-command checks once; the battle type; status immunity; the
+starting gauges; the opening message. It leaves `OpenBattleScene` on `state.requests`.
 
 ## The party's records
 
@@ -40,7 +90,9 @@ level, HP, MP, experience, lasting statuses, four commands, vigor, speed, stamin
 esper and six equipment slots. `maxHp` and `maxMp` are the character's own: a Muscle Belt or a
 Crystal Orb raises them in battle, not in the record.
 
-## Building the party side
+## The party, step by step
+
+`startBattle()` builds the party side with these, which can also be called on their own:
 
 ```cpp
 #include "battle/battle_inventory.h"
@@ -64,8 +116,9 @@ loadBattleInventory(state);
 loadKnownSkills(state);
 ```
 
-Set the story facts (`magicOnly`, `morphAvailable`, `permanentMorph`, `onTheVeldt`, `gauMayAppear`,
-`gauRecruited`) and the configuration before `placeParty()`: placing and loading read them.
+When calling them yourself, set the story facts (`magicOnly`, `morphAvailable`, `permanentMorph`,
+`onTheVeldt`, `gauMayAppear`, `gauRecruited`) and the configuration before `placeParty()`: placing and
+loading read them. `startBattle()` sets them from the `BattleStart` and the battle switches.
 
 ## Placing the party
 
@@ -176,10 +229,106 @@ state.at(BattlerSlot::character(0)).equipmentChanged = true;
 stepBattle(state, executor);
 ```
 
+## The formation
+
+`chooseFormation(state, asked)` gives the formation fought: a conditional battle whose battle switch
+is on replaces the one asked for (switch 48 + *n* for row *n* of the conditional-battle table), and a
+randomized formation becomes itself or one of the three after it, by one draw.
+`state.startingFormation` keeps the formation the battle began with — in the final battle the first
+stage's.
+
+## The monsters
+
+Each monster slot is present or not by the formation, and every slot with a monster is loaded,
+the last slot first; in a colosseum match the opponent fills every slot numbered below 256.
+`loadMonster(state, executor, slot, id, text)` gives the battler, from the monster's record: its
+stats (stamina 16 plus one per 512 of maximum HP, at most 40; magic power half again; vigor 56 to
+63), its steal items, its elements, which statuses can be put on it, the statuses it starts with,
+its traits and battle flags (`monsterFlags`), its special attack and animation, its AI script
+(`aiScript`, then `executor.initAi`) and its name group (`nameGroup`). A present monster with first
+strike starts ready to act, with the battle menus shut until someone has acted. Doom Gaze, in his
+own formation, takes the HP kept in the battle switches.
+
+```cpp
+loadMonster(state, executor, BattlerSlot::monster(0), MonsterId::LOBO, cartridge.text);
+state.at(BattlerSlot::monster(0)).stamina;   // 16 + max HP / 512, at most 40
+```
+
+## The battle type
+
+`chooseBattleType(state, possibleTypes)` picks front, back, pincer or side from the formation's
+possible types (`getFormationAux(id).possibleBattleTypes()`, bits `$10` front, `$20` back, `$40`
+pincer, `$80` side), weighted by the battle-type rates — a front attack about four times in five
+when all four are possible. A Back Guard rules out back and pincer attacks, and fewer than three
+allies a side attack, unless nothing else is possible. `applyBattleType(state, aux)` then rolls for a
+preemptive strike in a front or side attack (32 or 44 in 256, twice that with a Gale Hairpin; never
+with the menus shut or where the formation forbids it) and moves the rows for a back or pincer
+attack.
+
+## The starting gauges
+
+`fillStartingGauges(state)` gives each slot a random place 0-9 and sets each unset gauge: the party's
+from speed plus a random amount plus its place in a front attack, from its place alone in a back or
+pincer attack, and not at all in a side attack or after a preemptive strike — so it fills on the
+first update and the party acts first. Monsters start from speed plus a random amount plus their
+place, or nearly empty in a side attack or after a preemptive strike. Every empty slot adds 16 to a
+random start. A first strike's gauge is kept, and in a final-battle stage after the first no gauge
+is set.
+
+## The opening
+
+A back attack, a pincer, a side attack or a preemptive strike opens with its battle message, a
+`BattleMessageAction` that interrupts the line; a formation that forbids preemptive strikes opens
+with none.
+
+## The final battle's stages
+
+The final battle is recognized when its first stage is asked for; its party is
+`BattleStart::finalBattleOrder`, four at a time. A won stage ends with
+`BattleEnded{FinalBattleNextStage, nextFormation}`; hand the battle back and start the next:
+
+```cpp
+const BattleResult handedBack = writeBack(finished);
+BattleState next = startNextFinalBattleStage(finished, handedBack, start, cartridge.text, executor);
+```
+
+The fighters standing go on in their slots with their statuses, less Dance, Rage and Chant; a
+fallen, absent or air-anchored fighter's slot takes the next character in line. Mimic's memory, the
+Reflect and Freeze timers, who is in the air and who has summoned carry on, and a fighter still in
+the air comes down as the stage opens. The stage opens with `FinalBattleStageArrives` — the
+background scrolls to it and its monsters appear — and the loop waits for that script. `BattleSim`
+does all of this itself.
+
+## What the game keeps
+
+`writeBack(state)` returns a `BattleResult`:
+
+| Member | Holds |
+|---|---|
+| `outcome` | the `BattleOutcome` |
+| `party` | each party member's HP, MP (unless they have none) and lasting statuses — the first eight, Float and Interceptor; the inventory as the battle left it; a fallen ghost and anyone Possess took out of the party; Shadow out of it, without his esper, if he walked off; a colosseum wager given up unless the match ran out of time |
+| `switches` | the battle switches, with how the battle ended (party defeated 64, ran out of time 68, timer expired 69, Zone Eater 71) and Doom Gaze's HP |
+| `veldtFormation` | the formation the battle began with, when Gau can now find it on the Veldt |
+| `shadowLeftParty` | Shadow walked off |
+
+## The battle switches
+
+`game::BattleSwitches` is the set of numbered switches and small counters event scripts, monster AI
+and battles share: `isSet(n)`, `set(n)`, `clear(n)`, and `doomGazeHp()` / `setDoomGazeHp()`. Switch *n*
+is bit *n* mod 8 of variable *n* / 8. The numbers the battle reads and writes are named in
+`battle_switches.h` (`kMagicOnlySwitch`, `kPartyDefeatedSwitch`, and the rest).
+
 ## Gotchas
 
 - **Order matters.** `placeParty()` before `loadParty()`; `loadParty()` before
-  `loadBattleInventory()`, which reads each member's equippable-by bits.
+  `loadBattleInventory()`, which reads each member's equippable-by bits. `startBattle()` keeps the
+  original's order, which also keeps its random numbers in the original's sequence.
+- **Empty slots draw too.** The starting gauges give every slot a place and a random start, present
+  or not; tests that pin a draw count count all ten.
+- **English monster names group by eight-byte windows.** Two monsters with the same English name
+  usually get a line each in the list of names (`docs/Bugs.md`).
+- **`startingFormation` is not `formation`** in the final battle: Doom Gaze, the colosseum and the
+  Veldt look at the first, the stage chain at the second.
 - **The battle changes its copy of the party.** Healing a setup's character, a permanent morph
   filling the Morph supply, and an equipment change during the battle all write
   `state.party`, not the caller's party.
@@ -197,6 +346,13 @@ stepBattle(state, executor);
 
 | To change | Edit |
 |---|---|
+| The order of a battle's start | `assembleBattle()` in `battle_start.cpp` |
+| Conditional battles and randomized formations | `chooseFormation()` in `battle_start.cpp` |
+| What a monster takes from its record | `loadMonster()` and `loadMonsterTraits()` in `battle_start.cpp` |
+| The battle type, preemptive strikes, rows | `chooseBattleType()` and `applyBattleType()` in `battle_start.cpp` |
+| Where gauges start | `fillStartingGauges()` in `battle_start.cpp` |
+| What the game keeps | `writeBack()` in `battle_start.cpp` |
+| What carries into a final-battle stage | `startNextFinalBattleStage()` in `battle_start.cpp` |
 | Who stands where, scripted setups, the Gau rule | `currentParty()`, `stageScriptedSetup()`, `seat()` in `party_setup.cpp` |
 | How equipment adds up | `addItem()` and `settleHands()` in `party_setup.cpp` |
 | What reaches the battler | `applyDerivedStats()` in `party_setup.cpp` |
@@ -204,4 +360,4 @@ stepBattle(state, executor);
 | The command rewrites and conditions | `buildCommandList()` in `party_setup.cpp` |
 | The spell layout, costs, castability | `spell_lists.cpp` |
 | An item's battle flags, the battle inventory | `battle_inventory.cpp` |
-| An item's or character's numbers | the data tables ([item-properties.md](../data-layer/item-properties.md), [characters.md](../data-layer/characters.md)) |
+| An item's, character's, monster's or formation's numbers | the data tables ([item-properties.md](../data-layer/item-properties.md), [characters.md](../data-layer/characters.md), [monster-properties.md](../data-layer/monster-properties.md), [formations.md](../data-layer/formations.md)) |

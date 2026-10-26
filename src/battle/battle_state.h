@@ -21,9 +21,12 @@
 #include "battle/battle_requests.h"
 #include "battle/battle_rng.h"
 #include "battle/battler_set.h"
+#include "battle/player_intake.h"
 #include "battle/spell_lists.h"
 #include "data/item_properties.h"
+#include "game/battle_switches.h"
 #include "game/character_record.h"
+#include "ostinato/battle_background_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/character_gfx_id.h"
 #include "ostinato/character_prop_id.h"
@@ -35,7 +38,11 @@
 #include "ostinato/game_version.h"
 #include "ostinato/item_effects.h"
 #include "ostinato/item_id.h"
+#include "ostinato/metamorph_info.h"
+#include "ostinato/monster_attack_animation.h"
+#include "ostinato/monster_flags.h"
 #include "ostinato/monster_id.h"
+#include "ostinato/monster_special_attack.h"
 #include "ostinato/status_set.h"
 #include "ostinato/targeting.h"
 
@@ -110,6 +117,7 @@ struct BattlerTriggers {
     bool usesControlMenu = false;  // controlling a monster: its menu shows the monster's attacks
     bool overcast = false;
     bool phantasm = false;      // Phantasm drains it like Sap
+    bool monsterRunic = false;  // a monster's own Runic: it absorbs the spells cast at it
 };
 
 // What a party member holds in one hand, as the battle uses it to attack. The weapon hand is the
@@ -233,10 +241,26 @@ struct Battler {
     bool actsAsEnemy = false;             // a party member fighting against the party
     bool aiTakesTurns = false;            // its actions come from an AI script
     bool hasCounterScript = false;        // its AI answers attacks
-    std::optional<std::uint16_t> aiScript;  // the script, for a party member a scripted battle drives
-    bool firstStrike = false;             // a monster that acts at once when it appears
-    bool harderToRunFrom = false;         // a monster that makes escaping slower
-    bool preventsEscape = false;          // a monster the party cannot run from
+    // The AI script it follows: a monster's own (by MonsterId), or the one a scripted battle gives
+    // a party member.
+    std::optional<std::uint16_t> aiScript;
+
+    // --- a monster's record -------------------------------------------------------------------
+    std::optional<MonsterId> monster;     // which monster it is
+    MonsterBattleFlags monsterFlags;      // first strike, harder to run from, can't run, the immunities
+    bool diesAtZeroMp = false;
+    bool impCritical = false;
+    bool nameHidden = false;              // left out of the list of monsters' names
+    // The monster whose line in the list of names it shares: monsters with the same name are
+    // counted on one line.
+    std::optional<MonsterId> nameGroup;
+    ItemId rareSteal = ItemId::EMPTY;
+    ItemId commonSteal = ItemId::EMPTY;
+    std::uint16_t experience = 0;
+    std::uint16_t gold = 0;
+    MetamorphInfo metamorph{};
+    MonsterSpecialAttack specialAttack{};
+    MonsterAttackAnimation specialAttackAnimation{};
 
     // --- a party member's equipment -----------------------------------------------------------
     Hand weaponHand;
@@ -269,6 +293,13 @@ struct Battler {
     std::array<MenuCommand, 4> commands{};
     SpellList spells;
     int spellCount = 0;                   // spells it can use from its list, not counting lores
+
+    // What a party member's chosen command took up: the item in its hand for Item or Throw, the
+    // dance it dances and the monster it rages as. A dance or rage left empty is chosen at random
+    // when it is used.
+    std::optional<ItemId> itemInHand;
+    std::optional<DanceId> dance;
+    std::optional<MonsterId> rage;
 
     // --- links to other battlers --------------------------------------------------------------
     std::optional<BattlerSlot> controlledBy;
@@ -436,6 +467,8 @@ struct BattleState {
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
+    std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
+    BattlerSet possessed;          // characters Possess has taken: they leave the party
 
     // --- the battle's flags ------------------------------------------------------------------
     bool runActionQueued = false;   // the party-escape action is already waiting
@@ -453,15 +486,29 @@ struct BattleState {
     bool partyRunning = false;      // the player is holding the run buttons
     std::uint8_t runDifficulty = 0;
     bool colosseum = false;
+    std::optional<ItemId> colosseumWager;  // the item the player bet: given up win or lose
+    std::optional<ItemId> colosseumPrize;  // what winning the match earns
+    std::optional<MonsterId> colosseumOpponent;
     BattleType battleType = BattleType::Front;
-    FormationId formation{};
+    FormationId formation{};               // the formation being fought
+    // The formation the battle began with. In the final battle it stays the first stage's.
+    FormationId startingFormation{};
+    BattleBackgroundId background{};
+    bool keepFieldMusic = false;           // the field's music plays on through the battle
     bool finalBattleChain = false;
+    // In the final battle, where the background scrolls to as a stage after the first arrives.
+    std::optional<std::uint8_t> finalBattleScroll;
     std::optional<EndOfBattleEvent> endOfBattleEvent;
     std::uint8_t condemnedLevel = 20;  // the level a new condemned count is worked out from
 
+    // The battle switches, as the battle started with them; monster AI changes them as it goes,
+    // and the battle hands them back when it ends.
+    game::BattleSwitches switches;
+
     // Facts about the party and the story the battle's end depends on.
     bool gauMayAppear = false;      // on the Veldt: Gau can turn up when the battle is won
-    bool gauRecruited = false;
+    bool gauRecruited = false;      // Gau is one of the characters the party can field now
+    bool gauObtained = false;       // Gau has joined the party at least once
     bool shadowStays = false;       // Shadow will not walk off after this battle
     bool shadowAvailable = false;
     bool eventTimerExpired = false; // a story countdown ran out during the battle
@@ -481,6 +528,11 @@ struct BattleState {
     int loresKnown = 0;
     std::array<std::optional<DanceId>, 8> dancesKnown{};  // by DanceId; empty where not known
     std::vector<MonsterId> ragesKnown;                    // in MonsterId order
+    std::optional<DanceId> lastDance;                     // the dance last chosen from the menu
+
+    // The commands the player has finished choosing, waiting for the battle to take them in
+    // (battle/player_intake.h).
+    std::deque<PlayerAction> chosenActions;
 
     // In the final battle, the record indices of the party members waiting to take a fallen
     // fighter's place, in the order the player chose them.

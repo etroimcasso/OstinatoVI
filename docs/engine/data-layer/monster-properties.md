@@ -139,3 +139,7 @@ flag bytes, metamorph byte, and `$FF` special-attack byte); builder
 round-trips for `MetamorphInfo`, `MonsterSpecialAttack`, and
 `BlockedStatusSet`; and the metamorph accessors keyed through
 `MetamorphInfo`.
+
+## Used by
+
+A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` reads every field of the record — the stats, elements, blocked statuses, innate statuses, flags, special attack and Metamorph information.

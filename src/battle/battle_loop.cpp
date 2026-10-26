@@ -144,6 +144,8 @@ void survivesInTheAir(Battler& battler) {
     battler.pendingUpdates.removeAllActions = false;
 }
 
+}  // namespace
+
 void checkTheFallen(BattleState& state, ActionExecutor& executor) {
     forEachSlotLastFirst([&](BattlerSlot slot) {
         Battler& battler = state.at(slot);
@@ -181,6 +183,8 @@ void checkTheFallen(BattleState& state, ActionExecutor& executor) {
     });
     forEachSlotLastFirst([&](BattlerSlot slot) { executor.clearControl(state, slot); });
 }
+
+namespace {
 
 // Who answers the command just run: a battler hit by another may counter it from its AI script,
 // or with Retort, Interceptor or a Black Belt.
@@ -263,7 +267,7 @@ void joinTheField(BattleState& state) {
         }
         battler.present = true;
         battler.status = battler.status.without(kClearedOnJoining);
-        if (battler.firstStrike && battler.present) {
+        if (battler.monsterFlags.has(MonsterBattleFlag::FIRST_STRIKE) && battler.present) {
             battler.atbStopped = true;
             battler.gauge.setMeter(0);
             battler.advanceWaitCounter = static_cast<std::uint16_t>(0xFF00 | (battler.advanceWaitCounter & 0x00FF));
@@ -389,6 +393,8 @@ void checkHeld(BattleState& state, BattlerSlot slot) {
     }
 }
 
+}  // namespace
+
 void settleAfterAction(BattleState& state, ActionExecutor& executor) {
     forEachSlotLastFirst([&](BattlerSlot slot) {
         Battler& battler = state.at(slot);
@@ -419,6 +425,8 @@ void settleAfterAction(BattleState& state, ActionExecutor& executor) {
         executor.checkNearFatal(state, slot);
     });
 }
+
+namespace {
 
 // Run a command and wait for its script. Everything after the script resumes in finishCommand().
 void runCommand(BattleState& state, ActionExecutor& executor, std::optional<BattlerSlot> actor, const Action& action,
@@ -727,7 +735,7 @@ EndCheck checkBattleEnd(BattleState& state) {
         }
     }
     if (const auto gau = partyMember(state, CharacterPropId::GAU); gau && std::exchange(state.gauMayAppear, false)) {
-        if (state.rng.next() < kGauAppearsBelow && (state.gauRecruited || state.allyCount >= kAlliesForShadowOrGau)) {
+        if (state.rng.next() < kGauAppearsBelow && (state.gauObtained || state.allyCount >= kAlliesForShadowOrGau)) {
             state.joiningAfterAction.add(*gau);
             state.at(*gau).actsAsEnemy = true;
             state.gauJoining = true;
@@ -912,11 +920,11 @@ void refreshRunDifficulty(BattleState& state) {
             battler.status.hasAny(kFallen)) {
             continue;
         }
-        if (battler.preventsEscape) {
+        if (battler.monsterFlags.has(MonsterBattleFlag::CANT_RUN)) {
             state.cannotRun = true;
             state.escapeBlockedByMonster = true;
         }
-        difficulty += battler.harderToRunFrom ? 6 : 2;
+        difficulty += battler.monsterFlags.has(MonsterBattleFlag::HARDER_TO_RUN) ? 6 : 2;
     }
     if (state.battleType == BattleType::Side || state.preemptive) {
         difficulty = 0;

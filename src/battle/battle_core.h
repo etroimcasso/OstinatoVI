@@ -16,6 +16,8 @@
 //     presentation.consume(state.requests);
 //     state.requests.clear();
 //
+// BattleSim (battle/battle_sim.h) does this for a whole battle, from its start to its end.
+//
 // The rules, and the line in the original each comes from, are specified in
 // docs/contracts/battle_core.md.
 #pragma once
@@ -45,5 +47,12 @@ void refreshAliveSets(BattleState& state);
 
 // Work out how hard it is to run from the monsters standing, and whether the party can run.
 void refreshRunDifficulty(BattleState& state);
+
+// The checks after every command, which a battle's start also runs once. checkTheFallen() deals
+// with the battlers the command felled — HP to 0, links released, Reraise, a Banon who fell;
+// settleAfterAction() then empties the gauges of the fallen, works out what the command left
+// pending for each battler (PendingUpdates), and opens or holds back their next turn.
+void checkTheFallen(BattleState& state, ActionExecutor& executor);
+void settleAfterAction(BattleState& state, ActionExecutor& executor);
 
 }  // namespace ostinato::battle

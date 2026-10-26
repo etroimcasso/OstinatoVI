@@ -232,3 +232,7 @@ two's-complement ROM bytes, and the accessors and wrapper decodes exercised.
 ## Used by
 
 The party side of a battle's start ([battle/start.md](../battle/start.md)): `deriveEquipment()` reads `equipEvadeBoost()`, `buildSpellLists()` the three spell-order tables, and `battleItem()` `itemTypeBattleFlags()`.
+
+The rest of the start: `chooseBattleType()` reads the battle-type row of `kRandomBitRates`, and `startNextFinalBattleStage()` the background scroll from `kFinalBattleScroll`. The battle's end ([battle/core.md](../battle/core.md)) follows `kFinalBattleFormations` from stage to stage.
+
+The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` turns a slot reel outcome into its spell with `kSlotOutcomes` and aims the Joker Dooms with `kJokerDoomTargets`.

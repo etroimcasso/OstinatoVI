@@ -74,6 +74,25 @@ public:
 
     // Run down the Morph meter of the morphed battler on every time update.
     virtual void tickMorph(BattleState&, BattlerSlot) {}
+
+    // Put on every battler the statuses waiting to be set (Battler::innateStatuses and the
+    // like) and take off those waiting to be cleared.
+    virtual void applyStatusChanges(BattleState&) {}
+
+    // Get a battler's AI ready from its script (Battler::aiScript): where its turns and its
+    // counterattacks begin, and whether it has any counterattacks (Battler::hasCounterScript).
+    virtual void initAi(BattleState&, BattlerSlot) {}
+
+    // Choose the attack a menu choice comes down to: the step of the dance a dancer dances
+    // (Battler::dance), the attack of the monster a character rages as (Battler::rage), and the
+    // esper a slot reel's "summon" outcome calls. Each returns `chosen` by default.
+    virtual AttackId chooseDanceStep(BattleState&, BattlerSlot /*dancer*/, AttackId chosen) { return chosen; }
+    virtual AttackId chooseRageAttack(BattleState&, BattlerSlot /*rager*/, AttackId chosen) { return chosen; }
+    virtual AttackId chooseRandomEsper(BattleState&, BattlerSlot /*caster*/, AttackId chosen) { return chosen; }
+
+    // Play out the battle's end once it has an outcome: the victory and its rewards, the defeat,
+    // or a final-battle stage's close. It runs before the battle hands the party back.
+    virtual void playBattleEnd(BattleState&, const BattleOutcome&) {}
 };
 
 // An executor that does nothing.

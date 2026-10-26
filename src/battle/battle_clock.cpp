@@ -7,6 +7,7 @@
 
 #include "battle/actions.h"
 #include "battle/battle_core.h"
+#include "battle/player_intake.h"
 
 namespace ostinato::battle {
 
@@ -261,6 +262,7 @@ void tickBattleTime(BattleState& state, bool timeRunning, ActionExecutor& execut
     if (!timeRunning) {
         return;
     }
+    takePlayerActions(state, executor);
     if (state.config.waitMode && state.timeStoppedByMenu) {
         state.framesSinceTimeUpdate = 0;
         return;

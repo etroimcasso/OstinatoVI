@@ -13,7 +13,8 @@ changing the code.
 
 | File | Holds |
 |---|---|
-| `src/battle/battle_core.h` | `tickBattleTime()`, `stepBattle()`, `recalcAtbRate()`, `refreshAliveSets()`, `refreshRunDifficulty()` |
+| `src/battle/battle_sim.h` | `BattleSim`, `BattleInput`: a whole battle from a frame tick |
+| `src/battle/battle_core.h` | `tickBattleTime()`, `stepBattle()`, `recalcAtbRate()`, `refreshAliveSets()`, `refreshRunDifficulty()`, `checkTheFallen()`, `settleAfterAction()` |
 | `src/battle/battle_state.h` | `BattleState`, `Battler`, `AtbGauge`, `PendingUpdates`, `BattlerTriggers`, `BattleConfig`, `BattleOutcome` and its parts |
 | `src/battle/battler_set.h` | `BattlerSlot`, `BattlerSet` |
 | `src/battle/action_queue.h` | `Action` and its alternatives, `BattlerQueue` |
@@ -21,15 +22,43 @@ changing the code.
 | `src/battle/action_executor.h` | `ActionExecutor`, `NullExecutor` |
 | `src/battle/battle_requests.h` | `BattleRequest`, `BattleScriptCommand` |
 | `src/battle/battle_rng.h` | `BattleRng` |
+| `src/battle/player_intake.h` | `PlayerAction`, `takePlayerActions()` |
 | `src/battle/battle_clock.cpp` | battle time |
 | `src/battle/battle_loop.cpp` | the battle loop |
 
-How the party side of a battle is built before its first frame — the party's records, placing the
-party, equipment into stats, commands, spells and the battle inventory — is in [start.md](start.md).
+How a battle is built before its first frame — the party, the monsters, the battle type, the
+starting gauges — and what the game keeps when it ends are in [start.md](start.md).
 
 ## Driving a battle
 
-A host calls both clocks from its frame tick. Battle time runs on every displayed frame; the loop
+`BattleSim` runs a battle from start to finish off the host's frame tick. Each frame, pass what the
+presentation knows and take the requests:
+
+```cpp
+#include "battle/battle_sim.h"
+
+using namespace ostinato;
+using namespace ostinato::battle;
+
+BattleSim battle(start, party, switches, cartridge.text, executor);
+while (!battle.result()) {
+    battle.tick({.timeRunning = presentation.timeRuns(),
+                 .presentationIdle = !presentation.playingScript(),
+                 .playerActions = menu.finishedActions()});
+    for (const BattleRequest& request : battle.takeRequests()) {
+        presentation.handle(request);
+    }
+}
+party = battle.result()->party;
+```
+
+`tick()` runs battle time every frame and one loop step on a frame the presentation is idle. When the
+battle has an outcome it plays out the end through the executor, hands the party back
+(`result()`, a `BattleResult`) and requests `CloseBattleScene`. A won stage of the final battle
+requests `ScrollFinalBattleBackground` and carries straight on into the next stage instead. After the
+result is set, `tick()` does nothing.
+
+A host can also drive the two clocks itself. Battle time runs on every displayed frame; the loop
 steps only while no battle script is playing, because each script it starts is something the
 original waited on.
 
@@ -86,8 +115,10 @@ The fields of `Battler` group as follows.
 |---|---|
 | Whose turn it is | `present`, `takesMenuInput`, `inBattleMenu`, `atbStopped`, `heldByStatus`, `heldByControl`, `actionQueued`, `menuMayOpen`, `skipAdvanceWait`, `defending`, `dotActionPending`, `emptyGaugeAfterAction`, `requeuePending`, `pendingUpdates`, `nearFatalSpellAvailable`, `airAnchored`, `mayActAfterJump` |
 | The clocks | `gauge`, `atbRate`, `advanceWait`, `advanceWaitCounter`, `statusTimer`, `statusTimerStep`, `stopTimer`, `reflectTimer`, `freezeTimer`, `sleepTimer`, `condemnedNumber`, `damageOverTimePhase`, `morphGauge`, `turnTimer`, `runProgress`, `runFactor` |
-| Who it is | `actor`, `record`, `graphics`, `level`, `hp`, `maxHp`, `mp`, `maxMp`, `speed`, `vigor`, `stamina`, `magicPower`, `defense`, `magicDefense`, `evadeFactor`, `magicBlockFactor`, `status`, `innateStatuses`, `equipmentStatuses`, `inflictableStatuses`, `instantDeathProtected`, `backRow`, `human`, `undead`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `aiScript`, `firstStrike`, `harderToRunFrom`, `preventsEscape` |
+| Who it is | `actor`, `record`, `graphics`, `level`, `hp`, `maxHp`, `mp`, `maxMp`, `speed`, `vigor`, `stamina`, `magicPower`, `defense`, `magicDefense`, `evadeFactor`, `magicBlockFactor`, `status`, `innateStatuses`, `equipmentStatuses`, `inflictableStatuses`, `instantDeathProtected`, `backRow`, `human`, `undead`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `aiScript` |
+| A monster's record | `monster`, `monsterFlags` (first strike, harder to run from, can't run, the immunities), `diesAtZeroMp`, `impCritical`, `nameHidden`, `nameGroup`, `rareSteal`, `commonSteal`, `experience`, `gold`, `metamorph`, `specialAttack`, `specialAttackAnimation` |
 | A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
+| What its command took up | `itemInHand`, `dance`, `rage` |
 | Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending` |
 | What it has waiting | `actions`, `counterActions` |
 
@@ -95,9 +126,11 @@ The fields of `Battler` group as follows.
 `actionQueue`, `counterQueue`, `immediateActions`), who is mid-turn (`actingBattler`,
 `counteringBattler`), Quick (`quickTarget`, `quickTurnsLeft`), the clocks, the sets of who is
 alive, joining, leaving, standing and fallen, the battle's flags, the story facts its end depends on,
-the action's report (`scratch`), Mimic's memory (`mimic`), the requests, and the outcome. It also
-holds the battle's copy of the party (`party`), the battle inventory, and what the party knows
-([start.md](start.md)).
+the action's report (`scratch`), Mimic's memory (`mimic`), the player's finished commands waiting
+to come in (`chosenActions`), the requests, and the outcome. It also holds the battle's copy of the
+party (`party`) and of the battle switches (`switches`), the battle inventory, what the party knows,
+the formation and the one the battle began with, the colosseum match, Doom Gaze's slot and the
+characters Possess has taken ([start.md](start.md)).
 
 ## The ATB gauge
 
@@ -146,8 +179,8 @@ battlers' own timers, and the party's escape.
 
 An `Action` is one of: `CommandAction` (a battle command with its attack, targets and MP cost),
 `AiTurn`, `DamageOverTime`, `SpellWithoutCaster`, `StatusTimersExpired`, `PartyEscape`,
-`ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, and `NoAction` (handed to the executor when a
-battler's turn comes with nothing chosen).
+`ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, `BattleMessageAction` (the battle's opening
+message), and `NoAction` (handed to the executor when a battler's turn comes with nothing chosen).
 
 ```cpp
 #include "battle/actions.h"
@@ -176,6 +209,29 @@ makes the next action added free.
 `BattlerQueue` is a line of battlers: `push`, `pop`, `erase` (everywhere), `contains`, `size`,
 `at(i)`.
 
+## The player's commands
+
+When the player finishes a command in the battle menu, add it to `state.chosenActions` (or pass it
+in `BattleInput::playerActions`). The next frame battle time runs, `takePlayerActions()` takes in
+every one waiting: the character joins the advance-wait line, its menu closes, and its command is
+added — settled the way the original settles it (X-Magic becomes two spells, a summon of the
+equipped esper names it, a slot reel names its spell, the counted commands add their base, the
+commands that aim again drop their targets).
+
+```cpp
+state.chosenActions.push_back(PlayerAction{.character = BattlerSlot::character(0),
+                                           .command = BattleCommandId::X_MAGIC,
+                                           .attack = AttackId::FIRE,
+                                           .targets = BattlerSet::of(BattlerSlot::monster(0)),
+                                           .secondAttack = AttackId::ICE,
+                                           .secondTargets = BattlerSet::of(BattlerSlot::monster(1))});
+```
+
+`PlayerAction::attack` is what the menu chose: a spell or item by its id, a dance by `DanceId`, a
+rage by `MonsterId`, a slot reel outcome 0-7, and for Summon, Lore, Magitek, Blitz and Bushido the
+attack's place in its own list. `AttackId::NONE` asks for the equipped esper, a random dance or a
+random rage.
+
 ## The battle loop
 
 Each `stepBattle()` first works out again any party member whose equipment the Item menu changed,
@@ -202,6 +258,10 @@ nothing.
 | `checkControl`, `releaseLinks`, `clearControl` | after every command, for control, Zinger, Love Token and Charm |
 | `refreshCommandList`, `refreshMorph`, `checkNearFatal` | an action left those updates pending for a battler; `refreshCommandList` also after an equipment change |
 | `tickMorph(state, slot)` | every time update, for the morphed battler |
+| `applyStatusChanges(state)` | the battle's start: the statuses waiting to be set go on |
+| `initAi(state, slot)` | a monster is loaded: get its AI ready from `aiScript` and set `hasCounterScript` |
+| `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
+| `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back |
 
 Before `execute` runs, the battle resets `state.scratch`; the command reports there whether its hit
 was physical, who it ended up hitting, whether Interceptor guarded someone, which characters a Black
@@ -233,11 +293,13 @@ struct Swing : ActionExecutor {
 
 ## Requests
 
-`state.requests` collects, in order, what the presentation has to do: `OpenBattleMenu`,
-`CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`, `RefreshMonsterNames`. A
-`RunBattleScript` holds `BattleScriptCommand`s — `ReadyStance` (a character stepping forward for its
-command, or leaping for a Jump) and `StepBack` among them — and is the one request the loop waits
-on.
+`state.requests` collects, in order, what the presentation has to do: `OpenBattleScene` (the
+battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
+`RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won) and
+`CloseBattleScene` (the battle is over). A `RunBattleScript` holds `BattleScriptCommand`s —
+`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack`,
+and `FinalBattleStageArrives` (the next stage's background and monsters) — and is the one request
+the loop waits on.
 
 ## The battle's end
 
@@ -245,7 +307,8 @@ on.
 `BattleWon`, `BattleLost` (with the message shown, if any) or `BattleEnded` (with a
 `BattleEndReason`: the story's time ran out, Gau leapt, ended at once, rages learned, the final
 battle's next stage with its formation, a story countdown, Zone Eater). Gau joining on the Veldt and
-Shadow walking off happen in place of a win; they start a battle event and the battle goes on until
+Shadow walking off happen in place of a win (Gau, to a party of fewer than two standing, only once
+he has joined the party before — `state.gauObtained`); they start a battle event and the battle goes on until
 the next check finds it won.
 
 ## Random numbers
@@ -266,6 +329,9 @@ to fix what a battle will draw.
   the attack the next time.
 - **An interrupting action has no actor.** `execute()` receives an empty `actor` for it; the battler
   it concerns is in the action itself (`SpellWithoutCaster::target`, `StatusTimersExpired::battler`).
+- **The player's choices come in only on frames battle time runs.** While the presentation has
+  stopped time they wait in `state.chosenActions`; in wait mode an open sub-menu does not keep them
+  out.
 - **Gauge low bytes matter.** A gauge keeps the part-step it had gained when it filled; tests that
   pin the frame a gauge fills on set the whole counter.
 
@@ -279,4 +345,6 @@ to fix what a battle will draw.
 | The order the loop serves things in | `runLoopStep()` in `battle_loop.cpp` |
 | Who answers an attack | `checkCounterattacks()` in `battle_loop.cpp` |
 | When the battle ends | `checkBattleEnd()` in `battle_loop.cpp` |
+| How a chosen command is settled | `settleCommand()` in `player_intake.cpp` |
+| What `BattleSim` does at the end | `BattleSim::finish()` in `battle_sim.cpp` |
 | What a command does | your `ActionExecutor::execute()` |

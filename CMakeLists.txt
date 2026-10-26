@@ -66,7 +66,10 @@ add_library(ostinato-vi-lib STATIC
     src/battle/battle_inventory.cpp
     src/battle/battle_loop.cpp
     src/battle/battle_rng.cpp
+    src/battle/battle_sim.cpp
+    src/battle/battle_start.cpp
     src/battle/party_setup.cpp
+    src/battle/player_intake.cpp
     src/battle/spell_lists.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
@@ -480,13 +483,18 @@ gtest_discover_tests(ostinato-vi-dialog-window-tests)
 # time update by update — the two-frame gate, the ATB rate, the gauges, the advance waits and the
 # sixteen timer jobs; the lines battlers wait in and the actions they hold; and the battle loop
 # step by step — the order it serves the lines in, a battler's turn, counterattacks, what follows
-# each action, and the battle's end. Own binary so the other baselines stay frozen.
+# each action, and the battle's end; a battle's start from a formation and the party, the player's
+# commands as they come in, what the game keeps, and a whole battle run from a frame tick. Own
+# binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-core-tests
     tests/test_action_queue.cpp
     tests/test_battle_clock.cpp
     tests/test_battle_loop.cpp
+    tests/test_battle_sim.cpp
+    tests/test_battle_start.cpp
     tests/test_battle_state.cpp
     tests/test_party_setup.cpp
+    tests/test_player_intake.cpp
     tests/test_spell_lists.cpp)
 target_compile_features(ostinato-vi-battle-core-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-core-tests PRIVATE ${_ostinato_warn})

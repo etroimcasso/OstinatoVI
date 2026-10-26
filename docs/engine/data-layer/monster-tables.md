@@ -161,3 +161,7 @@ BATTLE-slot-0 invariant on every row; control's `NONE` padding; and
 hand-traced spot checks (Guard's steal/drop line, Ninja's sketch and
 control rows, Guard/Mag Roader animations, Guard/Trapper/Pterodon
 alignments).
+
+## Used by
+
+A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` reads a monster's steal items and its special-attack animation.
