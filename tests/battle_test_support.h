@@ -2,13 +2,20 @@
 // records what it was asked to do, and drivers for the two clocks.
 #pragma once
 
+#include <cstdint>
 #include <functional>
+#include <initializer_list>
 #include <optional>
 #include <vector>
 
+#include <gtest/gtest.h>
+
 #include "battle/action_executor.h"
+#include "battle/attack.h"
 #include "battle/battle_core.h"
+#include "battle/battle_rng.h"
 #include "battle/battle_state.h"
+#include "data/rng_table.h"
 
 namespace ostinato::test {
 
@@ -73,6 +80,82 @@ struct RecordingExecutor : battle::ActionExecutor {
     void runCounterAi(battle::BattleState&, battle::BattlerSlot actor) override {
         counterAi.push_back(actor);
     }
+};
+
+// makeBattle(), with every present battler on the field to be aimed at.
+inline battle::BattleState makeAimableBattle() {
+    battle::BattleState state = makeBattle();
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        if (state.at(slot).present) {
+            state.targetableOrPresent.add(slot);
+        }
+    }
+    return state;
+}
+
+// Put the battle's random numbers where each of the next draws satisfies its test, in order.
+inline void rngWhere(battle::BattleState& state, std::initializer_list<std::function<bool(std::uint8_t)>> draws) {
+    for (int position = 0; position < 256; ++position) {
+        bool fits = true;
+        int i = 1;
+        for (const auto& draw : draws) {
+            if (!draw(rngByte(static_cast<std::uint8_t>(position + i)))) {
+                fits = false;
+                break;
+            }
+            ++i;
+        }
+        if (fits) {
+            state.rng = battle::BattleRng(static_cast<std::uint8_t>(position));
+            return;
+        }
+    }
+    ADD_FAILURE() << "no run of the random table fits";
+}
+
+// Draw tests for rngWhere().
+inline bool heads(std::uint8_t r) { return (r & 1) != 0; }
+inline bool tails(std::uint8_t r) { return (r & 1) == 0; }
+inline std::function<bool(std::uint8_t)> below(int n) {
+    return [n](std::uint8_t r) { return r < n; };
+}
+inline std::function<bool(std::uint8_t)> atLeast(int n) {
+    return [n](std::uint8_t r) { return r >= n; };
+}
+inline bool any(std::uint8_t) { return true; }
+
+// Attack hooks that record what they were called with.
+struct RecordingHooks : battle::AttackHooks {
+    std::vector<battle::BattlerSlot> damaged;
+    std::vector<battle::BattlerSlot> effects;
+    std::vector<int> multipliers;            // attack.multiplier at each scaleDamage()
+    std::vector<int> damageAtScale;          // attack.damage at each scaleDamage()
+    std::vector<battle::AimingRules> rulesAtBaseDamage;
+    std::vector<battle::SpecialEffect> effectsAtBaseDamage;
+    int baseDamageValue = 0;
+    std::function<bool(battle::BattlerSlot)> missesEffect;
+
+    void baseDamage(battle::BattleState&, battle::AttackInFlight& attack, battle::BattlerSlot) override {
+        rulesAtBaseDamage.push_back(attack.rules);
+        effectsAtBaseDamage.push_back(attack.effect);
+        attack.damage = baseDamageValue;
+    }
+    void scaleDamage(battle::BattleState&, battle::AttackInFlight& attack) override {
+        multipliers.push_back(attack.multiplier);
+        damageAtScale.push_back(attack.damage);
+    }
+    bool targetEffect(battle::BattleState&, battle::AttackInFlight&, battle::BattlerSlot,
+                      battle::BattlerSlot target) override {
+        effects.push_back(target);
+        return missesEffect && missesEffect(target);
+    }
+    void targetDamage(battle::BattleState&, battle::AttackInFlight& attack, battle::BattlerSlot,
+                      battle::BattlerSlot target) override {
+        damaged.push_back(target);
+        multipliersAtTargetDamage.push_back(attack.multiplier);
+    }
+    std::vector<int> multipliersAtTargetDamage;
 };
 
 // Run exactly one time update: enough frames for the two-frame gate to open.

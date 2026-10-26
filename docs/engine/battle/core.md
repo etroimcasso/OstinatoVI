@@ -20,7 +20,8 @@ changing the code.
 | `src/battle/action_queue.h` | `Action` and its alternatives, `BattlerQueue` |
 | `src/battle/actions.h` | adding and removing actions, MP cost, advance wait |
 | `src/battle/action_executor.h` | `ActionExecutor`, `NullExecutor` |
-| `src/battle/battle_requests.h` | `BattleRequest`, `BattleScriptCommand` |
+| `src/battle/battle_requests.h` | `BattleRequest` |
+| `src/battle/battle_script.h` | `BattleScriptCommand`, `BattleScriptBuilder` ([commands.md](commands.md)) |
 | `src/battle/battle_rng.h` | `BattleRng` |
 | `src/battle/player_intake.h` | `PlayerAction`, `takePlayerActions()` |
 | `src/battle/battle_clock.cpp` | battle time |
@@ -119,7 +120,8 @@ The fields of `Battler` group as follows.
 | A monster's record | `monster`, `monsterFlags` (first strike, harder to run from, can't run, the immunities), `diesAtZeroMp`, `impCritical`, `nameHidden`, `nameGroup`, `rareSteal`, `commonSteal`, `experience`, `gold`, `metamorph`, `specialAttack`, `specialAttackAnimation` |
 | A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
 | What its command took up | `itemInHand`, `dance`, `rage` |
-| Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending` |
+| Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending`, `bodyguard` (who takes its hits for a Love Token) |
+| What the action being run does to it | `statusesToSet`, `statusesToClear`, `lastHit` (who last hit it, with which command, spell, item and elements) |
 | What it has waiting | `actions`, `counterActions` |
 
 `BattleState` holds the ten battlers and the battle as a whole: the lines (`advanceWaitQueue`,
@@ -130,7 +132,10 @@ the action's report (`scratch`), Mimic's memory (`mimic`), the player's finished
 to come in (`chosenActions`), the requests, and the outcome. It also holds the battle's copy of the
 party (`party`) and of the battle switches (`switches`), the battle inventory, what the party knows,
 the formation and the one the battle began with, the colosseum match, Doom Gaze's slot and the
-characters Possess has taken ([start.md](start.md)).
+characters Possess has taken ([start.md](start.md)). What the commands use up or learn is there too:
+the desperation attacks used, the lores Strago saw, the last rager and the Golem's HP; and so are
+the monsters a monster's AI has hidden from aiming and which way each battler faces, which aiming
+reads ([targeting.md](targeting.md)).
 
 ## The ATB gauge
 
@@ -289,17 +294,20 @@ struct Swing : ActionExecutor {
 };
 ```
 
-`NullExecutor` is the base class itself: nothing happens, no AI acts.
+`NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
+([commands.md](commands.md)) is the battle's own: it carries out the commands and aims them.
 
 ## Requests
 
 `state.requests` collects, in order, what the presentation has to do: `OpenBattleScene` (the
 battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
-`RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won) and
-`CloseBattleScene` (the battle is over). A `RunBattleScript` holds `BattleScriptCommand`s —
-`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack`,
-and `FinalBattleStageArrives` (the next stage's background and monsters) — and is the one request
-the loop waits on.
+`RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won),
+`CloseBattleScene` (the battle is over) and `AddItemObtained` (a party member came away from an
+action holding an item, which goes into the battle inventory). A `RunBattleScript` holds
+`BattleScriptCommand`s and is the one request the loop waits on. The battle core writes
+`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and
+`FinalBattleStageArrives` (the next stage's background and monsters); the commands write the rest —
+names, animations, messages ([commands.md](commands.md)).
 
 ## The battle's end
 
@@ -347,4 +355,4 @@ to fix what a battle will draw.
 | When the battle ends | `checkBattleEnd()` in `battle_loop.cpp` |
 | How a chosen command is settled | `settleCommand()` in `player_intake.cpp` |
 | What `BattleSim` does at the end | `BattleSim::finish()` in `battle_sim.cpp` |
-| What a command does | your `ActionExecutor::execute()` |
+| What a command does | `CommandExecutor::execute()` ([commands.md](commands.md)), or your own `ActionExecutor::execute()` |

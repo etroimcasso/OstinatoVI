@@ -24,7 +24,10 @@ the rest of the game shares: `src/game/`, namespace `ostinato::game`.
 | File | Covers |
 |---|---|
 | [core.md](core.md) | The battle state and the two clocks; driving a battle with `BattleSim` or by hand; battle slots and sets; the ATB gauge, the ATB rate, the advance wait and the status timers; the lines and adding actions; the player's commands; a battler's turn, counterattacks and interrupting actions; what follows every command; the battle's end; the executor seam and the requests; the random numbers. |
+| [commands.md](commands.md) | Carrying commands out: `CommandExecutor`; the attack in flight and its special effect; the attack loop — fizzling, MP, Runic, Air Anchor, the critical hit, a weapon's spell, lores; the hit check; what a hit target records; `AttackHooks`, where damage, statuses and effects plug in; the battle script and its builder; Fight. |
+| [targeting.md](targeting.md) | Aiming: the targeting byte and a command's aiming byte; loading a command's attack; who an attack reaches — the reach check, re-aiming at a side, the pincer and side rules; targets off the field; cover. |
 | [start.md](start.md) | A battle's start and what the game keeps: `startBattle()` and `BattleStart`; the party's records; placing the party (the current party, a colosseum match, a final-battle stage, scripted setups); equipment into battle stats; HP, MP and statuses; battle commands; spell lists and MP costs; status immunity; the battle inventory and known skills; the formation; the monsters; the battle type; the starting gauges; the opening; the final battle's stages; `writeBack()` and `BattleResult`; the battle switches; changing equipment during a battle. |
 
 The rules, and the line of the original each is read from, are specified in
-[`docs/contracts/battle_core.md`](../../contracts/battle_core.md).
+[`docs/contracts/battle_core.md`](../../contracts/battle_core.md) and, for carrying commands out,
+[`docs/contracts/battle_commands.md`](../../contracts/battle_commands.md).

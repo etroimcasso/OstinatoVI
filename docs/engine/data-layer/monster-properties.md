@@ -143,3 +143,5 @@ round-trips for `MetamorphInfo`, `MonsterSpecialAttack`, and
 ## Used by
 
 A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` reads every field of the record — the stats, elements, blocked statuses, innate statuses, flags, special attack and Metamorph information.
+
+The attack frame ([battle/commands.md](../battle/commands.md)): a monster's special attack takes its effect from the special-attack byte. A `damageBoost(n)` byte adds `n + 1` damage steps.

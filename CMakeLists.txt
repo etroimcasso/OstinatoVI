@@ -62,15 +62,20 @@ add_library(ostinato-vi-lib STATIC
     src/assets/rom_reader.cpp
     src/battle/action_queue.cpp
     src/battle/actions.cpp
+    src/battle/attack.cpp
     src/battle/battle_clock.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_loop.cpp
     src/battle/battle_rng.cpp
+    src/battle/battle_script.cpp
     src/battle/battle_sim.cpp
     src/battle/battle_start.cpp
+    src/battle/command_executor.cpp
+    src/battle/commands.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/spell_lists.cpp
+    src/battle/targeting.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
@@ -501,3 +506,17 @@ target_compile_options(ostinato-vi-battle-core-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-core-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-core-tests)
+
+# The battle commands: the targeting byte read and every way an attack is aimed, the hit check,
+# the attack frame and Fight, the battle script builder, and the executor that runs them. Own
+# binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-commands-tests
+    tests/test_attack_frame.cpp
+    tests/test_battle_script.cpp
+    tests/test_hit_check.cpp
+    tests/test_targeting.cpp)
+target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-commands-tests)

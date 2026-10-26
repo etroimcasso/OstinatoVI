@@ -3,8 +3,9 @@
 // special-attack setup decodes it (battle_main.asm:8195-8235): bit 7 makes
 // the attack undodgeable, bit 6 makes it deal no damage (status-only), and
 // the low 6 bits select the effect by band — below $20 the value IS the
-// status id the attack inflicts, $20-$2F adds (value - $20) to the damage
-// multiplier, $30/$31 drain HP/MP, and $32 upward removes reflect (any bits
+// status id the attack inflicts, $20-$2F adds (value - $20) + 1 to the damage
+// multiplier (the band's compare leaves the carry set into the add,
+// battle_main.asm:8225-8230), $30/$31 drain HP/MP, and $32 upward removes reflect (any bits
 // past $32 are dead at dispatch). Construction goes through the per-band
 // builders below so every configured byte reads as its meaning. sizeof == 1
 // keeps it byte-identical to the ROM byte.
@@ -36,8 +37,8 @@ struct MonsterSpecialAttack {
         return MonsterSpecialAttack{static_cast<std::uint8_t>(status)};
     }
 
-    // Band $20-$2F: the attack adds `boost` (0..15, masked to the band) to
-    // the damage multiplier; damageBoost(0) is a plain damaging special.
+    // Band $20-$2F: the attack adds `boost` + 1 (boost 0..15, masked to the
+    // band) to the damage multiplier; damageBoost(0) adds one step.
     static constexpr MonsterSpecialAttack damageBoost(std::uint8_t boost) {
         return MonsterSpecialAttack{
             static_cast<std::uint8_t>(0x20 | (boost & 0x0F))};

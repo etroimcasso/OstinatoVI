@@ -235,3 +235,67 @@ pins it against the cartridge's names.
 **If you want to change it.** Comparing `TextCorpus::monsterName()` records
 would group the English names the way the Japanese ones are grouped; the list
 of names would then show fewer lines in some battles.
+
+## Blows are evaded by Magic Block, and Blind changes nothing
+
+**What happens.** A physical attack is evaded with the target's Magic Block,
+not its Evade, so Evade does nothing in battle. The adjustments meant for a
+blow's chance to hit never apply either: an attacker's Blind, the target's
+Beads, and the target's statuses that should raise or lower the chance (Blind,
+Zombie, Confuse, Slow and Reraise; Poison, Sap, Near Fatal and Haste).
+
+**Where the original does it.** `CheckHit` (`battle/battle_main.asm:5914-5985`)
+picks the rating with `lda $3b54,y; bcs @2347; lda $3b55,y` — Evade if the carry
+is set, Magic Block otherwise — and then skips the adjustments with
+`bcc @2388`. Both read a carry the code means to hold "this is a blow". On every
+path that reaches them it is clear: a spell arrives from `lsr` of a clear
+physical bit, a blow from `lsr` of the Retort bit, which the branch before has
+just found clear. So every attack uses Magic Block and none is adjusted.
+
+**Where the port keeps it.** `checkHit()` in `src/battle/attack.cpp` works the
+chance out from `Battler::magicBlockFactor` alone. `tests/test_hit_check.cpp`
+pins both halves: `CheckHit.BlowsAreEvadedByMagicBlockNotEvade` and
+`CheckHit.TheAttackersBlindnessAndTheTargetsStatusesDoNotChangeTheChance`.
+
+**If you want to change it.** Reading `evadeFactor` for blows and applying the
+adjustments would make Evade, Blind, Beads and those statuses matter, and would
+change how often every physical attack in the game lands.
+
+## A vanished target is hit by any spell, whatever protects it
+
+**What happens.** A spell aimed at a vanished target hits it before anything
+else is checked — before Reflect, before protection from instant death, before
+evasion. An instant-death spell therefore kills a vanished target that is
+otherwise immune to it.
+
+**Where the original does it.** `CheckHit` (`battle/battle_main.asm:5803-5816`)
+tests Vanish first; for an attack that is not physical and not level-divisible
+it returns a hit at once, skipping every check after it. Vanish itself is not
+taken off there.
+
+**Where the port keeps it.** `checkHit()` in `src/battle/attack.cpp` returns a
+hit at the same point. `tests/test_hit_check.cpp`
+(`CheckHit.AVanishedTargetIsHitBySpellsAtOnce`) pins it with a Reflect-protected
+target.
+
+**If you want to change it.** Moving the Vanish test after the protection checks
+would make Vanish a defense against instant death rather than a way past it.
+
+## Each target hit in the back raises the damage for every target after it
+
+**What happens.** A blow that hits several targets in the back adds one damage
+step for each of them, and keeps the steps: the first target it reaches gets
+one step, the second two, and so on, whether or not the later targets were hit
+in the back themselves.
+
+**Where the original does it.** `CalcAttackEffect`
+(`battle/battle_main.asm:8344-8351`) adds to the damage multiplier `$bc` inside
+the loop over the targets hit and never takes the step off again before the
+next target.
+
+**Where the port keeps it.** `resolveAttack()` in `src/battle/attack.cpp` adds
+to `AttackInFlight::multiplier` in the same loop. `tests/test_attack_frame.cpp`
+(`AttackFrame.EachTargetHitInTheBackAddsAStepForTheRest`) pins the steps.
+
+**If you want to change it.** Counting the step for its own target only would
+lower the damage of spread blows in side and pincer attacks.

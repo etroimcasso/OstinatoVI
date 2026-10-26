@@ -102,20 +102,23 @@ inline constexpr std::array<CommandTargetingInitEntry, 30> kCommandTargetingInit
 
 - `kCommandAdvanceWait` is the ATB advance-wait (in ticks, a decimal magnitude)
   the command adds before its action runs — JUMP's 224 is the visible outlier.
-- `kCommandTargetingInit` is the command's packed targeting-init byte, wrapped in
-  `CommandTargetingInit`. That byte splits into three non-overlapping fields
-  (`$E1 | $18 | $06 == $FF`): `directBits()` are copied straight into the
-  targeting work byte, `initialTarget()` selects the initial cursor target, and
-  `dispatchIndex()` selects an init-target handler:
+- `kCommandTargetingInit` is the command's aiming byte, wrapped in
+  `CommandTargetingInit`. It splits into three non-overlapping fields
+  (`$E1 | $18 | $06 == $FF`), read as raw fields (`directBits()`,
+  `initialTarget()`, `dispatchIndex()`) or by name:
 
   ```cpp
   auto t = ostinato::commandTargetingInit(BattleCommandId::MORPH);  // {0x18}
-  t.initialTarget();  // 0x18
-  t.directBits();     // 0x00
+  t.mayTargetTheFallen();        // true  ($10)
+  t.keepsTargetsThatAreGone();   // true  ($08)
+  t.attackLoad();                // CommandAttackLoad::PlainHit ($06 field 0)
   ```
 
-  The concrete meaning of the individual `directBits` flags belongs to the
-  runtime targeting consumer.
+  The `$E1` bits are `noCharacterTargets()` ($80), `randomTarget()` ($40),
+  `fallBackToEarlierTargets()` ($20) and `excludesTheUser()` ($01). The `$06`
+  field says how the command loads its attack: a plain hit, the item in hand, the
+  spell chosen, or a thrown item or tool. How aiming uses them is in
+  [battle/targeting.md](../battle/targeting.md).
 
 ## Pair tables
 
@@ -170,5 +173,7 @@ values.
 ## Used by
 
 The party side of a battle's start ([battle/start.md](../battle/start.md)): `buildCommandList()` reads `kRelicCommandSwaps` and each command's targeting.
+
+Aiming ([battle/targeting.md](../battle/targeting.md)): `initTargeting()` reads each command's aiming byte from `kCommandTargetingInit` and its targeting byte from `battleCommandProperties()`.
 
 The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` adds the bases in `kCommandAttackBases` and drops the targets of the commands in `kRetargetCommands`.
