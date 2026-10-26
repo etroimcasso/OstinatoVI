@@ -206,3 +206,7 @@ decode.
 The real-corpus tests locate the rip through the `FF6_TEXT_DIR` environment
 variable (defaulting to the in-tree rip path) and skip visibly when it is
 absent.
+
+## Used by
+
+A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` compares the monster name table eight bytes at a time to decide which monsters share a line in the battle's list of names (`docs/Bugs.md`).

@@ -60,6 +60,17 @@ add_library(ostinato-vi-lib STATIC
     src/assets/cartridge.cpp
     src/assets/first_start.cpp
     src/assets/rom_reader.cpp
+    src/battle/action_queue.cpp
+    src/battle/actions.cpp
+    src/battle/battle_clock.cpp
+    src/battle/battle_inventory.cpp
+    src/battle/battle_loop.cpp
+    src/battle/battle_rng.cpp
+    src/battle/battle_sim.cpp
+    src/battle/battle_start.cpp
+    src/battle/party_setup.cpp
+    src/battle/player_intake.cpp
+    src/battle/spell_lists.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
@@ -467,3 +478,26 @@ target_compile_options(ostinato-vi-dialog-window-tests PRIVATE ${_ostinato_warn}
 target_include_directories(ostinato-vi-dialog-window-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-dialog-window-tests)
+
+# The battle core: the battle slots and sets, the ATB gauge and the battle's random numbers; battle
+# time update by update — the two-frame gate, the ATB rate, the gauges, the advance waits and the
+# sixteen timer jobs; the lines battlers wait in and the actions they hold; and the battle loop
+# step by step — the order it serves the lines in, a battler's turn, counterattacks, what follows
+# each action, and the battle's end; a battle's start from a formation and the party, the player's
+# commands as they come in, what the game keeps, and a whole battle run from a frame tick. Own
+# binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-core-tests
+    tests/test_action_queue.cpp
+    tests/test_battle_clock.cpp
+    tests/test_battle_loop.cpp
+    tests/test_battle_sim.cpp
+    tests/test_battle_start.cpp
+    tests/test_battle_state.cpp
+    tests/test_party_setup.cpp
+    tests/test_player_intake.cpp
+    tests/test_spell_lists.cpp)
+target_compile_features(ostinato-vi-battle-core-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-core-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-core-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-core-tests)

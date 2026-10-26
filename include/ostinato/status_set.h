@@ -10,6 +10,7 @@
 
 #include <array>
 #include <concepts>
+#include <cstddef>
 #include <cstdint>
 
 #include "ostinato/status_id.h"
@@ -32,6 +33,35 @@ struct StatusSet {
     constexpr void clear(StatusId id) {
         const auto i = static_cast<std::uint8_t>(id);
         bytes[i / 8] &= static_cast<std::uint8_t>(~(1u << (i % 8)));
+    }
+
+    // Whether any of `other`'s statuses are set here, or all of them. An empty `other` has none
+    // set and all set: hasAny is false and hasAll is true.
+    constexpr bool hasAny(const StatusSet& other) const {
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            if ((bytes[i] & other.bytes[i]) != 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // This set with every status in `other` cleared.
+    constexpr StatusSet without(const StatusSet& other) const {
+        StatusSet result = *this;
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            result.bytes[i] = static_cast<std::uint8_t>(bytes[i] & ~other.bytes[i]);
+        }
+        return result;
+    }
+
+    constexpr bool hasAll(const StatusSet& other) const {
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            if ((bytes[i] & other.bytes[i]) != other.bytes[i]) {
+                return false;
+            }
+        }
+        return true;
     }
 
     // OR-together builder: StatusSet::of(StatusId::SLEEP,

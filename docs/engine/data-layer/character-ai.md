@@ -126,3 +126,4 @@ row changed in one file and not the other is reported rather than accepted.
 - [battle-backgrounds.md](battle-backgrounds.md) — the backgrounds a setup can select
 - [characters.md](characters.md) — the character properties a slot names
 - [monster-tables.md](monster-tables.md) — the A.I. scripts that drive a slot
+- [battle/start.md](../battle/start.md) — placing a setup's cast in a battle (`placeParty()`)

@@ -176,3 +176,7 @@ slot, formation 471's three split-id monsters, Kefka's final battle and its
 descent entrance, the undead-Behemoth substitution); the aux accessor decode;
 the `FormationRef` builder round-trip; and the two formations that carry the
 otherwise-unused byte-3 bit.
+
+## Used by
+
+A battle's start ([battle/start.md](../battle/start.md)): `chooseFormation()` reads the conditional battles, `startBattle()` the formation's monsters, presence and possible battle types and its aux flags (scripted setup, preemptive strikes), and `writeBack()` its Veldt flag.

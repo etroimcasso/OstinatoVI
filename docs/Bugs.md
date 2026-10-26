@@ -180,3 +180,58 @@ in `DialogState::droppedAtMargin` with where it would have gone.
 the obvious repair. On the English script it changes nothing visible, since only
 spaces are affected; on Japanese text, or on English text with a renamed
 character long enough to reach the margin, it changes where words break.
+
+---
+
+## A guest's battle equipment permissions come from their name
+
+**What happens.** During a battle, the Item menu lets a party member take a
+weapon or shield into a hand only if the item's equippable-by mask shares a bit
+with that character's own bits. Terra through Umaro each have a bit of their own.
+For anyone else in the party — Banon, Leo, the ghosts and the other guests — the
+battle uses the fifth and sixth bytes of the character's name in that place, so
+which items a guest can hold in battle depends on how their name is spelled.
+
+**Where the original does it.** `InitParty` (`battle/battle_main.asm:7891-7908`)
+compares the actor with `$0E` and builds the mask `1 << actor` only below it. At
+or above it the shift loop is skipped, and the value stored as the mask is the
+word the routine last loaded: the name's fifth and sixth bytes, copied for the
+battle menu a few lines earlier (`:7898`). `LoadItemProp` (`:14022-14033`) tests
+items against that mask, and the battle menu reads the result when a hand is
+swapped (`btlgfx/btlgfx_main.asm:20982-20987`).
+
+**Where the port keeps it.** `equipBitsFor()` in `src/battle/party_setup.cpp`
+gives a character past the fourteen the name's fifth and sixth bytes as
+`Battler::equipsAs`. `tests/test_party_setup.cpp`
+(`PlaceParty.AGuestsEquippableBitsAreTheLastTwoLettersOfTheirName`) pins it.
+
+**If you want to change it.** Giving guests an empty mask would stop them taking
+anything into a hand in battle; giving them the bit `EquipPermissions::canEquip()`
+uses for their actor would match the field menus. Either changes which items a
+guest can hold.
+
+## Monsters with the same English name are listed on separate lines
+
+**What happens.** The battle's list of monsters' names counts monsters that
+share a name on one line. In the English versions, two different monsters with
+the same name usually get a line each, because the comparison does not read
+their names.
+
+**Where the original does it.** `LoadMonsterProp`
+(`battle/battle_main.asm:7319-7359`) indexes the monster name table at the
+monster number times eight and compares eight bytes. The Japanese table's
+records are eight bytes long, so it compares names. The English table's records
+are ten bytes long (`text/text_main.asm:180-187`), so for monster *n* it
+compares the eight bytes at offset 8*n* — part of one name and part of the next —
+and two monsters are grouped only when those windows match.
+`UpdateMonsterGfxBuf` (`:15218-15234`) builds the list from the result.
+
+**Where the port keeps it.** `loadMonster()` in `src/battle/battle_start.cpp`
+compares the same eight-byte windows of the cartridge's name table to set
+`Battler::nameGroup`. `tests/test_battle_start.cpp`
+(`StartMonstersOnTheCartridge.EnglishNamesAreComparedEightBytesApartInTenByteRecords`)
+pins it against the cartridge's names.
+
+**If you want to change it.** Comparing `TextCorpus::monsterName()` records
+would group the English names the way the Japanese ones are grouped; the list
+of names would then show fewer lines in some battles.

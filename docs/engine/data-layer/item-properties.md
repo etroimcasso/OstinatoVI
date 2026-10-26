@@ -154,3 +154,7 @@ values).
 weapon, consumable, and relic surfaces hand-traced from the ROM bytes
 (Excalibur, Potion, Magicite, the imp-gear and dead-bit rows); round-trips of
 every builder family back to raw ROM bytes; and the visible JP-variant skip.
+
+## Used by
+
+The party side of a battle's start ([battle/start.md](../battle/start.md)): `deriveEquipment()` adds up an equipped item's record, and `battleItem()` reads its type, usage, targeting and equippable-by mask.
