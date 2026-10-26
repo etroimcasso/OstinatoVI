@@ -12,7 +12,7 @@ namespace {
 
 // Every (family, language) pair there is an address for. A family both
 // languages ship has two rows; one only a single language ships has one.
-constexpr std::array<RomRegionEntry, 313> kRomRegions = {{
+constexpr std::array<RomRegionEntry, 315> kRomRegions = {{
 #include "data/generated/rom_regions_data.inc"
 }};
 

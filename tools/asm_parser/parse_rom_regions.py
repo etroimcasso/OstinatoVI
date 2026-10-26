@@ -18,7 +18,8 @@ Sources:
     world animation frames are one: their artwork is ripped but the records
     arranging it are left in the assembly, so their extent is resolved from the
     assembly and proved against the cartridge instead (see _ASM_REGIONS). The
-    dialog font's width table and the choice-cursor arrow are two more.
+    dialog font's width table, the choice-cursor arrow and the monster graphics
+    properties are three more.
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
@@ -48,8 +49,10 @@ Structural guarantees, hard-errored at emit time:
   * the stems that carry multiple families are EXACTLY the ten _ROLE_NAMES
     covers — a new one is a grammar change, not something to name on the fly;
   * every assembly-sourced region is identical to the cartridge over its whole
-    extent, or sits exactly between two ripped neighbors, which is what makes
-    its address trustworthy without a rip list to state it;
+    extent, or sits exactly between two ripped neighbors, or ends exactly where
+    a ripped neighbor begins with every record's own bytes checked against the
+    cartridge — which is what makes its address trustworthy without a rip list
+    to state it;
   * every fixed-record text range is exactly recordCount x recordSize bytes;
   * extract_assets.py holds exactly three CRC branches, each naming a ROM this
     port supports and assigning it the language that ROM's revision implies;
@@ -73,6 +76,7 @@ import sys
 
 import common
 import parse_font_metrics
+import parse_monster_sprites
 import parse_world_anim
 from common import ParseError
 
@@ -138,10 +142,22 @@ def _resolve_cursor_art(source_root, _rip_rows):
         _load_rom_if_present(source_root))
 
 
+def _resolve_monster_gfx_prop(source_root, rip_rows):
+    """The monster graphics properties: before the ripped palettes, both
+    languages, every English record checked against the cartridge."""
+    aligns = {language: parse_monster_sprites.read_segment_align(source_root,
+                                                                  language)
+              for language in ("en", "jp")}
+    return parse_monster_sprites.place_gfx_props(
+        parse_monster_sprites.read_gfx_props(source_root), rip_rows,
+        _load_rom_if_present(source_root), aligns)
+
+
 # The families sourced from the assembly: the world animation frames, whose
 # artwork upstream rips but whose arrangements it leaves in the assembly; the
-# dialog font's width table, between two ripped fonts; and the choice-cursor
-# arrow, inside the field code.
+# dialog font's width table, between two ripped fonts; the choice-cursor
+# arrow, inside the field code; and the monster graphics properties, which
+# upstream assembles from the graphics it rips.
 _ASM_REGIONS = (
     AsmRegion(asset="WORLD_ANIM_FRAMES",
               path="src/world/world_anim.asm",
@@ -152,6 +168,9 @@ _ASM_REGIONS = (
     AsmRegion(asset="DLG_CURSOR_GFX",
               path="src/field/text.asm",
               resolve=_resolve_cursor_art),
+    AsmRegion(asset="MONSTER_GFX_PROP",
+              path="src/gfx/monster_gfx.asm",
+              resolve=_resolve_monster_gfx_prop),
 )
 
 # Upstream ROM names -> the GameVersion enumerator each is. Every name the CRC
@@ -630,7 +649,7 @@ _SECTION_COMMENTS = {
              "// variable-length records it addresses.",
     "asm": "// Families the upstream rip leaves in the assembly. Their extent\n"
            "// comes from the assembly and is proved against the cartridge, or\n"
-           "// sits exactly between two ripped families.",
+           "// placed against the ripped families beside it.",
 }
 
 

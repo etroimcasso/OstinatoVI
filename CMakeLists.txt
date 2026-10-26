@@ -97,6 +97,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/menu_orders.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
+    src/data/monster_sprites.cpp
     src/data/monster_attacks.cpp
     src/data/monster_items.cpp
     src/data/monster_properties.cpp
@@ -265,6 +266,7 @@ gtest_discover_tests(ostinato-vi-item-tests)
 # enum, data-table, spell/esper, and item baselines stay frozen.
 add_executable(ostinato-vi-monster-tests
     tests/test_monster_properties.cpp
+    tests/test_monster_sprites.cpp
     tests/test_monster_tables.cpp)
 target_compile_features(ostinato-vi-monster-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-monster-tests PRIVATE ${_ostinato_warn})

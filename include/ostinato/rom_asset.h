@@ -189,14 +189,15 @@ enum class RomAsset : std::uint8_t {
 
     // Families the upstream rip leaves in the assembly. Their extent
     // comes from the assembly and is proved against the cartridge, or
-    // sits exactly between two ripped families.
+    // placed against the ripped families beside it.
     WORLD_ANIM_FRAMES,
     FONT_WIDTH,
     DLG_CURSOR_GFX,
+    MONSTER_GFX_PROP,
 };
 
 // How many families there are. The region table's asset column
 // never exceeds this.
-inline constexpr std::size_t kRomAssetCount = 159;
+inline constexpr std::size_t kRomAssetCount = 160;
 
 }  // namespace ostinato

@@ -473,7 +473,7 @@ class EndToEndTests(unittest.TestCase):
         prr.assert_role_names_complete(self.rows, self.root)
 
     def test_world_mod_tiles_matches_the_shipped_block(self):
-        # The 1.K world-modification tile pool: 1,182 bytes in both languages,
+        # The world-modification tile pool: 1,182 bytes in both languages,
         # at different places.
         by_language = {r.language: r for r in self.regions
                        if r.asset == "WORLD_MOD_TILES"}
@@ -483,7 +483,7 @@ class EndToEndTests(unittest.TestCase):
         self.assertEqual(by_language["jp"].size, 1182)
 
     def test_char_name_matches_the_shipped_text_metadata(self):
-        # 64 characters x 6 bytes, the 1.H fixed-record contract.
+        # 64 characters x 6 bytes, each name a fixed-width record.
         row = next(r for r in self.regions
                    if r.asset == "CHAR_NAME" and r.language == "en")
         self.assertEqual(row.begin, 0xC478C0)
@@ -540,10 +540,15 @@ class EndToEndTests(unittest.TestCase):
             ("FONT_WIDTH", "jp"): (0xC48FC0, 1280),
             # The arrow moves with the Japanese field code, so only English.
             ("DLG_CURSOR_GFX", "en"): (0xC08832, 12),
+            # The monster graphics properties end where the ripped palettes
+            # begin, in both languages: 416 records of five bytes.
+            ("MONSTER_GFX_PROP", "en"): (0xD27000, 2080),
+            ("MONSTER_GFX_PROP", "jp"): (0xD27000, 2080),
         })
-        # Every English byte is compared with the cartridge; the Japanese
-        # width table is placed by its neighbors alone.
-        self.assertEqual(checked, 5294 + 256 + 12)
+        # Every English byte of the first three is compared with the
+        # cartridge, and every English monster record's stencil number; the
+        # Japanese rows are placed by their neighbors alone.
+        self.assertEqual(checked, 5294 + 256 + 12 + 416)
 
     def test_run_check_only_ok(self):
         self.assertEqual(prr.run(self.root, self.repo, check_only=True), 0)
