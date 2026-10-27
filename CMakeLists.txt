@@ -63,6 +63,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/action_queue.cpp
     src/battle/actions.cpp
     src/battle/attack.cpp
+    src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_layout.cpp
@@ -78,6 +79,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/spell_lists.cpp
+    src/battle/system_commands.cpp
     src/battle/targeting.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
@@ -519,12 +521,15 @@ gtest_discover_tests(ostinato-vi-battle-core-tests)
 # baselines stay frozen.
 add_executable(ostinato-vi-battle-commands-tests
     tests/test_attack_frame.cpp
+    tests/test_automatic_actions.cpp
     tests/test_battle_layout.cpp
     tests/test_battle_script.cpp
+    tests/test_command_battle.cpp
     tests/test_command_menu.cpp
     tests/test_commands.cpp
     tests/test_hit_check.cpp
     tests/test_item_attack.cpp
+    tests/test_system_commands.cpp
     tests/test_targeting.cpp)
 target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})

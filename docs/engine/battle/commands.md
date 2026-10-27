@@ -1,9 +1,11 @@
 # Battle commands
 
-`CommandExecutor` is the battle's `ActionExecutor`: when the battle core runs a command, it carries
-the command out and returns the battle script that shows it. Each command body loads the attack its
+`CommandExecutor` is the battle's `ActionExecutor`: when the battle core runs an action, it carries
+the action out and returns the battle script that shows it. Each command body loads the attack its
 command makes into an `AttackInFlight` and hands it to the attack frame, which aims it, checks it
-against every target, works out its effects and writes it into the script.
+against every target, works out its effects and writes it into the script. The executor also runs
+the actions the battle takes on its own — damage over time, the party's escape, a formation change
+and the rest — and chooses for the battlers no one chooses for.
 
 The rules, and the line of the original each is read from, are in
 [`docs/contracts/battle_commands.md`](../../contracts/battle_commands.md).
@@ -13,26 +15,36 @@ The rules, and the line of the original each is read from, are in
 | File | Holds |
 |---|---|
 | `src/battle/command_executor.h` | `CommandExecutor` |
+| `src/battle/system_commands.h` | the battle's own actions: `damageOverTime()`, `spellWithoutCaster()`, `statusTimersExpire()`, `partyEscapes()`, `seizeDrain()`, `formationChange()`, `setMonsterVisibility()`, `scan()` |
+| `src/battle/automatic_actions.h` | `chooseAutomaticAction()`, `chooseOwnCommand()`, `choosesItsOwnAttack()`, `chooseMonsterAction()`, `chooseDanceStep()`, `chooseRageAttack()`, `chooseRandomEsper()` |
+| `src/battle/action_queue.h` | the `Action` kinds, among them `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction` with `MonsterVisibilityMode`, `ScanAction` and `MonsterAnimationAction` |
 | `src/battle/commands.h` | `runCommand()`, the bodies' loaders — `initAttacker()`, `attackerLevel()`, `loadWeaponAttack()`, `plainCommandAttack()`, `fightAttack()`, `setRage()` — and `commandForAttack()`, `isSpear()`, `itemStatuses()`, `kBattleEventTerraMagicScene`, `kTimeUpdatesBeforeDesperation` |
 | `src/battle/item_attack.h` | `itemAttack()`, `ItemUse` |
 | `src/battle/command_menu.h` | `refreshCommandMenu()`, `kMorphSupplyToMorph`, `kOfferingTargeting` |
 | `src/battle/attack.h` | `AttackInFlight`, `AttackScratch`, `SketchDrawn`, `AimingRules`, `SpecialEffect`, `CommandEffect`, `AttackNameKind`, `AttackHooks`, `startAttack()`, `loadAttackRecord()`, `rememberTargets()`, `runAttack()`, `runSelfAttack()`, `resolveAttack()`, `checkHit()`, `HitResult`, `hitInTheBack()`, `recordLastHit()` |
-| `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
+| `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `MonsterAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
+| `src/battle/battle_inventory.h` | `putAwayItemsObtained()` ([below](#items-obtained)) |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
 
 ## Running commands
 
 ```cpp
 AttackHooks hooks;                 // the damage, status and effect work plugs in here
-CommandExecutor executor(hooks);
+CommandExecutor executor(hooks, cartridge.text, cartridge.monsterSprites);
 BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 ```
 
-`execute()` runs every command a party member or a monster can choose. Mimic, which the battle core
-replaces with the command it mimics before running it, and an action that is not a battle command
-show nothing. After a command it reports to the battle core whether the attack was physical and who
-it ended up hitting (`state.scratch.physical`, `state.scratch.finalTargets`). `aim()` aims a command
-chosen with no targets: Fight chosen by a berserk party member, say, gets one monster.
+The text and the monster sprites are what a formation change needs to load the new monsters and
+place them; they must outlive the executor.
+
+`execute()` runs every command a party member or a monster can choose, and every action the battle
+takes on its own ([below](#the-battles-own-actions)). Mimic, which the battle core replaces with the
+command it mimics before running it, shows nothing. After an action it reports to the battle core
+whether the attack was physical and who it ended up hitting (`state.scratch.physical`,
+`state.scratch.finalTargets`). `aim()` aims a command chosen with no targets: Fight chosen by a
+berserk party member, say, gets one monster. `chooseAutomaticAction()` and `runAi()` choose for the
+battlers no one chooses for ([below](#automatic-actions)), and `chooseDanceStep()`,
+`chooseRageAttack()` and `chooseRandomEsper()` settle the menu choices that come down to chance.
 `refreshCommandList()` decides which of a party member's commands can be chosen
 ([below](#the-command-menu)).
 
@@ -163,6 +175,71 @@ These three make a second command inside the first, into the same script.
 - **Jump**: the jumper comes down with the hand that has power — either, on a coin — undodgeable, its
   row ignored, for half again the damage, twice with a spear in either hand (`isSpear()`). A Dragon
   Horn brings it down two to four times. Landing ends its hiding.
+
+## The battle's own actions
+
+The battle core queues these itself, or a monster's AI asks for them; `execute()` runs each one.
+Most make an attack from the plain hit with no command's rules, shown as `kNothingShown`, so the
+hooks work out their damage and statuses like any other attack's.
+
+| Action | What happens |
+|---|---|
+| `DamageOverTime` | `damageOverTime()`: an attack on the battler itself, ignoring defense, unsplit, turning around on the undead, of power max HP × stamina / 1024 + 2 (at most 255). Regen restores. Poison carries the Poison element and `Battler::poisonMultiplier`, which rises by two steps after every Poison beat, to 14, and stays up for the rest of the battle. Nothing happens while no enemy is left |
+| `SpellWithoutCaster` | `spellWithoutCaster()`: the spell as Magic, cast by the battler on itself — free, unreflected, undodgeable, with the swirl. Doom also stops the condemned count, and stops there while no enemy is left |
+| `StatusTimersExpired` | `statusTimersExpire()`: Stop, Reflect and Frozen come off; Sleep comes off a battler still asleep, which wakes with Tapir's animation |
+| `PartyEscape` | `partyEscapes()`: each party member who got away, with a full gauge, free to act, on the field and neither a zombie nor hidden, leaves; they run off together. A party that cannot run is told so |
+| `SeizeDrain` | `seizeDrain()`: the seizer drains its captive — level 16, power 16, unreflected, not capped by the HP the seizer is missing (`AttackInFlight::drainCapped`) |
+| `FormationChange` | `formationChange()`: the battle moves to another formation (`changeFormation()`, [start.md](start.md)) and shows it (`FormationChanges`) |
+| `MonsterVisibilityAction` | `setMonsterVisibility()`: monsters leave or come back by `MonsterVisibilityMode` — revived at full or current HP, hidden as a target or not, hidden while the battle may not end, hidden and killed |
+| `ScanAction` | `scan()`: the level, HP, MP (unless the target has none) and each weakness nothing cancels, one message each, every message its own `RunBattleScript` played before the action's own, which is empty |
+| `MonsterDialogAction`, `BattleMessageAction`, `BattleEventAction`, `ResetBattlePose`, `MonsterAnimationAction` | only their command: `MonsterDialogShown`, `BattleMessage`, `BattleEventPlays`, `PoseReset`, `MonsterAnimationPlays` |
+
+```cpp
+AttackInFlight attack;
+BattleScriptBuilder script;
+damageOverTime(state, hooks, script, attack, slot, DamageOverTimeKind::Poison);
+state.at(slot).poisonMultiplier;   // 2 after the first beat
+```
+
+## Automatic actions
+
+A party member whose turn comes with nothing chosen acts on its own (`chooseAutomaticAction()`):
+
+1. A dancer dances its dance's step (`chooseDanceStep()`): the first step 7 times in 16, the second 3
+   in 8, the third 1 in 8, the fourth 1 in 16 (`kDanceStepThresholds`). A dancer with no dance takes
+   one of the dances the party knows.
+2. A raging party member makes one of its monster's two Rage attacks, on a coin
+   (`chooseRageAttack()`). One with no monster takes one of the known rages.
+3. A party member in Magitek armor fires one of the first three beams.
+4. Anyone else — berserk, confused, charmed, a zombie, in the colosseum — picks one of its own
+   commands (`chooseOwnCommand()`).
+
+`chooseOwnCommand()` offers each of the four commands unless the row is empty, a confused party
+member could not use it (`kConfusedAllowedCommands`), or the berserk rules forbid it
+(`kBerserkAllowedCommands`, for the berserk and for a zombie who is neither confused, charmed nor in
+the colosseum). A command that picks its attack at random drops out when it has none: Magic or Lore
+while Muted or with nothing to cast, Morph below 16 supply, Bushido without a Bushido weapon. One
+more Fight is always offered, so Fight comes up more often than the others.
+
+An X-Magic pick casts two spells: a Magic with a second spell, then the X-Magic. A Lore that comes out
+as Roulette is made as the Roulette command (`kRouletteCommand`), which takes no advance wait and is
+not aimed.
+
+A monster that is berserk, confused, charmed or in the colosseum picks its own attack instead of
+following its AI: `runAi()` checks `choosesItsOwnAttack()` and calls `chooseMonsterAction()`, which
+takes one of its four Control attacks — from a slot drawn at random, the first filled one counting
+down and round again — or, when berserk, the plain hit. Any other monster's AI turn adds nothing.
+
+`chooseRandomEsper()` is the esper a slot reel's summon calls: every esper but Odin and Raiden,
+equally likely.
+
+## Items obtained
+
+After every action, each party member marked in `state.holdingItem` with an item still in
+`Battler::itemInHand` puts it into the party's inventory — an `AddItemObtained` request, last party
+member first — and its hand is emptied (`putAwayItemsObtained()`). Item marks the user, so a rod or
+shield whose spell was cast without using it up goes back. Anything that puts an item in a party
+member's hand and marks it in `state.holdingItem` hands it over the same way.
 
 ## The command menu
 
@@ -302,7 +379,12 @@ The commands:
 | `AttackAnimation` | the command's animation (`what` a `BattleCommandId`) or a special one (`SpecialAnimation`), with its params; a Fight swing says its hand and its weapon's animation; Item, Throw and Tools show `item`; a Dance that changes the battlefield, `newBackground` |
 | `BattleMessage` | a battle message, with the numbers it shows |
 | `PoseReset` | a party member going back to standing |
-| `ReadyStance`, `StepBack`, `FinalBattleStageArrives` | written by the battle core |
+| `FormationChanges` | the formation changing: the departing monsters' exit, whether the background scrolls on, and the monsters fighting once it has arrived; `FormationChanges::from()` reads the one-byte form the final battle's stages carry |
+| `MonsterDialogShown` | a monster's dialog |
+| `BattleEventPlays` | a battle event |
+| `MonstersEnterOrLeave` | monsters coming back by an entrance type, or else leaving by it |
+| `MonsterAnimationPlays` | a monster animation, or a sound effect with its pan |
+| `ReadyStance`, `StepBack` | written by the battle core |
 
 An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) shows no animation.
 `kJokerDoomName` is the attack-name entry that reads "Joker Doom".
@@ -326,6 +408,15 @@ An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) s
   `AttackInFlight`, so what the first changed — the targets remembered, the name already shown, the
   swirl — carries into it.
 - **Umaro throws Mog's power plus one.** So does any ally from Mog on ([`docs/Bugs.md`](../../Bugs.md)).
+- **Poison's multiplier never comes down.** `Battler::poisonMultiplier` keeps its value through a cure,
+  so a battler poisoned again later in the battle takes the higher damage at once.
+- **A formation change keeps more than HP.** Without `restoreMonsters`, each new monster takes the
+  HP and MP its slot held, and its stamina follows that max HP. Either way the slots keep their
+  statuses, and a slot whose monster had fallen stays fallen.
+- **Scan's messages arrive as their own scripts.** Each is a `RunBattleScript` request pushed during
+  `execute()`; the battle waits only on the action's own script, which comes last.
+- **The Roulette command skips the advance wait.** It is added with `addAction()`, not
+  `addAutomaticAction()`.
 
 ## Where to change
 
@@ -342,3 +433,9 @@ An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) s
 | The critical-hit chance | `kCriticalBelow` in `src/battle/attack.cpp` |
 | The hit check | `checkHit()` in `src/battle/attack.cpp` |
 | Damage, statuses and effects | your `AttackHooks` |
+| What a battle's own action does | its function in `src/battle/system_commands.cpp` |
+| Which action kind runs which function | `CommandExecutor::execute()` in `src/battle/command_executor.cpp` |
+| What a party member picks on its own | `chooseOwnCommand()` and its choosers in `src/battle/automatic_actions.cpp` |
+| The dance step odds | `kDanceStepThresholds` (shipped data); the ladder is `chooseDanceStep()` |
+| When a monster picks its own attack | `choosesItsOwnAttack()` in `src/battle/automatic_actions.cpp` |
+| What happens to an item left in hand after an action | `putAwayItemsObtained()` in `src/battle/battle_inventory.cpp` |

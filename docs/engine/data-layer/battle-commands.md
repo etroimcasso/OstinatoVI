@@ -179,3 +179,5 @@ Aiming ([battle/targeting.md](../battle/targeting.md)): `initTargeting()` reads 
 The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` adds the bases in `kCommandAttackBases` and drops the targets of the commands in `kRetargetCommands`.
 
 The command menu ([battle/commands.md](../battle/commands.md#the-command-menu)): `refreshCommandMenu()` reads each command's Imp flag from `battleCommandProperties()`.
+
+A party member acting on its own ([battle/commands.md](../battle/commands.md#automatic-actions)): `chooseOwnCommand()` keeps the commands in `kConfusedAllowedCommands`, and under the berserk rules those in `kBerserkAllowedCommands`; the commands that pick their attack at random are the ones in `kRandomHandlerCommands`. Each command chosen takes its `commandAdvanceWait()`.

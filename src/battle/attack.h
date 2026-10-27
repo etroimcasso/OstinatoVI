@@ -190,6 +190,8 @@ struct AttackInFlight {
     bool twoHanded = false;             // the hand's weapon is held in both hands (a Gauntlet)
     // An attack that ignores defense is not multiplied. A Throw multiplies it anyway.
     bool ignoreDefenseStopsMultiplier = true;
+    // A drain takes no more HP than the attacker is missing. Seize's drain takes it all.
+    bool drainCapped = true;
 
     std::uint8_t secondary = 0;         // the animation's second value (AttackAnimation::secondary)
     bool offHand = false;               // the hit is the shield hand's

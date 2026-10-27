@@ -8,6 +8,7 @@
 
 #include "battle/actions.h"
 #include "battle/battle_core.h"
+#include "battle/battle_inventory.h"
 #include "battle/battle_layout.h"
 #include "battle/party_setup.h"
 #include "battle/spell_lists.h"
@@ -336,8 +337,8 @@ void carryOff(BattleState& state, BattlerSlot slot) {
 }
 
 void startCondemnedCount(BattleState& state, BattlerSlot slot) {
-    const int level = state.condemnedLevel;
-    const int rolled = level + state.rng.below(state.condemnedLevel);
+    const int level = state.lastAttackLevel;
+    const int rolled = level + state.rng.below(state.lastAttackLevel);
     state.at(slot).condemnedNumber = static_cast<std::uint8_t>(20 + std::max(0, 60 - rolled));
 }
 
@@ -825,6 +826,7 @@ void finishCommand(BattleState& state, ActionExecutor& executor, const ScriptWai
     joinTheField(state);
     settleAfterAction(state, executor);
     leaveTheField(state, executor);
+    putAwayItemsObtained(state);
     switch (wait.resume) {
         case ScriptResume::FinishAction:
             rememberForMimic(state, *wait.actor, wait.command);

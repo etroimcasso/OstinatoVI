@@ -2,13 +2,16 @@
 
 Behavioral specification for carrying out a battle command: the battle script a command writes,
 how its attack is aimed, the attack frame that runs each attack, the hit check, every command the
-player can choose, the attack an item makes, and the command menu's refresh. All citations point
+player can choose, the attack an item makes, the command menu's refresh, the actions the battle
+takes on its own, what a battler does when no one chooses for it, and the items handed over after
+an action. All citations point
 into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are
 into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:` names a line of
 `src/btlgfx/btlgfx_main.asm`. This document is the test authority for `tests/test_targeting.cpp`,
 `tests/test_hit_check.cpp`, `tests/test_attack_frame.cpp`, `tests/test_battle_script.cpp`,
-`tests/test_battle_layout.cpp`, `tests/test_commands.cpp`, `tests/test_item_attack.cpp` and
-`tests/test_command_menu.cpp`.
+`tests/test_battle_layout.cpp`, `tests/test_commands.cpp`, `tests/test_item_attack.cpp`,
+`tests/test_command_menu.cpp`, `tests/test_system_commands.cpp`, `tests/test_automatic_actions.cpp`
+and `tests/test_command_battle.cpp`.
 
 The battle core (`docs/contracts/battle_core.md`) decides when a command runs; this contract starts
 where it calls `ActionExecutor::execute`. Damage, statuses and the special effects are outside it:
@@ -47,6 +50,13 @@ the attack frame calls them through `AttackHooks` at the points named below.
 | Rage | `Cmd_10` `:3334-3354`, `SetRage` `:999-1015`, `LoadRageProp` `:7504-7550`, `FixImmuneStatus` `:6359-6380`, `UpdateImmuneStatus` `:6386-6433` | `setRage()`, `loadMonsterTraits()` |
 | A spear | `SpearEffect` `:3279-3285` | `isSpear()` |
 | The command menu | `UpdateCmdList` `:13560-13617`, `UpdateCmdIDTbl` / `UpdateCmd_00`–`_07` `:13621-13689`; its callers `:1360`, `:1721`, `:5625` | `refreshCommandMenu()` |
+| The battle's own actions | `Cmd_20`–`Cmd_2d` `:13019-13406`, `Cmd_2a` `:5637-5696`, `Cmd_2b` `:16393-16401`, `MonsterDeathTbl` / `MonsterDeath_00`–`_05` `:13088-13147`, `:13411-13417` | `damageOverTime()`, `spellWithoutCaster()`, `statusTimersExpire()`, `partyEscapes()`, `seizeDrain()`, `formationChange()`, `setMonsterVisibility()`, `scan()`, `CommandExecutor::execute()` |
+| A formation change | `Cmd_20` `:13206-13244`, `LoadBattleProp` `:7940-7992`, `InitMonsters` `:7672-7709`, `LoadMonsterProp` `:7307-7436` | `changeFormation()`, `loadMonster()` |
+| Who queues them | `rigenetimer` `:14990-15035` (damage over time, Seize), `timer` `:14940-14963`, `CondemnDeath` `:15058-15062`, `CreateRunAwayAction` `:15083-15094`, the AI commands `AICmd_f2`/`f3`/`f5`/`f7`/`fa` `:4464-4549` | battle core; the AI's are its own unit |
+| A party member acting on its own | `QueueAction` `:537-568`, `FixRoulette` `:574-582`, `RandCharAction` `:656-745`, `ConfusedCmdTbl` / `BerserkCmdTbl` / `RandCmdIDTbl` / `RandCmdTbl` `:754-777` | `chooseAutomaticAction()`, `chooseOwnCommand()` |
+| The random attacks | `RandLore` `:783-801`, `RandMagic` `:807-837`, `RandMorph` `:854-859`, `RandBushido` `:865-875`, `RandBlitz` `:881-889`, `RandMagitek` `:895-900`, `RandTools` `:906-914`, `RandDance` `:920-947`, `RandRage` `:961-993`, `RandGenju` `:8968-8977`, `RandBit` `:13495-13515`, `GetBitID` `:13423-13429` | inside `chooseOwnCommand()`, `chooseDanceStep()`, `chooseRageAttack()`, `chooseRandomEsper()` |
+| A monster picking its own attack | `ExecAction` `:213-224`, `RandMonsterAction` `:1021-1055` | `CommandExecutor::runAi()`, `choosesItsOwnAttack()`, `chooseMonsterAction()` |
+| Items obtained | `_c262c7` `:16168-16187`, called at the end of `ExecCmd` `:3126` | `putAwayItemsObtained()` |
 
 ## The battle script
 
@@ -70,8 +80,13 @@ of it. `replaceAnimation()` is the same.
 | `CommandNameShown` | kind 5 | the command (`$b5`) |
 | `MonsterSpecialAttackNameShown` | kind 6 | the monster whose special-attack name is shown — a 16-bit index into `MonsterSpecialName` (`btlgfx:22712-22769`) |
 | `AttackAnimation` | `_c235ad` | the command the animation is shown as, the attack, the second value, and the params. A Fight swing's second byte carries the hand in bit 7 (`btlgfx:28323-28326`, "left-hand weapon flag") and its third the weapon's animation, the item index plus one (`_c2299f :6958-6960`). A command value of `$20` and up is one of the special animations of `CmdAnimTbl` (`btlgfx:27082-27121`). |
-| `BattleMessage` | `ExecAttack :8111-8127`, `CalcAttackEffect :8177-8178` | the message index; the numbers its text shows travel with it |
-| `PoseReset` | `ExecAttack :8088-8092` | the party member who goes back to standing (`btlgfx:25520-25534`) |
+| `BattleMessage` | `ExecAttack :8111-8127`, `CalcAttackEffect :8177-8178`, `Cmd_25 :13250-13268`, `Cmd_27 :13274-13329`, `Cmd_2a :5642-5643` | the message index; the numbers its text shows travel with it |
+| `PoseReset` | `ExecAttack :8088-8092`, `Cmd_2c :13373-13379` | the party member who goes back to standing (`btlgfx:25520-25534`) |
+| `FormationChanges` | `Cmd_20 :13237-13244`, the final battle's next stage (`docs/contracts/battle_core.md`) | `GfxCmd_12 btlgfx:22118-22167`: byte 1's bit 7 scrolls the background on (`_c19275`); its low bits are the exit the departing monsters take (`DoMonsterEntryExit`). Byte 2 is overwritten by the reader with the monsters on screen. Byte 3 is the monsters still fighting (`$3a75`), which the reader also writes into the monsters standing (`$2f2f`). The new monsters enter by the new formation's own entrance (`$2f48`). |
+| `MonsterDialogShown` | `Cmd_21 :13259-13268` | `GfxCmd_10 btlgfx:22863-22876`: a 16-bit index into the monster dialogs; `Cmd_21` zeroes byte 2, so the index is byte 1 |
+| `BattleEventPlays` | `Cmd_23 :13019-13024` | `GfxCmd_0f btlgfx:38200-38238`: the battle event |
+| `MonstersEnterOrLeave` | `Cmd_24 :13061-13083` | `GfxCmd_13 btlgfx:22177-22206`: byte 1 is the entrance type, the 18 scripts `DoMonsterEntryExit btlgfx:45529-45562` dispatches — `MonsterEntranceType`; with byte 3 (the monsters revived) set those monsters enter by it; otherwise byte 2's monsters (those hidden) that are still on screen leave by it |
+| `MonsterAnimationPlays` | `Cmd_2b :16393-16401` | `GfxCmd_14 btlgfx:21917-21920` → `DoMonsterAnim btlgfx:45502-45523`: byte 1 is the animation (the AI script's `$fa` sub-command, named by `include/battle/ai_script.inc:259-327`); byte 2 is the monsters it plays on (a monster mask), or for the sound effect (9) the pan, with byte 3 the sound |
 
 Kind 3 of the name kinds has no writer: nothing sets `$3412` to 3.
 
@@ -584,6 +599,188 @@ battle wearing an Offering shows Fight's own targeting until the first refresh.
 
 - `ExecSelfAttack :8004` clears `$341b`, which nothing reads.
 - Sketch's `$b7 = $ff` has no reader on Sketch's path.
+
+## The battle's own actions
+
+`CommandExecutor::execute()` runs these when the battle core reaches them; each starts from the same
+frame as a command (`ExecCmd :3093-3109`) and the ones that make an attack start from the plain hit
+with no command's rules (`_c2298a` with a command past the menu's: `InitTarget :6460-6461` loads no
+aiming byte). A battle's own action carries no command of its own; most are shown as Mimic, whose
+animation is empty (`$b5 = $12`).
+
+### Damage over time
+
+`Cmd_22 :13153-13198`, queued by `rigenetimer :14990-15035` with the status that took effect —
+`$04` Poison, `$02` Regen, `$40` Sap or Phantasm:
+
+- No enemy left (`$3a77`): nothing, and the battler's beat stays pending (`$3aa1.4` is cleared only
+  after this test).
+- The beat is spent (`$3aa1.4` cleared); a battler held by a status (`$3aa0.4`) does nothing more.
+- The plain hit, shown as Mimic; Vanish does not apply and the ignore-defense attack is multiplied
+  (`$b3` loses `$90`); traits `$68`: ignore defense, no split, invert on the undead (replacing the
+  plain hit's).
+- `lsr $11a4 / lsr2 / rol $11a4`: bit 1 of the status (Regen) becomes the restore flag; the next
+  bit, Poison, takes the battler's poison multiplier as the extra multiplier and the Poison element.
+  The multiplier (`$3e24`) rises by two after each Poison beat, to 14, and nothing else writes it:
+  it keeps growing for the whole battle, through a cure and a second poisoning.
+- Power: max HP × stamina (`Mult24`) over 1024, plus 2, at most 255 (`:13185-13196`).
+- An attack on the battler itself (`ExecSelfAttack`).
+
+### A spell with no caster
+
+`Cmd_26 :13030-13055`: the spell is `$b8`, the battler `$b6`. Doom also marks the condemned count
+to stop (`$3204.4`) and does nothing more while no enemy is left; any other spell is cast regardless.
+The spell is made as Magic, loaded and aimed (`InitTarget`), with the battler's magic power and
+level (`InitAttacker`), the casting swirl on, flags 1 replaced by "ignore Reflect", undodgeable, no
+MP, at the battler itself.
+
+### Status timers running out
+
+`Cmd_29 :13335-13367`, queued by `timer :14940-14963` with one bit per timer: the plain hit, shown
+as Mimic, the swirl on; Stop (status-3 `$10`), Reflect (status-3 `$80`), Frozen (status-4 `$02`) to
+take off. Sleep comes off only if the battler is still asleep (status-2 `$80`), and then the attack
+is made as Magic with attack `$78`, Tapir; a sleep timer that ran out on an awake battler takes
+nothing off and shows nothing. Remove-status; at the battler itself.
+
+### The party's escape
+
+`Cmd_2a :5637-5696`: nothing unless the party is running (`$2f45`). A party that cannot run
+(`$b1.1`) is shown message 9, "can't run away". Otherwise, with no one just escaped (`$3a38`)
+nothing; the escaped set is cleared, and each of them, last party slot first, leaves when its gauge
+is full (`$3219` of 0), it is not held (`$3aa0` bits 4 and 6), it is present, and it is neither a
+zombie nor hidden: it has left the battle (`$3a39`), it will be gone after the action (`$2f4c`), its
+gauge empties after the action (`$3aa1.6`), all its actions are removed (`$3204.6`) and its links are
+released (`_c207c8`). With anyone leaving, the run animation (`$22`) plays with the params of the
+last one handled — the lowest slot — as attacker and everyone leaving as the targets; with no one,
+nothing shows.
+
+### Seize's drain
+
+`Cmd_2d :13385-13406`, queued for the seizer with the seized as its target: the beat is spent; the
+plain hit, attack stat 0, level 16, power 16, traits `$28` (ignore defense, invert on the undead),
+flags 1 "ignore Reflect", drain; aimed exactly as given (`$3a46.1`); the drain not capped by the HP
+the seizer is missing (`$b2.7` cleared); shown as Mimic; at the seized (`ExecAttack`).
+
+### A formation change
+
+`Cmd_20 :13206-13244`. The formation is `$b8`-`$b9` with bit 15 meaning "back to full HP and MP"
+(`$3a47.7` is set when it is clear); bit 15 is stripped before `LoadBattleProp`, so the
+random-of-four bit is never seen, while the conditional battles still replace the formation. Every
+monster slot starts over (`:13219-13228`): its battle flags and triggers cleared, no monster in it,
+the start's recalculations pending (`$ffbc`). Then `InitMonsters`: each slot's monster loaded; with
+"keep" the HP and MP loads are skipped (`LoadMonsterProp :7370-7384`), so the new monster has the HP,
+max HP, MP and max MP its slot held, and its stamina follows that max HP. A slot's statuses and the
+monsters marked dead or fled (`$3a3a`) are not touched. `UpdateStatus`, `AfterAction1`,
+`AfterAction2`, `UpdateDead`, `InitStatus`, `ChooseBattleType`; the monsters are placed for the new
+battle type (`InitMonsterPos btlgfx:2838-2857`, from `GfxCmd_12`); the change is shown
+(`FormationChanges`), and the monsters still fighting become the monsters standing.
+
+### Monsters leaving and coming back
+
+`Cmd_24 :13061-13083`: the mode is `$b8`, the monsters `$b9` (only slots that hold a monster,
+`$3a73`), the entrance `$b6`. Per monster (`MonsterDeathTbl`):
+
+| Mode | Handler | What happens |
+|---|---|---|
+| 0 | `_00 :13118-13125` | HP to max, then mode 2 |
+| 1 | `_01 :13098-13099` | no longer a target (`$2f4d`), then mode 3 |
+| 2 | `_02 :13130-13137` | revived: no longer marked fallen, standing, counted, joining after the action; the battle may end again |
+| 3 | `_03 :13105-13113` | hidden: not counted, not standing, Hide set |
+| 4 | `_04 :13088-13093` | the battle may not end, then mode 3 |
+| 5 | `_05 :13142-13147` | mode 3, then Dead set |
+
+The script shows the hidden and the revived (`MonstersEnterOrLeave`).
+
+### Scan
+
+`Cmd_27 :13274-13329`: four kinds of message, each played as a script of its own before the
+action's (`ExecBtlGfx $04` per message): the level (52), HP and max HP (48), MP and max MP (49)
+unless max MP is 0, and one "weak against" message from 21 per element bit, Fire first, for the
+elements weak and neither halved, absorbed nor nullified. The action's own script is empty.
+
+### The level a condemned count reads
+
+`StartCondemn :1512-1525` reads `$11af`, the level the last attack was made at. Every writer of it is
+an attack's setup: `InitAttackerLevel :7291-7299`, the plain hit's clear (`_c2298d :6907`), the
+item attack's clear (`CalcItemEffect :6999`), Runic's (`_c2385e :9058-9062`), Umaro's
+(`InitUmaroAttack :3838`) and Seize's 16 (`:13394`); the battle's start sets 20 (`:6131`). An action
+that writes none — a dialog, a formation change, Possess, a damage-over-time beat with no enemy left —
+leaves the last attack's level in place, and a count started after it (a formation change's new
+monsters, say) is worked out from that. `CommandExecutor::execute()` starts each action's attack at
+`BattleState::lastAttackLevel` and writes the attack's level back when the action ends.
+
+### The rest
+
+`Cmd_21` shows a monster dialog, `Cmd_25` a battle message, `Cmd_23` plays a battle event, `Cmd_2c`
+resets a party member's pose and `Cmd_2b` plays a monster animation; each only writes its command.
+
+## Automatic actions
+
+### A party member acting on its own
+
+`QueueAction :537-568`, for a party member with nothing pending: Dance status → the dance's step
+(`RandDanceAction`); else Rage status → the rage's attack; else Magitek → a beam; else
+`RandCharAction`. Each is given its advance wait and aimed (`CalcCmdDelay`) — except a command from
+`$1e` up, which `CalcCmdDelay :621-622` skips entirely. An X-Magic pick becomes two actions: a Magic
+with a second spell drawn by `RandMagic`, added first, then the X-Magic with the first.
+`FixRoulette` turns Lore's Roulette into the Roulette command (`$1e`), which therefore takes no
+advance wait and no aim.
+
+`RandCharAction :656-745`:
+
+- The candidates are the four menu commands and a Fight that is never cleared (`$fe`/`$ff`, zeroed at
+  `:662-663` and counted in `$f5 = 5`).
+- A row drops out when it is empty, when `ConfusedCmdTbl` lacks the command, or, under the berserk
+  rules, when `BerserkCmdTbl` lacks it. The berserk rules apply when `$f4` is not negative: Berserk
+  zeroes it; otherwise it is status-2 shifted left twice with the charm attacker's inverted top bit
+  and the colosseum flag, negative when confused, charmed or in the colosseum. So a zombie that is
+  none of those takes the berserk rules too.
+- The surviving rows whose command has a chooser (`RandCmdIDTbl`/`RandCmdTbl`) draw their attack,
+  last row first; a chooser with nothing to make drops the row (`RandCmdInvalid`). Any other command
+  makes attack 0.
+- One candidate is drawn (`RandA($f5)`), counting the extra Fight first and then the rows last
+  first.
+
+The choosers:
+
+| Command | Chooser | Nothing to make when | Draw |
+|---|---|---|---|
+| Magic, X-Magic | `RandMagic` | Muted, or no spells (`$3cf8`) | `RandA(count)`, then the list's magic positions from the last back, counting the filled ones |
+| Lore | `RandLore` | Muted, or no lores known (`$3a87`) | the same over the lores; a walk that runs out gives Condemned |
+| Bushido | `RandBushido` | no Bushido weapon in either hand | `RandA(known)` from Dispatch |
+| Blitz | `RandBlitz` | — | one of the known blitzes' bits (`RandBit`) from Pummel |
+| Morph | `RandMorph` | Morph supply below 16 | — |
+| Magitek | `RandMagitek` | — | `RandA(3)` from Fire Beam |
+| Tools | `RandTools` | — | one of the owned tools' bits from Noiseblaster |
+| Dance | `RandDance` | — | see below |
+| Rage | `RandRage` | — | see below |
+
+`RandBit` draws only when its mask has a bit set; with none it gives bit 0 without drawing.
+
+### The dance step, the rage attack and the esper
+
+- `RandDance :920-947`: a dancer with no dance (`$32e1` of `$ff`) takes one of the known dances'
+  bits. Then one draw against `DanceRateTbl` (`$10`, `$30`, `$90`): below each, one step further —
+  the first step 7/16, the second 3/8, the third 1/8, the fourth 1/16.
+- `RandRage :961-993`: a rager with no monster takes the n-th of the known rages, n = `RandA(count)`;
+  with none known it rages as monster 0 and reads its attacks at the list's end marker, monster 255.
+  Then a coin between the monster's two Rage attacks.
+- `RandGenju :8968-8977`: `RandA(25)`, two further from the eleventh — every esper but Odin and
+  Raiden.
+
+### A monster picking its own attack
+
+`ExecAction :213-224`: a monster's AI turn in the colosseum, charmed (`$3395`), berserk or confused
+(status-2 `$30`) goes to `RandMonsterAction :1021-1055` instead of its AI: from a slot drawn by
+`Rand & 3`, the first filled Control attack counting down, round again; a berserk monster (status-2
+`$10`) makes Battle; the command is `GetCmdForAI`'s; aimed and added with its advance wait.
+
+## Items obtained
+
+`_c262c7 :16168-16187`, at the end of every action (`ExecCmd :3126`, after the script and the
+after-action checks): for each party member marked as holding (`$3a8c`), last slot first, the mark
+is cleared, and an item still in hand (`$32f4`) goes into the inventory, one of it (`ExecBtlGfx $05`),
+and the hand is emptied.
 
 ## What a hit target records
 

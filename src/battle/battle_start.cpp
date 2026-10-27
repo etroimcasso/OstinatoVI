@@ -237,7 +237,7 @@ StatusSet loadMonsterTraits(Battler& battler, MonsterId id) {
 }
 
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
-                 const TextCorpus& text) {
+                 const TextCorpus& text, MonsterHp hp) {
     Battler& battler = state.at(slot);
     const MonsterProperties& record = getMonsterProperties(id);
     battler.monster = id;
@@ -252,12 +252,14 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.magicDefense = record.magicDefense;
     battler.experience = record.experience;
     battler.gold = record.gold;
-    battler.mp = battler.maxMp = record.mp;
-    battler.hp = battler.maxHp = record.hp;
-    if (state.startingFormation == kDoomGazeFormation) {
-        state.doomGaze = slot;
-        if (const std::uint16_t remembered = state.switches.doomGazeHp(); remembered != 0) {
-            battler.hp = remembered;
+    if (hp == MonsterHp::FromRecord) {
+        battler.mp = battler.maxMp = record.mp;
+        battler.hp = battler.maxHp = record.hp;
+        if (state.startingFormation == kDoomGazeFormation) {
+            state.doomGaze = slot;
+            if (const std::uint16_t remembered = state.switches.doomGazeHp(); remembered != 0) {
+                battler.hp = remembered;
+            }
         }
     }
     battler.stamina = static_cast<std::uint8_t>(
@@ -285,7 +287,8 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
 
 namespace {
 
-void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus& text) {
+void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus& text,
+                  MonsterHp hp = MonsterHp::FromRecord) {
     const Formation& formation = getFormation(state.formation);
     for (int position = kMonsterSlots - 1; position >= 0; --position) {
         state.at(BattlerSlot::monster(position)).present = formation.isPresent(static_cast<std::size_t>(position));
@@ -302,7 +305,7 @@ void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus
             monster = formation.monsterId(at);
         }
         if (monster) {
-            loadMonster(state, executor, BattlerSlot::monster(position), *monster, text);
+            loadMonster(state, executor, BattlerSlot::monster(position), *monster, text, hp);
         }
     }
 }
@@ -422,6 +425,44 @@ void fillStartingGauges(BattleState& state) {
     });
 }
 
+void changeFormation(BattleState& state, ActionExecutor& executor, FormationId formation, MonsterHp hp,
+                     const TextCorpus& text, const MonsterSprites& sprites) {
+    state.formation = chooseFormation(state, FormationRef::of(formation));
+    // Every monster slot starts over: off the field, nothing pending but the start's
+    // recalculations, no monster in it yet.
+    for (int position = kMonsterSlots - 1; position >= 0; --position) {
+        Battler& battler = state.at(BattlerSlot::monster(position));
+        battler.present = false;
+        battler.takesMenuInput = false;
+        battler.inBattleMenu = false;
+        battler.atbStopped = false;
+        battler.heldByStatus = false;
+        battler.actionQueued = false;
+        battler.heldByControl = false;
+        battler.menuMayOpen = false;
+        battler.triggers = {};
+        battler.monster.reset();
+        battler.pendingUpdates = PendingUpdates{.enabledMagic = true,
+                                                .startCondemned = true,
+                                                .stopCondemned = true,
+                                                .commandList = true,
+                                                .speed = true};
+        battler.nearFatalSpellAvailable = true;
+        battler.airAnchored = false;
+        battler.mayActAfterJump = true;
+    }
+    loadMonsters(state, executor, text, hp);
+    executor.applyStatusChanges(state);
+    checkTheFallen(state, executor);
+    settleAfterAction(state, executor);
+    refreshAliveSets(state);
+    forEachSlotLastFirst([&](BattlerSlot slot) { refreshStatusImmunity(state, slot); });
+    state.battleType = chooseBattleType(state, getFormationAux(state.formation).possibleBattleTypes());
+    // Showing the change marks the new formation's monsters still fighting as the ones standing.
+    state.monstersStanding = state.alive.monstersOnly();
+    layOutMonsters(state, sprites);
+}
+
 namespace {
 
 // --- the opening ---------------------------------------------------------------------------------
@@ -538,7 +579,7 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 
     executor.applyStatusChanges(state);
     checkTheFallen(state, executor);
-    state.condemnedLevel = 20;
+    state.lastAttackLevel = 20;
     settleAfterAction(state, executor);
     refreshAliveSets(state);
     state.battleType = chooseBattleType(state, aux.possibleBattleTypes());
@@ -575,9 +616,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     }
 
     if (state.finalBattleScroll) {
-        state.requests.push_back(RunBattleScript{.commands = {FinalBattleStageArrives{
-                                                     .scroll = *state.finalBattleScroll,
-                                                     .monsters = state.alive.monstersOnly()}}});
+        state.requests.push_back(RunBattleScript{
+            .commands = {FormationChanges::from(*state.finalBattleScroll, state.alive.monstersOnly())}});
         state.waitingForScript = ScriptWait{.resume = ScriptResume::NextStep};
     } else {
         state.requests.push_back(OpenBattleScene{});

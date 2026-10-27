@@ -180,12 +180,18 @@ count, the escape try, the Reflect, Freeze and Sleep timers, and the poison and 
 step. The remaining six of the 16 turns are the battle's: Roulette's Doom, the battle counter and the
 battlers' own timers, and the party's escape.
 
+A condemned count that starts is 20 + max(0, 60 − (L + a random 0 … L − 1)), where L is
+`state.lastAttackLevel`: the level the last attack was made at, 20 as the battle starts.
+`CommandExecutor` keeps it up to date; an action that makes no attack of its own level leaves it.
+
 ## Actions and the lines
 
 An `Action` is one of: `CommandAction` (a battle command with its attack, targets and MP cost),
 `AiTurn`, `DamageOverTime`, `SpellWithoutCaster`, `StatusTimersExpired`, `PartyEscape`,
 `ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, `BattleMessageAction` (the battle's opening
-message), and `NoAction` (handed to the executor when a battler's turn comes with nothing chosen).
+message), `NoAction` (handed to the executor when a battler's turn comes with nothing chosen), and the
+ones a monster's AI asks for: `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction`,
+`ScanAction` and `MonsterAnimationAction` ([commands.md](commands.md#the-battles-own-actions)).
 
 ```cpp
 #include "battle/actions.h"
@@ -295,7 +301,8 @@ struct Swing : ActionExecutor {
 ```
 
 `NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
-([commands.md](commands.md)) is the battle's own: it carries out the commands and aims them.
+([commands.md](commands.md)) is the battle's own: it carries out every action, aims commands,
+chooses for the battlers no one chooses for, and settles the menu choices left to chance.
 
 ## Requests
 
@@ -303,11 +310,14 @@ struct Swing : ActionExecutor {
 battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
 `RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won),
 `CloseBattleScene` (the battle is over) and `AddItemObtained` (a party member came away from an
-action holding an item, which goes into the battle inventory). A `RunBattleScript` holds
+action holding an item, which goes into the battle inventory; the loop asks for it once the action's
+script has played and the battle has settled). A `RunBattleScript` can also come during an action,
+ahead of the action's own: Scan plays each of its messages that way. A `RunBattleScript` holds
 `BattleScriptCommand`s and is the one request the loop waits on. The battle core writes
-`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and
-`FinalBattleStageArrives` (the next stage's background and monsters); the commands write the rest —
-names, animations, messages ([commands.md](commands.md)).
+`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and,
+as each stage of the final battle opens, `FormationChanges` (the background scrolling on and the
+stage's monsters coming in); the actions write the rest — names, animations, messages
+([commands.md](commands.md)).
 
 ## The battle's end
 

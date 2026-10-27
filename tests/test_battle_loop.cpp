@@ -560,7 +560,7 @@ TEST(AfterAction, TheCondemnedCountStartsFromTheAttackersLevel) {
     for (std::uint8_t level : {std::uint8_t{20}, std::uint8_t{99}}) {
         BattleState state = makeBattle();
         RecordingExecutor executor;
-        state.condemnedLevel = level;
+        state.lastAttackLevel = level;
         executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
             s.at(kFriend).pendingUpdates.startCondemned = true;
         };

@@ -133,7 +133,7 @@ TEST(CommandMenu, TheExecutorRefreshesTheMenu) {
                                     BattleCommandId::NONE});
     state.at(kTerra).status.set(StatusId::SILENCE);
     battle::AttackHooks hooks;
-    battle::CommandExecutor executor(hooks);
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     executor.refreshCommandList(state, kTerra);
     EXPECT_FALSE(state.at(kTerra).commands[0].usable);
 }

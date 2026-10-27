@@ -58,6 +58,10 @@ deliberate change must also update the matching row in
 
 ## What's tested
 
-`tests/test_dance_properties.cpp` — every one of the 8 records `memcmp`-compared
-byte-for-byte against the fixture, plus semantic spot-checks of Water Rondo's full
+`tests/test_dance_properties.cpp` — every one of the 8 records compared with `memcmp`
+against the fixture, plus semantic spot-checks of Water Rondo's full
 slot order and Wind Song's boundary slots.
+
+## Used by
+
+The dance step ([battle/commands.md](../battle/commands.md#automatic-actions)): `chooseDanceStep()` returns one of the four attacks of `getDanceProperties()` for the dancer's dance.

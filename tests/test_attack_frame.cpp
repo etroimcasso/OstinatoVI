@@ -562,7 +562,7 @@ TEST(AttackFrame, AnAttackShownPastTheCommandsIsASpecialAnimation) {
 TEST(CommandExecutor, FightRunsAndReportsItsBlow) {
     BattleState state = armedBattle();
     battle::AttackHooks hooks;
-    battle::CommandExecutor executor(hooks);
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     const auto script = executor.execute(
         state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
     EXPECT_EQ(animations(script).size(), 2u);
@@ -573,7 +573,7 @@ TEST(CommandExecutor, FightRunsAndReportsItsBlow) {
 TEST(CommandExecutor, ACommandWithNoBodyShowsNothing) {
     BattleState state = armedBattle();
     battle::AttackHooks hooks;
-    battle::CommandExecutor executor(hooks);
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     EXPECT_TRUE(executor.execute(state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::MIMIC}}).empty());
     EXPECT_TRUE(executor.execute(state, std::nullopt, battle::Action{battle::NoAction{}}).empty());
 }
@@ -581,7 +581,7 @@ TEST(CommandExecutor, ACommandWithNoBodyShowsNothing) {
 TEST(CommandExecutor, ACommandChosenWithoutTargetsIsAimed) {
     BattleState state = armedBattle();
     battle::AttackHooks hooks;
-    battle::CommandExecutor executor(hooks);
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     CommandAction command{.command = BattleCommandId::FIGHT};
     executor.aim(state, kTerra, command);
     EXPECT_EQ(command.targets.count(), 1);

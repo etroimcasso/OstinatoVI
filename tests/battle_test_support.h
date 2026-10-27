@@ -2,10 +2,13 @@
 // records what it was asked to do, and drivers for the two clocks.
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
 #include <optional>
+#include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -15,9 +18,29 @@
 #include "battle/battle_core.h"
 #include "battle/battle_rng.h"
 #include "battle/battle_state.h"
+#include "data/monster_sprites.h"
 #include "data/rng_table.h"
+#include "data/text_corpus.h"
+#include "ostinato/text_class.h"
 
 namespace ostinato::test {
+
+// A text corpus whose monster names are all blank, for battles that load monsters without the
+// cartridge.
+inline const TextCorpus& blankMonsterNames() {
+    static const TextCorpus corpus = [] {
+        std::array<std::vector<std::uint8_t>, kTextClassCount> buffers{};
+        buffers[static_cast<std::size_t>(TextClass::MONSTER_NAME)].assign(3840, 0xFF);
+        return TextCorpus{std::move(buffers)};
+    }();
+    return corpus;
+}
+
+// No cartridge sprites: every monster but the Ghost Train is placed by its formation position alone.
+inline const MonsterSprites& noMonsterSprites() {
+    static const MonsterSprites sprites;
+    return sprites;
+}
 
 // Two party members and two monsters, present and alive, speed 40, gauges empty.
 inline battle::BattleState makeBattle() {

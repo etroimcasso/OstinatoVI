@@ -380,8 +380,9 @@ battler, slot 9 first, while the command has not disabled counters:
    once each, in this order: carried off by Palidor (marked away, gauge stopped, out of the action
    line, may not act after jumping, an advance wait of 224); its castable spells; removing all its
    actions (and marking it to go back in line); a condemned count starts — **20 + max(0, 60 − (L +
-   random(0 … L − 1)))** with L the attacker's level (20 for counts that start with the battle,
-   `:1512-1525`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
+   random(0 … L − 1)))** with L the level of the last attack made (`$11af`, which keeps its value
+   from one action to the next until an attack writes it; 20 for counts that start with the battle,
+   `:1512-1525`, `:6131`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
    after Morph. Then its menu may open (below); then whether it is held (below); a held battler loses
    Def; and the near-fatal relics may cast.
 10. **Battlers leaving** the field are no longer present or standing, are hidden, release their
@@ -645,8 +646,9 @@ allows), the party, the battle switches and the game's text, in the original's o
     opens: its gauge full and stopped, in the action line with a Jump (`:6166-6179`).
 12. The opening: `OpenBattleScene`, and the random numbers move on one entry — the loop's own once-a-
     pass advance, which comes before its first wait (`:67-68`). A final-battle stage after the first
-    instead plays `FinalBattleStageArrives` — the background scrolls to the stage and its monsters
-    appear — and the loop waits for it (`:6180-6193`).
+    instead plays `FormationChanges` from the stage's byte of `kFinalBattleScroll` — bit 7 scrolls the
+    background on, the low bits are the departing monsters' exit (`GfxCmd_12 btlgfx:22118-22167`) — with
+    the stage's monsters still fighting, and the loop waits for it (`:6180-6193`).
 
 ### The formation
 

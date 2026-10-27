@@ -167,3 +167,5 @@ alignments).
 A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` reads a monster's steal items and its special-attack animation.
 
 Rage ([battle/commands.md](../battle/commands.md#sketch-rage-and-control)): `setRage()` reads the special-attack animation of the monster raged as.
+
+A monster that picks its own attack ([battle/commands.md](../battle/commands.md#automatic-actions)): `chooseMonsterAction()` takes one of its four `getMonsterControl()` attacks. A raging party member acting on its own, or one whose Rage chose no attack, makes one of the two `getMonsterRage()` attacks (`chooseRageAttack()`).

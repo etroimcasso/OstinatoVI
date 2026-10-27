@@ -113,10 +113,18 @@ BattleResult writeBack(const BattleState& state);
 // formation becomes itself or one of the three after it.
 FormationId chooseFormation(BattleState& state, FormationRef asked);
 
+// Where a newly loaded monster's HP and MP come from: its own record (full), or the slot it is
+// loaded into, which keeps the HP and MP of the monster it held before.
+enum class MonsterHp : std::uint8_t {
+    FromRecord,
+    KeptFromSlot,
+};
+
 // Put monster `id` in `slot`: its stats, items, immunities, innate statuses, AI script and name
-// group, first strike, and a vigor of 56 to 63.
+// group, first strike, and a vigor of 56 to 63. Its stamina follows its max HP, whichever `hp`
+// gives it.
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
-                 const TextCorpus& text);
+                 const TextCorpus& text, MonsterHp hp = MonsterHp::FromRecord);
 
 // What a monster brings to whoever takes it on — a monster loaded into its slot, or a party member
 // raging as it: its special attack and metamorph, its elements and immunities added to the
@@ -136,6 +144,16 @@ void applyBattleType(BattleState& state, const FormationAux& aux);
 
 // Where every gauge starts.
 void fillStartingGauges(BattleState& state);
+
+// Fight `formation` from here on, mid-battle: the monsters in their slots are replaced by the new
+// formation's (a conditional battle the switches turn on replaces it, as at the start). Then the
+// statuses waiting to be put on take effect, the fallen are dealt with, the battle settles, the
+// battle type is chosen again and the monsters are placed for it; the monsters still fighting
+// become the monsters standing. The party is left as it is, a slot's current statuses are not
+// cleared, and a slot whose monster had fallen stays fallen. With MonsterHp::KeptFromSlot each new
+// monster keeps the HP and MP its slot had.
+void changeFormation(BattleState& state, ActionExecutor& executor, FormationId formation, MonsterHp hp,
+                     const TextCorpus& text, const MonsterSprites& sprites);
 
 // The final battle's next stage, after `finished` won its stage and `handedBack` is what it
 // handed back. The fighters still standing, and the statuses they carry, go on; a fallen

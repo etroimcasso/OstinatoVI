@@ -34,6 +34,7 @@
 #include "ostinato/battle_command_id.h"
 #include "ostinato/esper_id.h"
 #include "ostinato/item_id.h"
+#include "ostinato/monster_entrance_type.h"
 #include "ostinato/monster_id.h"
 
 namespace ostinato::battle {
@@ -49,11 +50,24 @@ struct ReadyStance {
 // The battler that just acted goes back to its place.
 struct StepBack {};
 
-// In the final battle, the next stage arrives: the background scrolls to `scroll` and the stage's
-// monsters appear.
-struct FinalBattleStageArrives {
-    std::uint8_t scroll = 0;
+// The formation changes: the monsters on the field leave by `exit`, the background scrolls on if
+// `scrollBackground` (as each of the final battle's stages arrives), and the new formation's
+// monsters come in by the formation's own entrance. `monsters` are the new formation's monsters
+// still fighting once it has arrived.
+struct FormationChanges {
+    bool scrollBackground = false;
+    MonsterEntranceType exit = MonsterEntranceType::PRE_DRAWN;
     BattlerSet monsters;
+
+    // A formation change described by one byte, as the final battle's stages carry it
+    // (kFinalBattleScroll) and a monster's AI gives it: the top bit scrolls the background, the
+    // rest is the exit.
+    static constexpr FormationChanges from(std::uint8_t shown, BattlerSet monsters) {
+        constexpr std::uint8_t kScrollBackground = 0x80;
+        return FormationChanges{.scrollBackground = (shown & kScrollBackground) != 0,
+                                .exit = static_cast<MonsterEntranceType>(shown & ~kScrollBackground),
+                                .monsters = monsters};
+    }
 };
 
 // What an attack shows on a party member who blocked it: the equipment's block animation, or the
@@ -162,18 +176,70 @@ struct BattleMessage {
 // The battle messages the commands show.
 inline constexpr std::uint8_t kMessageStumbled = 6;
 inline constexpr std::uint8_t kMessageMuguMugu = 7;
+inline constexpr std::uint8_t kMessageCantRunAway = 9;
 inline constexpr std::uint8_t kMessageNotEnoughMp = 40;
 inline constexpr std::uint8_t kMessageBlitzFailed = 67;
+
+// Scan's messages: the level, HP and MP with their numbers, and one "weak against" message per
+// element, Fire's first and Water's last in the order of the element bits.
+inline constexpr std::uint8_t kMessageLevel = 52;
+inline constexpr std::uint8_t kMessageHp = 48;
+inline constexpr std::uint8_t kMessageMp = 49;
+inline constexpr std::uint8_t kMessageWeakAgainst = 21;
 
 // A party member goes back to standing normally.
 struct PoseReset {
     BattlerSlot battler = BattlerSlot::character(0);
 };
 
+// A monster says something, in the window at the top of the screen.
+struct MonsterDialogShown {
+    std::uint16_t dialog = 0;  // the monster dialog's index
+};
+
+// A battle event plays: a scene scripted into the battle.
+struct BattleEventPlays {
+    std::uint8_t event = 0;
+};
+
+// Monsters leave the field or come back. With anyone in `revived`, they come in by `type`;
+// otherwise the monsters in `hidden` that are still on the field leave by it.
+struct MonstersEnterOrLeave {
+    MonsterEntranceType type = MonsterEntranceType::PRE_DRAWN;
+    BattlerSet hidden;
+    BattlerSet revived;
+};
+
+// The animations a monster's AI can play on monsters or the party, outside any attack.
+enum class MonsterAnimation : std::uint8_t {
+    FlashRed = 0,
+    MoveBackSlowly = 1,             // 8 pixels
+    MoveForwardSlowly = 2,
+    MoveBackQuickly = 3,
+    MoveForwardQuickly = 4,
+    PartyRunsLeftToRight = 5,       // the party runs across the screen
+    PartyRunsRightToLeft = 6,
+    MoveBackFar = 7,                // 64 pixels
+    MoveForwardFar = 8,
+    SoundEffect = 9,                // a sound effect, panned
+    KefkaHead = 10,
+    LongGlow = 11,
+    ShortGlow = 12,
+    KefkaDeath = 13,
+};
+
+// A monster animation plays: on `monsters`, or for SoundEffect, `soundEffect` panned by `pan`.
+struct MonsterAnimationPlays {
+    MonsterAnimation animation = MonsterAnimation::FlashRed;
+    BattlerSet monsters;
+    std::uint8_t soundEffect = 0;
+    std::uint8_t pan = 0;
+};
+
 using BattleScriptCommand =
-    std::variant<ReadyStance, StepBack, FinalBattleStageArrives, AttackAnimation, AttackNameShown, BushidoNameShown,
+    std::variant<ReadyStance, StepBack, FormationChanges, AttackAnimation, AttackNameShown, BushidoNameShown,
                  ItemNameShown, EsperNameShown, CommandNameShown, MonsterSpecialAttackNameShown, BattleMessage,
-                 PoseReset>;
+                 PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays>;
 
 // Builds one action's battle script.
 class BattleScriptBuilder {

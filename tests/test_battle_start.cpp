@@ -781,8 +781,11 @@ TEST(StartFinalBattle, TheNextStageKeepsTheStandingAndReplacesTheFallen) {
     ASSERT_EQ(next.requests.size(), 1u);
     const auto& script = std::get<battle::RunBattleScript>(next.requests[0]);
     ASSERT_EQ(script.commands.size(), 1u);
-    const auto& arrives = std::get<battle::FinalBattleStageArrives>(script.commands[0]);
-    EXPECT_EQ(arrives.scroll, kFinalBattleScroll[0].scroll);
+    // GfxCmd_12 :22118-22167 reads b1 bit 7 as "scroll the background" and the low bits as the
+    // departing monsters' exit; the first stage's byte is 144.
+    const auto& arrives = std::get<battle::FormationChanges>(script.commands[0]);
+    EXPECT_TRUE(arrives.scrollBackground);
+    EXPECT_EQ(arrives.exit, MonsterEntranceType::UNUSED_16);
     EXPECT_EQ(arrives.monsters, next.alive.monstersOnly());
     EXPECT_TRUE(next.waitingForScript.has_value());
     for (const auto& battler : next.battlers) EXPECT_EQ(battler.gauge.meter(), 0xFF);

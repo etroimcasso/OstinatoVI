@@ -225,6 +225,9 @@ struct Battler {
     std::uint8_t sleepTimer = 0;
     std::uint8_t condemnedNumber = 0;      // the countdown shown over a condemned battler; 0 = none
     std::uint8_t damageOverTimePhase = 0;  // which beat of the poison/regen rhythm it is on
+    // Poison's damage multiplier, in the steps of AttackInFlight::multiplier: each Poison beat
+    // uses it and then raises it by two, to at most 14. It is never lowered during the battle.
+    int poisonMultiplier = 0;
     std::uint8_t morphGauge = 0;           // the Morph meter shown
 
     // How far its own clock has run: once every 16 time updates while it is alive and present.
@@ -540,7 +543,9 @@ struct BattleState {
     // In the final battle, where the background scrolls to as a stage after the first arrives.
     std::optional<std::uint8_t> finalBattleScroll;
     std::optional<EndOfBattleEvent> endOfBattleEvent;
-    std::uint8_t condemnedLevel = 20;  // the level a new condemned count is worked out from
+    // The level the last attack was made at (AttackInFlight::attackerLevel), kept until an action
+    // makes another; a condemned count that starts is worked out from it. 20 as the battle starts.
+    std::uint8_t lastAttackLevel = 20;
 
     // The battle switches, as the battle started with them; monster AI changes them as it goes,
     // and the battle hands them back when it ends.
