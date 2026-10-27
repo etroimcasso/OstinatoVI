@@ -5,8 +5,8 @@ how its attack is aimed, the attack frame that runs each attack, the hit check, 
 citations point into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`);
 line numbers are into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:`
 names a line of `src/btlgfx/btlgfx_main.asm`. This document is the test authority for
-`tests/test_targeting.cpp`, `tests/test_hit_check.cpp`, `tests/test_attack_frame.cpp` and
-`tests/test_battle_script.cpp`.
+`tests/test_targeting.cpp`, `tests/test_hit_check.cpp`, `tests/test_attack_frame.cpp`,
+`tests/test_battle_script.cpp` and `tests/test_battle_layout.cpp`.
 
 The battle core (`docs/contracts/battle_core.md`) decides when a command runs; this contract starts
 where it calls `ActionExecutor::execute`. Damage, statuses and the special effects are outside it:
@@ -29,6 +29,9 @@ the attack frame calls them through `AttackHooks` at the points named below.
 | Runic, Air Anchor, a weapon's spell | `RunicEffect` `:8462-8520`, `AirAnchorEffect` `:9023-9031`, `CheckWeaponMagic` `:8658-8677`, `_c237eb` `:8983-9017` | inside `runAttack()` |
 | What a hit target records | `_c235e3` `:8578-8613`, `_c2361b` `:8619-8631` | `recordLastHit()` |
 | Hit in the back | `UpdateFacingDirection` `:3218-3271` | `hitInTheBack()` |
+| Where the monsters stand | `InitMonsterPos` `btlgfx:2838-2892`, `CalcMonsterPos_00`–`_03` `btlgfx:2689-2820`, the formation's x `btlgfx:2019-2022` | `placeMonster()`, `layOutMonsters()` |
+| Where the party stands | `CharDirTbl` `btlgfx:45277`, `CharXAngleTbl` `btlgfx:42816`, `InitCharGfxMain` `btlgfx:8258-8270`, `:8457-8467` | `kPartyLayout`, `layOutParty()` |
+| Turning to face a target | `_c19aa2` `btlgfx:23256-23370`, `GetTargetID` `btlgfx:28023-28035`, `SetAnimTargets` `btlgfx:25508-25514`, `CmdAnimTbl` `btlgfx:27082-27121` | `turnToFace()`, `turnToFaceTargets()` |
 | The targets remembered | `_c23865` `:9068-9081` | `rememberTargets()` |
 | Lores learned | `LearnLore` `:8793-8819` | inside `resolveAttack()` |
 | Fight | `FightAttack` `:3445-3459`, `_c2299f` `:6915-6984`, `InitAttacker` `:6840-6849`, `InitAttackerLevel` `:7291-7299` | `fightAttack()`, `loadWeaponAttack()`, `initAttacker()` |
@@ -364,6 +367,80 @@ attack is marked to answer this one; one already waiting takes the new attacker 
 
 `UpdateFacingDirection :3218-3271`, for a blow only: in a side attack a party member hits in the
 back every monster facing the way it faces; in a pincer a monster does the same to the party.
+Both facings mean "facing right": the monster's is stored inverted from its sprite's flip
+(`UpdateFacingDir btlgfx:39958-39972`).
+
+## The battle layout
+
+Where the battlers stand decides two things the battle reads: which side of a pincer each monster
+is on (`$2eac`/`$2ead`, read by `CheckTargetsBattleType :14751-14753` and the run check
+`:15184-15193`), and which way each battler faces (`$2f50`/`$2f51`, read by
+`UpdateFacingDirection`). The port keeps, per battler, the part of the field it stands in — left,
+center or right — and its facing.
+
+### The monsters
+
+Each monster's sprite stands with its left edge at its formation's x nibble × 8
+(`btlgfx:2019-2022`) and its width in tiles measured from its stencil (`InitStencil`, see
+`docs/engine/data-layer/monster-sprites.md`). `InitMonsterPos :2838-2857` clears every flip and
+places them by battle type:
+
+| Battle type | Placement | Part of the field | Facing |
+|---|---|---|---|
+| Front (`_00 :2689-2699`) | as the formation puts it | left | right |
+| Back (`_01 :2705-2730`) | mirrored about x = 128: left edge 256 − (x + width) | right | left |
+| Pincer (`_02 :2736-2778`) | right edge below 104 stays; otherwise mirrored about x = 160: left edge 320 − (x + width) | left / right | right / left |
+| Side (`_03 :2784-2820`) | moved 48 right | center | left if its middle is below 128, else right |
+
+The monsters on the left are the pincer's first side, those on the right its second. The colosseum's
+one monster is centered (`:2858-2891`); in a front attack that changes no side. The layout runs
+when the battle starts and when the final battle's formation changes (`GfxCmd_12
+btlgfx:22118-22149`); neither ever sees an Imp's sprite, which only an animation command turns on.
+
+### The party
+
+`CharDirTbl` gives each party slot's facing by battle type (0 left, 1 right) and `CharXAngleTbl`
+where it stands: an angle from a point above the screen, 256 straight down the middle. A party
+member above 256 stands right of the middle, below it left, on it in the center; the parser proves
+every member off the middle faces toward it, and that `CharFlipTbl` says the same as `CharDirTbl`.
+A party member fighting against the party (a scripted battle's enemy) faces the other way
+(`btlgfx:8457-8467`). At the next stage of the final battle the party keeps the way it faces.
+
+### Turning to face a target
+
+`_c19aa2` turns an attacker toward the target of the animation shown: the lowest-numbered monster
+it is aimed at, or with none the lowest-numbered party member (`GetTargetID`). A party member turns
+only for a monster, a monster only for a party member; an animation aimed at no one turns no one.
+It faces right when the target's part of the field is further right than its own.
+
+Every command's animation turns its attacker, and so does the ready stance (`GfxCmd_0c →
+init_all_anim`), except:
+
+- Mimic, Def and the empty command animations show nothing (`CmdAnim_12`/`15`/`1e`/`1f`); Row
+  moves the party member without aiming (`CmdAnim_14`); the roulette cursor aims at no one
+  (`CmdAnim_21`). None of them turns anyone or changes the targets remembered.
+- Once the party runs (`CmdAnim_22`), no party member turns for the rest of that script
+  (`w7e62a4`, cleared by `BtlGfx_04 btlgfx:22393`).
+- A Jump's landing (`CmdAnim_16`) turns toward the targets of the last animation shown before it,
+  not its own: it never sets the animation's targets.
+
+The port turns attackers as each action's script is handed to the presentation, in script order;
+the battle reads no facing while a script plays.
+
+**The side rule is the original's comparison of screen positions.** The original compares the
+middles of the two sprites (`_c10659 btlgfx:1030-1107`: a monster's left edge + width × 4; a party
+member's place from `CalcCharXPos btlgfx:8171-8197` + 8). `tests/test_battle_layout.cpp` checks,
+for every formation and every battle type it allows, every party member front row and back, on the
+battle type's depths and the magitek train car's, against every monster both ways round, the
+colosseum's fighter against every monster and the scripted battles' cast at their own places:
+the part of the field gives the same answer and no two middles are equal. Gau's place on the Veldt
+is never compared — he appears only once every monster is down (`:11933-11942`).
+
+**Not followed: an attacker that has stepped forward.** A party member steps 24 pixels toward its
+target to attack. In two side-attack formations, Cephaler ×3 and Orog + Power Demon ×2, that
+step carries party member 0, front row, past a monster whose middle is at 184, and a second
+animation in the same script turns it around. The side rule does not follow the step; the test
+pins these twelve cases as the only ones.
 
 ## Lores
 
@@ -375,4 +452,5 @@ unless he knows it.
 
 Listed in [`docs/Bugs.md`](../Bugs.md): blows evaded by magic block, with Blind, Beads and the
 status modifiers never applied; a vanished target hit by any spell before death protection is
-checked; the hit-in-the-back steps counting for every later target.
+checked; the hit-in-the-back steps counting for every later target; a pincer that cannot be run
+from at its start even when every monster stands on one side.

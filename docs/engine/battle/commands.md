@@ -23,7 +23,7 @@ The rules, and the line of the original each is read from, are in
 ```cpp
 AttackHooks hooks;                 // the damage, status and effect work plugs in here
 CommandExecutor executor(hooks);
-BattleSim battle(start, party, switches, cartridge.text, executor);
+BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 ```
 
 `execute()` runs Fight and Capture; a command with no body yet runs as no action and shows nothing.

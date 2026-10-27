@@ -2,12 +2,14 @@
 //
 // The field (or the world map, or an event) starts a battle with a BattleStart — which formation,
 // against which background, with what the story allows — plus the party, the battle switches and
-// the game's text. startBattle() returns the battle ready for its first frame: every party member
-// and monster loaded, the battle type chosen, the gauges filled to where they start, and the
-// opening request on BattleState::requests. When the battle has an outcome, writeBack() returns
-// what the game keeps from it.
+// the game's text and the monsters' sprites. startBattle() returns the battle ready for its first
+// frame: every party member and monster loaded, the battle type chosen, everyone placed on the
+// field (battle/battle_layout.h), the gauges filled to where they start, and the opening request
+// on BattleState::requests. When the battle has an outcome, writeBack() returns what the game
+// keeps from it.
 //
-//     BattleState state = startBattle(start, party, switches, cartridge.text, executor);
+//     BattleState state = startBattle(start, party, switches, cartridge.text,
+//                                     cartridge.monsterSprites, executor);
 //     ... tickBattleTime() / stepBattle() until stepBattle() returns an outcome ...
 //     BattleResult result = writeBack(state);
 //     party = result.party;
@@ -28,6 +30,7 @@
 #include "battle/action_executor.h"
 #include "battle/battle_state.h"
 #include "data/formations.h"
+#include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
@@ -97,7 +100,7 @@ struct BattleResult {
 
 // The battle the field asks for, ready for its first frame.
 BattleState startBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                        const TextCorpus& text, ActionExecutor& executor);
+                        const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor);
 
 // What the game keeps from the battle in `state`, which has an outcome.
 BattleResult writeBack(const BattleState& state);
@@ -132,6 +135,6 @@ void fillStartingGauges(BattleState& state);
 // fighter's place goes to the next character in line.
 BattleState startNextFinalBattleStage(const BattleState& finished, const BattleResult& handedBack,
                                       const BattleStart& start, const TextCorpus& text,
-                                      ActionExecutor& executor);
+                                      const MonsterSprites& sprites, ActionExecutor& executor);
 
 }  // namespace ostinato::battle

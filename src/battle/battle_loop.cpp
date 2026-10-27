@@ -8,6 +8,7 @@
 
 #include "battle/actions.h"
 #include "battle/battle_core.h"
+#include "battle/battle_layout.h"
 #include "battle/party_setup.h"
 #include "battle/spell_lists.h"
 #include "data/battle_commands.h"
@@ -63,6 +64,7 @@ std::optional<BattlerSlot> partyMember(const BattleState& state, CharacterPropId
 }
 
 void waitForScript(BattleState& state, std::vector<BattleScriptCommand> script, ScriptWait wait) {
+    turnToFaceTargets(state, script);
     state.requests.push_back(RunBattleScript{.commands = std::move(script)});
     state.waitingForScript = wait;
 }

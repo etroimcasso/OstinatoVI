@@ -299,3 +299,29 @@ to `AttackInFlight::multiplier` in the same loop. `tests/test_attack_frame.cpp`
 
 **If you want to change it.** Counting the step for its own target only would
 lower the damage of spread blows in side and pincer attacks.
+
+## A pincer cannot be run from at its start, even with every monster on one side
+
+**What happens.** When a pincer attack opens, the party cannot run, even when
+every monster stands on the same side of the field. In 33 formations that can
+be fought as a pincer, a lone dragon among them, nothing stands on one of the
+two sides, yet running stays blocked until something else refreshes the check,
+such as a monster being defeated.
+
+**Where the original does it.** `InitBattle` fills `$2000-$341F` with `$FF`
+(`battle/battle_main.asm:6062-6066`) and checks running at `@24f2` (`:6162`, the
+pincer test at `:15184-15193`) before it starts the battle graphics (`@253f`),
+whose setup writes the two pincer sides `$2EAC`/`$2EAD`
+(`btlgfx/btlgfx_main.asm:2854-2857`). The check reads both sides as `$FF`: every
+monster on each side.
+
+**Where the port keeps it.** `assembleBattle()` in `src/battle/battle_start.cpp`
+sets both of `BattleState::pincerSides` to every monster before
+`refreshRunDifficulty()` and lays the monsters out after it.
+`tests/test_battle_layout.cpp`
+(`BattleLayoutCartridgeTest.APincerWithEveryMonsterOnOneSideStillCannotBeRunFromAtFirst`)
+pins it with the Latimeria.
+
+**If you want to change it.** Laying the battle out before the check lets the
+party run at once from a one-sided pincer; a pincer with monsters on both sides
+is unchanged.

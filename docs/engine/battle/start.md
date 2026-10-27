@@ -38,7 +38,8 @@ start.background = BattleBackgroundId::FIELD_WOB;
 start.config = playerSettings;
 start.playTimeFrames = playClock.frames;   // 0-59
 
-BattleState state = startBattle(start, party, switches, cartridge.text, executor);
+BattleState state = startBattle(start, party, switches, cartridge.text, cartridge.monsterSprites,
+                                executor);
 // ... run it (core.md) until stepBattle() returns an outcome ...
 const BattleResult result = writeBack(state);
 party = result.party;
@@ -61,13 +62,18 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `playTimeFrames` | the frames part of the play clock; the battle's random numbers start at four times it |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
-line in the list of names. The story's rules — only magic, a permanent morph, Morph available, Gau
-having joined before, Shadow kept — come from the battle switches.
+line in the list of names. The monsters' sprites (`MonsterSprites`, from the cartridge) decide where
+each monster stands ([layout.md](layout.md)). The story's rules — only magic, a permanent morph,
+Morph available, Gau having joined before, Shadow kept — come from the battle switches.
 
 `startBattle()` runs, in order: the formation; the party placed and loaded (below), the battle
 inventory and known skills; the monsters; the statuses waiting to be set
 (`executor.applyStatusChanges`); the after-command checks once; the battle type; status immunity; the
-starting gauges; the opening message. It leaves `OpenBattleScene` on `state.requests`.
+starting gauges; the opening message; whether the party can run; everyone placed on the field and
+facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`.
+
+The run check comes before the battlers are placed, so at that moment a pincer reads every monster
+as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](../../Bugs.md)).
 
 ## The party's records
 
@@ -289,13 +295,15 @@ The final battle is recognized when its first stage is asked for; its party is
 
 ```cpp
 const BattleResult handedBack = writeBack(finished);
-BattleState next = startNextFinalBattleStage(finished, handedBack, start, cartridge.text, executor);
+BattleState next = startNextFinalBattleStage(finished, handedBack, start, cartridge.text,
+                                             cartridge.monsterSprites, executor);
 ```
 
 The fighters standing go on in their slots with their statuses, less Dance, Rage and Chant; a
 fallen, absent or air-anchored fighter's slot takes the next character in line. Mimic's memory, the
-Reflect and Freeze timers, who is in the air and who has summoned carry on, and a fighter still in
-the air comes down as the stage opens. The stage opens with `FinalBattleStageArrives` — the
+Reflect and Freeze timers, who is in the air and who has summoned carry on, the party keeps the way
+each fighter faces while the new monsters are placed, and a fighter still in the air comes down as
+the stage opens. The stage opens with `FinalBattleStageArrives` — the
 background scrolls to it and its monsters appear — and the loop waits for that script. `BattleSim`
 does all of this itself.
 

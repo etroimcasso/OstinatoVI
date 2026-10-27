@@ -65,6 +65,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/attack.cpp
     src/battle/battle_clock.cpp
     src/battle/battle_inventory.cpp
+    src/battle/battle_layout.cpp
     src/battle/battle_loop.cpp
     src/battle/battle_rng.cpp
     src/battle/battle_script.cpp
@@ -510,10 +511,12 @@ target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTes
 gtest_discover_tests(ostinato-vi-battle-core-tests)
 
 # The battle commands: the targeting byte read and every way an attack is aimed, the hit check,
-# the attack frame and Fight, the battle script builder, and the executor that runs them. Own
-# binary so the other baselines stay frozen.
+# the attack frame and Fight, the battle script builder, the executor that runs them, and the
+# battle's layout — where each battler stands, which way it faces and how it turns to a target.
+# Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-commands-tests
     tests/test_attack_frame.cpp
+    tests/test_battle_layout.cpp
     tests/test_battle_script.cpp
     tests/test_hit_check.cpp
     tests/test_targeting.cpp)

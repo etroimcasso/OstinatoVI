@@ -102,7 +102,8 @@ traits, the command body and the attack frame add the rest.
 - **Given targets skip the layout.** Targets that are still reachable are kept or picked from as
   they are; the pincer and side rules apply only when the attack is aimed afresh.
 - **The pincer sides and facing are the layout's.** `BattleState::pincerSides` and `facingRight`
-  come from where the battlers stand on screen; aiming reads them, it does not set them.
+  come from where the battlers stand ([layout.md](layout.md)); aiming reads them, it does not set
+  them.
 - **An exact aim lasts one aim.** `AttackScratch::aimExactly` skips the reach check once and is
   cleared by it.
 - **A target off the field is kept only by the rules.** With `mayTargetTheFallen` set, the dead and

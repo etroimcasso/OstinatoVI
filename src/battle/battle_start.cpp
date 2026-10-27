@@ -13,6 +13,7 @@
 #include "battle/actions.h"
 #include "battle/battle_core.h"
 #include "battle/battle_inventory.h"
+#include "battle/battle_layout.h"
 #include "battle/party_setup.h"
 #include "data/battle_tables.h"
 #include "data/formations.h"
@@ -460,10 +461,15 @@ struct StageCarry {
     std::deque<std::size_t> finalBattleReserve;
     std::uint8_t scroll = 0;
     FinalBattleStage standing;
+    // The party keeps the way it faces and the last animation's targets; only the monsters are
+    // placed anew.
+    BattlerSet partyFacingRight;
+    BattlerSet animationTargets;
 };
 
 BattleState assembleBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                           const TextCorpus& text, ActionExecutor& executor, const StageCarry* carry) {
+                           const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor,
+                           const StageCarry* carry) {
     BattleState state;
     state.version = start.version;
     state.config = start.config;
@@ -546,6 +552,9 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     if (const auto message = openingMessage(state, aux)) {
         addImmediateAction(state, BattleMessageAction{.message = *message});
     }
+    // LEGACY VERBATIM (docs/Bugs.md): the run check comes before the battle is laid out, so it
+    // reads every monster as standing on both sides of a pincer.
+    state.pincerSides = {BattlerSet::allMonsters().monsters, BattlerSet::allMonsters().monsters};
     refreshRunDifficulty(state);
 
     // A fighter still in the air from the last stage comes down as the stage opens.
@@ -560,6 +569,13 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         battler.gauge.setMeter(0);
         state.actionQueue.push(slot);
         addAction(state, slot, CommandAction{.command = BattleCommandId::JUMP});
+    }
+
+    layOutMonsters(state, sprites);
+    layOutParty(state);
+    if (carry != nullptr) {
+        state.facingRight = state.facingRight.monstersOnly() | carry->partyFacingRight;
+        state.animationTargets = carry->animationTargets;
     }
 
     if (state.finalBattleScroll) {
@@ -577,8 +593,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 }  // namespace
 
 BattleState startBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                        const TextCorpus& text, ActionExecutor& executor) {
-    return assembleBattle(start, std::move(party), switches, text, executor, nullptr);
+                        const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor) {
+    return assembleBattle(start, std::move(party), switches, text, sprites, executor, nullptr);
 }
 
 BattleResult writeBack(const BattleState& state) {
@@ -680,7 +696,7 @@ BattleResult writeBack(const BattleState& state) {
 
 BattleState startNextFinalBattleStage(const BattleState& finished, const BattleResult& handedBack,
                                       const BattleStart& start, const TextCorpus& text,
-                                      ActionExecutor& executor) {
+                                      const MonsterSprites& sprites, ActionExecutor& executor) {
     const auto* ended = std::get_if<BattleEnded>(&*finished.outcome);
     const FormationId next = *ended->nextFormation;
 
@@ -691,6 +707,8 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     carry.morphedBattler = finished.morphedBattler;
     carry.startingFormation = finished.startingFormation;
     carry.finalBattleReserve = finished.finalBattleReserve;
+    carry.partyFacingRight = finished.facingRight.charactersOnly();
+    carry.animationTargets = finished.animationTargets;
     for (std::size_t stage = 0; stage + 1 < kFinalBattleFormations.size(); ++stage) {
         if (kFinalBattleFormations[stage + 1] == next) {
             carry.scroll = kFinalBattleScroll[2 * stage].scroll;
@@ -717,7 +735,7 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
 
     BattleStart nextStage = start;
     nextStage.formation = FormationRef::of(next);
-    return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, executor, &carry);
+    return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, sprites, executor, &carry);
 }
 
 }  // namespace ostinato::battle

@@ -39,6 +39,9 @@ that say which stencil each monster uses, are game artwork, so they are **not** 
 repository: they are read in place out of the player's cartridge, the same way the monster
 graphics are. The boxes are a short table of numbers per formation layout, so they compile in.
 
+The battle reads the widths to place each monster on the field: which side of a pincer it joins and
+which way it faces in a side attack ([`docs/engine/battle/layout.md`](../battle/layout.md)).
+
 ## The extent
 
 ```cpp

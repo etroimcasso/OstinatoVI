@@ -50,6 +50,15 @@
 
 namespace ostinato::battle {
 
+// The part of the battlefield a battler stands in, left to right. A monster and a party member
+// never stand in the same part, so whether a target is to an attacker's right is whether its part
+// is further right (battle/battle_layout.h).
+enum class FieldSide : std::uint8_t {
+    Left,
+    Center,
+    Right,
+};
+
 // The ATB gauge: how close a battler is to its next turn.
 //
 // The gauge fills by the battler's ATB rate on every time update. Its high byte is the meter: 1
@@ -256,6 +265,7 @@ struct Battler {
     bool undead = false;
     BattlerTriggers triggers;
     bool actsAsEnemy = false;             // a party member fighting against the party
+    FieldSide side = FieldSide::Center;   // where it stands on the field (battle/battle_layout.h)
     bool aiTakesTurns = false;            // its actions come from an AI script
     bool hasCounterScript = false;        // its AI answers attacks
     // The AI script it follows: a monster's own (by MonsterId), or the one a scripted battle gives
@@ -490,8 +500,12 @@ struct BattleState {
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
     BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
     // The battlers facing right. In a side or pincer attack, an attacker hits a target in the
-    // back when both face the same way.
+    // back when both face the same way. Set when the battle is laid out and changed as attackers
+    // turn to face their targets (battle/battle_layout.h).
     BattlerSet facingRight;
+    // Whom the last animation shown was aimed at. A Jump's landing turns the jumper toward these
+    // rather than toward its own targets.
+    BattlerSet animationTargets;
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle

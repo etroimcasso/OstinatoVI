@@ -54,6 +54,13 @@ const TextCorpus& noNames() {
     return corpus;
 }
 
+// No cartridge sprites: every monster but the Ghost Train measures 0 tiles across, which places it
+// by its formation position alone.
+const MonsterSprites& noSprites() {
+    static const MonsterSprites sprites;
+    return sprites;
+}
+
 // The first RNG position whose next entry lies in [low, high).
 std::uint8_t positionDrawing(int low, int high) {
     for (int position = 0; position < 256; ++position) {
@@ -573,7 +580,7 @@ TEST(StartBattle, AnOrdinaryBattleOpens) {
     battle::NullExecutor executor;
     battle::BattleStart start = startFor(formation);
     start.playTimeFrames = 17;
-    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), executor);
+    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
     EXPECT_EQ(state.formation, formation);
     EXPECT_EQ(state.startingFormation, formation);
     EXPECT_FALSE(state.finalBattleChain);
@@ -599,7 +606,7 @@ TEST(StartBattle, TheRandomNumbersBeginAtFourTimesThePlayClocksFrames) {
         battle::BattleStart start;
         start.formation = FormationRef::of(FormationId::LOBO, true);
         start.playTimeFrames = frames;
-        const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), executor);
+        const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
         EXPECT_EQ(static_cast<int>(state.formation),
                   static_cast<int>(FormationId::LOBO) + (rngByte(static_cast<std::uint8_t>(frames * 4 + 1)) & 3));
     }
@@ -615,7 +622,8 @@ TEST(StartBattle, TheSwitchesTheBattleClearsAsItStarts) {
         switches.set(number);
     }
     const BattleState state =
-        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), switches, noNames(), executor);
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), switches, noNames(), noSprites(),
+                            executor);
     EXPECT_FALSE(state.switches.isSet(game::kClearedAtBattleStartSwitch));
     EXPECT_FALSE(state.switches.isSet(game::kPartyDefeatedSwitch));
     EXPECT_FALSE(state.switches.isSet(game::kRanOutOfTimeSwitch));
@@ -632,7 +640,8 @@ TEST(StartBattle, TheStorySwitchesSetTheBattlesRules) {
     switches.set(game::kGauObtainedSwitch);
     switches.set(game::kShadowStaysSwitch);
     const BattleState state =
-        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), switches, noNames(), executor);
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), switches, noNames(), noSprites(),
+                            executor);
     EXPECT_TRUE(state.magicOnly);
     EXPECT_TRUE(state.morphAvailable);
     EXPECT_FALSE(state.permanentMorph);
@@ -653,7 +662,7 @@ TEST(StartBattle, TheOpeningMessageNamesTheBattleType) {
     for (std::uint8_t frames = 0; frames < 60; ++frames) {
         battle::BattleStart start = startFor(formation);
         start.playTimeFrames = frames;
-        const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), executor);
+        const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
         seenType[static_cast<std::size_t>(state.battleType)] = true;
         seenPreemptive = seenPreemptive || state.preemptive;
         std::optional<std::uint8_t> expected;
@@ -679,7 +688,8 @@ TEST(StartBattle, AFormationThatForbidsPreemptiveStrikesOpensSilently) {
         return ordinary(id, record, aux) && aux.preemptiveDisabled() && !aux.frontPossible();
     });
     battle::NullExecutor executor;
-    const BattleState state = battle::startBattle(startFor(formation), threeMembers(), {}, noNames(), executor);
+    const BattleState state =
+        battle::startBattle(startFor(formation), threeMembers(), {}, noNames(), noSprites(), executor);
     EXPECT_NE(state.battleType, BattleType::Front);
     EXPECT_TRUE(state.immediateActions.empty());
 }
@@ -689,7 +699,7 @@ TEST(StartBattle, EveryBattlerHasItsRecalculationsPendingAndItsDamageOverTimeBea
     // afterwards none are left; the ATB rate is one of them.
     battle::NullExecutor executor;
     const BattleState state =
-        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), executor);
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), noSprites(), executor);
     for (const auto& battler : state.battlers) {
         if (!battler.present) continue;
         EXPECT_NE(battler.atbRate, 0);
@@ -704,7 +714,7 @@ TEST(StartBattle, AColosseumMatchPutsTheFighterFirstAndTheOpponentInEverySlot) {
     battle::BattleStart start = startFor(FormationId::PUGS);
     start.colosseum = battle::ColosseumMatch{.wager = ItemId::ELIXIR, .prize = ItemId::MEGALIXIR,
                                              .opponent = MonsterId::LOBO, .fighter = CharacterPropId::LOCKE};
-    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), executor);
+    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
     EXPECT_TRUE(state.colosseum);
     EXPECT_EQ(state.at(BattlerSlot::character(0)).actor, CharacterPropId::LOCKE);
     EXPECT_FALSE(state.at(BattlerSlot::character(1)).actor.has_value());
@@ -733,7 +743,7 @@ battle::BattleStart finalBattle() {
 TEST(StartFinalBattle, TheFirstStageFieldsTheFirstFourInLine) {
     // InitParty :7721-7747 with the order the player chose.
     battle::NullExecutor executor;
-    const BattleState state = battle::startBattle(finalBattle(), sixInLine(), {}, noNames(), executor);
+    const BattleState state = battle::startBattle(finalBattle(), sixInLine(), {}, noNames(), noSprites(), executor);
     EXPECT_TRUE(state.finalBattleChain);
     EXPECT_EQ(state.at(BattlerSlot::character(0)).actor, CharacterPropId::CELES);
     EXPECT_EQ(state.at(BattlerSlot::character(1)).actor, CharacterPropId::TERRA);
@@ -748,7 +758,7 @@ TEST(StartFinalBattle, TheNextStageKeepsTheStandingAndReplacesTheFallen) {
     // opens with the background scrolling to it and no gauge set.
     battle::NullExecutor executor;
     const battle::BattleStart start = finalBattle();
-    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), executor);
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
     finished.at(BattlerSlot::character(1)).status.set(StatusId::DEAD);
     finished.at(BattlerSlot::character(2)).status.set(StatusId::DANCE);
     finished.at(BattlerSlot::character(2)).status.set(StatusId::PROTECT);
@@ -756,7 +766,8 @@ TEST(StartFinalBattle, TheNextStageKeepsTheStandingAndReplacesTheFallen) {
     finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
                                            .nextFormation = kFinalBattleFormations[1]};
     const battle::BattleResult handedBack = battle::writeBack(finished);
-    const BattleState next = battle::startNextFinalBattleStage(finished, handedBack, start, noNames(), executor);
+    const BattleState next =
+        battle::startNextFinalBattleStage(finished, handedBack, start, noNames(), noSprites(), executor);
 
     EXPECT_EQ(next.formation, kFinalBattleFormations[1]);
     EXPECT_EQ(next.startingFormation, kFinalBattleFormations[0]);
@@ -781,12 +792,13 @@ TEST(StartFinalBattle, AFighterStillInTheAirComesDownAsTheStageOpens) {
     // :6164-6179: queued as a Jump with its gauge full.
     battle::NullExecutor executor;
     const battle::BattleStart start = finalBattle();
-    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), executor);
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
     finished.awayFromTheField.add(BattlerSlot::character(3));
     finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
                                            .nextFormation = kFinalBattleFormations[1]};
     const BattleState next =
-        battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), executor);
+        battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), noSprites(),
+                                          executor);
     const battle::Battler& jumper = next.at(BattlerSlot::character(3));
     EXPECT_TRUE(next.actionQueue.contains(BattlerSlot::character(3)));
     EXPECT_TRUE(jumper.gauge.isFull());
@@ -799,7 +811,8 @@ TEST(StartFinalBattle, AFighterStillInTheAirComesDownAsTheStageOpens) {
 
 BattleState finishedBattle(battle::BattleOutcome outcome) {
     battle::NullExecutor executor;
-    BattleState state = battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), executor);
+    BattleState state =
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), noSprites(), executor);
     state.outcome = outcome;
     return state;
 }
@@ -919,7 +932,7 @@ TEST(WriteBack, AFormationJoinsTheVeldtWhenItsMonstersCanBeFoundThere) {
         return ordinary(id, record, aux) && aux.veldtDisabled();
     });
     battle::NullExecutor executor;
-    BattleState barred = battle::startBattle(startFor(kept), threeMembers(), {}, noNames(), executor);
+    BattleState barred = battle::startBattle(startFor(kept), threeMembers(), {}, noNames(), noSprites(), executor);
     barred.outcome = battle::BattleWon{};
     EXPECT_FALSE(battle::writeBack(barred).veldtFormation.has_value());
 

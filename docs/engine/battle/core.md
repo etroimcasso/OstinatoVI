@@ -41,7 +41,7 @@ presentation knows and take the requests:
 using namespace ostinato;
 using namespace ostinato::battle;
 
-BattleSim battle(start, party, switches, cartridge.text, executor);
+BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 while (!battle.result()) {
     battle.tick({.timeRunning = presentation.timeRuns(),
                  .presentationIdle = !presentation.playingScript(),
