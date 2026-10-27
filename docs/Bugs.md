@@ -325,3 +325,24 @@ pins it with the Latimeria.
 **If you want to change it.** Laying the battle out before the check lets the
 party run at once from a one-sided pincer; a pincer with monsters on both sides
 is unchanged.
+
+## Umaro's throw adds one to the power of Mog and every ally after him
+
+**What happens.** When Umaro throws an ally, the ally's battle power joins his.
+For Mog, Gau, Gogo and the guests the throw is one power stronger than their two
+hands' battle power: a thrown Mog with 40 and 20 adds 61, a thrown Locke with the
+same hands adds 60.
+
+**Where the original does it.** `UmaroAttack_00`
+(`battle/battle_main.asm:3550-3562`) compares the thrown ally's actor with Mog
+(`cmp #$0a`) to make Mog's throw a critical hit, and then adds the ally's two
+hands' battle power with `adc` without clearing the carry, so the compare's
+carry — set for Mog and every actor after him — is added in.
+
+**Where the port keeps it.** The throw in `src/battle/commands.cpp` adds one for
+any ally whose actor is Mog or later. `tests/test_commands.cpp`
+(`Commands.ThrowingMogIsACriticalHitAndAddsOne`,
+`Commands.AnAllyAfterMogAlsoAddsOne`) pins it.
+
+**If you want to change it.** Dropping the extra one makes every thrown ally add
+exactly its hands' battle power.

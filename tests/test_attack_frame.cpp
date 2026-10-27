@@ -527,10 +527,20 @@ TEST(AttackFrame, TheCommandsEarlierTargetsGatherEveryAttacksTargets) {
     battle::rememberTargets(attack);
     EXPECT_EQ(attack.scratch.earlierTargets, BattlerSet::of(kGuard) | BattlerSet::of(kSoldier));
     EXPECT_EQ(attack.scratch.currentTargets, BattlerSet::of(kSoldier));
-    attack.scratch.damageModification = false;
+    attack.scratch.randomizeTargets = true;
     attack.targets = BattlerSet::of(kTerra);
     battle::rememberTargets(attack);
     EXPECT_EQ(attack.targets, BattlerSet::of(kSoldier));
+}
+
+TEST(AttackFrame, DamageModificationOffStillRemembersTheTargets) {
+    // Item and GP Rain turn damage modification off and keep their own targets.
+    AttackInFlight attack;
+    attack.scratch.damageModification = false;
+    attack.targets = BattlerSet::of(kGuard);
+    battle::rememberTargets(attack);
+    EXPECT_EQ(attack.targets, BattlerSet::of(kGuard));
+    EXPECT_EQ(attack.scratch.currentTargets, BattlerSet::of(kGuard));
 }
 
 TEST(AttackFrame, AnAttackShownPastTheCommandsIsASpecialAnimation) {
@@ -564,7 +574,7 @@ TEST(CommandExecutor, ACommandWithNoBodyShowsNothing) {
     BattleState state = armedBattle();
     battle::AttackHooks hooks;
     battle::CommandExecutor executor(hooks);
-    EXPECT_TRUE(executor.execute(state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::DEF}}).empty());
+    EXPECT_TRUE(executor.execute(state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::MIMIC}}).empty());
     EXPECT_TRUE(executor.execute(state, std::nullopt, battle::Action{battle::NoAction{}}).empty());
 }
 

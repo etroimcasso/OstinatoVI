@@ -160,3 +160,5 @@ every builder family back to raw ROM bytes; and the visible JP-variant skip.
 The party side of a battle's start ([battle/start.md](../battle/start.md)): `deriveEquipment()` adds up an equipped item's record, and `battleItem()` reads its type, usage, targeting and equippable-by mask.
 
 Aiming ([battle/targeting.md](../battle/targeting.md)): `initTargeting()` reads an item's targeting byte, its spell-cast byte and, through `itemStatuses()`, the statuses a consumable gives.
+
+The item commands ([battle/commands.md](../battle/commands.md)): `itemAttack()` builds the attack a consumable, a thrown weapon or a tool makes from its type, battle power, element, hit rate, statuses, use bits (`itemUseView()`) and use effect.

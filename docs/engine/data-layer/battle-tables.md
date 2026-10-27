@@ -238,3 +238,5 @@ The rest of the start: `chooseBattleType()` reads the battle-type row of `kRando
 The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` turns a slot reel outcome into its spell with `kSlotOutcomes` and aims the Joker Dooms with `kJokerDoomTargets`.
 
 The battle commands: `initTargeting()` ([battle/targeting.md](../battle/targeting.md)) turns a thrown edge into its spell with `kThrowToolsConversions`, and `commandForAttack()` ([battle/commands.md](../battle/commands.md)) finds a spell's command in `kAiCommandsForAttack`.
+
+The command bodies ([battle/commands.md](../battle/commands.md)): Fight finds a party member's desperation attack with `desperationAttack()`, Umaro picks his attack by a row of `kRandomBitRates` (`pickWeighted()`), and Dance checks the battlefield with `backgroundDance()` and changes it with `danceBackground()`.

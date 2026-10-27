@@ -1,12 +1,14 @@
 # Battle commands — behavioral contract
 
 Behavioral specification for carrying out a battle command: the battle script a command writes,
-how its attack is aimed, the attack frame that runs each attack, the hit check, and Fight. All
-citations point into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`);
-line numbers are into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:`
-names a line of `src/btlgfx/btlgfx_main.asm`. This document is the test authority for
-`tests/test_targeting.cpp`, `tests/test_hit_check.cpp`, `tests/test_attack_frame.cpp`,
-`tests/test_battle_script.cpp` and `tests/test_battle_layout.cpp`.
+how its attack is aimed, the attack frame that runs each attack, the hit check, every command the
+player can choose, the attack an item makes, and the command menu's refresh. All citations point
+into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are
+into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:` names a line of
+`src/btlgfx/btlgfx_main.asm`. This document is the test authority for `tests/test_targeting.cpp`,
+`tests/test_hit_check.cpp`, `tests/test_attack_frame.cpp`, `tests/test_battle_script.cpp`,
+`tests/test_battle_layout.cpp`, `tests/test_commands.cpp`, `tests/test_item_attack.cpp` and
+`tests/test_command_menu.cpp`.
 
 The battle core (`docs/contracts/battle_core.md`) decides when a command runs; this contract starts
 where it calls `ActionExecutor::execute`. Damage, statuses and the special effects are outside it:
@@ -37,6 +39,14 @@ the attack frame calls them through `AttackHooks` at the points named below.
 | Fight | `FightAttack` `:3445-3459`, `_c2299f` `:6915-6984`, `InitAttacker` `:6840-6849`, `InitAttackerLevel` `:7291-7299` | `fightAttack()`, `loadWeaponAttack()`, `initAttacker()` |
 | A spell's command | `GetCmdForAI` `:5006-5020` | `commandForAttack()` |
 | The battle script | `_c2629b` / `_c2629e` / `_c262bf` `:16128-16162`, `_c235ad` / `_c235be` `:8526-8556`, `CopyGfxParamsToBuf` `:16325-16346`, `ClearGfxParams` `:16352-16363`, `InitGfxParams` `:14428-14467` | `BattleScriptBuilder`, `AttackAnimationParams` |
+| The command bodies | `CmdTbl` `:4157-4189` (commands $00-$1f), `Cmd_00`–`Cmd_1e` `:3299-4143` | `runCommand()` |
+| The plain hit a command makes | `_c2298a` / `_c2298d` `:6892-6909` | `plainCommandAttack()` |
+| Desperation attacks | `Cmd_00` `:3398-3431`, `DesperationAttack` `:3591-3594`, the table `:3596-3615` | inside `runCommand()`, `desperationAttack()` |
+| Umaro | `_163b` `:3462-3489`, `UmaroAttackTbl` `:3493-3497`, `UmaroAttack_00`–`_02` `:3503-3585`, `InitUmaroAttack` `:3829-3841`, `RandBitWithRate` `:13525-13545`, `RandBitRateTbl` `:13549-13554`, `RandBit` `:13495-13515` | inside `runCommand()`, `pickWeighted()` |
+| The attack an item makes | `CalcItemEffect` `:6992-7093`, `ToolsEffect_00`–`_07` `:7112-7170` | `itemAttack()` |
+| Rage | `Cmd_10` `:3334-3354`, `SetRage` `:999-1015`, `LoadRageProp` `:7504-7550`, `FixImmuneStatus` `:6359-6380`, `UpdateImmuneStatus` `:6386-6433` | `setRage()`, `loadMonsterTraits()` |
+| A spear | `SpearEffect` `:3279-3285` | `isSpear()` |
+| The command menu | `UpdateCmdList` `:13560-13617`, `UpdateCmdIDTbl` / `UpdateCmd_00`–`_07` `:13621-13689`; its callers `:1360`, `:1721`, `:5625` | `refreshCommandMenu()` |
 
 ## The battle script
 
@@ -113,7 +123,8 @@ attack and targets as they were chosen, and its MP cost. After the body the scri
 | `$b2.0` | `nameShown` | not shown | the first name shown (`:8686`) |
 | `$b3.7` | `vanishApplies` | applies | `ExecSelfAttack :8000-8001` turns it off |
 | `$b3.6` | `twoHanded` | not two-handed | the hand's weapon held in both hands (`:6942-6947`) |
-| `$b3.5` | `rowIgnored` | ignored | a weapon without the back-row flag lets the attacker's row halve the damage (`:6944-6947`) |
+| `$b3.5` | `rowIgnored` | ignored | a weapon without the back-row flag lets the attacker's row halve the damage (`:6944-6947`); a Jump ignores it again (`:3872`) |
+| `$b3.4` | `ignoreDefenseStopsMultiplier` | an attack that ignores defense is not multiplied | a Throw clears it (`:3947`). `ApplyDmgMult :8827-8836` reads it through a 16-bit load of `$b2`: shifted once and ANDed with `$11a1`/`$11a2`, three more shifts carry out `$b3.4` AND the ignore-defense trait, and a carry skips the multiplication |
 | `$b3.2` | `emptyTargetsReaim` | re-aims | |
 | `$b3.1` | `automaticCritical` | no | reset by every weapon load (`:6942-6943`) |
 | `$b3.0` | `hitsNoOne` | hits | |
@@ -265,7 +276,8 @@ can absorb, and a monster's stays. Those not Dead, Petrified, asleep, stopped, f
 the attack in: they become its targets, and it restores MP equal to its cost divided among them,
 with no statuses, ignoring defense and Reflect, unsplit, undodgeable, without damage modification,
 level or attack stat, message or special effect. Its element stays. Its own animation plays before
-the attack's.
+the attack's. The targets it had are remembered before the absorbers replace them, and the attack is
+then marked as aimed at random (`:8493-8494`), so the attack's own remembering takes them back.
 
 ### Air Anchor
 
@@ -280,8 +292,11 @@ answer itself, ready only when the attack affects MP — the carry from the reco
 1. Misses and hits in the back cleared; fresh params; the targets chosen and counted; cover; the
    params filled in. The attack is aimed at the other side only when a party member has no party
    targets or a monster has some (`:14447-14453`). The targets are remembered as the current ones
-   and added to the command's earlier targets — or, with damage modification off, the current ones
-   are taken back.
+   and added to the command's earlier targets — or, while the attack is aimed at random, the
+   current ones are taken back. `_c23865 :9068-9081` loads `$3414` with a 16-bit accumulator, so its
+   `bmi` tests the high byte, `$3415` (randomize targets, cleared by a random weapon spell
+   `:9001`, a sketched attack `:3314`, Umaro's Storm `:3582` and Runic `:8494`), not damage
+   modification; Item and GP Rain, which turn damage modification off, remember their targets.
 2. **MP**: an attack with a cost takes it from the attacker. Short of it, a monster's attack is
    shown as Mimic's (which shows nothing), the animation is written with no targets, the "not
    enough MP" message (40) follows, and the attack ends there (`:8161-8179`). Paid, the attacker's
@@ -356,6 +371,219 @@ without the Imp critical flag hits with power 1.
 
 `GetCmdForAI :5006-5020`: an attack's command is the command of the highest attack base at or below
 it (`kAiCommandsForAttack`), or Magic below them all.
+
+## The commands
+
+`ExecCmd :3110-3113` dispatches on the command through `CmdTbl`; the port's `runCommand()` is a
+`switch`. Mimic (`$12`) and `$1f` are `CmdNoEffect :3292`: the battle core replaces Mimic with the
+command it mimics before running it.
+
+### The plain hit a command makes
+
+`_c2298a :6892` aims the queued command (`$3a7c`); `_c2298d :6901-6909` aims a command given in A.
+Both load the command's attack (`InitTarget`), make it undodgeable (`$11a4.5`), take away its special
+effect, and zero the level and the attack stat (`$11af`, `$11ae`). `plainCommandAttack()`.
+
+### Fight and desperation attacks
+
+`Cmd_00 :3398-3431`, for a party member, in this order: the turn counter's high byte (`$3a3f`, the
+counter of time updates `$3a3e`) at least 3 — 768 time updates; Near Fatal (status-2 `$02`);
+neither Image nor Confuse (status-2 `$24`); neither Zombie nor Vanish (status-1 `$12`); a monster
+among the targets (`$b9`); a draw whose low four bits are clear, one in 16 (`:3414-3416`); and the
+party member not yet in `$3f2f` — test-and-set, so it is marked used here even when the next check
+turns it away. The actor (`$3ed8`) then decides: Gogo is `$fb`; any other actor from Gau on has
+none; Terra..Mog are `$f0` plus the actor (`inc` / `dec` / `ora #$f0`). The shipped
+`desperationAttack()` table holds exactly these. The attack runs as Magic (`DesperationAttack :3591`,
+`$b5 = $02`) under its own name (kind 0), with the casting swirl turned on (`:3429-3430`). The Terra
+check of `Cmd_02` is not on this path.
+
+`Cmd_06 :3438-3443` (and Fight past the check): a party member whose actor is Umaro chooses his own
+attack; anyone else runs `FightAttack`.
+
+### Umaro
+
+`_163b :3462-3489`: `$fe` gets `$04` when either relic (`$3cd0`/`$3cd1`) is a Rage Ring (`$c6`) and
+the alive party members (`$3a74`) with Umaro's own bit flipped are not none, and `$08` when either
+is a Blizzard Orb (`$c5`). `RandBitWithRate :13525-13545` with `X = $fe` and the offered bits
+`($fe | $30) << 2`: for each of four choices, bits 7 to 4, an offered one adds its weight
+(`RandBitRateTbl` row `$fe / 4`) plus the carry — one — to a running byte total; a draw below the
+total (`RandA`) picks the first choice it falls short of. The choices, in order (`UmaroAttackTbl`
+read backward): Fight, tackle, Storm (Blizzard Orb), throw (Rage Ring). `pickWeighted()` is this
+routine, shared with `ChooseBattleType`.
+
+- **Tackle** `UmaroAttack_02 :3503-3512`: `InitUmaroAttack :3829-3841` — the plain hit, power both
+  hands' battle power capped at 255, Umaro's level, and his vigor as the attack stat — then ignore
+  defense, criticals allowed, shown as `$23`.
+- **Throw** `UmaroAttack_00 :3518-3575`: the candidates are the alive party members with Umaro's
+  bit flipped. Slots 3 down to 0: a candidate in Hide (status-4 `$20`) is dropped; a candidate asleep
+  or confused (status-2 `$a0`) **becomes the only candidate** (`:3537-3539` loads its bit alone into
+  the saved set), so the highest-placed one is thrown. None left: the tackle. Otherwise one is picked
+  (`RandBit`, the party counted first) and becomes X. Mog (`$0a`) makes the throw an automatic
+  critical (`$b3.1` cleared). The power: the ally's two hands' battle power **plus the carry left by
+  `cmp #$0a`** — one for Mog and any actor after him — capped at 255 (`$fe` plus the carry), plus
+  Umaro's power, capped at 255. Shown as `$24`; ignore defense; criticals allowed; never the user
+  (`$ba.0`). The ally's Sleep and Confuse are set to **clear** (`$3dfd`, status-2 to clear): being
+  thrown wakes it and brings it to its senses.
+- **Storm** `UmaroAttack_01 :3581-3585`: targets aimed at random (`$3415` cleared), attack `$54` cast
+  as Magic under its own name.
+
+### Item, Throw and Tools
+
+`Cmd_01 :3954-4005`, entered at `_189e` by Throw (`:3943-3948`) and Tools (`:3933-3937`):
+
+- Item only: damage modification off (`$3414`), Vanish does not apply (`$b3.7`).
+- Throw only: extra multiplier 2, and `$b3.4` cleared (see the `$b3` table).
+- Tools only: `$b6` becomes the item less `$a3` — the tool's index into the tools' animations,
+  through a `sbc` with the dispatcher's carry clear. The port shows the tool itself
+  (`AttackAnimation::item`).
+- Named as the item (kind 1). The item (`$3a7d`) is aimed (`InitTarget`); an item whose spell byte's
+  bit 7 is clear sets `$b1.4` (`InitTarget_01 :6524-6533`) and is kept; any other clears `$32f4`
+  (`Battler::itemInHand`). The user joins `$3a8c` (`BattleState::holdingItem`): what it holds goes
+  into the inventory after the action (`_c262c7`).
+- An item that is the attack itself (`InitTarget`'s carry): `CalcItemEffect` with Throw and Tools
+  as "thrown" (`cmp #$02` on the command). Unless the attack's status-1 byte holds Dead, Petrify or
+  Zombie (`$c2`), its targets are cut to the alive (`$3a74`) and the enemy characters (`$3a42`), and
+  an attack left with none is not aimed again (`$b3.2`). This applies to Throw and Tools as well.
+- An item that casts a spell: Item becomes Magic and its attack the spell (`$3410`); Throw and Tools
+  keep their command and show the item. No extra multiplier (`stz $bd` — a thrown edge is not
+  doubled), the caster's stat and level (`InitAttacker`), ignore Reflect, undodgeable, never the
+  fallen (`$ba.3`), no MP cost.
+
+### The attack an item makes
+
+`CalcItemEffect :6992-7093` clears the whole record (`$11a0-$11af`, level and attack stat with it),
+then: physical and ignore defense (`$11a2 = $21`); re-target if invalid and ignore Reflect
+(`$11a3 = $22`); undodgeable (`$11a4 = $20`). Thrown: the user's vigor (`$3b2c`) and level. Power
+`+20`, element `+15`.
+
+A consumable (not thrown): not physical; its use effect `+27` — bit 7 set, none; else
+`effect + $48` into the effect space (`asl` then `adc #$90`); its statuses `+21`–`+24`; its `+19`
+bits read by a shift chain: bit 7 fractional damage, bit 5 remove status, bit 4 affect MP **and**
+restore (the chain sets bit 7 of the shifted byte, so the next bit tested — restore HP — reads set),
+bit 3 restore, bit 1 invert on the undead; and a status-1 Dead in its statuses adds invert on the
+undead and resurrection targeting.
+
+Every item: Inviz Edge (`$ae`) adds Vanish, Shadow Edge (`$af`) Image (`:7064-7073`). A tool (type
+0): not ignore defense, dodgeable, hit rate `+21`, and by `(item − $a3) & 7` (`ToolsEffectTbl`):
+Noiseblaster's status-2 byte becomes Confuse; Chain Saw on a draw with its low two bits clear — one
+in four — becomes the kill: tools animation 8, power 0, Dead, the stamina save alone (`$11a4 = $10`),
+instant death; Chain Saw and Drill ignore defense; Debilitator `$56`; Air Anchor `$57`; Auto
+Crossbow unsplit. Every type-0 item is one of the eight tools from `$a3` to `$aa`, so the `& 7` never
+aliases.
+
+### Magic and the commands that cast
+
+- `_1765 :3691-3701`: the name kind, the spell aimed and loaded, the caster's stat (magic power, or
+  vigor for a physical skill) and level; Slot's spells cost nothing (`$11a5`).
+- Magic and X-Magic `:3658-3672`: Terra (actor 0) casting while battle switch 65 is set
+  (`$3ebc.1`, "enables scene with LOCKE and EDGAR if TERRA uses magic") clears it and adds battle
+  event 6 as an action that runs before anything else (`CreateImmediateAction`). It then sets the
+  undodgeable bit, which the spell's record, loaded after it, replaces — no effect.
+- Lore, Magitek, the Roulette command: kind 0. Summon: kind 2. Health (Cure 2, `$2e`) and Shock
+  (`$82`): kind 5, the command's name.
+- Slot `:3639-3652`: the swirl on; L.5 Doom is kind 7, Joker Doom; an attack below Fire Skean is an
+  esper (Summon's path); Lagomorph shows message 7 ("Mugu mugu?") after it; anything else is Magic's
+  path.
+- The Roulette command `$1e` `:4136-4143`: cast as Lore (`$b5 = $0c`), then the roulette cursor
+  animation (`$21`) with no params block of its own.
+
+### Dance
+
+`Cmd_13 :3707-3736`: Dance status set; no background change (`$b7 = $ff`); the dancer's dance
+(`$32e1`, a `DanceId`), or with none the last one chosen (`$3a6f`, `state.lastDance`), which becomes
+its own. Matching `BattleBGDance[$11e2]` → Magic's path. Otherwise a draw's low bit: set, the
+background becomes `DanceBG[dance]` (`$b7`, `$11e2`) and Magic's path; clear, the stumble — Dance
+cleared, message 6, shown as `$20`, the plain hit (`_c2298d` with `$20`, which has no aiming byte)
+at the dancer itself. Every Dance carries a dance: the menu's choice, or the one chosen for a dancer
+acting on its own.
+
+### Morph, Revert, Row, Runic and Def
+
+- Revert without Morph (status-4 `$08`) only puts the party member back to standing (`_c2192e`, the
+  `$0e` script command) and makes no attack.
+- Morph and Revert `:4046-4058`: the plain hit; its status-4 byte becomes Morph (`$11ad = $08`; the
+  plain hit's record has no statuses); Revert adds remove-status (`$11a4.2`, from the carry the
+  dispatcher's `asl` left clear); at the user (`ExecSelfAttack`).
+- Row toggles the row (`$3aa1.5`), Runic sets Runic (`$3e4c.2`), Def sets defending (`$3aa1.1`);
+  each then the plain hit at the user.
+
+### Steal, Capture, Sketch, Control, Leap, Possess and GP Rain
+
+- Steal `:3360-3365`: the plain hit with effect `$52`. Capture is a Fight whose blows carry `$52`.
+- Leap `:4121-4130`: the plain hit with effect `$54`, not physical, targeting `$40`.
+- Possess `:3847-3854`: aimed, undodgeable, effect `$50`. It never writes the level or the attack
+  stat (`$11af`/`$11ae`, outside the record copy), so the original's are whatever the previous
+  command left; the port's are 0.
+- GP Rain `:4011-4024`: the plain hit, power one more, ignore defense and unsplit (`$11a2 |= $60`),
+  damage modification off; a monster's is named by the command (kind 5); effect `$51`.
+- Control `:4099-4115`: a party member in Chant (status-4 `$10`, the controller's status) goes back
+  to standing, and the monster it controls (`$32b8`) runs the attack chosen for it as that attack's
+  command (`_c21554 :3322-3328`). Otherwise the plain hit with effect `$53`, not physical,
+  undodgeable.
+- Sketch `:3299-3328`: the plain hit with effect `$55` (`$b7 = $ff`, which no Sketch reader reads).
+  After it, if the effect recorded the monster it caught (`$3417`) and the attack (`$3400`): the
+  sketcher takes the monster's special-attack animation and special-attack byte (`$3c81`, `$322d`),
+  becomes the attack's maker (`$3417`), the next attacks are aimed at random (`$3415` cleared), the
+  name may show again (`$b2.0`), and the attack runs as its own command **with the monster in Y**
+  (`_c21554`). The body's stat load reads the monster's — `InitAttacker` with X from Y — while the
+  level reads the sketcher's (`InitAttackerLevel` through `$3417`), and `ExecAttack :8067-8069` makes
+  the sketcher the maker.
+
+### Rage
+
+`Cmd_10 :3334-3354`: no rage chosen (`$33a8` of `$ff`) takes the last rager's (`$3a93`, slot 0 if
+none) — Mimic's Rage. The rager becomes the last; Rage status (status-4 `$01`) set; `SetRage
+:999-1015`: the monster's special-attack animation, its attack graphic (`MonsterProp+26`) in both
+hands' item, then `LoadRageProp :7504-7550` — special attack, weak elements, absorbed and nullified
+elements, the blocked statuses of bytes 1-3, the record's statuses as statuses to set (status 1-2
+whole, 3-4 masked `$84fe` with the flying flag as Float), status 2-3 kept on it, True Knight,
+metamorph. `loadMonsterTraits()` is the shared part, as `LoadMonsterProp :7418` calls the same
+routine. Then `FixImmuneStatus`, the attack chosen for it as its own command (`_c21554`), and
+`UpdateImmuneStatus`.
+
+### Bushido, Blitz and Jump
+
+- Bushido `:3898-3927`: the technique aimed and loaded, `InitAttacker`. Retort (technique 1)
+  toggles `$3e4c.0`. Now up: `ror $b6` makes the animation's operand `$80` — the stance with no
+  technique — power 0, undodgeable, not physical, no name. Now down: the swirl on, then named (kind 4)
+  like every other technique.
+- Blitz `:3371-3392`: an operand with bit 7 set is a failed input — the intake brings one as Battle
+  (`$ee`): hits no one (`$b3.0`), message `$43` (67), the attack becomes Pummel, no name. Any other is
+  named (kind 8). The port takes a blitz as an attack from Pummel through the next seven, which is
+  the same split over every value the intake and `GetCmdForAI` give.
+- Jump `:3860-3892`: aimed; the shield hand when the weapon hand has no power, the weapon hand when
+  the shield hand has none, else a draw's low bit (set, the shield hand); `_c2299f`; the record's
+  `$11a4` becomes undodgeable alone (`sta`, not `tsb`); row ignored (`$b3.5`); extra multiplier one
+  more (×1.5), or 2 with a spear — Mithril Pike through Imp Halberd, `$1d`-`$24` — in either hand
+  (`SpearEffect`). A Dragon Horn (relic effects 2 bit 7, `$3c44`): the continuous jump (`$3a8e`), and
+  one more landing, another on a draw below `$40`, another below `$10` — two to four in all. Hide
+  (status-4 `$20`) cleared on the status itself.
+
+## The command menu
+
+`UpdateCmdList :13560-13617`, for a party member: the menu is marked to redraw (`$3a58`). For each
+of the four rows (command `+0`, flags `+1`, targeting `+2`), the row is unusable — the carry rotated
+into bit 7 of `+1` — when the command is empty (`bmi`), or when the party member is an Imp
+(status-1 `$20`) and the command lacks the Imp flag (`BattleCommandProperties` flag `$04`); the
+update handler is then not consulted. Otherwise `UpdateCmdIDTbl` finds the handler, or the row is
+usable:
+
+| Command | Handler | Unusable when |
+|---|---|---|
+| Morph | `_00 :13686-13689` | `$0f` ≥ the Morph supply (`$1cf6`): below 16 |
+| Runic | `_01 :13677-13680` | neither hand's weapon flags (`$3ba4 \| $3ba5`) hold Runic (`$80`) |
+| Bushido | `_02 :13668-13671` | neither holds Bushido (`$02`) |
+| Lore, X-Magic, Magic | `_03`–`_05 :13655-13662` | Muted (status-2 `$08`) |
+| Capture, Fight | `_06`/`_07 :13638-13649` | never; with an Offering (`$3c58.0`) the row's targeting becomes `$4e` |
+
+Nothing writes a command's own targeting back while the battle lasts: `InitCmdList :13697-13807`
+writes it once, at the start, and does not call `UpdateCmdList`, so a party member who starts the
+battle wearing an Offering shows Fight's own targeting until the first refresh.
+
+### What is not ported, and why
+
+- `ExecSelfAttack :8004` clears `$341b`, which nothing reads.
+- Sketch's `$b7 = $ff` has no reader on Sketch's path.
 
 ## What a hit target records
 
@@ -453,4 +681,5 @@ unless he knows it.
 Listed in [`docs/Bugs.md`](../Bugs.md): blows evaded by magic block, with Blind, Beads and the
 status modifiers never applied; a vanished target hit by any spell before death protection is
 checked; the hit-in-the-back steps counting for every later target; a pincer that cannot be run
-from at its start even when every monster stands on one side.
+from at its start even when every monster stands on one side; Umaro's throw adding one to the power
+of Mog and every ally after him.

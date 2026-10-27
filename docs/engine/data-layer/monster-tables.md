@@ -165,3 +165,5 @@ alignments).
 ## Used by
 
 A battle's start ([battle/start.md](../battle/start.md)): `loadMonster()` reads a monster's steal items and its special-attack animation.
+
+Rage ([battle/commands.md](../battle/commands.md#sketch-rage-and-control)): `setRage()` reads the special-attack animation of the monster raged as.

@@ -7,7 +7,7 @@
 // against each target, and written into the command's battle script.
 //
 //     AttackInFlight attack = startAttack(command);
-//     fightCommand(state, hooks, script, attack, actor);   // loads the hit, then runAttack()
+//     runCommand(state, hooks, script, attack, actor);   // loads the attack, then runAttack()
 //
 // Everything an attack changes on the way is a field of the AttackInFlight, never of the shipped
 // attack record: the record is copied in and edited there.
@@ -31,6 +31,7 @@
 #include "data/item_properties.h"
 #include "ostinato/attack_effects.h"
 #include "ostinato/attack_id.h"
+#include "ostinato/battle_background_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/item_effects.h"
 #include "ostinato/item_id.h"
@@ -114,6 +115,12 @@ enum class AttackNameKind : std::uint8_t {
     Blitz,                // the blitz
 };
 
+// A sketch that caught its monster: the sketcher makes `attack` next, as `monster` would.
+struct SketchDrawn {
+    BattlerSlot monster = BattlerSlot::monster(0);
+    AttackId attack{};
+};
+
 // What one command keeps track of between its attacks.
 struct AttackScratch {
     std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
@@ -126,6 +133,7 @@ struct AttackScratch {
     bool damageModification = true;            // damage varies, and defense, Shell and Safe count
     bool randomizeTargets = false;             // the next attack is re-aimed at random
     std::optional<BattlerSlot> sketcher;       // Sketch: the party member drawing the sketch
+    std::optional<SketchDrawn> sketch;         // Sketch: what the sketch caught, set by its effect
     bool quietMisses = false;                  // a miss shows nothing, and no hit shows nothing
     bool hideWithoutTargets = false;           // an attack aimed at no one shows nothing
     bool aimExactly = false;                   // the next aim keeps the targets exactly as given
@@ -180,9 +188,15 @@ struct AttackInFlight {
     bool runicAbsorbing = false;        // Runic drew this attack in: its own animation still to show
     bool castingSwirlSuppressed = true; // the swirl before a spell does not play
     bool twoHanded = false;             // the hand's weapon is held in both hands (a Gauntlet)
+    // An attack that ignores defense is not multiplied. A Throw multiplies it anyway.
+    bool ignoreDefenseStopsMultiplier = true;
 
     std::uint8_t secondary = 0;         // the animation's second value (AttackAnimation::secondary)
     bool offHand = false;               // the hit is the shield hand's
+    bool showsAttack = true;            // the animation plays the attack (AttackAnimation::showsAttack)
+    bool chainSawKill = false;          // Chain Saw's instant kill (AttackAnimation::chainSawKill)
+    // A Dance that changes the battlefield: the background it changes to.
+    std::optional<BattleBackgroundId> newBackground;
 
     AttackAnimationParams params;
     AttackScratch scratch;
@@ -229,8 +243,9 @@ AttackInFlight startAttack(const CommandAction& command);
 void loadAttackRecord(AttackInFlight& attack, AttackId id);
 
 // Note the attack's targets as the current ones and add them to the command's earlier targets.
-// With damage modification off (Runic, a follow-up pass), the current targets are taken back
-// instead.
+// While the attack is re-aimed at random (AttackScratch::randomizeTargets — a weapon's spell cast
+// at random, a sketched attack, Umaro's Storm, Runic drawing a spell in), the current targets are
+// taken back instead.
 void rememberTargets(AttackInFlight& attack);
 
 // Run every attack of the command: aim each one, check it against each target, work out its

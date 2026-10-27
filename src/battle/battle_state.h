@@ -576,6 +576,9 @@ struct BattleState {
     std::bitset<game::kLores> loresLearned;               // lores Strago saw this battle, Condemned first
     std::optional<BattlerSlot> lastRager;                 // the party member who last used Rage
     std::uint16_t golemHp = 0;                            // the Golem's HP left; 0 with no Golem
+    // Party members who come away from the action holding Battler::itemInHand: once the action is
+    // over, the item goes into the party's inventory.
+    BattlerSet holdingItem;
 
     // The commands the player has finished choosing, waiting for the battle to take them in
     // (battle/player_intake.h).

@@ -13,9 +13,11 @@ The rules, and the line of the original each is read from, are in
 | File | Holds |
 |---|---|
 | `src/battle/command_executor.h` | `CommandExecutor` |
-| `src/battle/commands.h` | `fightAttack()`, `loadWeaponAttack()`, `initAttacker()`, `attackerLevel()`, `commandForAttack()`, `itemStatuses()` |
-| `src/battle/attack.h` | `AttackInFlight`, `AttackScratch`, `AimingRules`, `SpecialEffect`, `CommandEffect`, `AttackNameKind`, `AttackHooks`, `startAttack()`, `loadAttackRecord()`, `rememberTargets()`, `runAttack()`, `runSelfAttack()`, `resolveAttack()`, `checkHit()`, `HitResult`, `hitInTheBack()`, `recordLastHit()` |
-| `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `BlockShown`, `BattleScriptBuilder` |
+| `src/battle/commands.h` | `runCommand()`, the bodies' loaders — `initAttacker()`, `attackerLevel()`, `loadWeaponAttack()`, `plainCommandAttack()`, `fightAttack()`, `setRage()` — and `commandForAttack()`, `isSpear()`, `itemStatuses()`, `kBattleEventTerraMagicScene`, `kTimeUpdatesBeforeDesperation` |
+| `src/battle/item_attack.h` | `itemAttack()`, `ItemUse` |
+| `src/battle/command_menu.h` | `refreshCommandMenu()`, `kMorphSupplyToMorph`, `kOfferingTargeting` |
+| `src/battle/attack.h` | `AttackInFlight`, `AttackScratch`, `SketchDrawn`, `AimingRules`, `SpecialEffect`, `CommandEffect`, `AttackNameKind`, `AttackHooks`, `startAttack()`, `loadAttackRecord()`, `rememberTargets()`, `runAttack()`, `runSelfAttack()`, `resolveAttack()`, `checkHit()`, `HitResult`, `hitInTheBack()`, `recordLastHit()` |
+| `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
 
 ## Running commands
@@ -26,10 +28,164 @@ CommandExecutor executor(hooks);
 BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 ```
 
-`execute()` runs Fight and Capture; a command with no body yet runs as no action and shows nothing.
-After a Fight it reports to the battle core whether the attack was physical and who it ended up
-hitting (`state.scratch.physical`, `state.scratch.finalTargets`). `aim()` aims a command chosen with
-no targets: Fight chosen by a berserk party member, say, gets one monster.
+`execute()` runs every command a party member or a monster can choose. Mimic, which the battle core
+replaces with the command it mimics before running it, and an action that is not a battle command
+show nothing. After a command it reports to the battle core whether the attack was physical and who
+it ended up hitting (`state.scratch.physical`, `state.scratch.finalTargets`). `aim()` aims a command
+chosen with no targets: Fight chosen by a berserk party member, say, gets one monster.
+`refreshCommandList()` decides which of a party member's commands can be chosen
+([below](#the-command-menu)).
+
+Without the executor, `runCommand()` runs one command into a script:
+
+```cpp
+AttackInFlight attack = startAttack(CommandAction{.command = BattleCommandId::STEAL,
+                                                  .targets = BattlerSet::of(BattlerSlot::monster(0))});
+BattleScriptBuilder script;
+runCommand(state, hooks, script, attack, BattlerSlot::character(0));
+std::vector<BattleScriptCommand> commands = script.take();
+```
+
+## The commands
+
+Every body follows the same few steps: name the attack, load what the command makes, change what the
+command changes about it, run it. The name shown is `scratch.nameKind`; a body that sets none shows
+no name.
+
+| Command | Makes | Name |
+|---|---|---|
+| Fight, Capture | two blows, one per hand (eight with an Offering); Capture's carry Steal. A party member late in the battle may make a desperation attack instead; Umaro picks his own attack | — |
+| Item | the item: a consumable's own effect, or the spell it casts as Magic | the item |
+| Throw | the thrown weapon at twice its damage, or the spell an edge casts | the item |
+| Tools | the tool, or the spell the Bio Blaster or Flash casts | the item |
+| Magic, X-Magic, Lore, Magitek | the spell, with the caster's magic power and level | the spell |
+| Summon | the esper's attack | the esper |
+| Slot | the reels' outcome, free; the swirl plays | the attack, the esper, or Joker Doom |
+| Health, Shock | Cure 2, Shock | the command |
+| Dance | the step of the dance chosen at intake | the step |
+| Bushido | the technique | the technique |
+| Blitz | the blitz, or nothing for buttons that made none | the blitz |
+| Rage | the attack chosen for the monster raged as | as that attack's command |
+| Morph, Revert | Morph put on, or taken off, the user | — |
+| Row, Runic, Def | a change to the user, shown on the user | — |
+| Steal, Sketch, Control, Leap, Possess | the plain hit carrying the command's effect | — |
+| GP Rain | the plain hit, one power stronger, unsplit, ignoring defense | the command, for a monster |
+| Jump | a blow with one hand's weapon | — |
+| the Roulette command | Lore's Roulette at no one, then the roulette cursor | Roulette |
+
+The commands that only act on a target or the user start from `plainCommandAttack()`: the plain hit
+aimed by the command's own rules, impossible to dodge, with no level, no attack stat and no effect of
+its own. The special effects (`CommandEffect::Steal`, `Control`, `Leap`, `Sketch`, `Possess`,
+`GpRain`) are worked out by `AttackHooks::targetEffect`.
+
+### Fight and desperation attacks
+
+A party member's Fight becomes its desperation attack — Riot Blade for Terra, X-Meteo for Gogo, the
+shipped `desperationAttack()` table — once per battle, one time in sixteen, when all of these hold:
+
+- the battle has run `kTimeUpdatesBeforeDesperation` (768) time updates;
+- it is Near Fatal, and neither seeing double, confused, a zombie nor vanished;
+- the Fight is aimed at a monster.
+
+The attack is cast as Magic, with the swirl. Gau, Umaro and the guests have none, but spend their
+chance all the same (`state.desperationUsed`).
+
+### Umaro
+
+Umaro chooses between a Fight and a tackle, his Storm with a Blizzard Orb, and throwing an ally with a
+Rage Ring while another party member is alive. Each relic selects a different row of
+`kRandomBitRates`, so wearing one changes the odds of the others too.
+
+- **Tackle**: the power of both his hands, his level and vigor, ignoring defense; may be critical.
+- **Storm**: the Storm attack cast as a spell, aimed at random.
+- **Throw**: an ally is thrown — the highest-placed one asleep or confused, else one at random, never
+  one in hiding; with no one to throw he tackles. The thrown ally's power joins his, one more for Mog
+  and any ally after him, at most 255. Throwing Mog is a critical hit. The ally wakes and comes to its
+  senses.
+
+### Item, Throw and Tools
+
+The item command names the item and aims it by the item's own targeting. An item that casts a spell —
+a rod, an elemental shield, a thrown Fire Skean, the Bio Blaster — casts it free, unreflected and
+undodgeable, never at the fallen; Item shows it as Magic. Any other item is the attack itself,
+built by `itemAttack()`:
+
+```cpp
+itemAttack(state, attack, user, ItemId::POTION, ItemUse::Consumed);
+itemAttack(state, attack, user, ItemId::DIRK, ItemUse::ThrownOrWorked);
+```
+
+| Use | The attack |
+|---|---|
+| a consumable | not physical; its record's healing (restore HP, restore MP, remove status, fractional damage, harm the undead), statuses and use effect. One that works on the dead raises them |
+| a thrown weapon | a physical blow at the item's battle power, with the thrower's vigor and level |
+| a tool | as a thrown weapon, but dodgeable, at the tool's hit rate, taking defense into account, plus its own effect: Noiseblaster confuses, Chain Saw kills one time in four, Drill ignores defense, Debilitator and Air Anchor carry their effect, Auto Crossbow is unsplit |
+
+Every item attack ignores Reflect; all but a tool also ignore defense and cannot be dodged. Unless
+it raises the dead or turns its target to stone or a zombie, it reaches only the living, and is not
+aimed again when they are gone. Item's attack is not modified for damage, and Vanish does not change
+whether it lands; Throw doubles its weapon's damage and multiplies it even though it ignores defense
+(`ignoreDefenseStopsMultiplier`).
+
+An item used up leaves `Battler::itemInHand`; one that is not — whose spell is not cast on use — stays
+there. Either way the user joins `state.holdingItem`, and what it holds goes back into the inventory
+after the action.
+
+### Dance
+
+A dancer dances the dance it chose, or the last one chosen (`state.lastDance`). A dance that matches
+the battlefield (`backgroundDance()`) is danced. Otherwise a coin decides: heads, the battlefield
+changes to the dance's (`danceBackground()`, shown as the animation's `newBackground`) and it is
+danced; tails, the dancer stumbles — no more dancing, the "stumbled" message, and only the stumble
+shown.
+
+### Sketch, Rage and Control
+
+These three make a second command inside the first, into the same script.
+
+- **Sketch** draws the sketch. If its effect caught the monster (`scratch.sketch`), the sketcher takes
+  the monster's special attack and its animation and makes the attack it caught, as the monster
+  would: with the monster's vigor or magic power, the sketcher's level, aimed at random, named again.
+- **Rage** rages as the monster chosen, or as the last party member to rage did (`state.lastRager`).
+  `setRage()` takes on the monster: its special attack and animation, its attack's look in both hands,
+  and what `loadMonsterTraits()` gives — elements, immunities and statuses, the statuses put on when
+  the action's statuses take effect. Then the attack chosen for it is made.
+- **Control** tries to take hold of the target. A party member already controlling a monster (its
+  Chant status) goes back to standing and has the monster make the attack picked for it.
+
+### Bushido, Blitz and Jump
+
+- **Bushido**: Retort's first use readies it — the stance shows with no technique
+  (`AttackAnimation::showsAttack`), no harm, no name. Its second answers it, with the swirl and the
+  name. Every other technique is named and made.
+- **Blitz**: buttons that made no blitz hit no one, with Pummel's record, no name and the "incorrect
+  blitz input" message (`kMessageBlitzFailed`).
+- **Jump**: the jumper comes down with the hand that has power — either, on a coin — undodgeable, its
+  row ignored, for half again the damage, twice with a spear in either hand (`isSpear()`). A Dragon
+  Horn brings it down two to four times. Landing ends its hiding.
+
+## The command menu
+
+`refreshCommandMenu(state, slot)` decides which of a party member's four commands can be chosen
+(`MenuCommand::usable`) and marks its menu to be drawn again (`state.menusToRefresh`). The battle
+calls it, through the executor, after the Item menu changes equipment and whenever a pending update
+asks for it.
+
+| Rule | Unusable when |
+|---|---|
+| every command | its row is empty, or the party member is an Imp and the command is not one an Imp may use |
+| Morph | the party's Morph supply is below `kMorphSupplyToMorph` (16) |
+| Runic, Bushido | neither hand holds a Runic, or a Bushido, weapon |
+| Magic, X-Magic, Lore | the party member is Muted |
+
+With an Offering worn, Fight and Capture take `kOfferingTargeting` and keep it after the Offering is
+taken off; nothing sets the command's own targeting back during the battle.
+
+```cpp
+state.at(slot).status.set(StatusId::SILENCE);
+refreshCommandMenu(state, slot);
+state.at(slot).commands[1].usable;   // false for Magic
+```
 
 ## The attack in flight
 
@@ -41,15 +197,16 @@ requires. The shipped record is never changed.
 | Field | Is |
 |---|---|
 | `command`, `attack` | what the attack is shown as and what it is; a body may change both |
-| `queuedCommand`, `queuedAttack` | the command and attack as the player or the AI chose them |
+| `queuedCommand`, `queuedAttack` | the command and attack (or item) as the player or the AI chose them |
 | `record` | the attack's record, as this attack has changed it |
 | `effect` | the special effect it carries, whatever it came from |
 | `attackerStat`, `attackerLevel` | the stat and level the damage is worked out from |
 | `rules`, `targeting`, `targets` | how it is aimed and whom it reaches |
 | `multiplier`, `extraMultiplier` | damage steps, each adding half the damage again; the command's own steps start every attack's count |
 | `damage` | the damage before it is split and multiplied |
-| the flags | whether it can be critical, Vanish applies, the row counts, a target that is gone is replaced, and so on |
-| `params` | what the animation is told |
+| the flags | whether it can be critical, Vanish applies, the row counts, a target that is gone is replaced, an attack that ignores defense is multiplied, and so on |
+| `showsAttack`, `chainSawKill`, `newBackground`, `secondary`, `offHand` | what its animation shows |
+| `params` | what the animation is told about who attacked and who was hit |
 | `scratch` | what the command keeps between its attacks |
 
 `SpecialEffect` puts an attack's, a weapon's, an item's and a command's effects in one space:
@@ -64,14 +221,7 @@ attack.effect.isNone();
 
 `runAttack()` runs the command's attacks — `scratch.attacksLeft` more after the first — and
 `resolveAttack()` one of them. A Fight is two attacks, one per hand; with an Offering it is eight. A
-hand with no battle power makes no attack.
-
-```cpp
-AttackInFlight attack = startAttack(command);
-BattleScriptBuilder script;
-fightAttack(state, hooks, script, attack, actor);
-std::vector<BattleScriptCommand> commands = script.take();
-```
+hand with no battle power makes no attack. `runSelfAttack()` aims at the attacker itself.
 
 On the way an attack can:
 
@@ -85,6 +235,10 @@ On the way an attack can:
   with the Imp critical flag; two damage steps and the screen flash;
 - **cast the weapon's spell** — one time in four, as one more attack after the hit;
 - **be learned** — Strago learns a learnable lore he sees used.
+
+`rememberTargets()` notes each attack's targets as the command's current ones and adds them to its
+earlier targets. While an attack is aimed at random (`scratch.randomizeTargets`), it takes the
+current targets back instead.
 
 `checkHit()` is the hit check for one target. It returns `HitResult{hit, block, reflected}` and does
 the rest itself: it sets Vanish or Image to clear, notes the Golem or Interceptor stepping in, takes
@@ -112,7 +266,7 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | `scaleDamage` | after the critical hit is decided; multiply by `attack.multiplier` |
 | `controlMenu` | after a controlled monster attacks, for its controller |
 | `statusEffect` | for each target hit |
-| `targetEffect` | for each target hit, after `statusEffect`; return `true` if the effect missed it |
+| `targetEffect` | for each target hit, after `statusEffect`; return `true` if the effect missed it. Sketch's effect sets `attack.scratch.sketch` when it catches |
 | `targetDamage` | for each target hit that the effect did not miss |
 | `applyDamage` | once, after every target; write the damage numbers into the script |
 | `reflectedAttack` | after a spell bounced off anyone |
@@ -145,19 +299,13 @@ The commands:
 | Command | Shows |
 |---|---|
 | `AttackNameShown`, `BushidoNameShown`, `ItemNameShown`, `EsperNameShown`, `CommandNameShown`, `MonsterSpecialAttackNameShown` | the name in the window at the top of the screen |
-| `AttackAnimation` | the command's animation (`what` a `BattleCommandId`) or a special one (`SpecialAnimation`), with its params; a Fight swing says its hand and its weapon's animation |
+| `AttackAnimation` | the command's animation (`what` a `BattleCommandId`) or a special one (`SpecialAnimation`), with its params; a Fight swing says its hand and its weapon's animation; Item, Throw and Tools show `item`; a Dance that changes the battlefield, `newBackground` |
 | `BattleMessage` | a battle message, with the numbers it shows |
 | `PoseReset` | a party member going back to standing |
 | `ReadyStance`, `StepBack`, `FinalBattleStageArrives` | written by the battle core |
 
 An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) shows no animation.
 `kJokerDoomName` is the attack-name entry that reads "Joker Doom".
-
-## Fight
-
-`fightAttack()` makes the two attacks (eight with an Offering) at the targets the command was aimed
-at, criticals allowed. Each attack loads one hand with `loadWeaponAttack()`: the weapon hand first,
-then the shield hand. A monster fights with one hand.
 
 ## Gotchas
 
@@ -174,12 +322,20 @@ then the shield hand. A monster fights with one hand.
   Blind changes nothing ([`docs/Bugs.md`](../../Bugs.md)).
 - **The Golem and Interceptor make a hit.** When one of them steps in, the target counts as hit and
   the attack's statuses are removed.
+- **A nested command shares the attack.** Sketch, Rage and Control run the second command on the same
+  `AttackInFlight`, so what the first changed — the targets remembered, the name already shown, the
+  swirl — carries into it.
+- **Umaro throws Mog's power plus one.** So does any ally from Mog on ([`docs/Bugs.md`](../../Bugs.md)).
 
 ## Where to change
 
 | To change | Edit |
 |---|---|
-| Which commands run | the `switch` in `CommandExecutor::execute()` |
+| Which body a command runs | the `switch` in `runCommand()`, `src/battle/commands.cpp` |
+| What one command does | its body in `src/battle/commands.cpp` |
+| The attack an item, a thrown weapon or a tool makes | `itemAttack()` in `src/battle/item_attack.cpp` |
+| When a desperation attack comes | `desperationAttackFor()` in `src/battle/commands.cpp` |
+| Which commands can be chosen | `refreshCommandMenu()` in `src/battle/command_menu.cpp` |
 | How many attacks a Fight makes | `fightAttack()` in `src/battle/commands.cpp` |
 | What a hand's weapon gives its attack | `loadWeaponAttack()` in `src/battle/commands.cpp` |
 | The attack loop: fizzling, Runic, Air Anchor, the weapon's spell | `src/battle/attack.cpp` |

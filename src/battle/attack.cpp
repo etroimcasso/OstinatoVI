@@ -54,12 +54,21 @@ std::uint8_t raw(AttackId id) {
 
 // The animation the attack in flight is shown with.
 AttackAnimation animationOf(const AttackInFlight& attack) {
-    AttackAnimation animation{.attack = attack.attack, .offHand = attack.offHand, .secondary = attack.secondary};
+    AttackAnimation animation{.attack = attack.attack,
+                              .offHand = attack.offHand,
+                              .secondary = attack.secondary,
+                              .chainSawKill = attack.chainSawKill,
+                              .showsAttack = attack.showsAttack,
+                              .newBackground = attack.newBackground};
     const auto command = static_cast<std::uint8_t>(attack.command);
     if (command >= static_cast<std::uint8_t>(SpecialAnimation::DanceStumble)) {
         animation.what = static_cast<SpecialAnimation>(command);
     } else {
         animation.what = attack.command;
+    }
+    if (attack.command == BattleCommandId::ITEM || attack.command == BattleCommandId::THROW ||
+        attack.command == BattleCommandId::TOOLS) {
+        animation.item = static_cast<ItemId>(raw(attack.queuedAttack));
     }
     return animation;
 }
@@ -169,6 +178,7 @@ void absorbWithRunic(BattleState& state, AttackInFlight& attack) {
         return;
     }
     rememberTargets(attack);
+    attack.scratch.randomizeTargets = true;
     attack.targets = absorbers;
     attack.record.statuses = {};
     attack.record.flags1 = AttackFlags1::of(AttackFlag1::AFFECT_MP, AttackFlag1::IGNORE_REFLECT);
@@ -402,7 +412,7 @@ void loadAttackRecord(AttackInFlight& attack, AttackId id) {
 }
 
 void rememberTargets(AttackInFlight& attack) {
-    if (!attack.scratch.damageModification) {
+    if (attack.scratch.randomizeTargets) {
         attack.targets = attack.scratch.currentTargets;
         return;
     }

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <variant>
 
+#include "battle/command_menu.h"
 #include "battle/commands.h"
 #include "battle/targeting.h"
 #include "data/battle_commands.h"
@@ -27,14 +28,7 @@ std::vector<BattleScriptCommand> CommandExecutor::execute(BattleState& state, st
     }
     AttackInFlight attack = startAttack(*command);
     BattleScriptBuilder script;
-    switch (command->command) {
-    case BattleCommandId::FIGHT:
-    case BattleCommandId::CAPTURE:
-        fightAttack(state, hooks_, script, attack, *actor);
-        break;
-    default:
-        return {};
-    }
+    runCommand(state, hooks_, script, attack, *actor);
     state.scratch.physical = attack.record.traits.has(AttackTrait::PHYSICAL);
     state.scratch.finalTargets = attack.targets;
     return script.take();
@@ -52,6 +46,10 @@ void CommandExecutor::aim(BattleState& state, BattlerSlot actor, CommandAction& 
     }
     chooseTargets(state, attack, actor);
     command.targets = attack.targets;
+}
+
+void CommandExecutor::refreshCommandList(BattleState& state, BattlerSlot slot) {
+    refreshCommandMenu(state, slot);
 }
 
 }  // namespace ostinato::battle

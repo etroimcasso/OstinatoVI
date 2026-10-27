@@ -118,6 +118,13 @@ FormationId chooseFormation(BattleState& state, FormationRef asked);
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
                  const TextCorpus& text);
 
+// What a monster brings to whoever takes it on — a monster loaded into its slot, or a party member
+// raging as it: its special attack and metamorph, its elements and immunities added to the
+// battler's, the statuses its record keeps on it, and its True Knight cover. Returns the statuses
+// the monster starts with (Float for a flier, Reraise and Float of its fourth status byte); the
+// caller decides when they are put on.
+StatusSet loadMonsterTraits(Battler& battler, MonsterId id);
+
 // The battle type, from the formation's possible types (FormationAux::possibleBattleTypes()):
 // a Back Guard rules out pincer and back attacks and a party of fewer than three rules out side
 // attacks, each unless nothing else is possible.

@@ -30,6 +30,7 @@
 
 #include "battle/battler_set.h"
 #include "ostinato/attack_id.h"
+#include "ostinato/battle_background_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/esper_id.h"
 #include "ostinato/item_id.h"
@@ -110,6 +111,14 @@ struct AttackAnimation {
     // item id plus one; a monster's attack graphic plus one), for a monster's special attack its
     // special animation.
     std::uint8_t secondary = 0;
+    // Item, Throw and Tools show the item used, thrown or worked in place of an attack.
+    std::optional<ItemId> item;
+    // Chain Saw's instant kill: the tool's other animation.
+    bool chainSawKill = false;
+    // False when the command's own animation plays without the attack's: Bushido readying Retort.
+    bool showsAttack = true;
+    // A Dance that changed the battlefield: the background it changes to as the dance plays.
+    std::optional<BattleBackgroundId> newBackground;
     AttackAnimationParams params;
 };
 
@@ -151,7 +160,10 @@ struct BattleMessage {
 };
 
 // The battle messages the commands show.
+inline constexpr std::uint8_t kMessageStumbled = 6;
+inline constexpr std::uint8_t kMessageMuguMugu = 7;
 inline constexpr std::uint8_t kMessageNotEnoughMp = 40;
+inline constexpr std::uint8_t kMessageBlitzFailed = 67;
 
 // A party member goes back to standing normally.
 struct PoseReset {

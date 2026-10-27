@@ -22,7 +22,7 @@ changing the code.
 | `src/battle/action_executor.h` | `ActionExecutor`, `NullExecutor` |
 | `src/battle/battle_requests.h` | `BattleRequest` |
 | `src/battle/battle_script.h` | `BattleScriptCommand`, `BattleScriptBuilder` ([commands.md](commands.md)) |
-| `src/battle/battle_rng.h` | `BattleRng` |
+| `src/battle/battle_rng.h` | `BattleRng`, `pickWeighted()` |
 | `src/battle/player_intake.h` | `PlayerAction`, `takePlayerActions()` |
 | `src/battle/battle_clock.cpp` | battle time |
 | `src/battle/battle_loop.cpp` | the battle loop |
@@ -325,6 +325,16 @@ the next check finds it won.
 `pickFrom(set)` (one member, the party's counted first; an empty set draws nothing). The loop moves
 the position on by one entry per step without drawing, so tests set `state.rng = BattleRng(position)`
 to fix what a battle will draw.
+
+`pickWeighted(rng, weights, offered)` picks one of four choices by a row of `kRandomBitRates`: each
+offered choice reaches its weight + 1 further along a running byte total, and one draw below that
+total picks the first choice it falls short of. The battle type and Umaro's attack are chosen this
+way.
+
+```cpp
+const std::array<bool, 4> offered{true, true, false, false};
+std::optional<std::size_t> picked = pickWeighted(state.rng, kRandomBitRates[0].weights, offered);
+```
 
 ## Gotchas
 

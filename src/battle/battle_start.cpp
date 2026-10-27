@@ -176,38 +176,9 @@ MonsterId nameGroupFor(const BattleState& state, BattlerSlot slot, const TextCor
     return own;
 }
 
-// A monster's elements, immunities and innate statuses from its record (what it also brings to a
-// Rage).
-void loadMonsterTraits(Battler& battler, const MonsterProperties& record) {
-    battler.specialAttack = record.specialAttack;
-    battler.elementsWeak = unionOf(battler.elementsWeak, record.weakElements);
-    for (std::size_t i = 0; i < record.blockedStatuses.bytes.size(); ++i) {
-        battler.inflictableStatuses.bytes[i] =
-            static_cast<std::uint8_t>(battler.inflictableStatuses.bytes[i] & ~record.blockedStatuses.bytes[i]);
-    }
-
-    // The record's third status byte opens with the monster's flying flag, which is Float; the
-    // fourth byte's first bit is the True Knight cover effect, and only Reraise and Float of it are
-    // statuses a monster starts with.
-    const StatusSet& innate = record.innateStatuses;
-    const bool flies = (innate.bytes[2] & 0x01) != 0;
-    StatusSet starts{{innate.bytes[0], innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
-    if (flies || innate.has(StatusId::FLOAT)) starts.set(StatusId::FLOAT);
-    if (innate.has(StatusId::RERAISE)) starts.set(StatusId::RERAISE);
-    battler.innateStatuses = starts;
-    if ((innate.bytes[3] & 0x01) != 0) {
-        battler.relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
-    }
-
-    // The second and third status bytes stay on it, as equipment keeps statuses on a party member;
-    // the flying flag there is Float.
-    StatusSet held{{0, innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
-    if (flies) held.set(StatusId::FLOAT);
-    battler.equipmentStatuses = unionOf(battler.equipmentStatuses, held);
-
-    battler.elementsAbsorbed = unionOf(battler.elementsAbsorbed, record.absorbElements);
-    battler.elementsNullified = unionOf(battler.elementsNullified, record.nullifyElements);
-    battler.metamorph = record.metamorph;
+// What a monster's record says about it beyond what a Rage takes on: its name, whether it is
+// human or undead, the Imp critical and dying at zero MP.
+void loadMonsterNature(Battler& battler, const MonsterProperties& record) {
     battler.diesAtZeroMp = record.traitFlags.has(MonsterTraitFlag::DIES_AT_ZERO_MP);
     battler.nameHidden = record.traitFlags.has(MonsterTraitFlag::DONT_DISPLAY_NAME);
     battler.human = record.traitFlags.has(MonsterTraitFlag::HUMAN);
@@ -231,6 +202,39 @@ void checkFirstStrike(BattleState& state, BattlerSlot slot) {
 }
 
 }  // namespace
+
+StatusSet loadMonsterTraits(Battler& battler, MonsterId id) {
+    const MonsterProperties& record = getMonsterProperties(id);
+    battler.specialAttack = record.specialAttack;
+    battler.elementsWeak = unionOf(battler.elementsWeak, record.weakElements);
+    for (std::size_t i = 0; i < record.blockedStatuses.bytes.size(); ++i) {
+        battler.inflictableStatuses.bytes[i] =
+            static_cast<std::uint8_t>(battler.inflictableStatuses.bytes[i] & ~record.blockedStatuses.bytes[i]);
+    }
+
+    // The record's third status byte opens with the monster's flying flag, which is Float; the
+    // fourth byte's first bit is the True Knight cover effect, and only Reraise and Float of it are
+    // statuses a monster starts with.
+    const StatusSet& innate = record.innateStatuses;
+    const bool flies = (innate.bytes[2] & 0x01) != 0;
+    StatusSet starts{{innate.bytes[0], innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
+    if (flies || innate.has(StatusId::FLOAT)) starts.set(StatusId::FLOAT);
+    if (innate.has(StatusId::RERAISE)) starts.set(StatusId::RERAISE);
+    if ((innate.bytes[3] & 0x01) != 0) {
+        battler.relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
+    }
+
+    // The second and third status bytes stay on it, as equipment keeps statuses on a party member;
+    // the flying flag there is Float.
+    StatusSet held{{0, innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
+    if (flies) held.set(StatusId::FLOAT);
+    battler.equipmentStatuses = unionOf(battler.equipmentStatuses, held);
+
+    battler.elementsAbsorbed = unionOf(battler.elementsAbsorbed, record.absorbElements);
+    battler.elementsNullified = unionOf(battler.elementsNullified, record.nullifyElements);
+    battler.metamorph = record.metamorph;
+    return starts;
+}
 
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
                  const TextCorpus& text) {
@@ -271,7 +275,8 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.triggers.monsterRunic = battler.triggers.monsterRunic || (special & 0x02) != 0;
     battler.triggers.piranha = battler.triggers.piranha || (special & 0x80) != 0;
     battler.monsterFlags = record.battleFlags;
-    loadMonsterTraits(battler, record);
+    battler.innateStatuses = loadMonsterTraits(battler, id);
+    loadMonsterNature(battler, record);
     battler.specialAttackAnimation = monsterSpecialAnim(id);
     checkFirstStrike(state, slot);
     battler.vigor = static_cast<std::uint8_t>(kMonsterVigorBase + (state.rng.next() & (kMonsterVigorSpread - 1)));
@@ -327,25 +332,16 @@ BattleType chooseBattleType(BattleState& state, std::uint8_t possible) {
     if (state.allyCount < kAlliesForSideAttack) {
         possible = onlyIfAnyLeft(possible, kFront | kBack | kPincer);
     }
-    const auto& weights = kRandomBitRates[kBattleTypeRates].weights;
     constexpr std::array<std::uint8_t, 4> kByWeight{kSide, kPincer, kBack, kFront};
     constexpr std::array<BattleType, 4> kTypeByWeight{BattleType::Side, BattleType::Pincer, BattleType::Back,
                                                       BattleType::Front};
-    std::array<int, 4> reach{};
-    int total = 0;
+    std::array<bool, 4> offered{};
     for (std::size_t i = 0; i < kByWeight.size(); ++i) {
-        if ((possible & kByWeight[i]) != 0) {
-            total = (total + weights[i].value() + 1) & 0xFF;
-        }
-        reach[i] = total;
+        offered[i] = (possible & kByWeight[i]) != 0;
     }
-    const int roll = state.rng.below(static_cast<std::uint8_t>(total));
-    for (std::size_t i = 0; i < kByWeight.size(); ++i) {
-        if (roll < reach[i]) {
-            return kTypeByWeight[i];
-        }
-    }
-    return BattleType::Front;
+    const std::optional<std::size_t> picked =
+        pickWeighted(state.rng, kRandomBitRates[kBattleTypeRates].weights, offered);
+    return picked ? kTypeByWeight[*picked] : BattleType::Front;
 }
 
 void applyBattleType(BattleState& state, const FormationAux& aux) {

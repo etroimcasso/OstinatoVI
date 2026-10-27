@@ -28,6 +28,7 @@ inline constexpr int kMagicOnlySwitch = 56;            // only magic works here
 inline constexpr int kPermanentMorphSwitch = 58;       // Terra stays morphed for the whole battle
 inline constexpr int kClearedAtBattleStartSwitch = 63; // every battle clears it as it starts
 inline constexpr int kPartyDefeatedSwitch = 64;        // the battle just fought was lost
+inline constexpr int kTerraMagicSceneSwitch = 65;      // Terra's next spell in battle starts a scene
 inline constexpr int kMorphAvailableSwitch = 66;       // Terra can Morph
 inline constexpr int kRanOutOfTimeSwitch = 68;         // the story's time ran out during the battle; also Warp
 inline constexpr int kTimerExpiredSwitch = 69;         // a story countdown reached zero during the battle

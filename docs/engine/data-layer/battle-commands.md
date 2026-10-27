@@ -177,3 +177,5 @@ The party side of a battle's start ([battle/start.md](../battle/start.md)): `bui
 Aiming ([battle/targeting.md](../battle/targeting.md)): `initTargeting()` reads each command's aiming byte from `kCommandTargetingInit` and its targeting byte from `battleCommandProperties()`.
 
 The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` adds the bases in `kCommandAttackBases` and drops the targets of the commands in `kRetargetCommands`.
+
+The command menu ([battle/commands.md](../battle/commands.md#the-command-menu)): `refreshCommandMenu()` reads each command's Imp flag from `battleCommandProperties()`.

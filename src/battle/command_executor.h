@@ -4,9 +4,11 @@
 //     CommandExecutor executor(hooks);
 //     stepBattle(state, executor);
 //
-// execute() starts the command's attack (startAttack()), runs its body (battle/commands.h) and
-// returns the battle script it wrote. aim() sets up the command's attack and chooses its targets
-// when it was chosen without any. A command with no body here runs as no action and shows nothing.
+// execute() starts the command's attack (startAttack()), runs its body (runCommand() in
+// battle/commands.h) and returns the battle script it wrote. aim() sets up the command's attack and
+// chooses its targets when it was chosen without any. refreshCommandList() decides which of a party
+// member's commands can be chosen (battle/command_menu.h). An action that is not a battle command
+// runs as no action and shows nothing.
 //
 // The behavior, and the line in the original each rule comes from, is specified in
 // docs/contracts/battle_commands.md.
@@ -30,6 +32,8 @@ public:
                                              const Action& action) override;
 
     void aim(BattleState& state, BattlerSlot actor, CommandAction& command) override;
+
+    void refreshCommandList(BattleState& state, BattlerSlot slot) override;
 
 private:
     AttackHooks& hooks_;

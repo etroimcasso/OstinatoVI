@@ -16,7 +16,7 @@ The rules, and the line of the original each is read from, are in
 
 | File | Holds |
 |---|---|
-| `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `BattleStart`, `ColosseumMatch`, `BattleResult` |
+| `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()`, `loadMonsterTraits()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `BattleStart`, `ColosseumMatch`, `BattleResult` |
 | `src/game/battle_switches.h` | `game::BattleSwitches` and the switch numbers the battle uses |
 | `src/game/character_record.h` | `game::CharacterRecord`, `game::Party`, `PartyMembership`, `SpellProgress`, `InventorySlot`, `PlayTime` |
 | `src/battle/party_setup.h` | `placeParty()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `hitCheckFactor()`, `applyDeathAndPoisonImmunity()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
@@ -260,6 +260,13 @@ loadMonster(state, executor, BattlerSlot::monster(0), MonsterId::LOBO, cartridge
 state.at(BattlerSlot::monster(0)).stamina;   // 16 + max HP / 512, at most 40
 ```
 
+The part of that a party member raging as the monster takes on too — its special attack, metamorph,
+weak, absorbed and nullified elements, the statuses it cannot be given, the statuses its record keeps
+on it and its True Knight cover — is `loadMonsterTraits(battler, id)`. It returns the statuses the
+monster starts with rather than setting them: `loadMonster()` makes them the monster's
+`innateStatuses`, and a Rage puts them on when its action's statuses take effect
+([commands.md](commands.md#sketch-rage-and-control)).
+
 ## The battle type
 
 `chooseBattleType(state, possibleTypes)` picks front, back, pincer or side from the formation's
@@ -357,7 +364,7 @@ is bit *n* mod 8 of variable *n* / 8. The numbers the battle reads and writes ar
 | The order of a battle's start | `assembleBattle()` in `battle_start.cpp` |
 | Conditional battles and randomized formations | `chooseFormation()` in `battle_start.cpp` |
 | What a monster takes from its record | `loadMonster()` and `loadMonsterTraits()` in `battle_start.cpp` |
-| The battle type, preemptive strikes, rows | `chooseBattleType()` and `applyBattleType()` in `battle_start.cpp` |
+| The battle type, preemptive strikes, rows | `chooseBattleType()` and `applyBattleType()` in `battle_start.cpp`; the weighted draw is `pickWeighted()` in `battle_rng.cpp` |
 | Where gauges start | `fillStartingGauges()` in `battle_start.cpp` |
 | What the game keeps | `writeBack()` in `battle_start.cpp` |
 | What carries into a final-battle stage | `startNextFinalBattleStage()` in `battle_start.cpp` |
