@@ -5,6 +5,10 @@
 **Inputs:** full PPU-usage survey of the FF6 disassembly (`everything8215/ff6` @ `1ea47b5`, all ten
 modules); Polyrhythm engine developer guide + effect-library roadmap (engine checkout @ `7c3707a`).
 **Feeds:** engine work-item sequencing (see `docs/DESIGN.md`) and the game-side rendering design.
+**Status of the work items (2026-10-27):** none remains open. E2 (half-subtract) ships in the engine as
+`BlendMode::HalfSubtract`; E1 (mosaic) is built in the port for the game's own uses rather than as an
+engine effect; the two standing items — the SNES sound chip and the 65C816 machine — ship in the engine
+as `Vm::SNES` and its audio unit. The verdicts below are the audit as it was made and are kept as written.
 
 This document maps every renderer-visible behavior in Final Fantasy VI onto the Polyrhythm engine's
 drawing vocabulary and issues one verdict per behavior region:
@@ -286,8 +290,9 @@ project's standing engine asks).
 
 ### Standing items (already recorded, not re-audited here)
 
-- **SNES audio backend** — SPC700 + S-DSP hosting for the original sound driver.
-- **65C816 VM backend** — for CPU-fidelity routines (RNG at minimum).
+- **SNES audio backend** — SPC700 + S-DSP hosting for the original sound driver. *Shipped in the engine.*
+- **65C816 VM backend** — for CPU-fidelity routines (RNG at minimum). *Shipped in the engine; the port's
+  first use is the cartridge's own decompressor, placed as a routine.*
 
 ## Verdict summary
 
@@ -307,4 +312,5 @@ project's standing engine asks).
 | 12 | Non-renderer mechanisms | No renderer surface needed |
 
 Two genuine engine gaps (E1 mosaic, E2 half-subtract), both small and well-bounded; everything else
-FF6's renderer does is expressible today on the engine's shipped vocabulary.
+FF6's renderer does is expressible today on the engine's shipped vocabulary. (Both are closed — see the
+status line at the top.)
