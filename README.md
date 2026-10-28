@@ -112,7 +112,8 @@ The build defaults to a lean Release configuration (optimized, dead-stripped, sy
 
 This port's source is licensed under the **GNU Affero General Public License v3.0** (AGPL-3.0);
 see [LICENSE](LICENSE). Copyright © 2026 the OstinatoVI authors. The Polyrhythm engine (the
-`engine/` submodule) is likewise AGPL-3.0, so the combined distributable is AGPL-3.0.
+`engine/` submodule) carries its own license, the **PolyForm Noncommercial License 1.0.0**: free
+for noncommercial use; see [engine/LICENSE](engine/LICENSE).
 
 The upstream disassembly ([everything8215/ff6](https://github.com/everything8215/ff6)) is GPL-3.0
 and is used only as a design/derivation reference — AGPL-3.0 remains compatible with it. Final
