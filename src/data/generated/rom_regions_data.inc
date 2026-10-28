@@ -330,3 +330,5 @@
     { .asset = RomAsset::FONT_WIDTH,               .language = Language::JP, .region = { .at = 0xC48FC0, .size =   1280 } },
     { .asset = RomAsset::FONT_WIDTH,               .language = Language::EN, .region = { .at = 0xC48FC0, .size =    256 } },
     { .asset = RomAsset::DLG_CURSOR_GFX,           .language = Language::EN, .region = { .at = 0xC08832, .size =     12 } },
+    { .asset = RomAsset::MONSTER_GFX_PROP,         .language = Language::JP, .region = { .at = 0xD27000, .size =   2080 } },
+    { .asset = RomAsset::MONSTER_GFX_PROP,         .language = Language::EN, .region = { .at = 0xD27000, .size =   2080 } },

@@ -94,22 +94,34 @@ battler.status = battler.status.without(StatusSet::of(StatusId::DEAD, StatusId::
 ## `Targeting` — the attack targeting byte
 
 ```cpp
+enum class InitialSelection : std::uint8_t { Single, All, Group, Half };
+
 struct Targeting {
     std::uint8_t bits = 0;
     constexpr Targeting() = default;
     explicit constexpr Targeting(std::uint8_t raw);
     static constexpr Targeting of(auto... flags);   // over TargetFlags
+
+    constexpr bool isSelfOnly() const;          // the byte is SELF ($02) alone
+    constexpr bool usesAttackDefault() const;   // the byte is MENU ($FF)
+    constexpr InitialSelection initialSelection() const;
+    constexpr bool manual() const;
+    constexpr bool oneSideOnly() const;
+    constexpr bool autoConfirm() const;
+    constexpr bool multiTarget() const;
+    constexpr bool enemyByDefault() const;
+    constexpr bool roulette() const;
+    constexpr bool keepsEveryTarget() const;    // multi-target, or an initial selection other than one
 };
 static_assert(sizeof(Targeting) == 1);
 ```
 
-A one-byte carrier over the `TargetFlags` bit values — deliberately **without**
-semantic read accessors. The byte embeds a two-bit initial-cursor sub-field
-(`INIT_SINGLE/ALL/GROUP/HALF`) plus the whole-byte `MENU = 0xFF` sentinel, and a
-correct read-side decomposition needs the battle targeting consumer's context; the
-read-side wrapper lands with that consumer. Until then the byte is stored verbatim
-and composed via `of(...)`, where `INIT_HALF == INIT_ALL | INIT_GROUP` and `MENU`
-are plain values.
+The targeting byte of an attack, an item or a battle command: the `TargetFlags`
+bits plus a two-bit initial-selection field. Build it with `of(...)`, where
+`INIT_HALF == INIT_ALL | INIT_GROUP` and `MENU` are plain values; read it with the
+accessors. Two whole-byte values mean something on their own: `SELF` alone aims at
+the user and no one else, and `MENU` on a command defers to the attack it casts.
+How the battle uses the byte is in [battle/targeting.md](../battle/targeting.md).
 
 ## Attack flag enums — the four flag bytes of an attack record
 

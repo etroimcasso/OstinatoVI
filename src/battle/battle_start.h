@@ -2,12 +2,14 @@
 //
 // The field (or the world map, or an event) starts a battle with a BattleStart — which formation,
 // against which background, with what the story allows — plus the party, the battle switches and
-// the game's text. startBattle() returns the battle ready for its first frame: every party member
-// and monster loaded, the battle type chosen, the gauges filled to where they start, and the
-// opening request on BattleState::requests. When the battle has an outcome, writeBack() returns
-// what the game keeps from it.
+// the game's text and the monsters' sprites. startBattle() returns the battle ready for its first
+// frame: every party member and monster loaded, the battle type chosen, everyone placed on the
+// field (battle/battle_layout.h), the gauges filled to where they start, and the opening request
+// on BattleState::requests. When the battle has an outcome, writeBack() returns what the game
+// keeps from it.
 //
-//     BattleState state = startBattle(start, party, switches, cartridge.text, executor);
+//     BattleState state = startBattle(start, party, switches, cartridge.text,
+//                                     cartridge.monsterSprites, executor);
 //     ... tickBattleTime() / stepBattle() until stepBattle() returns an outcome ...
 //     BattleResult result = writeBack(state);
 //     party = result.party;
@@ -28,6 +30,7 @@
 #include "battle/action_executor.h"
 #include "battle/battle_state.h"
 #include "data/formations.h"
+#include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
@@ -97,7 +100,7 @@ struct BattleResult {
 
 // The battle the field asks for, ready for its first frame.
 BattleState startBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                        const TextCorpus& text, ActionExecutor& executor);
+                        const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor);
 
 // What the game keeps from the battle in `state`, which has an outcome.
 BattleResult writeBack(const BattleState& state);
@@ -110,10 +113,25 @@ BattleResult writeBack(const BattleState& state);
 // formation becomes itself or one of the three after it.
 FormationId chooseFormation(BattleState& state, FormationRef asked);
 
+// Where a newly loaded monster's HP and MP come from: its own record (full), or the slot it is
+// loaded into, which keeps the HP and MP of the monster it held before.
+enum class MonsterHp : std::uint8_t {
+    FromRecord,
+    KeptFromSlot,
+};
+
 // Put monster `id` in `slot`: its stats, items, immunities, innate statuses, AI script and name
-// group, first strike, and a vigor of 56 to 63.
+// group, first strike, and a vigor of 56 to 63. Its stamina follows its max HP, whichever `hp`
+// gives it.
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
-                 const TextCorpus& text);
+                 const TextCorpus& text, MonsterHp hp = MonsterHp::FromRecord);
+
+// What a monster brings to whoever takes it on — a monster loaded into its slot, or a party member
+// raging as it: its special attack and metamorph, its elements and immunities added to the
+// battler's, the statuses its record keeps on it, and its True Knight cover. Returns the statuses
+// the monster starts with (Float for a flier, Reraise and Float of its fourth status byte); the
+// caller decides when they are put on.
+StatusSet loadMonsterTraits(Battler& battler, MonsterId id);
 
 // The battle type, from the formation's possible types (FormationAux::possibleBattleTypes()):
 // a Back Guard rules out pincer and back attacks and a party of fewer than three rules out side
@@ -127,11 +145,21 @@ void applyBattleType(BattleState& state, const FormationAux& aux);
 // Where every gauge starts.
 void fillStartingGauges(BattleState& state);
 
+// Fight `formation` from here on, mid-battle: the monsters in their slots are replaced by the new
+// formation's (a conditional battle the switches turn on replaces it, as at the start). Then the
+// statuses waiting to be put on take effect, the fallen are dealt with, the battle settles, the
+// battle type is chosen again and the monsters are placed for it; the monsters still fighting
+// become the monsters standing. The party is left as it is, a slot's current statuses are not
+// cleared, and a slot whose monster had fallen stays fallen. With MonsterHp::KeptFromSlot each new
+// monster keeps the HP and MP its slot had.
+void changeFormation(BattleState& state, ActionExecutor& executor, FormationId formation, MonsterHp hp,
+                     const TextCorpus& text, const MonsterSprites& sprites);
+
 // The final battle's next stage, after `finished` won its stage and `handedBack` is what it
 // handed back. The fighters still standing, and the statuses they carry, go on; a fallen
 // fighter's place goes to the next character in line.
 BattleState startNextFinalBattleStage(const BattleState& finished, const BattleResult& handedBack,
                                       const BattleStart& start, const TextCorpus& text,
-                                      ActionExecutor& executor);
+                                      const MonsterSprites& sprites, ActionExecutor& executor);
 
 }  // namespace ostinato::battle

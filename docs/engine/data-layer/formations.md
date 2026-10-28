@@ -76,7 +76,9 @@ slot's identity is packed across two bytes:
   here, meaning it arrives mid-battle as a reinforcement.
 - `positionX(slot)` / `positionY(slot)` return pixels (the ROM stores each
   coordinate as a nibble in 8-pixel units).
-- `vramMap()` (0-12) selects which sprite-tile layout the battle graphics use;
+- `vramMap()` (0-12) selects which sprite-tile layout the battle graphics use,
+  and with it the box each slot's monster is cut down to —
+  `monsterSpriteBox(vramMap(), slot)`, see [monster-sprites.md](monster-sprites.md);
   `bg1Mask()` is a 6-bit mask that is zero for every formation in the game
   (the feature it gates is unused) and is exposed only for completeness.
 

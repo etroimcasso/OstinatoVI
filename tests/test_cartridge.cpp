@@ -163,6 +163,9 @@ TEST(Cartridge, ReadingACartridgeYieldsItsContent) {
     // The world-map tile pool, and the offset the chunks count from.
     EXPECT_EQ(content.worldTiles.bytes.size(), 1182u);
     EXPECT_EQ(content.worldTiles.offsetInBlock, 0x48u);
+    // Every monster graphic's stencil.
+    EXPECT_TRUE(content.monsterSprites.valid());
+    EXPECT_EQ(content.monsterSprites.graphicsCount(), 416u);
 }
 
 TEST(Cartridge, ReadingAnUnrecognizedImageThrows) {

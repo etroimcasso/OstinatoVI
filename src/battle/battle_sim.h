@@ -6,7 +6,7 @@
 // (no battle script still playing), and any commands the player finished choosing — and takes the
 // requests the battle made:
 //
-//     BattleSim battle(start, party, switches, cartridge.text, executor);
+//     BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 //     while (!battle.result()) {
 //         battle.tick({.timeRunning = presentation.timeRuns(),
 //                      .presentationIdle = presentation.idle(),
@@ -29,6 +29,7 @@
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/player_intake.h"
+#include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 
 namespace ostinato::battle {
@@ -42,9 +43,9 @@ struct BattleInput {
 
 class BattleSim {
 public:
-    // `text` and `executor` must outlive the BattleSim.
+    // `text`, `sprites` and `executor` must outlive the BattleSim.
     BattleSim(const BattleStart& start, game::Party party, game::BattleSwitches switches, const TextCorpus& text,
-              ActionExecutor& executor);
+              const MonsterSprites& sprites, ActionExecutor& executor);
 
     // Run one frame. Does nothing once the battle is over.
     void tick(const BattleInput& input);
@@ -64,6 +65,7 @@ private:
 
     BattleStart start_;
     const TextCorpus& text_;
+    const MonsterSprites& sprites_;
     ActionExecutor& executor_;
     BattleState state_;
     std::vector<BattleRequest> requests_;

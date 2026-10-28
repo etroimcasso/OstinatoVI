@@ -25,9 +25,12 @@
 #include <optional>
 #include <variant>
 
+#include "battle/battle_script.h"
 #include "battle/battler_set.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/battle_command_id.h"
+#include "ostinato/formation_id.h"
+#include "ostinato/monster_entrance_type.h"
 
 namespace ostinato::battle {
 
@@ -98,9 +101,55 @@ struct BattleMessageAction {
 // A battler reached the front of the line with nothing to do: its turn passes with no effect.
 struct NoAction {};
 
+// The battle moves to another formation: the monsters on the field leave by `exit` and
+// `formation`'s come in. With `restoreMonsters` each new monster starts at its full HP and MP;
+// without it, a new monster takes the HP and MP of the one its slot held before.
+struct FormationChange {
+    FormationId formation{};
+    bool restoreMonsters = false;
+    bool scrollBackground = false;  // the background scrolls on first, as between the final battle's stages
+    MonsterEntranceType exit = MonsterEntranceType::PRE_DRAWN;
+};
+
+// A monster says something.
+struct MonsterDialogAction {
+    std::uint16_t dialog = 0;
+};
+
+// What showing or hiding monsters does to each of them.
+enum class MonsterVisibilityMode : std::uint8_t {
+    ReviveAtFullHp = 0,      // back on the field at full HP
+    Hide = 1,                // off the field, and no longer a target
+    ReviveAtCurrentHp = 2,   // back on the field with the HP it had
+    HideButTargetable = 3,   // off the field, but still a target
+    HideAndKeepBattleGoing = 4,  // off the field; the battle does not end while no monster is left
+    HideAndKill = 5,         // off the field, and dead
+};
+
+// Monsters leave the field or come back, shown by `type`.
+struct MonsterVisibilityAction {
+    MonsterVisibilityMode mode = MonsterVisibilityMode::ReviveAtFullHp;
+    BattlerSet monsters;
+    MonsterEntranceType type = MonsterEntranceType::PRE_DRAWN;
+};
+
+// Scan shows what it learned about its target.
+struct ScanAction {
+    BattlerSlot target = BattlerSlot::monster(0);
+};
+
+// A monster animation plays outside any attack (MonsterAnimationPlays).
+struct MonsterAnimationAction {
+    MonsterAnimation animation = MonsterAnimation::FlashRed;
+    BattlerSet monsters;
+    std::uint8_t soundEffect = 0;
+    std::uint8_t pan = 0;
+};
+
 using Action = std::variant<CommandAction, AiTurn, DamageOverTime, SpellWithoutCaster, StatusTimersExpired,
                             PartyEscape, ResetBattlePose, SeizeDrain, BattleEventAction, BattleMessageAction,
-                            NoAction>;
+                            NoAction, FormationChange, MonsterDialogAction, MonsterVisibilityAction, ScanAction,
+                            MonsterAnimationAction>;
 
 // The battle events the battle's end starts: Shadow walking off, and Gau turning up on the Veldt.
 inline constexpr std::uint8_t kShadowLeavesEvent = 11;

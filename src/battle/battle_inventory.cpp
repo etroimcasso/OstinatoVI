@@ -84,4 +84,20 @@ void loadKnownSkills(BattleState& state) {
     }
 }
 
+void putAwayItemsObtained(BattleState& state) {
+    for (int position = kPartySlots - 1; position >= 0; --position) {
+        const BattlerSlot slot = BattlerSlot::character(position);
+        if (!state.holdingItem.has(slot)) {
+            continue;
+        }
+        state.holdingItem.remove(slot);
+        Battler& battler = state.at(slot);
+        if (!battler.itemInHand) {
+            continue;
+        }
+        state.requests.push_back(AddItemObtained{.character = slot, .item = *battler.itemInHand});
+        battler.itemInHand.reset();
+    }
+}
+
 }  // namespace ostinato::battle

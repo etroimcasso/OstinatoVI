@@ -11,36 +11,17 @@
 //     state.requests.clear();
 //
 // A battle script is the sequence of things one action shows — its name, its animation, the
-// numbers — as BattleScriptCommand values.
+// numbers — as BattleScriptCommand values (battle/battle_script.h).
 #pragma once
 
 #include <variant>
 #include <vector>
 
+#include "battle/battle_script.h"
 #include "battle/battler_set.h"
-#include "ostinato/battle_command_id.h"
+#include "ostinato/item_id.h"
 
 namespace ostinato::battle {
-
-// A character steps forward for the action it has chosen, while its advance wait runs: the ready
-// stance, or the leap into the air for a Jump.
-struct ReadyStance {
-    BattlerSlot actor = BattlerSlot::character(0);
-    BattleCommandId command = BattleCommandId::FIGHT;
-    BattlerSet targets;
-};
-
-// The battler that just acted goes back to its place.
-struct StepBack {};
-
-// In the final battle, the next stage arrives: the background scrolls to `scroll` and the stage's
-// monsters appear.
-struct FinalBattleStageArrives {
-    std::uint8_t scroll = 0;
-    BattlerSet monsters;
-};
-
-using BattleScriptCommand = std::variant<ReadyStance, StepBack, FinalBattleStageArrives>;
 
 // Open the battle menu for a character. `controllingMonster` shows the menu of the monster the
 // character is controlling instead of the character's own.
@@ -76,8 +57,15 @@ struct ScrollFinalBattleBackground {};
 // The battle is over: the scene fades out and the game goes back to where the battle started.
 struct CloseBattleScene {};
 
+// A party member came away from an action holding an item — an item kept after using it, a stolen
+// or a metamorphed one: the item goes into the party's battle inventory, one of it.
+struct AddItemObtained {
+    BattlerSlot character = BattlerSlot::character(0);
+    ItemId item = ItemId::EMPTY;
+};
+
 using BattleRequest = std::variant<OpenBattleMenu, CloseBattleMenu, RefreshBattleMenu, RunBattleScript,
                                    RefreshMonsterNames, OpenBattleScene, ScrollFinalBattleBackground,
-                                   CloseBattleScene>;
+                                   CloseBattleScene, AddItemObtained>;
 
 }  // namespace ostinato::battle

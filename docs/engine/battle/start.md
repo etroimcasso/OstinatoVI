@@ -16,7 +16,7 @@ The rules, and the line of the original each is read from, are in
 
 | File | Holds |
 |---|---|
-| `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `BattleStart`, `ColosseumMatch`, `BattleResult` |
+| `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()` with `MonsterHp`, `loadMonsterTraits()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `changeFormation()`, `BattleStart`, `ColosseumMatch`, `BattleResult` |
 | `src/game/battle_switches.h` | `game::BattleSwitches` and the switch numbers the battle uses |
 | `src/game/character_record.h` | `game::CharacterRecord`, `game::Party`, `PartyMembership`, `SpellProgress`, `InventorySlot`, `PlayTime` |
 | `src/battle/party_setup.h` | `placeParty()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `hitCheckFactor()`, `applyDeathAndPoisonImmunity()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
@@ -38,7 +38,8 @@ start.background = BattleBackgroundId::FIELD_WOB;
 start.config = playerSettings;
 start.playTimeFrames = playClock.frames;   // 0-59
 
-BattleState state = startBattle(start, party, switches, cartridge.text, executor);
+BattleState state = startBattle(start, party, switches, cartridge.text, cartridge.monsterSprites,
+                                executor);
 // ... run it (core.md) until stepBattle() returns an outcome ...
 const BattleResult result = writeBack(state);
 party = result.party;
@@ -61,13 +62,18 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `playTimeFrames` | the frames part of the play clock; the battle's random numbers start at four times it |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
-line in the list of names. The story's rules — only magic, a permanent morph, Morph available, Gau
-having joined before, Shadow kept — come from the battle switches.
+line in the list of names. The monsters' sprites (`MonsterSprites`, from the cartridge) decide where
+each monster stands ([layout.md](layout.md)). The story's rules — only magic, a permanent morph,
+Morph available, Gau having joined before, Shadow kept — come from the battle switches.
 
 `startBattle()` runs, in order: the formation; the party placed and loaded (below), the battle
 inventory and known skills; the monsters; the statuses waiting to be set
 (`executor.applyStatusChanges`); the after-command checks once; the battle type; status immunity; the
-starting gauges; the opening message. It leaves `OpenBattleScene` on `state.requests`.
+starting gauges; the opening message; whether the party can run; everyone placed on the field and
+facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`.
+
+The run check comes before the battlers are placed, so at that moment a pincer reads every monster
+as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](../../Bugs.md)).
 
 ## The party's records
 
@@ -249,10 +255,39 @@ its traits and battle flags (`monsterFlags`), its special attack and animation, 
 strike starts ready to act, with the battle menus shut until someone has acted. Doom Gaze, in his
 own formation, takes the HP kept in the battle switches.
 
+The last parameter, `MonsterHp`, says where the HP and MP come from: `MonsterHp::FromRecord` (the
+default) fills them from the record; `MonsterHp::KeptFromSlot` leaves the HP, max HP, MP and max MP
+the slot already holds, and the stamina follows that max HP.
+
 ```cpp
 loadMonster(state, executor, BattlerSlot::monster(0), MonsterId::LOBO, cartridge.text);
 state.at(BattlerSlot::monster(0)).stamina;   // 16 + max HP / 512, at most 40
 ```
+
+### A formation change mid-battle
+
+`changeFormation(state, executor, formation, hp, text, sprites)` fights another formation from
+here on. A conditional battle the switches turn on replaces it, as at the start. Every monster slot
+starts over — off the field, no monster in it, the start's recalculations pending — and the new
+formation's monsters are loaded with `hp` (above). The statuses waiting to be set take effect, the
+fallen are dealt with, the battle settles, `refreshAliveSets()` counts who is fighting, status
+immunity is worked out, the battle type is chosen again and the monsters are placed for it; the
+monsters still fighting become the monsters standing. The party, its places and every slot's
+statuses are left as they are, and a slot whose monster had fallen stays fallen.
+
+```cpp
+changeFormation(state, executor, FormationId::LOBO_X2_MARSHAL, MonsterHp::FromRecord,
+                cartridge.text, cartridge.monsterSprites);
+```
+
+The battle's own `FormationChange` action calls it and shows the change ([commands.md](commands.md)).
+
+The part of that a party member raging as the monster takes on too — its special attack, metamorph,
+weak, absorbed and nullified elements, the statuses it cannot be given, the statuses its record keeps
+on it and its True Knight cover — is `loadMonsterTraits(battler, id)`. It returns the statuses the
+monster starts with rather than setting them: `loadMonster()` makes them the monster's
+`innateStatuses`, and a Rage puts them on when its action's statuses take effect
+([commands.md](commands.md#sketch-rage-and-control)).
 
 ## The battle type
 
@@ -289,14 +324,16 @@ The final battle is recognized when its first stage is asked for; its party is
 
 ```cpp
 const BattleResult handedBack = writeBack(finished);
-BattleState next = startNextFinalBattleStage(finished, handedBack, start, cartridge.text, executor);
+BattleState next = startNextFinalBattleStage(finished, handedBack, start, cartridge.text,
+                                             cartridge.monsterSprites, executor);
 ```
 
 The fighters standing go on in their slots with their statuses, less Dance, Rage and Chant; a
 fallen, absent or air-anchored fighter's slot takes the next character in line. Mimic's memory, the
-Reflect and Freeze timers, who is in the air and who has summoned carry on, and a fighter still in
-the air comes down as the stage opens. The stage opens with `FinalBattleStageArrives` — the
-background scrolls to it and its monsters appear — and the loop waits for that script. `BattleSim`
+Reflect and Freeze timers, who is in the air and who has summoned carry on, the party keeps the way
+each fighter faces while the new monsters are placed, and a fighter still in the air comes down as
+the stage opens. The stage opens with `FormationChanges` — the background scrolls on and its
+monsters come in — and the loop waits for that script. `BattleSim`
 does all of this itself.
 
 ## What the game keeps
@@ -349,10 +386,11 @@ is bit *n* mod 8 of variable *n* / 8. The numbers the battle reads and writes ar
 | The order of a battle's start | `assembleBattle()` in `battle_start.cpp` |
 | Conditional battles and randomized formations | `chooseFormation()` in `battle_start.cpp` |
 | What a monster takes from its record | `loadMonster()` and `loadMonsterTraits()` in `battle_start.cpp` |
-| The battle type, preemptive strikes, rows | `chooseBattleType()` and `applyBattleType()` in `battle_start.cpp` |
+| The battle type, preemptive strikes, rows | `chooseBattleType()` and `applyBattleType()` in `battle_start.cpp`; the weighted draw is `pickWeighted()` in `battle_rng.cpp` |
 | Where gauges start | `fillStartingGauges()` in `battle_start.cpp` |
 | What the game keeps | `writeBack()` in `battle_start.cpp` |
 | What carries into a final-battle stage | `startNextFinalBattleStage()` in `battle_start.cpp` |
+| What a mid-battle formation change redoes | `changeFormation()` in `battle_start.cpp` |
 | Who stands where, scripted setups, the Gau rule | `currentParty()`, `stageScriptedSetup()`, `seat()` in `party_setup.cpp` |
 | How equipment adds up | `addItem()` and `settleHands()` in `party_setup.cpp` |
 | What reaches the battler | `applyDerivedStats()` in `party_setup.cpp` |

@@ -235,3 +235,114 @@ pins it against the cartridge's names.
 **If you want to change it.** Comparing `TextCorpus::monsterName()` records
 would group the English names the way the Japanese ones are grouped; the list
 of names would then show fewer lines in some battles.
+
+## Blows are evaded by Magic Block, and Blind changes nothing
+
+**What happens.** A physical attack is evaded with the target's Magic Block,
+not its Evade, so Evade does nothing in battle. The adjustments meant for a
+blow's chance to hit never apply either: an attacker's Blind, the target's
+Beads, and the target's statuses that should raise or lower the chance (Blind,
+Zombie, Confuse, Slow and Reraise; Poison, Sap, Near Fatal and Haste).
+
+**Where the original does it.** `CheckHit` (`battle/battle_main.asm:5914-5985`)
+picks the rating with `lda $3b54,y; bcs @2347; lda $3b55,y` — Evade if the carry
+is set, Magic Block otherwise — and then skips the adjustments with
+`bcc @2388`. Both read a carry the code means to hold "this is a blow". On every
+path that reaches them it is clear: a spell arrives from `lsr` of a clear
+physical bit, a blow from `lsr` of the Retort bit, which the branch before has
+just found clear. So every attack uses Magic Block and none is adjusted.
+
+**Where the port keeps it.** `checkHit()` in `src/battle/attack.cpp` works the
+chance out from `Battler::magicBlockFactor` alone. `tests/test_hit_check.cpp`
+pins both halves: `CheckHit.BlowsAreEvadedByMagicBlockNotEvade` and
+`CheckHit.TheAttackersBlindnessAndTheTargetsStatusesDoNotChangeTheChance`.
+
+**If you want to change it.** Reading `evadeFactor` for blows and applying the
+adjustments would make Evade, Blind, Beads and those statuses matter, and would
+change how often every physical attack in the game lands.
+
+## A vanished target is hit by any spell, whatever protects it
+
+**What happens.** A spell aimed at a vanished target hits it before anything
+else is checked — before Reflect, before protection from instant death, before
+evasion. An instant-death spell therefore kills a vanished target that is
+otherwise immune to it.
+
+**Where the original does it.** `CheckHit` (`battle/battle_main.asm:5803-5816`)
+tests Vanish first; for an attack that is not physical and not level-divisible
+it returns a hit at once, skipping every check after it. Vanish itself is not
+taken off there.
+
+**Where the port keeps it.** `checkHit()` in `src/battle/attack.cpp` returns a
+hit at the same point. `tests/test_hit_check.cpp`
+(`CheckHit.AVanishedTargetIsHitBySpellsAtOnce`) pins it with a Reflect-protected
+target.
+
+**If you want to change it.** Moving the Vanish test after the protection checks
+would make Vanish a defense against instant death rather than a way past it.
+
+## Each target hit in the back raises the damage for every target after it
+
+**What happens.** A blow that hits several targets in the back adds one damage
+step for each of them, and keeps the steps: the first target it reaches gets
+one step, the second two, and so on, whether or not the later targets were hit
+in the back themselves.
+
+**Where the original does it.** `CalcAttackEffect`
+(`battle/battle_main.asm:8344-8351`) adds to the damage multiplier `$bc` inside
+the loop over the targets hit and never takes the step off again before the
+next target.
+
+**Where the port keeps it.** `resolveAttack()` in `src/battle/attack.cpp` adds
+to `AttackInFlight::multiplier` in the same loop. `tests/test_attack_frame.cpp`
+(`AttackFrame.EachTargetHitInTheBackAddsAStepForTheRest`) pins the steps.
+
+**If you want to change it.** Counting the step for its own target only would
+lower the damage of spread blows in side and pincer attacks.
+
+## A pincer cannot be run from at its start, even with every monster on one side
+
+**What happens.** When a pincer attack opens, the party cannot run, even when
+every monster stands on the same side of the field. In 33 formations that can
+be fought as a pincer, a lone dragon among them, nothing stands on one of the
+two sides, yet running stays blocked until something else refreshes the check,
+such as a monster being defeated.
+
+**Where the original does it.** `InitBattle` fills `$2000-$341F` with `$FF`
+(`battle/battle_main.asm:6062-6066`) and checks running at `@24f2` (`:6162`, the
+pincer test at `:15184-15193`) before it starts the battle graphics (`@253f`),
+whose setup writes the two pincer sides `$2EAC`/`$2EAD`
+(`btlgfx/btlgfx_main.asm:2854-2857`). The check reads both sides as `$FF`: every
+monster on each side.
+
+**Where the port keeps it.** `assembleBattle()` in `src/battle/battle_start.cpp`
+sets both of `BattleState::pincerSides` to every monster before
+`refreshRunDifficulty()` and lays the monsters out after it.
+`tests/test_battle_layout.cpp`
+(`BattleLayoutCartridgeTest.APincerWithEveryMonsterOnOneSideStillCannotBeRunFromAtFirst`)
+pins it with the Latimeria.
+
+**If you want to change it.** Laying the battle out before the check lets the
+party run at once from a one-sided pincer; a pincer with monsters on both sides
+is unchanged.
+
+## Umaro's throw adds one to the power of Mog and every ally after him
+
+**What happens.** When Umaro throws an ally, the ally's battle power joins his.
+For Mog, Gau, Gogo and the guests the throw is one power stronger than their two
+hands' battle power: a thrown Mog with 40 and 20 adds 61, a thrown Locke with the
+same hands adds 60.
+
+**Where the original does it.** `UmaroAttack_00`
+(`battle/battle_main.asm:3550-3562`) compares the thrown ally's actor with Mog
+(`cmp #$0a`) to make Mog's throw a critical hit, and then adds the ally's two
+hands' battle power with `adc` without clearing the carry, so the compare's
+carry — set for Mog and every actor after him — is added in.
+
+**Where the port keeps it.** The throw in `src/battle/commands.cpp` adds one for
+any ally whose actor is Mog or later. `tests/test_commands.cpp`
+(`Commands.ThrowingMogIsACriticalHitAndAddsOne`,
+`Commands.AnAllyAfterMogAlsoAddsOne`) pins it.
+
+**If you want to change it.** Dropping the extra one makes every thrown ally add
+exactly its hands' battle power.

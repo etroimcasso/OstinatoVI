@@ -9,11 +9,12 @@
 namespace ostinato::battle {
 
 BattleSim::BattleSim(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                     const TextCorpus& text, ActionExecutor& executor)
+                     const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor)
     : start_(start),
       text_(text),
+      sprites_(sprites),
       executor_(executor),
-      state_(startBattle(start, std::move(party), switches, text, executor)) {}
+      state_(startBattle(start, std::move(party), switches, text, sprites, executor)) {}
 
 void BattleSim::tick(const BattleInput& input) {
     if (result_) {
@@ -46,7 +47,7 @@ void BattleSim::finish(const BattleOutcome& outcome) {
     if (ended != nullptr && ended->reason == BattleEndReason::FinalBattleNextStage && ended->nextFormation) {
         state_.requests.push_back(ScrollFinalBattleBackground{});
         gatherRequests();  // this stage's requests stay ahead of the next stage's
-        state_ = startNextFinalBattleStage(state_, handedBack, start_, text_, executor_);
+        state_ = startNextFinalBattleStage(state_, handedBack, start_, text_, sprites_, executor_);
         return;
     }
     state_.requests.push_back(CloseBattleScene{});

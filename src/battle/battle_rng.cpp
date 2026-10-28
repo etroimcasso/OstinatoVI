@@ -36,4 +36,24 @@ std::optional<BattlerSlot> BattleRng::pickFrom(BattlerSet set) {
     return std::nullopt;
 }
 
+std::optional<std::size_t> pickWeighted(BattleRng& rng, const std::array<RandomThreshold, 4>& weights,
+                                        const std::array<bool, 4>& offered) {
+    // The running total is a byte: a full row of offered weights wraps it.
+    std::array<std::uint8_t, 4> reach{};
+    std::uint8_t total = 0;
+    for (std::size_t i = 0; i < weights.size(); ++i) {
+        if (offered[i]) {
+            total = static_cast<std::uint8_t>(total + weights[i].value() + 1);
+        }
+        reach[i] = total;
+    }
+    const std::uint8_t roll = rng.below(total);
+    for (std::size_t i = 0; i < reach.size(); ++i) {
+        if (roll < reach[i]) {
+            return i;
+        }
+    }
+    return std::nullopt;
+}
+
 }  // namespace ostinato::battle

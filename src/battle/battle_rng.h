@@ -14,10 +14,13 @@
 // The position is a byte: its width is the table's length, and wrapping is how the table repeats.
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 
 #include "battle/battler_set.h"
+#include "ostinato/random_threshold.h"
 
 namespace ostinato::battle {
 
@@ -49,5 +52,15 @@ public:
 private:
     std::uint8_t position_;
 };
+
+// One of four choices drawn by a row of weights (kRandomBitRates): each offered choice reaches up
+// to its weight + 1 further along a running total, and a draw below that total picks the first
+// choice whose reach it falls short of. Returns the index of that choice, or nothing when none is
+// offered. Always draws.
+//
+//     const std::array<bool, 4> offered{true, true, false, false};
+//     std::optional<std::size_t> picked = pickWeighted(rng, kRandomBitRates[0].weights, offered);
+std::optional<std::size_t> pickWeighted(BattleRng& rng, const std::array<RandomThreshold, 4>& weights,
+                                        const std::array<bool, 4>& offered);
 
 }  // namespace ostinato::battle

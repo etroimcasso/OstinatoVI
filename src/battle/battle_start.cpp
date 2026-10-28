@@ -13,6 +13,7 @@
 #include "battle/actions.h"
 #include "battle/battle_core.h"
 #include "battle/battle_inventory.h"
+#include "battle/battle_layout.h"
 #include "battle/party_setup.h"
 #include "data/battle_tables.h"
 #include "data/formations.h"
@@ -175,38 +176,9 @@ MonsterId nameGroupFor(const BattleState& state, BattlerSlot slot, const TextCor
     return own;
 }
 
-// A monster's elements, immunities and innate statuses from its record (what it also brings to a
-// Rage).
-void loadMonsterTraits(Battler& battler, const MonsterProperties& record) {
-    battler.specialAttack = record.specialAttack;
-    battler.elementsWeak = unionOf(battler.elementsWeak, record.weakElements);
-    for (std::size_t i = 0; i < record.blockedStatuses.bytes.size(); ++i) {
-        battler.inflictableStatuses.bytes[i] =
-            static_cast<std::uint8_t>(battler.inflictableStatuses.bytes[i] & ~record.blockedStatuses.bytes[i]);
-    }
-
-    // The record's third status byte opens with the monster's flying flag, which is Float; the
-    // fourth byte's first bit is the True Knight cover effect, and only Reraise and Float of it are
-    // statuses a monster starts with.
-    const StatusSet& innate = record.innateStatuses;
-    const bool flies = (innate.bytes[2] & 0x01) != 0;
-    StatusSet starts{{innate.bytes[0], innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
-    if (flies || innate.has(StatusId::FLOAT)) starts.set(StatusId::FLOAT);
-    if (innate.has(StatusId::RERAISE)) starts.set(StatusId::RERAISE);
-    battler.innateStatuses = starts;
-    if ((innate.bytes[3] & 0x01) != 0) {
-        battler.relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
-    }
-
-    // The second and third status bytes stay on it, as equipment keeps statuses on a party member;
-    // the flying flag there is Float.
-    StatusSet held{{0, innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
-    if (flies) held.set(StatusId::FLOAT);
-    battler.equipmentStatuses = unionOf(battler.equipmentStatuses, held);
-
-    battler.elementsAbsorbed = unionOf(battler.elementsAbsorbed, record.absorbElements);
-    battler.elementsNullified = unionOf(battler.elementsNullified, record.nullifyElements);
-    battler.metamorph = record.metamorph;
+// What a monster's record says about it beyond what a Rage takes on: its name, whether it is
+// human or undead, the Imp critical and dying at zero MP.
+void loadMonsterNature(Battler& battler, const MonsterProperties& record) {
     battler.diesAtZeroMp = record.traitFlags.has(MonsterTraitFlag::DIES_AT_ZERO_MP);
     battler.nameHidden = record.traitFlags.has(MonsterTraitFlag::DONT_DISPLAY_NAME);
     battler.human = record.traitFlags.has(MonsterTraitFlag::HUMAN);
@@ -231,8 +203,41 @@ void checkFirstStrike(BattleState& state, BattlerSlot slot) {
 
 }  // namespace
 
+StatusSet loadMonsterTraits(Battler& battler, MonsterId id) {
+    const MonsterProperties& record = getMonsterProperties(id);
+    battler.specialAttack = record.specialAttack;
+    battler.elementsWeak = unionOf(battler.elementsWeak, record.weakElements);
+    for (std::size_t i = 0; i < record.blockedStatuses.bytes.size(); ++i) {
+        battler.inflictableStatuses.bytes[i] =
+            static_cast<std::uint8_t>(battler.inflictableStatuses.bytes[i] & ~record.blockedStatuses.bytes[i]);
+    }
+
+    // The record's third status byte opens with the monster's flying flag, which is Float; the
+    // fourth byte's first bit is the True Knight cover effect, and only Reraise and Float of it are
+    // statuses a monster starts with.
+    const StatusSet& innate = record.innateStatuses;
+    const bool flies = (innate.bytes[2] & 0x01) != 0;
+    StatusSet starts{{innate.bytes[0], innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
+    if (flies || innate.has(StatusId::FLOAT)) starts.set(StatusId::FLOAT);
+    if (innate.has(StatusId::RERAISE)) starts.set(StatusId::RERAISE);
+    if ((innate.bytes[3] & 0x01) != 0) {
+        battler.relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
+    }
+
+    // The second and third status bytes stay on it, as equipment keeps statuses on a party member;
+    // the flying flag there is Float.
+    StatusSet held{{0, innate.bytes[1], static_cast<std::uint8_t>(innate.bytes[2] & 0xFE), 0}};
+    if (flies) held.set(StatusId::FLOAT);
+    battler.equipmentStatuses = unionOf(battler.equipmentStatuses, held);
+
+    battler.elementsAbsorbed = unionOf(battler.elementsAbsorbed, record.absorbElements);
+    battler.elementsNullified = unionOf(battler.elementsNullified, record.nullifyElements);
+    battler.metamorph = record.metamorph;
+    return starts;
+}
+
 void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot, MonsterId id,
-                 const TextCorpus& text) {
+                 const TextCorpus& text, MonsterHp hp) {
     Battler& battler = state.at(slot);
     const MonsterProperties& record = getMonsterProperties(id);
     battler.monster = id;
@@ -247,12 +252,14 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.magicDefense = record.magicDefense;
     battler.experience = record.experience;
     battler.gold = record.gold;
-    battler.mp = battler.maxMp = record.mp;
-    battler.hp = battler.maxHp = record.hp;
-    if (state.startingFormation == kDoomGazeFormation) {
-        state.doomGaze = slot;
-        if (const std::uint16_t remembered = state.switches.doomGazeHp(); remembered != 0) {
-            battler.hp = remembered;
+    if (hp == MonsterHp::FromRecord) {
+        battler.mp = battler.maxMp = record.mp;
+        battler.hp = battler.maxHp = record.hp;
+        if (state.startingFormation == kDoomGazeFormation) {
+            state.doomGaze = slot;
+            if (const std::uint16_t remembered = state.switches.doomGazeHp(); remembered != 0) {
+                battler.hp = remembered;
+            }
         }
     }
     battler.stamina = static_cast<std::uint8_t>(
@@ -270,7 +277,8 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.triggers.monsterRunic = battler.triggers.monsterRunic || (special & 0x02) != 0;
     battler.triggers.piranha = battler.triggers.piranha || (special & 0x80) != 0;
     battler.monsterFlags = record.battleFlags;
-    loadMonsterTraits(battler, record);
+    battler.innateStatuses = loadMonsterTraits(battler, id);
+    loadMonsterNature(battler, record);
     battler.specialAttackAnimation = monsterSpecialAnim(id);
     checkFirstStrike(state, slot);
     battler.vigor = static_cast<std::uint8_t>(kMonsterVigorBase + (state.rng.next() & (kMonsterVigorSpread - 1)));
@@ -279,7 +287,8 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
 
 namespace {
 
-void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus& text) {
+void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus& text,
+                  MonsterHp hp = MonsterHp::FromRecord) {
     const Formation& formation = getFormation(state.formation);
     for (int position = kMonsterSlots - 1; position >= 0; --position) {
         state.at(BattlerSlot::monster(position)).present = formation.isPresent(static_cast<std::size_t>(position));
@@ -296,7 +305,7 @@ void loadMonsters(BattleState& state, ActionExecutor& executor, const TextCorpus
             monster = formation.monsterId(at);
         }
         if (monster) {
-            loadMonster(state, executor, BattlerSlot::monster(position), *monster, text);
+            loadMonster(state, executor, BattlerSlot::monster(position), *monster, text, hp);
         }
     }
 }
@@ -326,25 +335,16 @@ BattleType chooseBattleType(BattleState& state, std::uint8_t possible) {
     if (state.allyCount < kAlliesForSideAttack) {
         possible = onlyIfAnyLeft(possible, kFront | kBack | kPincer);
     }
-    const auto& weights = kRandomBitRates[kBattleTypeRates].weights;
     constexpr std::array<std::uint8_t, 4> kByWeight{kSide, kPincer, kBack, kFront};
     constexpr std::array<BattleType, 4> kTypeByWeight{BattleType::Side, BattleType::Pincer, BattleType::Back,
                                                       BattleType::Front};
-    std::array<int, 4> reach{};
-    int total = 0;
+    std::array<bool, 4> offered{};
     for (std::size_t i = 0; i < kByWeight.size(); ++i) {
-        if ((possible & kByWeight[i]) != 0) {
-            total = (total + weights[i].value() + 1) & 0xFF;
-        }
-        reach[i] = total;
+        offered[i] = (possible & kByWeight[i]) != 0;
     }
-    const int roll = state.rng.below(static_cast<std::uint8_t>(total));
-    for (std::size_t i = 0; i < kByWeight.size(); ++i) {
-        if (roll < reach[i]) {
-            return kTypeByWeight[i];
-        }
-    }
-    return BattleType::Front;
+    const std::optional<std::size_t> picked =
+        pickWeighted(state.rng, kRandomBitRates[kBattleTypeRates].weights, offered);
+    return picked ? kTypeByWeight[*picked] : BattleType::Front;
 }
 
 void applyBattleType(BattleState& state, const FormationAux& aux) {
@@ -425,6 +425,44 @@ void fillStartingGauges(BattleState& state) {
     });
 }
 
+void changeFormation(BattleState& state, ActionExecutor& executor, FormationId formation, MonsterHp hp,
+                     const TextCorpus& text, const MonsterSprites& sprites) {
+    state.formation = chooseFormation(state, FormationRef::of(formation));
+    // Every monster slot starts over: off the field, nothing pending but the start's
+    // recalculations, no monster in it yet.
+    for (int position = kMonsterSlots - 1; position >= 0; --position) {
+        Battler& battler = state.at(BattlerSlot::monster(position));
+        battler.present = false;
+        battler.takesMenuInput = false;
+        battler.inBattleMenu = false;
+        battler.atbStopped = false;
+        battler.heldByStatus = false;
+        battler.actionQueued = false;
+        battler.heldByControl = false;
+        battler.menuMayOpen = false;
+        battler.triggers = {};
+        battler.monster.reset();
+        battler.pendingUpdates = PendingUpdates{.enabledMagic = true,
+                                                .startCondemned = true,
+                                                .stopCondemned = true,
+                                                .commandList = true,
+                                                .speed = true};
+        battler.nearFatalSpellAvailable = true;
+        battler.airAnchored = false;
+        battler.mayActAfterJump = true;
+    }
+    loadMonsters(state, executor, text, hp);
+    executor.applyStatusChanges(state);
+    checkTheFallen(state, executor);
+    settleAfterAction(state, executor);
+    refreshAliveSets(state);
+    forEachSlotLastFirst([&](BattlerSlot slot) { refreshStatusImmunity(state, slot); });
+    state.battleType = chooseBattleType(state, getFormationAux(state.formation).possibleBattleTypes());
+    // Showing the change marks the new formation's monsters still fighting as the ones standing.
+    state.monstersStanding = state.alive.monstersOnly();
+    layOutMonsters(state, sprites);
+}
+
 namespace {
 
 // --- the opening ---------------------------------------------------------------------------------
@@ -460,10 +498,15 @@ struct StageCarry {
     std::deque<std::size_t> finalBattleReserve;
     std::uint8_t scroll = 0;
     FinalBattleStage standing;
+    // The party keeps the way it faces and the last animation's targets; only the monsters are
+    // placed anew.
+    BattlerSet partyFacingRight;
+    BattlerSet animationTargets;
 };
 
 BattleState assembleBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                           const TextCorpus& text, ActionExecutor& executor, const StageCarry* carry) {
+                           const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor,
+                           const StageCarry* carry) {
     BattleState state;
     state.version = start.version;
     state.config = start.config;
@@ -536,7 +579,7 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 
     executor.applyStatusChanges(state);
     checkTheFallen(state, executor);
-    state.condemnedLevel = 20;
+    state.lastAttackLevel = 20;
     settleAfterAction(state, executor);
     refreshAliveSets(state);
     state.battleType = chooseBattleType(state, aux.possibleBattleTypes());
@@ -546,6 +589,9 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     if (const auto message = openingMessage(state, aux)) {
         addImmediateAction(state, BattleMessageAction{.message = *message});
     }
+    // LEGACY VERBATIM (docs/Bugs.md): the run check comes before the battle is laid out, so it
+    // reads every monster as standing on both sides of a pincer.
+    state.pincerSides = {BattlerSet::allMonsters().monsters, BattlerSet::allMonsters().monsters};
     refreshRunDifficulty(state);
 
     // A fighter still in the air from the last stage comes down as the stage opens.
@@ -562,10 +608,16 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         addAction(state, slot, CommandAction{.command = BattleCommandId::JUMP});
     }
 
+    layOutMonsters(state, sprites);
+    layOutParty(state);
+    if (carry != nullptr) {
+        state.facingRight = state.facingRight.monstersOnly() | carry->partyFacingRight;
+        state.animationTargets = carry->animationTargets;
+    }
+
     if (state.finalBattleScroll) {
-        state.requests.push_back(RunBattleScript{.commands = {FinalBattleStageArrives{
-                                                     .scroll = *state.finalBattleScroll,
-                                                     .monsters = state.alive.monstersOnly()}}});
+        state.requests.push_back(RunBattleScript{
+            .commands = {FormationChanges::from(*state.finalBattleScroll, state.alive.monstersOnly())}});
         state.waitingForScript = ScriptWait{.resume = ScriptResume::NextStep};
     } else {
         state.requests.push_back(OpenBattleScene{});
@@ -577,8 +629,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 }  // namespace
 
 BattleState startBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
-                        const TextCorpus& text, ActionExecutor& executor) {
-    return assembleBattle(start, std::move(party), switches, text, executor, nullptr);
+                        const TextCorpus& text, const MonsterSprites& sprites, ActionExecutor& executor) {
+    return assembleBattle(start, std::move(party), switches, text, sprites, executor, nullptr);
 }
 
 BattleResult writeBack(const BattleState& state) {
@@ -680,7 +732,7 @@ BattleResult writeBack(const BattleState& state) {
 
 BattleState startNextFinalBattleStage(const BattleState& finished, const BattleResult& handedBack,
                                       const BattleStart& start, const TextCorpus& text,
-                                      ActionExecutor& executor) {
+                                      const MonsterSprites& sprites, ActionExecutor& executor) {
     const auto* ended = std::get_if<BattleEnded>(&*finished.outcome);
     const FormationId next = *ended->nextFormation;
 
@@ -691,6 +743,8 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     carry.morphedBattler = finished.morphedBattler;
     carry.startingFormation = finished.startingFormation;
     carry.finalBattleReserve = finished.finalBattleReserve;
+    carry.partyFacingRight = finished.facingRight.charactersOnly();
+    carry.animationTargets = finished.animationTargets;
     for (std::size_t stage = 0; stage + 1 < kFinalBattleFormations.size(); ++stage) {
         if (kFinalBattleFormations[stage + 1] == next) {
             carry.scroll = kFinalBattleScroll[2 * stage].scroll;
@@ -717,7 +771,7 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
 
     BattleStart nextStage = start;
     nextStage.formation = FormationRef::of(next);
-    return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, executor, &carry);
+    return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, sprites, executor, &carry);
 }
 
 }  // namespace ostinato::battle

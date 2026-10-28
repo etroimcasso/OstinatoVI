@@ -62,15 +62,25 @@ add_library(ostinato-vi-lib STATIC
     src/assets/rom_reader.cpp
     src/battle/action_queue.cpp
     src/battle/actions.cpp
+    src/battle/attack.cpp
+    src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
     src/battle/battle_inventory.cpp
+    src/battle/battle_layout.cpp
     src/battle/battle_loop.cpp
     src/battle/battle_rng.cpp
+    src/battle/battle_script.cpp
     src/battle/battle_sim.cpp
     src/battle/battle_start.cpp
+    src/battle/command_executor.cpp
+    src/battle/command_menu.cpp
+    src/battle/commands.cpp
+    src/battle/item_attack.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/spell_lists.cpp
+    src/battle/system_commands.cpp
+    src/battle/targeting.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
@@ -92,6 +102,7 @@ add_library(ostinato-vi-lib STATIC
     src/data/menu_orders.cpp
     src/data/metamorph.cpp
     src/data/monster_align.cpp
+    src/data/monster_sprites.cpp
     src/data/monster_attacks.cpp
     src/data/monster_items.cpp
     src/data/monster_properties.cpp
@@ -260,6 +271,7 @@ gtest_discover_tests(ostinato-vi-item-tests)
 # enum, data-table, spell/esper, and item baselines stay frozen.
 add_executable(ostinato-vi-monster-tests
     tests/test_monster_properties.cpp
+    tests/test_monster_sprites.cpp
     tests/test_monster_tables.cpp)
 target_compile_features(ostinato-vi-monster-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-monster-tests PRIVATE ${_ostinato_warn})
@@ -501,3 +513,26 @@ target_compile_options(ostinato-vi-battle-core-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-core-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-core-tests)
+
+# The battle commands: the targeting byte read and every way an attack is aimed, the hit check,
+# the attack frame, every command the player can choose and the attack an item makes, the command
+# menu, the battle script builder, the executor that runs them, and the battle's layout — where
+# each battler stands, which way it faces and how it turns to a target. Own binary so the other
+# baselines stay frozen.
+add_executable(ostinato-vi-battle-commands-tests
+    tests/test_attack_frame.cpp
+    tests/test_automatic_actions.cpp
+    tests/test_battle_layout.cpp
+    tests/test_battle_script.cpp
+    tests/test_command_battle.cpp
+    tests/test_command_menu.cpp
+    tests/test_commands.cpp
+    tests/test_hit_check.cpp
+    tests/test_item_attack.cpp
+    tests/test_system_commands.cpp
+    tests/test_targeting.cpp)
+target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-commands-tests)

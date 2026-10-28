@@ -236,3 +236,9 @@ The party side of a battle's start ([battle/start.md](../battle/start.md)): `der
 The rest of the start: `chooseBattleType()` reads the battle-type row of `kRandomBitRates`, and `startNextFinalBattleStage()` the background scroll from `kFinalBattleScroll`. The battle's end ([battle/core.md](../battle/core.md)) follows `kFinalBattleFormations` from stage to stage.
 
 The player's commands ([battle/core.md](../battle/core.md)): `takePlayerActions()` turns a slot reel outcome into its spell with `kSlotOutcomes` and aims the Joker Dooms with `kJokerDoomTargets`.
+
+The battle commands: `initTargeting()` ([battle/targeting.md](../battle/targeting.md)) turns a thrown edge into its spell with `kThrowToolsConversions`, and `commandForAttack()` ([battle/commands.md](../battle/commands.md)) finds a spell's command in `kAiCommandsForAttack`.
+
+The command bodies ([battle/commands.md](../battle/commands.md)): Fight finds a party member's desperation attack with `desperationAttack()`, Umaro picks his attack by a row of `kRandomBitRates` (`pickWeighted()`), and Dance checks the battlefield with `backgroundDance()` and changes it with `danceBackground()`.
+
+A dancer acting on its own, or whose Dance chose no step ([battle/commands.md](../battle/commands.md#automatic-actions)): `chooseDanceStep()` reads `kDanceStepThresholds`.

@@ -42,6 +42,13 @@ const TextCorpus& noNames() {
     return corpus;
 }
 
+// No cartridge sprites: every monster but the Ghost Train measures 0 tiles across, which places it
+// by its formation position alone.
+const MonsterSprites& noSprites() {
+    static const MonsterSprites sprites;
+    return sprites;
+}
+
 game::Party threeMembers() {
     return battleWithParty({CharacterPropId::TERRA, CharacterPropId::LOCKE, CharacterPropId::EDGAR}).party;
 }
@@ -142,7 +149,7 @@ TEST(BattleSim, TimeRunsThroughAnAnimationWhileTheLoopWaits) {
     // ExecBtlGfx $04 blocks the loop while UpdateBattleTime keeps running from the graphics
     // program's frame wait (:392-439).
     battle::NullExecutor executor;
-    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
     battle.takeRequests();
     const std::uint16_t turnsBefore = battle.state().turnCounter;
     const std::uint8_t rngBefore = battle.state().rng.position();
@@ -157,7 +164,7 @@ TEST(BattleSim, TimeRunsThroughAnAnimationWhileTheLoopWaits) {
 
 TEST(BattleSim, StoppedTimeHoldsTheGaugesButTheLoopStillSteps) {
     battle::NullExecutor executor;
-    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
     const std::uint16_t turnsBefore = battle.state().turnCounter;
     const std::uint8_t rngBefore = battle.state().rng.position();
     battle.tick(BattleInput{.timeRunning = false, .presentationIdle = true});
@@ -171,7 +178,7 @@ TEST(BattleSim, AScriptedBattleToAWin) {
     executor.partyDamage = 9999;
     executor.monsterDamage = 1;
     game::Party party = threeMembers();
-    BattleSim battle(startFor(FormationId::LOBO), party, {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), party, {}, noNames(), noSprites(), executor);
     const auto log = playOut(battle, 6000);
     ASSERT_TRUE(battle.result().has_value());
     EXPECT_TRUE(std::holds_alternative<battle::BattleWon>(battle.result()->outcome));
@@ -205,7 +212,7 @@ TEST(BattleSim, AScriptedBattleToALoss) {
     HitsExecutor executor;
     executor.partyDamage = 0;
     executor.monsterDamage = 9999;
-    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
     const auto log = playOut(battle, 20000);
     ASSERT_TRUE(battle.result().has_value());
     const auto* lost = std::get_if<battle::BattleLost>(&battle.result()->outcome);
@@ -227,7 +234,7 @@ TEST(BattleSim, AWonFinalBattleStageScrollsOnToTheNext) {
     executor.monsterDamage = 0;
     battle::BattleStart start = startFor(kFinalBattleFormations[0]);
     start.finalBattleOrder = {0, 1, 2};
-    BattleSim battle(start, threeMembers(), {}, noNames(), executor);
+    BattleSim battle(start, threeMembers(), {}, noNames(), noSprites(), executor);
     std::vector<std::string> names;
     std::vector<battle::PlayerAction> answers;
     for (int frame = 0; frame < 20000 && battle.state().formation == kFinalBattleFormations[0]; ++frame) {
@@ -253,7 +260,7 @@ TEST(BattleSim, AWonFinalBattleStageScrollsOnToTheNext) {
 
 TEST(BattleSim, ThePlayersChoicesComeInWithTheTick) {
     battle::NullExecutor executor;
-    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
     battle.tick(BattleInput{.playerActions = {{.character = BattlerSlot::character(1),
                                                .command = BattleCommandId::FIGHT}}});
     EXPECT_TRUE(battle.state().chosenActions.empty());
@@ -265,7 +272,7 @@ TEST(BattleSim, ThePlayersChoicesComeInWithTheTick) {
 TEST(BattleSim, NothingRunsOnceTheBattleIsOver) {
     HitsExecutor executor;
     executor.partyDamage = 9999;
-    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), executor);
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
     playOut(battle, 6000);
     ASSERT_TRUE(battle.result().has_value());
     const std::uint16_t turns = battle.state().turnCounter;

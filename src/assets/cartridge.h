@@ -20,6 +20,7 @@
 #include <span>
 #include <string>
 
+#include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 #include "data/world_map.h"
 #include "ostinato/game_version.h"
@@ -79,6 +80,7 @@ struct IngestedContent {
     WorldTilePool worldTiles;
     text::DialogFont dialogFont;
     text::WindowArt windowArt;
+    MonsterSprites monsterSprites;
 };
 
 // Read a cartridge image already in memory: host it on a VM, take the families the game needs, and

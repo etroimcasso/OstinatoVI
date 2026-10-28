@@ -20,8 +20,9 @@ changing the code.
 | `src/battle/action_queue.h` | `Action` and its alternatives, `BattlerQueue` |
 | `src/battle/actions.h` | adding and removing actions, MP cost, advance wait |
 | `src/battle/action_executor.h` | `ActionExecutor`, `NullExecutor` |
-| `src/battle/battle_requests.h` | `BattleRequest`, `BattleScriptCommand` |
-| `src/battle/battle_rng.h` | `BattleRng` |
+| `src/battle/battle_requests.h` | `BattleRequest` |
+| `src/battle/battle_script.h` | `BattleScriptCommand`, `BattleScriptBuilder` ([commands.md](commands.md)) |
+| `src/battle/battle_rng.h` | `BattleRng`, `pickWeighted()` |
 | `src/battle/player_intake.h` | `PlayerAction`, `takePlayerActions()` |
 | `src/battle/battle_clock.cpp` | battle time |
 | `src/battle/battle_loop.cpp` | the battle loop |
@@ -40,7 +41,7 @@ presentation knows and take the requests:
 using namespace ostinato;
 using namespace ostinato::battle;
 
-BattleSim battle(start, party, switches, cartridge.text, executor);
+BattleSim battle(start, party, switches, cartridge.text, cartridge.monsterSprites, executor);
 while (!battle.result()) {
     battle.tick({.timeRunning = presentation.timeRuns(),
                  .presentationIdle = !presentation.playingScript(),
@@ -119,7 +120,8 @@ The fields of `Battler` group as follows.
 | A monster's record | `monster`, `monsterFlags` (first strike, harder to run from, can't run, the immunities), `diesAtZeroMp`, `impCritical`, `nameHidden`, `nameGroup`, `rareSteal`, `commonSteal`, `experience`, `gold`, `metamorph`, `specialAttack`, `specialAttackAnimation` |
 | A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
 | What its command took up | `itemInHand`, `dance`, `rage` |
-| Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending` |
+| Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending`, `bodyguard` (who takes its hits for a Love Token) |
+| What the action being run does to it | `statusesToSet`, `statusesToClear`, `lastHit` (who last hit it, with which command, spell, item and elements) |
 | What it has waiting | `actions`, `counterActions` |
 
 `BattleState` holds the ten battlers and the battle as a whole: the lines (`advanceWaitQueue`,
@@ -130,7 +132,10 @@ the action's report (`scratch`), Mimic's memory (`mimic`), the player's finished
 to come in (`chosenActions`), the requests, and the outcome. It also holds the battle's copy of the
 party (`party`) and of the battle switches (`switches`), the battle inventory, what the party knows,
 the formation and the one the battle began with, the colosseum match, Doom Gaze's slot and the
-characters Possess has taken ([start.md](start.md)).
+characters Possess has taken ([start.md](start.md)). What the commands use up or learn is there too:
+the desperation attacks used, the lores Strago saw, the last rager and the Golem's HP; and so are
+the monsters a monster's AI has hidden from aiming and which way each battler faces, which aiming
+reads ([targeting.md](targeting.md)).
 
 ## The ATB gauge
 
@@ -175,12 +180,18 @@ count, the escape try, the Reflect, Freeze and Sleep timers, and the poison and 
 step. The remaining six of the 16 turns are the battle's: Roulette's Doom, the battle counter and the
 battlers' own timers, and the party's escape.
 
+A condemned count that starts is 20 + max(0, 60 − (L + a random 0 … L − 1)), where L is
+`state.lastAttackLevel`: the level the last attack was made at, 20 as the battle starts.
+`CommandExecutor` keeps it up to date; an action that makes no attack of its own level leaves it.
+
 ## Actions and the lines
 
 An `Action` is one of: `CommandAction` (a battle command with its attack, targets and MP cost),
 `AiTurn`, `DamageOverTime`, `SpellWithoutCaster`, `StatusTimersExpired`, `PartyEscape`,
 `ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, `BattleMessageAction` (the battle's opening
-message), and `NoAction` (handed to the executor when a battler's turn comes with nothing chosen).
+message), `NoAction` (handed to the executor when a battler's turn comes with nothing chosen), and the
+ones a monster's AI asks for: `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction`,
+`ScanAction` and `MonsterAnimationAction` ([commands.md](commands.md#the-battles-own-actions)).
 
 ```cpp
 #include "battle/actions.h"
@@ -289,17 +300,24 @@ struct Swing : ActionExecutor {
 };
 ```
 
-`NullExecutor` is the base class itself: nothing happens, no AI acts.
+`NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
+([commands.md](commands.md)) is the battle's own: it carries out every action, aims commands,
+chooses for the battlers no one chooses for, and settles the menu choices left to chance.
 
 ## Requests
 
 `state.requests` collects, in order, what the presentation has to do: `OpenBattleScene` (the
 battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
-`RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won) and
-`CloseBattleScene` (the battle is over). A `RunBattleScript` holds `BattleScriptCommand`s —
-`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack`,
-and `FinalBattleStageArrives` (the next stage's background and monsters) — and is the one request
-the loop waits on.
+`RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won),
+`CloseBattleScene` (the battle is over) and `AddItemObtained` (a party member came away from an
+action holding an item, which goes into the battle inventory; the loop asks for it once the action's
+script has played and the battle has settled). A `RunBattleScript` can also come during an action,
+ahead of the action's own: Scan plays each of its messages that way. A `RunBattleScript` holds
+`BattleScriptCommand`s and is the one request the loop waits on. The battle core writes
+`ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and,
+as each stage of the final battle opens, `FormationChanges` (the background scrolling on and the
+stage's monsters coming in); the actions write the rest — names, animations, messages
+([commands.md](commands.md)).
 
 ## The battle's end
 
@@ -317,6 +335,16 @@ the next check finds it won.
 `pickFrom(set)` (one member, the party's counted first; an empty set draws nothing). The loop moves
 the position on by one entry per step without drawing, so tests set `state.rng = BattleRng(position)`
 to fix what a battle will draw.
+
+`pickWeighted(rng, weights, offered)` picks one of four choices by a row of `kRandomBitRates`: each
+offered choice reaches its weight + 1 further along a running byte total, and one draw below that
+total picks the first choice it falls short of. The battle type and Umaro's attack are chosen this
+way.
+
+```cpp
+const std::array<bool, 4> offered{true, true, false, false};
+std::optional<std::size_t> picked = pickWeighted(state.rng, kRandomBitRates[0].weights, offered);
+```
 
 ## Gotchas
 
@@ -347,4 +375,4 @@ to fix what a battle will draw.
 | When the battle ends | `checkBattleEnd()` in `battle_loop.cpp` |
 | How a chosen command is settled | `settleCommand()` in `player_intake.cpp` |
 | What `BattleSim` does at the end | `BattleSim::finish()` in `battle_sim.cpp` |
-| What a command does | your `ActionExecutor::execute()` |
+| What a command does | `CommandExecutor::execute()` ([commands.md](commands.md)), or your own `ActionExecutor::execute()` |

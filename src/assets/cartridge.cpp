@@ -198,6 +198,20 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
     const retropp::DataId wallpapers = library.uploadData(cartridge.read(*wallpaperPlace));
     const retropp::DataId palettes = library.uploadData(cartridge.read(*palettePlace));
 
+    // Which tiles each monster's sprite fills, which every cartridge places.
+    const std::optional<retropp::MemoryRegion> monsterPropertiesPlace =
+        romRegion(RomAsset::MONSTER_GFX_PROP, spoken);
+    const std::optional<retropp::MemoryRegion> smallStencilPlace =
+        romRegion(RomAsset::MONSTER_STENCIL_SMALL, spoken);
+    const std::optional<retropp::MemoryRegion> largeStencilPlace =
+        romRegion(RomAsset::MONSTER_STENCIL_LARGE, spoken);
+    if (!monsterPropertiesPlace || !smallStencilPlace || !largeStencilPlace) {
+        throw std::runtime_error("The cartridge has no monster stencils.");
+    }
+    const retropp::DataId monsterProperties = library.uploadData(cartridge.read(*monsterPropertiesPlace));
+    const retropp::DataId smallStencils = library.uploadData(cartridge.read(*smallStencilPlace));
+    const retropp::DataId largeStencils = library.uploadData(cartridge.read(*largeStencilPlace));
+
     return IngestedContent{
         .version = *version,
         .text = TextCorpus{std::move(corpus)},
@@ -211,6 +225,8 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
             .tiles = library.data(wallpapers),
             .palettes = library.data(palettes),
         },
+        .monsterSprites = MonsterSprites{library.data(monsterProperties), library.data(smallStencils),
+                                         library.data(largeStencils)},
     };
 }
 

@@ -96,3 +96,7 @@ in `tests/fixtures/magic_prop_expected.h` (original ROM values).
 `AttackId::FIRE` hand-traced from the ROM bytes; named special-effect
 spot-checks (Doom, Golem, Quake, Retort); round-trips of every builder family
 back to raw ROM bytes; and the visible JP-variant skip.
+
+## Used by
+
+The battle commands ([battle/commands.md](../battle/commands.md)): `loadAttackRecord()` copies a record into the attack in flight, which every attack then changes on its copy; `initTargeting()` ([battle/targeting.md](../battle/targeting.md)) reads its targeting byte and traits.

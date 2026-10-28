@@ -10,6 +10,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -26,6 +27,7 @@
 #include "data/item_properties.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
+#include "ostinato/attack_id.h"
 #include "ostinato/battle_background_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/character_gfx_id.h"
@@ -47,6 +49,15 @@
 #include "ostinato/targeting.h"
 
 namespace ostinato::battle {
+
+// The part of the battlefield a battler stands in, left to right. A monster and a party member
+// never stand in the same part, so whether a target is to an attacker's right is whether its part
+// is further right (battle/battle_layout.h).
+enum class FieldSide : std::uint8_t {
+    Left,
+    Center,
+    Right,
+};
 
 // The ATB gauge: how close a battler is to its next turn.
 //
@@ -155,6 +166,21 @@ struct MenuCommand {
 // Every status, for a battler that can be given any of them.
 inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
+// The last time a battler was hit with something: who did it, and with what.
+template <typename T>
+struct Hit {
+    BattlerSlot by = BattlerSlot::character(0);
+    T with{};
+};
+
+// What a battler was last hit with. Monster AI conditions read them ("if hit by Fire").
+struct LastHits {
+    std::optional<Hit<BattleCommandId>> command;  // by any attack, with the command as it was chosen
+    std::optional<Hit<AttackId>> spell;           // by a spell or skill
+    std::optional<Hit<ItemId>> item;              // by an item
+    std::optional<Hit<ElementSet>> element;       // by any attack, with its elements (none is a value)
+};
+
 // One of the ten battlers.
 struct Battler {
     // In the battle and on the field.
@@ -199,6 +225,9 @@ struct Battler {
     std::uint8_t sleepTimer = 0;
     std::uint8_t condemnedNumber = 0;      // the countdown shown over a condemned battler; 0 = none
     std::uint8_t damageOverTimePhase = 0;  // which beat of the poison/regen rhythm it is on
+    // Poison's damage multiplier, in the steps of AttackInFlight::multiplier: each Poison beat
+    // uses it and then raises it by two, to at most 14. It is never lowered during the battle.
+    int poisonMultiplier = 0;
     std::uint8_t morphGauge = 0;           // the Morph meter shown
 
     // How far its own clock has run: once every 16 time updates while it is alive and present.
@@ -239,6 +268,7 @@ struct Battler {
     bool undead = false;
     BattlerTriggers triggers;
     bool actsAsEnemy = false;             // a party member fighting against the party
+    FieldSide side = FieldSide::Center;   // where it stands on the field (battle/battle_layout.h)
     bool aiTakesTurns = false;            // its actions come from an AI script
     bool hasCounterScript = false;        // its AI answers attacks
     // The AI script it follows: a monster's own (by MonsterId), or the one a scripted battle gives
@@ -308,6 +338,12 @@ struct Battler {
     std::optional<BattlerSlot> seizedBy;
     std::optional<BattlerSlot> lastAttacker;  // the last battler to target it
     bool retaliationPending = false;          // it was hit and may counter lastAttacker
+    std::optional<BattlerSlot> bodyguard;     // Love Token: the battler who takes its hits
+
+    // --- what the action being run does to it -------------------------------------------------
+    StatusSet statusesToSet;    // put on it when the action's statuses take effect
+    StatusSet statusesToClear;  // taken off it then
+    LastHits lastHit;
 
     // --- what it has waiting ------------------------------------------------------------------
     std::deque<Action> actions;         // in the order they were chosen
@@ -465,6 +501,14 @@ struct BattleState {
     BattlerSet counterAiRanThisStep;
     std::array<BattleSlotMask, 2> pincerSides{};  // the monsters on each side of a pincer attack
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
+    BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
+    // The battlers facing right. In a side or pincer attack, an attacker hits a target in the
+    // back when both face the same way. Set when the battle is laid out and changed as attackers
+    // turn to face their targets (battle/battle_layout.h).
+    BattlerSet facingRight;
+    // Whom the last animation shown was aimed at. A Jump's landing turns the jumper toward these
+    // rather than toward its own targets.
+    BattlerSet animationTargets;
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
@@ -499,7 +543,9 @@ struct BattleState {
     // In the final battle, where the background scrolls to as a stage after the first arrives.
     std::optional<std::uint8_t> finalBattleScroll;
     std::optional<EndOfBattleEvent> endOfBattleEvent;
-    std::uint8_t condemnedLevel = 20;  // the level a new condemned count is worked out from
+    // The level the last attack was made at (AttackInFlight::attackerLevel), kept until an action
+    // makes another; a condemned count that starts is worked out from it. 20 as the battle starts.
+    std::uint8_t lastAttackLevel = 20;
 
     // The battle switches, as the battle started with them; monster AI changes them as it goes,
     // and the battle hands them back when it ends.
@@ -529,6 +575,15 @@ struct BattleState {
     std::array<std::optional<DanceId>, 8> dancesKnown{};  // by DanceId; empty where not known
     std::vector<MonsterId> ragesKnown;                    // in MonsterId order
     std::optional<DanceId> lastDance;                     // the dance last chosen from the menu
+
+    // What the battle's actions have used up or learned so far.
+    BattlerSet desperationUsed;                           // party members who have used theirs
+    std::bitset<game::kLores> loresLearned;               // lores Strago saw this battle, Condemned first
+    std::optional<BattlerSlot> lastRager;                 // the party member who last used Rage
+    std::uint16_t golemHp = 0;                            // the Golem's HP left; 0 with no Golem
+    // Party members who come away from the action holding Battler::itemInHand: once the action is
+    // over, the item goes into the party's inventory.
+    BattlerSet holdingItem;
 
     // The commands the player has finished choosing, waiting for the battle to take them in
     // (battle/player_intake.h).
