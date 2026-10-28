@@ -130,6 +130,14 @@ The cartridge holds eight wallpapers (`WallpaperId`), each 28 tiles (`WindowTile
 cartridge's, colors 1 to 7 of the wallpaper's palette with each five-bit channel spread over 0 to
 255. Upload the sheet with 8 × 8 cells and a palette whose entries 1 to 7 are the seven colors.
 
+A battle draws its windows from the same art in brighter colors: each channel of each color raised
+by `kBattleWindowBrightening` (8) 31sts of full strength, and stopped at full strength.
+`battleWindowColors(colors)` gives a battle's seven colors from the field's.
+
+```cpp
+const text::WindowColors battle = text::battleWindowColors(colors);
+```
+
 The box's layout comes from the cartridge's code and is compiled in (`src/text/window_layout.h`):
 
 | Name | What it is |
@@ -151,7 +159,7 @@ The box is its own tile layer beneath the text, built from four components in `s
 | Component | Draws |
 |---|---|
 | `DialogWindow` | The box's tiles, the 30 visible columns, through the window's palette. |
-| `WindowShading` | The light and dark bands, as regions on the box's layer. |
+| `WindowShading` | The light and dark bands, as `ColorGradient` regions on the box's layer. |
 | `WindowSquash` | The vertical squash of the opening frames, as the box layer's transform. |
 | `WindowClip` | What hides everything outside the rows shown while the box opens and closes, on both the box's layer and the text's. |
 

@@ -332,3 +332,8 @@
     { .asset = RomAsset::DLG_CURSOR_GFX,           .language = Language::EN, .region = { .at = 0xC08832, .size =     12 } },
     { .asset = RomAsset::MONSTER_GFX_PROP,         .language = Language::JP, .region = { .at = 0xD27000, .size =   2080 } },
     { .asset = RomAsset::MONSTER_GFX_PROP,         .language = Language::EN, .region = { .at = 0xD27000, .size =   2080 } },
+    { .asset = RomAsset::BATTLE_BG_GFX_PTRS,       .language = Language::JP, .region = { .at = 0xE71650, .size =    504 } },
+    { .asset = RomAsset::BATTLE_BG_GFX_PTRS,       .language = Language::EN, .region = { .at = 0xE71650, .size =    504 } },
+    { .asset = RomAsset::BATTLE_BG_TILES_PTRS,     .language = Language::JP, .region = { .at = 0xE71848, .size =    224 } },
+    { .asset = RomAsset::BATTLE_BG_TILES_PTRS,     .language = Language::EN, .region = { .at = 0xE71848, .size =    224 } },
+    { .asset = RomAsset::MONSTER_DEATH_PAL,        .language = Language::EN, .region = { .at = 0xC2B05D, .size =     32 } },

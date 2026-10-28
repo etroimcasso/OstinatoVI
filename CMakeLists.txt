@@ -120,9 +120,11 @@ add_library(ostinato-vi-lib STATIC
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
     src/data/battle_backgrounds.cpp
+    src/data/battle_gfx_tables.cpp
     src/data/char_ai.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
+    src/render/color_gradient.cpp
     src/render/sprite_layer.cpp
     src/render/tile_layer.cpp
     src/render/text/dialog_cursor.cpp
@@ -490,6 +492,20 @@ target_compile_options(ostinato-vi-dialog-window-tests PRIVATE ${_ostinato_warn}
 target_include_directories(ostinato-vi-dialog-window-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-dialog-window-tests)
+
+# The battle's picture: the tables that place and time it, every row against the cartridge's
+# bytes in both builds; the color gradient read back from the regions it returns; and the colors
+# the battle's windows draw in, checked by hand and over every wallpaper the cartridge holds. Own
+# binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-preview-tests
+    tests/test_battle_gfx_tables.cpp
+    tests/test_battle_window_colors.cpp
+    tests/test_color_gradient.cpp)
+target_compile_features(ostinato-vi-battle-preview-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-preview-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-preview-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-preview-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-preview-tests)
 
 # The battle core: the battle slots and sets, the ATB gauge and the battle's random numbers; battle
 # time update by update — the two-frame gate, the ATB rate, the gauges, the advance waits and the
