@@ -375,7 +375,23 @@ ADDRESSES = {
     "GaugeTextTbl": 0xC168A9,
     "_c197a1": 0xC1979E,
     "MsgSpeedTbl": 0xC1986F,
+    "_c2c689": 0xC2C689,
+    # CharGfxPtrs carries no local label; it is the 72 bytes before _c2ce8b's @ce8b.
+    "CharGfxPtrs": 0xC2CE43,
 }
+
+# CharGfxPtrs is .repeat-generated from the map sprite sheets' places, so it is read by its own
+# reader (read_character_sheets) rather than the table reader.
+GENERATED_TABLES = ("CharGfxPtrs",)
+STATUS_COLOR_ROWS = 4                # _c2c689: one row of four colors per party slot
+STATUS_COLORS_PER_ROW = 4
+SHEET_POINTERS = 24                  # CharGfxPtrs: the 23 named graphics and the green soldier
+MAP_SPRITE_GFX_PATH = "src/gfx/map_sprite_gfx/%s.4bpp"
+MAP_SPRITE_GFX_ASM = os.path.join("src", "gfx", "map_sprite_gfx.asm")
+MAP_SPRITE_GFX_DIR = os.path.join("src", "gfx", "map_sprite_gfx")
+_RE_SHEET_ITEM = re.compile(r'^inc_map_sprite_gfx\s+([A-Z_0-9]+)\s*,\s*"([a-z_0-9]+)"$')
+_RE_SHEET_REPEAT = re.compile(r"^\.repeat\s+(\d+)\s*,\s*i$")
+_RE_SHEET_ADDR = re.compile(r"^\.faraddr\s+array_item\s+MapSpriteGfx\s*,\s*(i|MAP_SPRITE_GFX::([A-Z_0-9]+))$")
 
 FRAMES = 32
 FRAME_TILES = 8
@@ -610,9 +626,13 @@ def read_tables(source_root, language):
     macros = read_macros(lines, path)
     tables = Tables(language)
     for label in ADDRESSES:
+        if label in GENERATED_TABLES:
+            continue
         items = read_table(lines, macros, label, symbols, path)
         tables.items[label] = items
         tables.raw[label] = table_bytes(items)
+    tables.sheets = read_character_sheets(source_root, lines, path)
+    tables.raw["CharGfxPtrs"] = sheet_pointer_bytes(tables.sheets)
     tables.gauge_empty = symbols.constants.get("GAUGE_EMPTY_CHAR")
     _expect(paths["btlgfx_ram"], tables.gauge_empty is not None,
             "GAUGE_EMPTY_CHAR is not defined for {}".format(language))
@@ -704,6 +724,14 @@ def check(tables, symbols, lines, paths):
         _expect(path, row == sorted(row, reverse=True),
                 "gauge step {} does not fill left to right".format(step))
     tables.gauge_fills = fills
+
+    status = items["_c2c689"]
+    _expect(path, len(status) == STATUS_COLOR_ROWS * STATUS_COLORS_PER_ROW
+            and all(i.size == 2 for i in status),
+            "_c2c689 holds {} entries, not {} rows of {} color words".format(
+                len(status), STATUS_COLOR_ROWS, STATUS_COLORS_PER_ROW))
+    for i, value in enumerate(_numbers(status)):
+        _expect(path, value < 0x8000, "_c2c689 color {} sets the bit no color uses".format(i))
 
     _expect(path, len(items["MsgSpeedTbl"]) == MESSAGE_SPEEDS, "MsgSpeedTbl is not 8 speeds")
     _expect(path, len(items["MonsterAlignOffset"]) == ALIGNMENTS,
@@ -820,6 +848,116 @@ def placements_of(items, path):
         _expect(path, width.value % CELL_BYTES == 0,
                 "placement {}'s width is not whole cells".format(i // 4))
         out.append((layer, column, row, width.value // CELL_BYTES, height.value))
+    return out
+
+
+# --- the party's sprite sheets ---------------------------------------------------------
+#
+# CharGfxPtrs points each of the 24 battle graphics slots at a map sprite sheet. The source
+# generates it (.repeat over the first 23 sheets, then the soldier's again for the green soldier)
+# from the sheets' places in MapSpriteGfx, which are the ripped files laid end to end. The reader
+# lays them end to end the same way, requires them to fill the ripped family exactly, and hands
+# back the pointer table for the cartridge check.
+
+class CharacterSheet(object):
+    """One battle graphics slot's sheet: which item of MapSpriteGfx, and where it lies."""
+
+    def __init__(self, slot, item, name, offset, size):
+        self.slot = slot      # 0-23, the CharGfxPtrs entry
+        self.item = item      # the MAP_SPRITE_GFX item index
+        self.name = name      # the item's enumerator name
+        self.offset = offset  # bytes from the start of the family
+        self.size = size      # the sheet's own bytes
+
+
+def read_map_sprite_items(source_root):
+    """[(enumerator, file stem)] for every map sprite sheet, in the family's order."""
+    path = os.path.join(source_root, MAP_SPRITE_GFX_ASM)
+    items = []
+    for lineno, code in active_lines(path, EN):
+        if code is None:
+            raise ParseError(path, lineno, "a condition this reader does not decide")
+        found = _RE_SHEET_ITEM.match(code)
+        if found:
+            items.append((found.group(1), found.group(2)))
+    _expect(path, len(items) > 0, "no map sprite sheets found")
+    return items
+
+
+def read_character_sheets(source_root, lines, path):
+    """The 24 CharacterSheet entries CharGfxPtrs names."""
+    import parse_rom_regions  # the rip-list reader; its own import of this module is at top level
+
+    items = read_map_sprite_items(source_root)
+    offsets = []
+    sizes = []
+    total = 0
+    for _, stem in items:
+        file_path = os.path.join(source_root, MAP_SPRITE_GFX_DIR, stem + ".4bpp")
+        if not os.path.isfile(file_path):
+            raise ParseError(file_path, 0, "ripped sheet missing — run `make rip` in original-src")
+        size = os.path.getsize(file_path)
+        offsets.append(total)
+        sizes.append(size)
+        total += size
+    rows = parse_rom_regions.read_rip_list(source_root, "en",
+                                           parse_rom_regions.read_rom_size(source_root))
+    family = _rip_row(rows, MAP_SPRITE_GFX_PATH, path)
+    _expect(path, total == family.size, "the {} ripped map sprite sheets hold {} bytes, but the "
+            "family is {}".format(len(items), total, family.size))
+
+    # The pointer table's source: a .repeat over the first N sheets, then one named sheet.
+    body = []
+    inside = False
+    for lineno, code in lines:
+        if code is None or not code:
+            continue
+        if not inside:
+            if code == "CharGfxPtrs:":
+                inside = True
+            continue
+        if _RE_LABEL.match(code):
+            break
+        body.append((lineno, code))
+    _expect(path, inside, "CharGfxPtrs not found")
+    names = {name: index for index, (name, _) in enumerate(items)}
+    sheets = []
+    i = 0
+    while i < len(body):
+        lineno, code = body[i]
+        repeat = _RE_SHEET_REPEAT.match(code)
+        if repeat:
+            _expect(path, i + 2 < len(body) and body[i + 2][1] == ".endrep",
+                    "CharGfxPtrs' .repeat is not one line long")
+            addr = _RE_SHEET_ADDR.match(body[i + 1][1])
+            _expect(path, addr is not None and addr.group(1) == "i",
+                    "CharGfxPtrs' .repeat does not name item i")
+            for item in range(int(repeat.group(1))):
+                sheets.append(CharacterSheet(len(sheets), item, items[item][0], offsets[item],
+                                             sizes[item]))
+            i += 3
+            continue
+        addr = _RE_SHEET_ADDR.match(code)
+        if addr is None or addr.group(2) is None:
+            raise ParseError(path, lineno, "'{}' is not a CharGfxPtrs entry".format(code))
+        _expect(path, addr.group(2) in names, "CharGfxPtrs names an unknown sheet {}".format(
+            addr.group(2)))
+        item = names[addr.group(2)]
+        sheets.append(CharacterSheet(len(sheets), item, items[item][0], offsets[item], sizes[item]))
+        i += 1
+    _expect(path, len(sheets) == SHEET_POINTERS, "CharGfxPtrs holds {} pointers, not {}".format(
+        len(sheets), SHEET_POINTERS))
+    for sheet in sheets:
+        sheet.family_begin = family.begin
+    return sheets
+
+
+def sheet_pointer_bytes(sheets):
+    """CharGfxPtrs as the cartridge holds it: a long address per entry."""
+    out = []
+    for sheet in sheets:
+        address = sheet.family_begin + sheet.offset
+        out += [address & 0xFF, (address >> 8) & 0xFF, (address >> 16) & 0xFF]
     return out
 
 
@@ -1059,6 +1197,264 @@ def place_monster_death_pal(source_root, rom):
                                          proved=len(palette))]
 
 
+# --- the decompressor ------------------------------------------------------------
+#
+# Decompress_ext is the cartridge's own LZ decoder, a routine of 65816 code the game
+# places on a machine at runtime and calls (src/assets/cartridge_routines.h). The
+# region row that locates it is proved here: the routine's source is assembled
+# instruction by instruction and the bytes must occur exactly once in the battle
+# graphics program's banks, at the in-bank address its own local label states, with
+# every `jsl Decompress_ext` in the source matched by a long call to that address in
+# the cartridge. The assembler covers the routine's instruction set and no more; a
+# line it does not know stops the parse.
+
+DECOMPRESSOR_LABEL = "Decompress_ext"
+JSL = 0x22
+
+# The flag-width directives the macros expand to (include/macros.inc:57-69).
+_PSW_A = 0x20
+
+# Instruction encodings by (mnemonic, operand shape). A shape is: imm8 / imm16 / dp
+# (direct page) / dpil (direct page indirect long) / dpily (… indexed Y) / long /
+# absx (absolute, X) / absy (absolute, Y) / rel (a branch) / none.
+_OPCODES = {
+    ("phb", "none"): 0x8B, ("phd", "none"): 0x0B, ("phx", "none"): 0xDA,
+    ("pld", "none"): 0x2B, ("pha", "none"): 0x48, ("plb", "none"): 0xAB,
+    ("inx", "none"): 0xE8, ("iny", "none"): 0xC8, ("xba", "none"): 0xEB,
+    ("clc", "none"): 0x18, ("tay", "none"): 0xA8, ("tdc", "none"): 0x7B,
+    ("lsr", "none"): 0x4A, ("rtl", "none"): 0x6B,
+    ("ldx", "imm16"): 0xA2, ("ldy", "imm16"): 0xA0,
+    ("rep", "imm8"): 0xC2, ("sep", "imm8"): 0xE2,
+    ("lda", "imm8"): 0xA9, ("and", "imm8"): 0x29, ("adc", "imm8"): 0x69,
+    ("ora", "imm8"): 0x09,
+    ("lda", "dp"): 0xA5, ("sta", "dp"): 0x85, ("sty", "dp"): 0x84, ("ldy", "dp"): 0xA4,
+    ("dec", "dp"): 0xC6, ("lsr", "dp"): 0x46, ("cpy", "dp"): 0xC4,
+    ("lda", "dpil"): 0xA7, ("lda", "dpily"): 0xB7,
+    ("sta", "long"): 0x8F,
+    ("sta", "absx"): 0x9D, ("lda", "absy"): 0xB9,
+    ("bne", "rel"): 0xD0, ("bcc", "rel"): 0x90, ("bra", "rel"): 0x80,
+}
+
+# The macros the routine uses, as the instructions they expand to.
+_ROUTINE_MACROS = {
+    "longa": [("rep", "#${:02x}".format(_PSW_A))],
+    "shorta": [("sep", "#${:02x}".format(_PSW_A))],
+    "clr_a": [("tdc", "")],
+    "lsr3": [("lsr", ""), ("lsr", ""), ("lsr", "")],
+}
+
+_RE_INSTRUCTION = re.compile(r"^([a-z][a-z0-9_]{2,6})(?:\s+(.*))?$")
+_RE_LOCAL_LABEL = re.compile(r"^(@[0-9a-f]+):\s*(.*)$")
+_RE_HARDWARE = re.compile(r"^(h[A-Z0-9]+)\s*:=\s*\$([0-9a-fA-F]+)\s*$")
+
+
+def read_hardware_ports(source_root):
+    """The `hNAME := $addr` constants of include/hardware.inc."""
+    path = os.path.join(source_root, "include", "hardware.inc")
+    ports = {}
+    with open(path, "r", encoding="utf-8") as fh:
+        for raw in fh:
+            code, _ = strip_comment(raw)
+            found = _RE_HARDWARE.match(code.strip())
+            if found:
+                ports[found.group(1)] = int(found.group(2), 16)
+    if not ports:
+        raise ParseError(path, 0, "no hardware ports found")
+    return ports
+
+
+def _operand_shape(operand, labels, ports, path, lineno):
+    """(shape, value) for one operand. A branch target comes back as its label."""
+    operand = operand.strip()
+    if operand == "":
+        return "none", None
+    if operand.startswith("#"):
+        value = common.parse_int_literal(operand[1:])
+        if value is None:
+            raise ParseError(path, lineno, "unknown immediate '{}'".format(operand))
+        return "imm", value
+    found = re.match(r"^\[(\$[0-9a-f]+)\](,y)?$", operand)
+    if found:
+        return ("dpily" if found.group(2) else "dpil"), common.parse_int_literal(found.group(1))
+    found = re.match(r"^f:(h[A-Z0-9]+)$", operand)
+    if found:
+        if found.group(1) not in ports:
+            raise ParseError(path, lineno, "unknown port '{}'".format(found.group(1)))
+        return "long", ports[found.group(1)]
+    found = re.match(r"^a:(\$[0-9a-f]{4}),x$", operand)
+    if found:
+        return "absx", common.parse_int_literal(found.group(1))
+    found = re.match(r"^(\$[0-9a-f]{4}),y$", operand)
+    if found:
+        return "absy", common.parse_int_literal(found.group(1))
+    if operand.startswith("@"):
+        return "rel", operand
+    found = re.match(r"^\$([0-9a-f]{2})$", operand)
+    if found:
+        return "dp", int(found.group(1), 16)
+    raise ParseError(path, lineno, "operand '{}' is not a shape the decompressor's "
+                     "assembler knows (grammar not covered — escalate, never guess)"
+                     .format(operand))
+
+
+def assemble_decompressor(lines, ports, path):
+    """Assemble Decompress_ext from `lines` (active_lines of btlgfx_main.asm).
+
+    Returns (bytes, in_bank_address) where the address is what the routine's first
+    local label states. The routine runs with 16-bit index registers throughout and
+    moves the accumulator's width with longa / shorta; an immediate under a width the
+    source has not said, or any instruction outside the routine's set, is an error.
+    """
+    body = []        # (lineno, label or None, mnemonic, operand)
+    inside = False
+    start = None
+    for lineno, code in lines:
+        if code is None:
+            if inside:
+                raise ParseError(path, lineno, "{} reaches a condition this reader does not "
+                                 "decide".format(DECOMPRESSOR_LABEL))
+            continue
+        if not code:
+            continue
+        if not inside:
+            if _RE_LABEL.match(code) and _RE_LABEL.match(code).group(1) == DECOMPRESSOR_LABEL:
+                inside = True
+            continue
+        label = None
+        found = _RE_LOCAL_LABEL.match(code)
+        if found:
+            label, code = found.group(1), found.group(2).strip()
+            if start is None:
+                start = int(label[1:], 16)
+        if not code:
+            body.append((lineno, label, None, ""))
+            continue
+        if _RE_LABEL.match(code):
+            raise ParseError(path, lineno, "{} runs into another routine before its rtl"
+                             .format(DECOMPRESSOR_LABEL))
+        instruction = _RE_INSTRUCTION.match(code)
+        if not instruction:
+            raise ParseError(path, lineno, "'{}' is not an instruction".format(code))
+        mnemonic, operand = instruction.group(1), (instruction.group(2) or "").strip()
+        if mnemonic in _ROUTINE_MACROS:
+            if operand:
+                raise ParseError(path, lineno, "{} takes no operand".format(mnemonic))
+            expanded = _ROUTINE_MACROS[mnemonic]
+            body.append((lineno, label, expanded[0][0], expanded[0][1]))
+            for inner in expanded[1:]:
+                body.append((lineno, None, inner[0], inner[1]))
+        else:
+            body.append((lineno, label, mnemonic, operand))
+        if mnemonic == "rtl":
+            break
+    if not inside:
+        raise ParseError(path, 0, "{} not found".format(DECOMPRESSOR_LABEL))
+    if start is None or body[-1][2] != "rtl":
+        raise ParseError(path, body[-1][0] if body else 0,
+                         "{} has no local label or does not end in rtl".format(DECOMPRESSOR_LABEL))
+
+    # Pass one: sizes and label offsets. Pass two: bytes.
+    offsets = {}
+    at = 0
+    sized = []
+    accumulator_wide = False
+    for lineno, label, mnemonic, operand in body:
+        if label is not None:
+            offsets[label] = at
+        if mnemonic is None:
+            continue
+        shape, value = _operand_shape(operand, offsets, ports, path, lineno)
+        if shape == "imm":
+            if mnemonic in ("ldx", "ldy"):
+                shape = "imm16"
+            elif mnemonic in ("rep", "sep"):
+                shape = "imm8"
+            elif accumulator_wide:
+                raise ParseError(path, lineno, "a 16-bit accumulator immediate is not in the "
+                                 "decompressor's instruction set")
+            else:
+                shape = "imm8"
+        key = (mnemonic, shape)
+        if key not in _OPCODES:
+            raise ParseError(path, lineno, "'{} {}' is not in the decompressor's instruction set "
+                             "(grammar not covered — escalate, never guess)"
+                             .format(mnemonic, operand))
+        if mnemonic == "rep" and value & _PSW_A:
+            accumulator_wide = True
+        if mnemonic == "sep" and value & _PSW_A:
+            accumulator_wide = False
+        size = {"none": 1, "imm8": 2, "imm16": 3, "dp": 2, "dpil": 2, "dpily": 2, "long": 4,
+                "absx": 3, "absy": 3, "rel": 2}[shape]
+        sized.append((lineno, key, shape, value, at))
+        at += size
+    out = []
+    for lineno, key, shape, value, offset in sized:
+        out.append(_OPCODES[key])
+        if shape in ("imm8", "dp", "dpil", "dpily"):
+            out.append(value & 0xFF)
+        elif shape in ("imm16", "absx", "absy"):
+            out += [value & 0xFF, (value >> 8) & 0xFF]
+        elif shape == "long":
+            out += [value & 0xFF, (value >> 8) & 0xFF, (value >> 16) & 0xFF]
+        elif shape == "rel":
+            if value not in offsets:
+                raise ParseError(path, lineno, "branch to unknown label {}".format(value))
+            distance = offsets[value] - (offset + 2)
+            if not -128 <= distance <= 127:
+                raise ParseError(path, lineno, "branch to {} is out of range".format(value))
+            out.append(distance & 0xFF)
+    return bytes(out), start
+
+
+def count_decompressor_calls(lines):
+    """How many times the source calls Decompress_ext with jsl."""
+    return sum(1 for _, code in lines
+               if code is not None and re.match(r"^jsl\s+" + DECOMPRESSOR_LABEL + r"\b", code))
+
+
+def place_decompressor(source_root, rom):
+    """The decompressor's bytes: English only, assembled from the source and found
+    once in the battle graphics program's banks, where its own label puts it."""
+    import parse_font_metrics
+
+    paths = _paths(source_root)
+    path = paths["btlgfx_asm"]
+    lines = active_lines(path, EN)
+    routine, in_bank = assemble_decompressor(lines, read_hardware_ports(source_root), path)
+    if rom is None:
+        raise ParseError(path, 0, "the decompressor's address is read off the cartridge — set "
+                         "FF6_VANILLA_ROM")
+    hits = []
+    for bank in DEATH_PAL_BANKS:
+        base = common.hirom_file_offset(bank)
+        data = bytes(rom[base:base + BANK_SIZE])
+        start = 0
+        while True:
+            found = data.find(routine, start)
+            if found < 0:
+                break
+            hits.append(bank | found)
+            start = found + 1
+    _expect(path, len(hits) == 1, "the decompressor's {} assembled bytes occur {} times in the "
+            "battle graphics banks, expected exactly once".format(len(routine), len(hits)))
+    begin = hits[0]
+    _expect(path, (begin & 0xFFFF) == in_bank, "the decompressor is at ${:06x}, but its label "
+            "says ${:04x}".format(begin, in_bank))
+    call = bytes([JSL, begin & 0xFF, (begin >> 8) & 0xFF, (begin >> 16) & 0xFF])
+    calls = 0
+    for bank in DEATH_PAL_BANKS:
+        base = common.hirom_file_offset(bank)
+        calls += bytes(rom[base:base + BANK_SIZE]).count(call)
+    # Bank $C2 also holds cutscene code that calls the decompressor, so the banks may hold
+    # more calls than the battle graphics source makes, never fewer.
+    in_source = count_decompressor_calls(lines)
+    _expect(path, in_source > 0 and calls >= in_source, "{} long calls of ${:06x} in the battle "
+            "graphics banks, but the battle graphics source makes {}".format(calls, begin,
+                                                                             in_source))
+    return [parse_font_metrics.Placement(language="en", begin=begin, size=len(routine),
+                                         proved=len(routine))]
+
+
 # --- rendering -----------------------------------------------------------------
 
 _HEADER = (
@@ -1139,6 +1535,37 @@ def render_palettes_inc(tables, symbols):
         palette = _RE_SCOPED.match(item.text).group(2)
         key = ("CharacterGfxId::" + graphics[slot]) if slot in graphics else "kGreenSoldierGraphics"
         out.append("    {{ {}, BattleCharacterPalette::{} }},\n".format(key, palette))
+    return "".join(out)
+
+
+def render_sheets_inc(tables, symbols):
+    graphics = symbols.members_by_value("CHAR_GFX")
+    out = [_HEADER.format(_source("CharGfxPtrs") + "; src/gfx/map_sprite_gfx.asm (MapSpriteGfx)"),
+           _note("{ CharacterGfxId, SheetPlace } pairs in graphics order, #included\n"
+                     "inside the kCharacterSheets array in src/data/battle_gfx_tables.cpp:\n"
+                     "where each slot's sprite sheet lies in the MAP_SPRITE_GFX family, in\n"
+                     "bytes from the family's start, and how long the sheet is. The last\n"
+                     "slot, kGreenSoldierGraphics, draws the soldier's sheet. A compile-time\n"
+                     "assert verifies graphics == position.")]
+    for sheet in tables.sheets:
+        key = ("CharacterGfxId::" + graphics[sheet.slot]) if sheet.slot in graphics \
+            else "kGreenSoldierGraphics"
+        out.append("    {{ {}, SheetPlace{{ .offset = {}, .bytes = {} }} }},\n".format(
+            key, sheet.offset, sheet.size))
+    return "".join(out)
+
+
+def render_status_colors_inc(tables):
+    colors = _numbers(tables.items["_c2c689"])
+    out = [_HEADER.format(_source("_c2c689")),
+           _note("StatusColorEntry rows in party-slot order, #included inside the\n"
+                     "kStatusColors array in src/data/battle_gfx_tables.cpp: the four colors\n"
+                     "that follow a party member's twelve, as the cartridge's color words. A\n"
+                     "compile-time assert verifies slot == position.")]
+    for slot in range(STATUS_COLOR_ROWS):
+        row = colors[slot * STATUS_COLORS_PER_ROW:(slot + 1) * STATUS_COLORS_PER_ROW]
+        out.append("    {{ .slot = {}, .colors = {{ {} }} }},\n".format(
+            slot, ", ".join("CartridgeColor{{0x{:04X}}}".format(v) for v in row)))
     return "".join(out)
 
 
@@ -1413,7 +1840,10 @@ def render_fixture(by_language):
     out.append("// The empty gauge cell's small-font glyph in each build.\n"
                "inline constexpr std::uint8_t kExpectedGaugeEmptyGlyphEn = 0x{:02X};\n"
                "inline constexpr std::uint8_t kExpectedGaugeEmptyGlyphJp = 0x{:02X};\n\n"
-               "}}  // namespace ostinato::test\n".format(en.gauge_empty, jp.gauge_empty))
+               .format(en.gauge_empty, jp.gauge_empty))
+    out.append("// Where the map sprite sheets begin, which every CharGfxPtrs pointer counts from.\n"
+               "inline constexpr std::uint32_t kExpectedMapSpriteGfxBegin = 0x{:06X};\n\n"
+               "}}  // namespace ostinato::test\n".format(en.sheets[0].family_begin))
     return "".join(out)
 
 
@@ -1437,6 +1867,8 @@ FIXTURE_NAMES = {
     "GaugeTextTbl": "GaugeSteps",
     "_c197a1": "NameKinds",
     "MsgSpeedTbl": "MessageSpeeds",
+    "_c2c689": "StatusColors",
+    "CharGfxPtrs": "CharacterSheetPointers",
 }
 
 
@@ -1473,6 +1905,8 @@ def run(source_root, outputs, check_only=False):
         "frames": render_frames_inc(en),
         "poses": render_poses_inc(en),
         "palettes": render_palettes_inc(en, en_symbols),
+        "sheets": render_sheets_inc(en, en_symbols),
+        "status_colors": render_status_colors_inc(en),
         "placement": render_placement_inc(en),
         "magitek": render_magitek_inc(en),
         "waiting": render_waiting_inc(en),
@@ -1513,6 +1947,8 @@ OUTPUTS = {
     "frames": "src/data/generated/battle_character_frames_data.inc",
     "poses": "src/data/generated/battle_character_poses_data.inc",
     "palettes": "src/data/generated/battle_character_palettes_data.inc",
+    "sheets": "src/data/generated/battle_character_sheets_data.inc",
+    "status_colors": "src/data/generated/battle_status_colors_data.inc",
     "placement": "src/data/generated/battle_party_placement_data.inc",
     "magitek": "src/data/generated/battle_magitek_train_party_data.inc",
     "waiting": "src/data/generated/battle_command_waiting_poses_data.inc",

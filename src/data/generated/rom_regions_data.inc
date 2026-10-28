@@ -337,3 +337,4 @@
     { .asset = RomAsset::BATTLE_BG_TILES_PTRS,     .language = Language::JP, .region = { .at = 0xE71848, .size =    224 } },
     { .asset = RomAsset::BATTLE_BG_TILES_PTRS,     .language = Language::EN, .region = { .at = 0xE71848, .size =    224 } },
     { .asset = RomAsset::MONSTER_DEATH_PAL,        .language = Language::EN, .region = { .at = 0xC2B05D, .size =     32 } },
+    { .asset = RomAsset::DECOMPRESS_ROUTINE,       .language = Language::EN, .region = { .at = 0xC2FF6D, .size =    147 } },

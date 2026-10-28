@@ -58,8 +58,10 @@ add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp
     src/assets/asset_root.cpp
     src/assets/cartridge.cpp
+    src/assets/cartridge_routines.cpp
     src/assets/first_start.cpp
     src/assets/rom_reader.cpp
+    src/assets/tile_planes.cpp
     src/battle/action_queue.cpp
     src/battle/actions.cpp
     src/battle/attack.cpp
@@ -120,8 +122,11 @@ add_library(ostinato-vi-lib STATIC
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
     src/data/battle_backgrounds.cpp
+    src/data/battle_background_art.cpp
     src/data/battle_gfx_tables.cpp
     src/data/char_ai.cpp
+    src/data/character_battle_sheet.cpp
+    src/data/monster_image.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
     src/render/color_gradient.cpp
@@ -139,6 +144,7 @@ add_library(ostinato-vi-lib STATIC
     src/text/dialog.cpp
     src/text/dialog_window.cpp
     src/text/font.cpp
+    src/text/small_font.cpp
     src/text/window_art.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
@@ -498,9 +504,15 @@ gtest_discover_tests(ostinato-vi-dialog-window-tests)
 # the battle's windows draw in, checked by hand and over every wallpaper the cartridge holds. Own
 # binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-preview-tests
+    tests/test_battle_background_art.cpp
     tests/test_battle_gfx_tables.cpp
     tests/test_battle_window_colors.cpp
-    tests/test_color_gradient.cpp)
+    tests/test_cartridge_routines.cpp
+    tests/test_character_battle_sheet.cpp
+    tests/test_color_gradient.cpp
+    tests/test_monster_image.cpp
+    tests/test_small_font.cpp
+    tests/test_tile_planes.cpp)
 target_compile_features(ostinato-vi-battle-preview-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-preview-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-preview-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

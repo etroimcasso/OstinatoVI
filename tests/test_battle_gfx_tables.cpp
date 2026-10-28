@@ -2,6 +2,7 @@
 // bytes in the fixture, plus rows traced by hand from btlgfx_main.asm.
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <cstdint>
@@ -107,6 +108,74 @@ TEST(BattleGfxTables, EveryPaletteMatchesTheCartridge) {
 }
 
 // CharPalTbl :42720-42743.
+TEST(BattleGfxTables, EveryStatusColorMatchesTheCartridge) {
+    const auto rows = statusColorRows();
+    ASSERT_EQ(rows.size(), kPartySlotCount);
+    for (std::size_t slot = 0; slot < rows.size(); ++slot) {
+        EXPECT_EQ(rows[slot].slot, slot);
+        for (std::size_t c = 0; c < kStatusColorCount; ++c) {
+            EXPECT_EQ(statusColors(slot)[c].word,
+                      wordAt(test::kExpectedStatusColors, slot * kStatusColorCount + c))
+                << "slot " << slot << " color " << c;
+        }
+    }
+}
+
+// _c2c689 :42500-42503: the first three rows open on the same dark color, the fourth does not.
+TEST(BattleGfxTables, HandTracedStatusColors) {
+    EXPECT_EQ(statusColors(0)[0], CartridgeColor{0x1463});
+    EXPECT_EQ(statusColors(2)[0], CartridgeColor{0x1463});
+    EXPECT_EQ(statusColors(3)[0], CartridgeColor{0x43FD});
+    EXPECT_EQ(statusColors(0)[1], CartridgeColor{0x7FFE});
+    EXPECT_EQ(statusColors(3)[2].red5(), 0u);
+    EXPECT_EQ(statusColors(3)[2].green5(), 31u);
+    EXPECT_EQ(statusColors(3)[2].blue5(), 0u);
+}
+
+// Every sheet pointer the cartridge holds is the family's start plus the slot's offset.
+TEST(BattleGfxTables, EverySheetPlaceMatchesTheCartridgesPointer) {
+    const auto sheets = characterSheets();
+    ASSERT_EQ(sheets.size() * 3, test::kExpectedCharacterSheetPointers.size());
+    for (std::size_t slot = 0; slot < sheets.size(); ++slot) {
+        const std::uint32_t pointer = test::kExpectedCharacterSheetPointers[3 * slot] |
+                                      test::kExpectedCharacterSheetPointers[3 * slot + 1] << 8 |
+                                      test::kExpectedCharacterSheetPointers[3 * slot + 2] << 16;
+        EXPECT_EQ(test::kExpectedMapSpriteGfxBegin + sheets[slot].sheet.offset, pointer)
+            << "slot " << slot;
+        EXPECT_EQ(static_cast<std::size_t>(sheets[slot].graphics), slot);
+    }
+}
+
+// CharGfxPtrs :42748-42752: the first sheet is Terra's at the family's start, Gestahl's is the
+// short one, and the green soldier's slot points at the soldier's sheet.
+TEST(BattleGfxTables, HandTracedSheets) {
+    EXPECT_EQ(characterSheet(CharacterGfxId::TERRA), (SheetPlace{.offset = 0, .bytes = 5792}));
+    EXPECT_EQ(characterSheet(CharacterGfxId::LOCKE).offset, 5792u);
+    EXPECT_EQ(characterSheet(CharacterGfxId::GESTAHL).bytes, 1760u);
+    EXPECT_EQ(characterSheet(kGreenSoldierGraphics), characterSheet(CharacterGfxId::SOLDIER));
+}
+
+// The frames reach 5,280 bytes into a sheet (sheet tile 164's end). Every sheet but Gestahl's
+// holds that much; his frames read on into the sheet after his, as the loader does.
+TEST(BattleGfxTables, EverySheetButGestahlsHoldsEveryFrame) {
+    std::uint32_t furthest = 0;
+    for (const CharacterFrameEntry& frame : characterFrames()) {
+        for (const SheetTile tile : frame.tiles) {
+            if (!tile.isBlank()) {
+                furthest = std::max(furthest, static_cast<std::uint32_t>(tile.raw) + SheetTile::kTileBytes);
+            }
+        }
+    }
+    EXPECT_EQ(furthest, 5280u);
+    for (const CharacterSheetEntry& entry : characterSheets()) {
+        if (entry.graphics == CharacterGfxId::GESTAHL) {
+            EXPECT_LT(entry.sheet.bytes, furthest);
+        } else {
+            EXPECT_GE(entry.sheet.bytes, furthest) << static_cast<int>(entry.graphics);
+        }
+    }
+}
+
 TEST(BattleGfxTables, HandTracedPalettes) {
     EXPECT_EQ(battleCharacterPalette(CharacterGfxId::TERRA), BattleCharacterPalette::TERRA);
     EXPECT_EQ(battleCharacterPalette(CharacterGfxId::SHADOW), BattleCharacterPalette::SHADOW);

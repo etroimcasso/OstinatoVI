@@ -19,8 +19,8 @@ Sources:
     arranging it are left in the assembly, so their extent is resolved from the
     assembly and proved against the cartridge instead (see _ASM_REGIONS). The
     dialog font's width table, the choice-cursor arrow, the monster graphics
-    properties, the battle backgrounds' two pointer tables and the dying
-    monster's palette are five more.
+    properties, the battle backgrounds' two pointer tables, the dying
+    monster's palette and the decompressor routine are six more.
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
@@ -175,13 +175,21 @@ def _resolve_monster_death_pal(source_root, _rip_rows):
         source_root, _load_rom_if_present(source_root))
 
 
+def _resolve_decompressor(source_root, _rip_rows):
+    """The cartridge's LZ decoder: English only, assembled from the source and
+    found once in the battle graphics code."""
+    return parse_battle_gfx_tables.place_decompressor(
+        source_root, _load_rom_if_present(source_root))
+
+
 # The families sourced from the assembly: the world animation frames, whose
 # artwork upstream rips but whose arrangements it leaves in the assembly; the
 # dialog font's width table, between two ripped fonts; the choice-cursor
 # arrow, inside the field code; the monster graphics properties, which
 # upstream assembles from the graphics it rips; the battle backgrounds' two
-# pointer tables, between the ripped palettes and tilemaps; and the dying
-# monster's palette, inside the battle graphics code.
+# pointer tables, between the ripped palettes and tilemaps; the dying
+# monster's palette, inside the battle graphics code; and the decompressor the
+# battle backgrounds are decoded by, a routine of that same code.
 _ASM_REGIONS = (
     AsmRegion(asset="WORLD_ANIM_FRAMES",
               path="src/world/world_anim.asm",
@@ -204,6 +212,9 @@ _ASM_REGIONS = (
     AsmRegion(asset="MONSTER_DEATH_PAL",
               path="src/btlgfx/btlgfx_main.asm",
               resolve=_resolve_monster_death_pal),
+    AsmRegion(asset="DECOMPRESS_ROUTINE",
+              path="src/btlgfx/btlgfx_main.asm",
+              resolve=_resolve_decompressor),
 )
 
 # Upstream ROM names -> the GameVersion enumerator each is. Every name the CRC

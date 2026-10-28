@@ -4,7 +4,9 @@
 #include <cstddef>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <stdexcept>
+#include <string>
 #include <string_view>
 #include <utility>
 #include <vector>
@@ -211,8 +213,38 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
     const retropp::DataId monsterProperties = library.uploadData(cartridge.read(*monsterPropertiesPlace));
     const retropp::DataId smallStencils = library.uploadData(cartridge.read(*smallStencilPlace));
     const retropp::DataId largeStencils = library.uploadData(cartridge.read(*largeStencilPlace));
+    const MonsterSprites monsterSprites{library.data(monsterProperties), library.data(smallStencils),
+                                        library.data(largeStencils)};
 
-    return IngestedContent{
+    // The battle's artwork is the largest part of what a launch reads, so the whole image is
+    // cataloged once and every art family is a view into that copy.
+    const HiRomImage art{library.data(library.uploadData(image))};
+    const auto artRegion = [&](RomAsset asset, const char* what) {
+        const std::optional<retropp::MemoryRegion> place = romRegion(asset, spoken);
+        if (!place) {
+            throw std::runtime_error(std::string{"The cartridge has no "} + what + ".");
+        }
+        return *place;
+    };
+    const auto artStretch = [&](RomAsset asset, const char* what) {
+        const retropp::MemoryRegion place = artRegion(asset, what);
+        return CartridgeStretch{.at = place.at, .bytes = art.read(place)};
+    };
+    const auto artBytes = [&](RomAsset asset, const char* what) {
+        return art.read(artRegion(asset, what));
+    };
+    // One battle background's map graphics block begins inside the map graphics and is copied on
+    // past the family's end, so the decoder is given the family and everything after it.
+    const retropp::MemoryRegion mapGraphicsPlace = artRegion(RomAsset::MAP_GFX, "map graphics");
+    const CartridgeStretch mapGraphics{.at = mapGraphicsPlace.at,
+                                       .bytes = art.readToEnd(mapGraphicsPlace.at)};
+
+    std::unique_ptr<CartridgeRoutines> routines;
+    if (const auto decompressor = romRegion(RomAsset::DECOMPRESS_ROUTINE, spoken)) {
+        routines = std::make_unique<CartridgeRoutines>(art.read(*decompressor));
+    }
+
+    IngestedContent content{
         .version = *version,
         .text = TextCorpus{std::move(corpus)},
         .worldTiles = WorldTilePool{library.data(pool), poolOffsetInBlock},
@@ -225,9 +257,23 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
             .tiles = library.data(wallpapers),
             .palettes = library.data(palettes),
         },
-        .monsterSprites = MonsterSprites{library.data(monsterProperties), library.data(smallStencils),
-                                         library.data(largeStencils)},
+        .monsterSprites = monsterSprites,
+        .battleBackgrounds = BattleBackgroundArt{
+            artBytes(RomAsset::BATTLE_BG_GFX_PTRS, "battle background graphics pointers"),
+            artBytes(RomAsset::BATTLE_BG_TILES_PTRS, "battle background tilemap pointers"),
+            artStretch(RomAsset::BATTLE_BG_GFX, "battle background graphics"),
+            artStretch(RomAsset::BATTLE_BG_TILES, "battle background tilemaps"),
+            mapGraphics,
+            artBytes(RomAsset::BATTLE_BG_PAL, "battle background palettes")},
+        .monsterImages = MonsterImages{monsterSprites, artBytes(RomAsset::MONSTER_GFX_TRIMMED, "monster graphics"),
+                                       artBytes(RomAsset::MONSTER_GFX_PAL, "monster palettes")},
+        .characterSheets = CharacterBattleSheets{artBytes(RomAsset::MAP_SPRITE_GFX, "map sprite sheets"),
+                                                 artBytes(RomAsset::BATTLE_CHAR_PAL, "battle character palettes")},
+        .smallFont = artBytes(RomAsset::SMALL_FONT, "small font"),
+        .smallFontColors = artBytes(RomAsset::BATTLE_FONT_PAL, "battle font palettes"),
+        .routines = std::move(routines),
     };
+    return content;
 }
 
 IngestedContent ingestCartridge() {

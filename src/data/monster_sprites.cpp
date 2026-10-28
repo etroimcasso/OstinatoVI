@@ -124,12 +124,19 @@ std::size_t MonsterSprites::graphicsCount() const {
     return properties_.size() / kPropertyBytes;
 }
 
-MonsterStencil MonsterSprites::stencil(MonsterId monster) const {
+std::span<const std::uint8_t> MonsterSprites::properties(MonsterId monster) const {
     const auto graphic = static_cast<std::size_t>(monster);
     if (graphic >= graphicsCount()) {
         return {};
     }
-    const std::span<const std::uint8_t> record = properties_.subspan(graphic * kPropertyBytes, kPropertyBytes);
+    return properties_.subspan(graphic * kPropertyBytes, kPropertyBytes);
+}
+
+MonsterStencil MonsterSprites::stencil(MonsterId monster) const {
+    const std::span<const std::uint8_t> record = properties(monster);
+    if (record.empty()) {
+        return {};
+    }
     const bool large = (record[kLargeStencilFlagByte] & kLargeStencilFlag) != 0;
     const std::span<const std::uint8_t> family = large ? largeStencils_ : smallStencils_;
     const std::size_t width = large ? kLargeStencilBytes : kSmallStencilBytes;

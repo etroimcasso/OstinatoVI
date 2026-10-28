@@ -105,6 +105,10 @@ public:
     // box. The Ghost Train always stands 16 × 14, whatever its stencil and box.
     MonsterSpriteSize size(MonsterId monster, MonsterSpriteSize box) const;
 
+    // `monster`'s five-byte graphics-properties record, or empty when the properties do not reach
+    // it.
+    std::span<const std::uint8_t> properties(MonsterId monster) const;
+
 private:
     std::span<const std::uint8_t> properties_{};
     std::span<const std::uint8_t> smallStencils_{};

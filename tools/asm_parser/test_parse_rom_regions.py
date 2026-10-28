@@ -554,12 +554,15 @@ class EndToEndTests(unittest.TestCase):
             # The dying monster's palette sits in the battle graphics code, so
             # only English.
             ("MONSTER_DEATH_PAL", "en"): (0xC2B05D, 32),
+            # The decompressor is a routine of the battle graphics code,
+            # assembled from its source and found once; only English.
+            ("DECOMPRESS_ROUTINE", "en"): (0xC2FF6D, 147),
         })
         # Every English byte of the first three is compared with the
         # cartridge, and every English monster record's stencil number; every
-        # English pointer and the palette's bytes are checked; the Japanese
-        # rows are placed by their neighbors alone.
-        self.assertEqual(checked, 5294 + 256 + 12 + 416 + 504 + 224 + 32)
+        # English pointer, the palette's bytes and the decompressor's bytes are
+        # checked; the Japanese rows are placed by their neighbors alone.
+        self.assertEqual(checked, 5294 + 256 + 12 + 416 + 504 + 224 + 32 + 147)
 
     def test_run_check_only_ok(self):
         self.assertEqual(prr.run(self.root, self.repo, check_only=True), 0)

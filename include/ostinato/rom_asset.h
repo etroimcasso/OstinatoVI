@@ -197,10 +197,11 @@ enum class RomAsset : std::uint8_t {
     BATTLE_BG_GFX_PTRS,
     BATTLE_BG_TILES_PTRS,
     MONSTER_DEATH_PAL,
+    DECOMPRESS_ROUTINE,
 };
 
 // How many families there are. The region table's asset column
 // never exceeds this.
-inline constexpr std::size_t kRomAssetCount = 163;
+inline constexpr std::size_t kRomAssetCount = 164;
 
 }  // namespace ostinato

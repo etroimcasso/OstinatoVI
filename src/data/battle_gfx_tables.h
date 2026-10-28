@@ -1,7 +1,8 @@
 // The tables a battle's picture is placed and timed by: the frames and poses a party member is
-// drawn in, each one's palette, where the party stands, the pose a party member waits in before
-// acting, how a damage numeral bounces, the HUD's gauge cells, how long a message stays up, where
-// a colosseum monster stands, the glyphs the numerals are cut from, the battle windows' tiles and
+// drawn in, each one's palette and the four status colors beside it, where each one's sprite sheet
+// lies in the cartridge, where the party stands, the pose a party member waits in before acting,
+// how a damage numeral bounces, the HUD's gauge cells, how long a message stays up, where a
+// colosseum monster stands, the glyphs the numerals are cut from, the battle windows' tiles and
 // places, where the HUD text sits, and what each kind of name in the narrow window reads. The rows
 // are generated (src/data/generated/battle_*_data.inc); this header owns the row types and the
 // lookups.
@@ -27,6 +28,7 @@
 #include "ostinato/game_version.h"
 #include "ostinato/monster_vertical_alignment.h"
 #include "ostinato/window_tile.h"
+#include "data/cartridge_color.h"
 
 namespace ostinato {
 
@@ -130,6 +132,45 @@ BattleCharacterPalette battleCharacterPalette(CharacterGfxId graphics);
 
 // All 24 slots in order.
 std::span<const CharacterPaletteEntry> battleCharacterPalettes();
+
+// A party member's palette is twelve colors from its battle palette followed by four more, one
+// row of these per party slot: the colors its status effects, its cursor and its text draw in.
+inline constexpr std::size_t kStatusColorCount = 4;
+
+struct StatusColorEntry {
+    std::uint8_t slot;
+    std::array<CartridgeColor, kStatusColorCount> colors;
+};
+
+// The four colors party slot `slot`'s palette ends in. PRECONDITION (asserted): `slot` is below 4.
+std::span<const CartridgeColor, kStatusColorCount> statusColors(std::size_t slot);
+
+// All four rows in order.
+std::span<const StatusColorEntry> statusColorRows();
+
+// --- the party's sprite sheets ---------------------------------------------------------------------
+
+// A party member's frames are cut from its field sprite sheet, one of the sheets the cartridge's
+// MAP_SPRITE_GFX family holds end to end. Each graphics slot names where its sheet lies in the
+// family and how long it is; the green soldier draws the soldier's sheet.
+struct SheetPlace {
+    std::uint32_t offset;  // bytes from the family's start
+    std::uint32_t bytes;   // the sheet's own length
+
+    constexpr bool operator==(const SheetPlace&) const = default;
+};
+
+struct CharacterSheetEntry {
+    CharacterGfxId graphics;
+    SheetPlace sheet;
+};
+
+// Where the sheet of a party member with `graphics` lies. PRECONDITION (asserted): `graphics` is
+// a named graphics slot or kGreenSoldierGraphics.
+SheetPlace characterSheet(CharacterGfxId graphics);
+
+// All 24 slots in order.
+std::span<const CharacterSheetEntry> characterSheets();
 
 // --- where the party stands -------------------------------------------------------------------------
 

@@ -20,6 +20,14 @@ constexpr std::array<CharacterPaletteEntry, kBattleGraphicsCount> kCharacterPale
 #include "data/generated/battle_character_palettes_data.inc"
 }};
 
+constexpr std::array<StatusColorEntry, kPartySlotCount> kStatusColors = {{
+#include "data/generated/battle_status_colors_data.inc"
+}};
+
+constexpr std::array<CharacterSheetEntry, kBattleGraphicsCount> kCharacterSheets = {{
+#include "data/generated/battle_character_sheets_data.inc"
+}};
+
 constexpr std::array<PartyPlacementEntry, kBattleLayoutCount> kPartyPlacements = {{
 #include "data/generated/battle_party_placement_data.inc"
 }};
@@ -113,6 +121,10 @@ static_assert(identitiesMatchPositions(kCharacterPoses, [](const auto& e) { retu
               "kCharacterPoses pose fields must match array positions");
 static_assert(identitiesMatchPositions(kCharacterPalettes, [](const auto& e) { return e.graphics; }),
               "kCharacterPalettes graphics fields must match array positions");
+static_assert(identitiesMatchPositions(kStatusColors, [](const auto& e) { return e.slot; }),
+              "kStatusColors slot fields must match array positions");
+static_assert(identitiesMatchPositions(kCharacterSheets, [](const auto& e) { return e.graphics; }),
+              "kCharacterSheets graphics fields must match array positions");
 static_assert(identitiesMatchPositions(kPartyPlacements, [](const auto& e) { return e.layout; }),
               "kPartyPlacements layout fields must match array positions");
 static_assert(identitiesMatchPositions(kMagitekTrainParty, [](const auto& e) { return e.slot; }),
@@ -171,6 +183,21 @@ BattleCharacterPalette battleCharacterPalette(CharacterGfxId graphics) {
 }
 
 std::span<const CharacterPaletteEntry> battleCharacterPalettes() { return kCharacterPalettes; }
+
+std::span<const CartridgeColor, kStatusColorCount> statusColors(std::size_t slot) {
+    assert(slot < kStatusColors.size() && "no such party slot");
+    return kStatusColors[slot].colors;
+}
+
+std::span<const StatusColorEntry> statusColorRows() { return kStatusColors; }
+
+SheetPlace characterSheet(CharacterGfxId graphics) {
+    const auto index = static_cast<std::size_t>(graphics);
+    assert(index < kCharacterSheets.size() && "no sprite sheet for these graphics");
+    return kCharacterSheets[index].sheet;
+}
+
+std::span<const CharacterSheetEntry> characterSheets() { return kCharacterSheets; }
 
 std::span<const PartySlotPlacement, kPartySlotCount> partyPlacement(std::size_t layout) {
     assert(layout < kPartyPlacements.size() && "no such battle layout");
