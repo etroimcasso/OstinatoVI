@@ -10,7 +10,8 @@
 // first field one unless --background names another.
 //
 // The wiring only: the engine, the cartridge read, a battle started per formation, its art decoded
-// and uploaded, and the screen (battle_preview.h) assembled for each picture. Install a cartridge
+// and uploaded once per background, monster and party member, and the screen (battle_preview.h)
+// assembled for each picture. Install a cartridge
 // first with `ostinato-vi --install-rom <path>`; this reads the same one.
 
 #include <array>
@@ -21,11 +22,13 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -213,22 +216,48 @@ preview::BattlerSheet uploadCharacter(retropp::Renderer& renderer, const assets:
     };
 }
 
+// What has been uploaded so far. The renderer keeps every upload for its own lifetime and its
+// store has a ceiling, so each background, monster and party member is uploaded once and reused
+// across the formations a run shows.
+struct Uploaded {
+    struct Background {
+        BattleBackgroundPicture picture;
+        render::BackgroundSheet sheet;
+    };
+    std::optional<retropp::AtlasManifest> backdrop;
+    retropp::PaletteId backdropColor;
+    std::map<BattleBackgroundId, Background> backgrounds;
+    std::map<std::tuple<MonsterId, int, int>, preview::BattlerSheet> monsters;      // by size too
+    std::map<std::pair<CharacterGfxId, std::size_t>, preview::BattlerSheet> party;  // by party slot too
+};
+
 // Everything the screen draws for `state`: the backdrop, the background decoded through the
-// cartridge's decompressor, and every battler present.
-preview::BattleSheets uploadSheets(retropp::Renderer& renderer, const assets::IngestedContent& content,
-                                   const battle::BattleState& state) {
+// cartridge's decompressor, and every battler present — each uploaded the first time it is seen.
+preview::BattleSheets sheetsFor(retropp::Renderer& renderer, const assets::IngestedContent& content,
+                                const battle::BattleState& state, Uploaded& uploaded) {
     preview::BattleSheets sheets;
 
-    const std::vector<std::uint8_t> solid(static_cast<std::size_t>(assets::kTilePx * assets::kTilePx), 1);
-    sheets.backdrop = renderer.uploadAtlas(solid.data(), assets::kTilePx, assets::kTilePx,
-                                           retropp::AssetDimensions{assets::kTilePx, assets::kTilePx},
-                                           retropp::ContentKind::Tileset, retropp::ReadOrder::LeftRightThenDown, 1);
-    const text::SmallFontPalettes fontPalettes = text::smallFontPalettes(content.smallFontColors, kFontColor);
-    const std::array<retropp::Rgba8, 2> backdrop{retropp::Rgba8{}, fontPalettes[0][0].toRgba8()};
-    sheets.backdropColor = renderer.uploadPalette(backdrop);
+    if (!uploaded.backdrop) {
+        const std::vector<std::uint8_t> solid(static_cast<std::size_t>(assets::kTilePx * assets::kTilePx), 1);
+        uploaded.backdrop = renderer.uploadAtlas(solid.data(), assets::kTilePx, assets::kTilePx,
+                                                 retropp::AssetDimensions{assets::kTilePx, assets::kTilePx},
+                                                 retropp::ContentKind::Tileset,
+                                                 retropp::ReadOrder::LeftRightThenDown, 1);
+        const text::SmallFontPalettes fontPalettes = text::smallFontPalettes(content.smallFontColors, kFontColor);
+        const std::array<retropp::Rgba8, 2> backdrop{retropp::Rgba8{}, fontPalettes[0][0].toRgba8()};
+        uploaded.backdropColor = renderer.uploadPalette(backdrop);
+    }
+    sheets.backdrop = *uploaded.backdrop;
+    sheets.backdropColor = uploaded.backdropColor;
 
-    sheets.picture = content.battleBackgrounds.load(state.background, *content.routines);
-    sheets.background = uploadBackground(renderer, sheets.picture);
+    auto background = uploaded.backgrounds.find(state.background);
+    if (background == uploaded.backgrounds.end()) {
+        Uploaded::Background decoded{.picture = content.battleBackgrounds.load(state.background, *content.routines)};
+        decoded.sheet = uploadBackground(renderer, decoded.picture);
+        background = uploaded.backgrounds.emplace(state.background, std::move(decoded)).first;
+    }
+    sheets.picture = background->second.picture;
+    sheets.background = background->second.sheet;
 
     const Formation& formation = getFormation(state.formation);
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
@@ -243,11 +272,21 @@ preview::BattleSheets uploadSheets(retropp::Renderer& renderer, const assets::In
             if (!battler.monster || !box) {
                 continue;
             }
-            sheets.battlers[static_cast<std::size_t>(index)] =
-                uploadMonster(renderer, content, *battler.monster, content.monsterSprites.size(*battler.monster, *box));
+            const MonsterSpriteSize size = content.monsterSprites.size(*battler.monster, *box);
+            const auto key = std::make_tuple(*battler.monster, size.width, size.height);
+            auto found = uploaded.monsters.find(key);
+            if (found == uploaded.monsters.end()) {
+                found = uploaded.monsters.emplace(key, uploadMonster(renderer, content, *battler.monster, size)).first;
+            }
+            sheets.battlers[static_cast<std::size_t>(index)] = found->second;
         } else {
-            sheets.battlers[static_cast<std::size_t>(index)] =
-                uploadCharacter(renderer, content, battler.graphics, static_cast<std::size_t>(slot.position()));
+            const auto position = static_cast<std::size_t>(slot.position());
+            const auto key = std::make_pair(battler.graphics, position);
+            auto found = uploaded.party.find(key);
+            if (found == uploaded.party.end()) {
+                found = uploaded.party.emplace(key, uploadCharacter(renderer, content, battler.graphics, position)).first;
+            }
+            sheets.battlers[static_cast<std::size_t>(index)] = found->second;
         }
     }
     return sheets;
@@ -299,9 +338,10 @@ int runCapture(const Run& run, const assets::IngestedContent& content, const std
     int status = 0;
     {
         retropp::Renderer renderer{device, nullptr};
+        Uploaded uploaded;
         for (const FormationId formation : run.formations) {
             const StandingBattle battle{formation, run.background, run.party, content};
-            const preview::BattleSheets sheets = uploadSheets(renderer, content, battle.sim.state());
+            const preview::BattleSheets sheets = sheetsFor(renderer, content, battle.sim.state(), uploaded);
             const retropp::FrameDrawState frame{.layers = preview::BattleScreen(battle.sim.state(), sheets)};
             const std::filesystem::path file =
                 directory / ("battle-" + std::to_string(static_cast<int>(formation)) + "-scene.ppm");
@@ -331,10 +371,11 @@ int runWindow(const Run& run, const assets::IngestedContent& content) {
     int gapFrames = 0;
     std::optional<StandingBattle> battle;
     preview::BattleSheets sheets;
+    Uploaded uploaded;
 
     const auto start = [&](FormationId formation) {
         battle.emplace(formation, run.background, run.party, content);
-        sheets = uploadSheets(renderer, content, battle->sim.state());
+        sheets = sheetsFor(renderer, content, battle->sim.state(), uploaded);
         heldFrames = 0;
         std::cout << "Formation " << static_cast<int>(formation) << "\n";
     };
