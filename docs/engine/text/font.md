@@ -8,6 +8,10 @@ player's cartridge when the game starts; none of it is compiled into the program
 into sprite sheets. It holds no rendering type, so the sheets are plain indexed images that the
 caller uploads.
 
+The battle's HUD, menus and damage numerals are lettered in a second, fixed-width font:
+`src/text/small_font.h`, described with the rest of the battle's art in
+[../assets/battle-art.md](../assets/battle-art.md).
+
 ## Where it comes from
 
 `assets::ingestCartridge()` reads the three families and hands them back as one

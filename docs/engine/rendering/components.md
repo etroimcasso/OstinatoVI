@@ -49,6 +49,8 @@ its children returned.
 | `kShadowSpriteZ`, `kInkSpriteZ` | Within a sprite layer, every drop shadow (0) sits beneath every piece of ink (1), so no shadow ever darkens a letter. |
 | `kDialogGlyphKey`, `kTitleGlyphKey`, `kDialogCursorKey`, `kDialogWipeKey`, `kShadowKeySuffix` | The names sprites and regions go by. See [Keys](#keys). |
 | `kDialogWindowKey`, `kWindowShadingKey`, `kWindowClipKey` | The box's layer, its shading regions and its clip. |
+| `kBattleBackdropZ` … `kDamageNumbersZ` | The battle's depths, 0 to 24, beneath the dialog box: see [battle.md](battle.md). |
+| `kBattleBackdropKey`, `kBattlefieldKey`, `kBattlefieldClipKey`, `kMonsterKey`, `kCharacterKey`, `kMessageWindowKey`, `kHudWindowKey` | The battle's layers, its clip, and the `mon:<slot>` / `chr:<slot>` battler keys. |
 
 A new layer takes its depth from this table, and a new kind of sprite takes its key prefix from
 it, so two components never collide.

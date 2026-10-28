@@ -2,10 +2,11 @@
 // Source: original-src/include/gfx/battle_bg.inc (ca65 .enum BATTLE_BG_GFX)
 // (original-src pinned at 1ea47b5)
 //
-// One 64-tile battle-background graphics block. A record in
+// One 128-tile battle-background graphics block. A record in
 // src/data/generated/battle_bg_prop_data.inc names up to three; NONE
 // ($FF) means that block is not loaded. When a record's first block sets
-// the double-width flag the block is 128 tiles and the second is skipped.
+// the double-width flag the block is 256 tiles, covering the numbers the
+// second block would, and the record leaves its second slot empty.
 #pragma once
 
 #include <cstdint>

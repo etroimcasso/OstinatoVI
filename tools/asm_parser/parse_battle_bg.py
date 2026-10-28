@@ -325,10 +325,11 @@ def render_enum_h(type_name, enum_name, members, blurb):
 
 
 _GFX_BLURB = (
-    "// One 64-tile battle-background graphics block. A record in\n"
+    "// One 128-tile battle-background graphics block. A record in\n"
     "// src/data/generated/battle_bg_prop_data.inc names up to three; NONE\n"
     "// ($FF) means that block is not loaded. When a record's first block sets\n"
-    "// the double-width flag the block is 128 tiles and the second is skipped.\n")
+    "// the double-width flag the block is 256 tiles, covering the numbers the\n"
+    "// second block would, and the record leaves its second slot empty.\n")
 
 _TILES_BLURB = (
     "// One 32x32 battle-background tilemap. Only the first 19 rows are visible\n"
@@ -406,7 +407,7 @@ _FIXTURE_STRUCT = (
     "// of the enum-symbol rows in battle_bg_prop_data.inc, so symbol/value\n"
     "// drift in either artifact fails the full-corpus byte-equivalence test.\n"
     "struct ExpectedBattleBackgroundRecord {\n"
-    "    std::uint8_t graphics1;  // BATTLE_BG_GFX | bit 7: 128-tile form\n"
+    "    std::uint8_t graphics1;  // BATTLE_BG_GFX | bit 7: 256-tile form\n"
     "    std::uint8_t graphics2;  // BATTLE_BG_GFX\n"
     "    std::uint8_t graphics3;  // BATTLE_BG_GFX\n"
     "    std::uint8_t tilemap1;   // BATTLE_BG_TILES\n"

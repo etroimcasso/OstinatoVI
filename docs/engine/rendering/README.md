@@ -13,7 +13,7 @@ made of. A frame is the list of what the components return.
 
 | Kind of component | Returns | Examples |
 |---|---|---|
-| A leaf, or a group of leaves | its `Sprites`, `Cells` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle`, `DialogWindow`, `WindowShading`, `WindowClip`, `ColorGradient` |
+| A leaf, or a group of leaves | its `Sprites`, `Cells` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle`, `DialogWindow`, `WindowShading`, `WindowClip`, `ColorGradient`, `BattleBackground`, `BattlefieldClip`, `MonsterSprite`, `CharacterSprite`, `MenuWindow` |
 | One that gathers components onto a layer | a `retropp::DrawLayer` | `SpriteLayer`, `TileLayer` |
 | A screen | its `Layers` | — |
 
@@ -25,4 +25,5 @@ changes over time advances there, once per frame; a component only reads.
 
 | File | Covers |
 |---|---|
+| [battle.md](battle.md) | The battle's picture — where it sits on the screen and the depths its layers take; where each battler stands and the order they are drawn in; the background on the battlefield and the line beneath it; a monster's sprite; a party member's standing and fallen frames; a battle window's box; a whole screen in the battle preview. |
 | [components.md](components.md) | The return-type aliases (`types.h`); `SpriteLayer`, `TileLayer` and the `LayerOptions` they pass through; the depth table, the screen size and the key names (`layers.h`); `ColorGradient`, bands of color over a layer; the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`; the dialog window components `DialogWindow`, `WindowShading`, `WindowSquash` and `WindowClip`; how to add a component. |

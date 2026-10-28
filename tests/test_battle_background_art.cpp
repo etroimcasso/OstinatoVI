@@ -3,6 +3,7 @@
 // holds, and its colors.
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <set>
@@ -30,94 +31,104 @@ protected:
 
 test::IngestedCartridge* BattleBackgroundArtTest::cartridge_ = nullptr;
 
-// Every block a record loads is taken as its 64 or 128 tiles, every tilemap decodes to one map, and
-// every cell names one of the background's three palettes and a tile a loaded block holds. No
-// shown cell reaches past the tiles a block's own art decoded to.
+// The three backgrounds whose pictures reach outside their own art, and how far. Background 49
+// shows cells naming tiles its blocks' art never decoded, where the previous block's leftovers
+// stand in the shared buffer; background 50 shows two cells naming tiles no block covers at all.
+constexpr auto kBackgroundWithStaleTails = static_cast<BattleBackgroundId>(49);
+constexpr int kStaleTailCells = 251;
+constexpr auto kBackgroundWithOrphanCells = static_cast<BattleBackgroundId>(50);
+constexpr std::array<unsigned, 2> kOrphanTiles{652, 653};
+
+// Every block a record names is loaded, in order, and taken as 128 tiles — 256 for a double-width
+// first block; a record with an empty first slot still loads its second and third. Every tilemap
+// decodes to one map, and every shown cell names one of the background's three palettes. Every
+// shown cell names a tile a loaded block holds, except two in background 50; and every shown cell
+// reaches a tile its block's own art decoded, except 251 in background 49, which show the previous
+// block's leftovers.
 TEST_F(BattleBackgroundArtTest, EveryBackgroundDecodesToItsBlocksAndMap) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
     const assets::IngestedContent& content = *cartridge_->content;
     ASSERT_TRUE(content.battleBackgrounds.valid());
     ASSERT_TRUE(content.routines != nullptr);
     int shortBlocks = 0;
-    int cellsPastOwnArt = 0;
+    int emptyFirstSlots = 0;
     for (const BattleBackgroundPropertiesEntry& entry : battleBackgroundTable()) {
         const BattleBackgroundPicture picture =
             content.battleBackgrounds.load(entry.id, *content.routines);
         const BattleBackgroundProperties& record = entry.record;
+        const int id = static_cast<int>(entry.id);
 
+        // Which blocks load, and how many tiles each is taken as.
+        const bool firstLoaded = !record.graphics1.isEmpty();
+        const bool firstDouble = firstLoaded && record.graphics1.isDoubleWidth();
+        if (firstDouble) {
+            EXPECT_EQ(record.graphics2, BattleBackgroundGraphicsId::NONE) << id;
+        }
+        emptyFirstSlots += firstLoaded ? 0 : 1;
+        const std::array<bool, 3> loaded{firstLoaded, record.graphics2 != BattleBackgroundGraphicsId::NONE,
+                                         record.graphics3 != BattleBackgroundGraphicsId::NONE};
+        const std::array<std::size_t, 3> taken{firstDouble ? kBackgroundDoubleBlockTiles : kBackgroundBlockTiles,
+                                               kBackgroundBlockTiles, kBackgroundBlockTiles};
         std::size_t expectedTiles = 0;
-        if (!record.graphics1.isEmpty()) {
-            expectedTiles += record.graphics1.isDoubleWidth() ? kBackgroundDoubleBlockTiles
-                                                              : kBackgroundBlockTiles;
-            EXPECT_EQ(picture.blockFirstTile[0], std::optional<std::size_t>{0});
-        } else {
-            EXPECT_FALSE(picture.blockFirstTile[0].has_value());
-        }
-        if (!record.graphics1.isDoubleWidth() && record.graphics2 != BattleBackgroundGraphicsId::NONE) {
-            EXPECT_EQ(picture.blockFirstTile[1], std::optional<std::size_t>{expectedTiles});
-            expectedTiles += kBackgroundBlockTiles;
-        } else {
-            EXPECT_FALSE(picture.blockFirstTile[1].has_value());
-        }
-        if (record.graphics3 != BattleBackgroundGraphicsId::NONE) {
-            EXPECT_EQ(picture.blockFirstTile[2], std::optional<std::size_t>{expectedTiles});
-            expectedTiles += kBackgroundBlockTiles;
-        } else {
-            EXPECT_FALSE(picture.blockFirstTile[2].has_value());
-        }
-        EXPECT_EQ(picture.tileCount(), expectedTiles) << static_cast<int>(entry.id);
         for (std::size_t block = 0; block < 3; ++block) {
-            if (!picture.blockFirstTile[block]) {
+            if (!loaded[block]) {
+                EXPECT_FALSE(picture.blockFirstTile[block].has_value()) << id << " block " << block;
                 continue;
             }
-            const std::size_t taken = block == 0 && record.graphics1.isDoubleWidth()
-                                          ? kBackgroundDoubleBlockTiles
-                                          : kBackgroundBlockTiles;
-            EXPECT_GT(picture.blockOwnTiles[block], 0u) << static_cast<int>(entry.id) << " block " << block;
-            if (picture.blockOwnTiles[block] < taken) {
+            EXPECT_EQ(picture.blockFirstTile[block], std::optional<std::size_t>{expectedTiles})
+                << id << " block " << block;
+            EXPECT_EQ(picture.blockTiles[block], taken[block]) << id << " block " << block;
+            EXPECT_GT(picture.blockOwnTiles[block], 0u) << id << " block " << block;
+            if (picture.blockOwnTiles[block] < taken[block]) {
                 ++shortBlocks;
             }
+            expectedTiles += taken[block];
         }
+        EXPECT_EQ(picture.tileCount(), expectedTiles) << id;
 
-        for (std::size_t cell = 0; cell < picture.cells.size(); ++cell) {
+        // The shown cells.
+        int orphanCells = 0;
+        std::set<unsigned> orphanTiles;
+        int staleTailCells = 0;
+        for (std::size_t cell = 0; cell < static_cast<std::size_t>(kBackgroundColumns * kBackgroundRowsShown);
+             ++cell) {
             const BackgroundCell& c = picture.cells[cell];
-            EXPECT_GE(c.palette(), kBackgroundFirstPalette) << static_cast<int>(entry.id) << " cell " << cell;
-            EXPECT_LT(c.palette(), kBackgroundFirstPalette + kBackgroundPalettes)
-                << static_cast<int>(entry.id) << " cell " << cell;
-            // Only the rows the battlefield shows have to name a loaded tile; the rows below are
-            // never on screen unless the background scrolls.
-            if (cell / kBackgroundColumns >= static_cast<std::size_t>(kBackgroundRowsShown)) {
-                continue;
-            }
+            EXPECT_GE(c.palette(), kBackgroundFirstPalette) << id << " cell " << cell;
+            EXPECT_LT(c.palette(), kBackgroundFirstPalette + kBackgroundPalettes) << id << " cell " << cell;
             const std::optional<std::size_t> tile = picture.sheetTile(c.tile());
-            EXPECT_TRUE(tile.has_value())
-                << static_cast<int>(entry.id) << " cell " << cell << " tile " << c.tile() << " blocks "
-                << picture.blockOwnTiles[0] << "/" << picture.blockOwnTiles[1] << "/"
-                << picture.blockOwnTiles[2];
             if (!tile) {
+                ++orphanCells;
+                orphanTiles.insert(c.tile());
                 continue;
             }
             for (std::size_t block = 0; block < 3; ++block) {
-                if (picture.blockFirstTile[block] && *tile >= *picture.blockFirstTile[block] &&
-                    *tile < *picture.blockFirstTile[block] + (block == 0 && record.graphics1.isDoubleWidth()
-                                                                  ? kBackgroundDoubleBlockTiles
-                                                                  : kBackgroundBlockTiles)) {
-                    if (*tile - *picture.blockFirstTile[block] >= picture.blockOwnTiles[block]) {
-                        ++cellsPastOwnArt;
-                    }
+                if (!picture.blockFirstTile[block] || *tile < *picture.blockFirstTile[block]) {
+                    continue;
+                }
+                const std::size_t within = *tile - *picture.blockFirstTile[block];
+                if (within < picture.blockTiles[block] && within >= picture.blockOwnTiles[block]) {
+                    ++staleTailCells;
                 }
             }
         }
+        if (entry.id == kBackgroundWithOrphanCells) {
+            EXPECT_EQ(orphanCells, static_cast<int>(kOrphanTiles.size()));
+            EXPECT_EQ(orphanTiles, (std::set<unsigned>{kOrphanTiles.begin(), kOrphanTiles.end()}));
+        } else {
+            EXPECT_EQ(orphanCells, 0) << id;
+        }
+        EXPECT_EQ(staleTailCells, entry.id == kBackgroundWithStaleTails ? kStaleTailCells : 0) << id;
+
         bool anyColor = false;
         for (const CartridgeColor& color : picture.colors) {
             anyColor = anyColor || color.word != 0;
         }
-        EXPECT_TRUE(anyColor) << static_cast<int>(entry.id);
+        EXPECT_TRUE(anyColor) << id;
     }
-    // Some blocks' art is shorter than the transfer that takes it, but nothing on screen reaches
-    // the tiles past the art.
+    // Three records leave their first slot empty and build from the later blocks; many blocks' art
+    // is shorter than the transfer that takes it.
+    EXPECT_EQ(emptyFirstSlots, 3);
     EXPECT_GT(shortBlocks, 0);
-    EXPECT_EQ(cellsPastOwnArt, 0);
 }
 
 // The first background: three single-width blocks, so tiles 0-127, 128-255 and 896-1023 are drawn

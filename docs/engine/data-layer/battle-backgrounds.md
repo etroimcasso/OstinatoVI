@@ -17,7 +17,7 @@ const BattleBackgroundProperties& bg =
     ostinato::battleBackgroundProperties(BattleBackgroundId::ZOZO);
 
 bg.graphics1.id();              // BattleBackgroundGraphicsId
-bg.graphics1.isDoubleWidth();   // 128 tiles instead of 64
+bg.graphics1.isDoubleWidth();   // 256 tiles instead of 128
 bg.graphics2;                   // BattleBackgroundGraphicsId
 bg.graphics3;                   // BattleBackgroundGraphicsId
 bg.tilemap1;                    // BattleBackgroundTilemapId
@@ -44,10 +44,11 @@ iteration; each entry carries its `BattleBackgroundId` as `.id` and its data as
 
 Three graphics blocks, a tilemap, and a palette:
 
-- **Graphics** are 64 tiles (4096 bytes) each. The three blocks land at
-  different places in video memory. If the first block sets its double-width
-  flag it is 128 tiles instead, and the second block is not loaded at all —
-  the wide block occupies the space both would have used.
+- **Graphics** are 128 tiles (4096 bytes) each. The three blocks land at
+  different places in video memory, and every block a record names is loaded,
+  in order. If the first block sets its double-width flag it is 256 tiles
+  instead and covers the tile numbers the second block would have; every
+  record with a wide first block leaves its second slot empty.
 - **Tilemaps** are 32×32. Only the first nineteen rows are on screen unless the
   background scrolls vertically, which is how the clouds and the waterfall
   work. Every record names a tilemap twice; only the first is read.
@@ -70,7 +71,8 @@ one line:
 
 Use `::wavy(...)` instead of `::plain(...)` to add the ripple, and
 `::doubleWidth(...)` instead of `::single(...)` to make a first graphics block
-128 tiles — remembering that doing so drops the second block.
+256 tiles — leaving the second slot `NONE`, since the wide block covers its
+tile numbers.
 
 Then update the matching row in `tests/fixtures/battle_bg_prop_expected.h`,
 which holds the original bytes. `ostinato-vi-background-tests` compares every

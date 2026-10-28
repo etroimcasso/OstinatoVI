@@ -8,10 +8,12 @@
 // (btlgfx_main.asm:3999) and TfrBattleBGTiles (btlgfx_main.asm:3934), which
 // skip a slot only when its byte is the $FF sentinel.
 //
-// Each graphics block is 64 tiles (4096 bytes), or 128 when the first block
-// sets its double-width flag. Tilemaps are 32x32, of which only the first 19
-// rows are visible unless the background scrolls vertically. Palettes hold 48
-// colors and load into BG palettes 5, 6 and 7.
+// Each graphics block is 128 tiles (4096 bytes), or 256 when the first block
+// sets its double-width flag. Every block a record names is loaded, in order;
+// a double-width first block covers the tile numbers the second block would,
+// and every such record leaves its second slot empty. Tilemaps are 32x32, of
+// which only the first 19 rows are visible unless the background scrolls
+// vertically. Palettes hold 48 colors and load into BG palettes 5, 6 and 7.
 #pragma once
 
 #include <cstddef>
@@ -35,7 +37,7 @@ inline constexpr std::size_t kBattleBackgroundCount = 56;
 struct BattleBackgroundProperties {
     // VRAM $1000. Carries the double-width flag.
     BattleBackgroundGraphicsSlot graphics1;
-    // VRAM $1800. Not loaded when graphics1 is double-width.
+    // VRAM $1800. Empty in every record whose graphics1 is double-width.
     BattleBackgroundGraphicsId graphics2 = BattleBackgroundGraphicsId::NONE;
     // VRAM $4800.
     BattleBackgroundGraphicsId graphics3 = BattleBackgroundGraphicsId::NONE;

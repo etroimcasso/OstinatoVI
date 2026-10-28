@@ -129,6 +129,12 @@ add_library(ostinato-vi-lib STATIC
     src/data/monster_image.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
+    src/game/character_record.cpp
+    src/render/battle/battle_background.cpp
+    src/render/battle/battle_placement.cpp
+    src/render/battle/character_sprite.cpp
+    src/render/battle/menu_window.cpp
+    src/render/battle/monster_sprite.cpp
     src/render/color_gradient.cpp
     src/render/sprite_layer.cpp
     src/render/tile_layer.cpp
@@ -197,6 +203,17 @@ target_compile_features(ostinato-preview-dialog PRIVATE cxx_std_20)
 target_compile_options(ostinato-preview-dialog PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-preview-dialog PRIVATE ostinato-vi-lib)
 target_compile_definitions(ostinato-preview-dialog PRIVATE
+    OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ostinato-preview-battle <formation>...: a battle's standing scene — the background, the monsters
+# and the party where the battle puts them — from the installed cartridge.
+add_executable(ostinato-preview-battle
+    tools/previews/battle/main.cpp
+    tools/previews/battle/battle_preview.cpp)
+target_compile_features(ostinato-preview-battle PRIVATE cxx_std_20)
+target_compile_options(ostinato-preview-battle PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-preview-battle PRIVATE ostinato-vi-lib)
+target_compile_definitions(ostinato-preview-battle PRIVATE
     OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
 # ---------------------------------------------------------------------------
@@ -500,22 +517,29 @@ target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GT
 gtest_discover_tests(ostinato-vi-dialog-window-tests)
 
 # The battle's picture: the tables that place and time it, every row against the cartridge's
-# bytes in both builds; the color gradient read back from the regions it returns; and the colors
-# the battle's windows draw in, checked by hand and over every wallpaper the cartridge holds. Own
-# binary so the other baselines stay frozen.
+# bytes in both builds; the cartridge's decompressor placed and run, and every background, monster
+# and party sprite sheet decoded from the cartridge through it; where the battlers stand and the
+# order they are drawn in; the battle components read back from what they return; the color
+# gradient read back from its regions; the colors the battle's windows draw in; and the preview's
+# standing scene. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-preview-tests
     tests/test_battle_background_art.cpp
+    tests/test_battle_components.cpp
     tests/test_battle_gfx_tables.cpp
+    tests/test_battle_preview.cpp
     tests/test_battle_window_colors.cpp
     tests/test_cartridge_routines.cpp
     tests/test_character_battle_sheet.cpp
     tests/test_color_gradient.cpp
     tests/test_monster_image.cpp
     tests/test_small_font.cpp
-    tests/test_tile_planes.cpp)
+    tests/test_tile_planes.cpp
+    tools/previews/battle/battle_preview.cpp)
 target_compile_features(ostinato-vi-battle-preview-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-preview-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-preview-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_include_directories(ostinato-vi-battle-preview-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/battle)
 target_link_libraries(ostinato-vi-battle-preview-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-preview-tests)
 

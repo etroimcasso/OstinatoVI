@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Unit tests for parse_battle_gfx_tables.py.
 
-Four layers, matching the parser test discipline: the table reader against
+Five layers, matching the parser test discipline: the table reader against
 synthetic assembly (language branches, macros, RAM buffers, labels, error
-paths), the pure helpers, an end-to-end pass over the real disassembly and
-cartridge, and the structural checks' error paths driven by editing one line of
-a temporary copy of the real source.
+paths), the pure helpers, the decompressor's assembler against synthetic
+routines (every operand shape, the macros, branches, every error path), an
+end-to-end pass over the real disassembly and cartridge, and the structural
+checks' error paths driven by editing one line of a temporary copy of the real
+source.
 """
 
 from __future__ import annotations
@@ -194,6 +196,115 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(pbg._signed(0xD8, 8), -40)
 
 
+class AssemblerTest(unittest.TestCase):
+    """The decompressor's one-routine assembler against synthetic routines."""
+
+    PORTS = {"hWMDATA": 0x2180, "hWMADDL": 0x2181, "hWMADDH": 0x2183}
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.dir)
+
+    def assemble(self, body, ports=None):
+        path = os.path.join(self.dir, "x.asm")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("Other:\n        rtl\nDecompress_ext:\n" + body)
+        lines = pbg.active_lines(path, pbg.EN)
+        return pbg.assemble_decompressor(lines, self.PORTS if ports is None else ports, path)
+
+    def test_the_shortest_routine(self):
+        self.assertEqual(self.assemble("@ff6d:  phb\n        rtl\n"), (bytes([0x8B, 0x6B]), 0xFF6D))
+
+    def test_every_operand_shape_encodes(self):
+        body = ("@0100:  ldx     #$f800\n        rep     #$20\n        lda     #$7f\n"
+                "        lda     $f8\n        lda     [$f3]\n        lda     [$f3],y\n"
+                "        sta     f:hWMDATA\n        sta     a:$0000,x\n        lda     $0000,y\n"
+                "        rtl\n")
+        routine, _ = self.assemble(body.replace("rep     #$20", "sep     #$20"))
+        self.assertEqual(list(routine), [0xA2, 0x00, 0xF8, 0xE2, 0x20, 0xA9, 0x7F, 0xA5, 0xF8,
+                                         0xA7, 0xF3, 0xB7, 0xF3, 0x8F, 0x80, 0x21, 0x00,
+                                         0x9D, 0x00, 0x00, 0xB9, 0x00, 0x00, 0x6B])
+
+    def test_the_macros_expand_to_their_instructions(self):
+        routine, _ = self.assemble("@0100:  longa\n        shorta\n        clr_a\n        lsr3\n"
+                                   "        rtl\n")
+        self.assertEqual(list(routine), [0xC2, 0x20, 0xE2, 0x20, 0x7B, 0x4A, 0x4A, 0x4A, 0x6B])
+
+    def test_branches_resolve_backward_and_forward(self):
+        routine, _ = self.assemble("@0100:  inx\n        bne     @0100\n        bra     @0106\n"
+                                   "        iny\n@0106:  rtl\n")
+        self.assertEqual(list(routine), [0xE8, 0xD0, 0xFD, 0x80, 0x01, 0xC8, 0x6B])
+
+    def test_a_label_on_a_line_of_its_own(self):
+        routine, _ = self.assemble("@0100:\n        inx\n@0101:\n        bne     @0101\n        rtl\n")
+        self.assertEqual(list(routine), [0xE8, 0xD0, 0xFE, 0x6B])
+
+    def test_a_wide_accumulator_immediate_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  longa\n        lda     #1\n        rtl\n")
+        self.assertIn("16-bit accumulator immediate", str(caught.exception))
+
+    def test_a_narrowed_accumulator_takes_immediates_again(self):
+        routine, _ = self.assemble("@0100:  longa\n        shorta\n        lda     #1\n        rtl\n")
+        self.assertEqual(list(routine), [0xC2, 0x20, 0xE2, 0x20, 0xA9, 0x01, 0x6B])
+
+    def test_an_instruction_outside_the_set_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  nop\n        rtl\n")
+        self.assertIn("not in the decompressor's instruction set", str(caught.exception))
+
+    def test_an_operand_shape_outside_the_set_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  lda     ($10),y\n        rtl\n")
+        self.assertIn("not a shape", str(caught.exception))
+
+    def test_an_unknown_port_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  sta     f:hNOPE\n        rtl\n")
+        self.assertIn("unknown port", str(caught.exception))
+
+    def test_a_macro_given_an_operand_is_an_error(self):
+        with self.assertRaises(ParseError):
+            self.assemble("@0100:  longa   1\n        rtl\n")
+
+    def test_a_branch_to_an_unknown_label_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  bne     @beef\n        rtl\n")
+        self.assertIn("unknown label", str(caught.exception))
+
+    def test_a_routine_with_no_local_label_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("        phb\n        rtl\n")
+        self.assertIn("no local label", str(caught.exception))
+
+    def test_a_routine_running_into_another_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  phb\nNext:\n        rtl\n")
+        self.assertIn("runs into another routine", str(caught.exception))
+
+    def test_a_routine_reaching_an_undecided_condition_is_an_error(self):
+        with self.assertRaises(ParseError) as caught:
+            self.assemble("@0100:  phb\n.if DEBUG\n        inx\n.endif\n        rtl\n")
+        self.assertIn("condition this reader does not decide", str(caught.exception))
+
+    def test_a_missing_routine_is_an_error(self):
+        path = os.path.join(self.dir, "x.asm")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("Other:\n        rtl\n")
+        with self.assertRaises(ParseError) as caught:
+            pbg.assemble_decompressor(pbg.active_lines(path, pbg.EN), self.PORTS, path)
+        self.assertIn("not found", str(caught.exception))
+
+    def test_the_calls_are_counted(self):
+        path = os.path.join(self.dir, "x.asm")
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write("        jsl     Decompress_ext\n        jsr     Decompress_ext\n"
+                     "        jsl     Decompress_extra\n        jsl     Decompress_ext ; again\n")
+        self.assertEqual(pbg.count_decompressor_calls(pbg.active_lines(path, pbg.EN)), 2)
+
+
 @unittest.skipUnless(_source_root(), "original-src not present")
 class EndToEndTest(unittest.TestCase):
 
@@ -242,6 +353,50 @@ class EndToEndTest(unittest.TestCase):
         self.assertEqual(named[0], "FIGHT")
         self.assertEqual(named[0x1D], "MAGITEK")
 
+    def test_the_character_sheets_lie_end_to_end(self):
+        sheets = self.tables[pbg.EN].sheets
+        self.assertEqual(len(sheets), 24)
+        self.assertEqual([s.slot for s in sheets], list(range(24)))
+        self.assertEqual([s.item for s in sheets], list(range(23)) + [sheets[23].item])
+        self.assertEqual(sheets[0].name, "TERRA")
+        self.assertEqual(sheets[0].offset, 0)
+        self.assertEqual(sheets[23].name, "SOLDIER")
+        self.assertEqual(sheets[23].offset, sheets[sheets[23].item].offset)
+        for before, after in zip(sheets[:22], sheets[1:23]):
+            self.assertEqual(before.offset + before.size, after.offset)
+        gestahl = [s for s in sheets if s.name == "GESTAHL"]
+        self.assertEqual(len(gestahl), 1)
+        self.assertEqual(gestahl[0].size, 1760)
+        self.assertEqual(len(pbg.sheet_pointer_bytes(sheets)), 72)
+        self.assertEqual(self.tables[pbg.EN].raw["CharGfxPtrs"], self.tables[pbg.JP].raw["CharGfxPtrs"])
+
+    def test_the_decompressor_assembles_from_its_source(self):
+        path = self.paths["btlgfx_asm"]
+        lines = pbg.active_lines(path, pbg.EN)
+        routine, in_bank = pbg.assemble_decompressor(lines, pbg.read_hardware_ports(self.root), path)
+        self.assertEqual(in_bank, 0xFF6D)
+        self.assertEqual(len(routine), 147)
+        self.assertEqual(list(routine[:5]), [0x8B, 0x0B, 0xA2, 0x00, 0x00])  # phb, phd, ldx #$0000
+        self.assertEqual(routine[-1], 0x6B)                                   # rtl
+        self.assertEqual(pbg.count_decompressor_calls(lines), 7)
+
+    def test_the_decompressor_is_placed_once_in_the_cartridge(self):
+        if common.find_vanilla_rom(self.root) is None:
+            self.fail("no vanilla cartridge: set FF6_VANILLA_ROM")
+        rom = common.load_vanilla_rom(self.root)
+        placed = pbg.place_decompressor(self.root, rom)
+        self.assertEqual([(p.language, p.begin, p.size, p.proved) for p in placed],
+                         [("en", 0xC2FF6D, 147, 147)])
+        at = common.hirom_file_offset(0xC2FF6D)
+        self.assertEqual(rom[at], 0x8B)
+        self.assertEqual(rom[at + 146], 0x6B)
+        self.assertEqual(at + 147, common.hirom_file_offset(0xC30000))
+
+    def test_the_decompressor_is_not_placed_without_a_cartridge(self):
+        with self.assertRaises(ParseError) as caught:
+            pbg.place_decompressor(self.root, None)
+        self.assertIn("FF6_VANILLA_ROM", str(caught.exception))
+
     def test_the_gauge_fills_from_the_empty_glyph(self):
         self.assertEqual(self.tables[pbg.EN].gauge_empty, 0xF0)
         self.assertEqual(self.tables[pbg.JP].gauge_empty, 0x10)
@@ -260,6 +415,12 @@ class CheckTest(unittest.TestCase):
                      ("src", "btlgfx", "btlgfx_main.asm")):
             os.makedirs(os.path.join(self.dir, *part[:-1]), exist_ok=True)
             shutil.copy(os.path.join(root, *part), os.path.join(self.dir, *part))
+        # The sheet reader reads these too; they are never edited, so they are linked.
+        for part in (("include", "hardware.inc"), ("src", "gfx", "map_sprite_gfx.asm"),
+                     ("src", "gfx", "map_sprite_gfx"), ("tools", "rip_list_en.json"),
+                     ("cfg", "ff6-en.cfg")):
+            os.makedirs(os.path.join(self.dir, *part[:-1]), exist_ok=True)
+            os.symlink(os.path.join(root, *part), os.path.join(self.dir, *part))
         self.asm = os.path.join(self.dir, "src", "btlgfx", "btlgfx_main.asm")
 
     def tearDown(self):
@@ -308,6 +469,37 @@ class CheckTest(unittest.TestCase):
     def test_a_window_moved_off_a_cell(self):
         self.edit("def_menu_window w7e8d13 + 26, 18, 8", "def_menu_window w7e8d13 + 27, 18, 8")
         self.expect_error("is not on a cell")
+
+    def test_a_sheet_pointer_table_of_the_wrong_length(self):
+        self.edit(".repeat 23, i\n        .faraddr array_item MapSpriteGfx, i",
+                  ".repeat 22, i\n        .faraddr array_item MapSpriteGfx, i")
+        self.expect_error("CharGfxPtrs holds 23 pointers")
+
+    def test_a_sheet_pointer_naming_an_unknown_sheet(self):
+        self.edit(".faraddr array_item MapSpriteGfx, MAP_SPRITE_GFX::SOLDIER",
+                  ".faraddr array_item MapSpriteGfx, MAP_SPRITE_GFX::NOBODY")
+        self.expect_error("unknown sheet NOBODY")
+
+    def test_a_sheet_pointer_that_is_not_a_pointer(self):
+        self.edit(".faraddr array_item MapSpriteGfx, MAP_SPRITE_GFX::SOLDIER",
+                  ".word $1234")
+        self.expect_error("is not a CharGfxPtrs entry")
+
+    def test_an_instruction_the_decompressors_assembler_does_not_know(self):
+        self.edit("        lsr3\n        clc", "        lsr4\n        clc")
+        lines = pbg.active_lines(self.asm, pbg.EN)
+        with self.assertRaises(ParseError) as caught:
+            pbg.assemble_decompressor(lines, pbg.read_hardware_ports(self.dir), self.asm)
+        self.assertIn("not in the decompressor's instruction set", str(caught.exception))
+
+    def test_a_decompressor_missing_its_return_runs_off_its_end(self):
+        # Without the rtl the assembler reads on into what follows the routine — in the real
+        # source a segment directive — and stops at the first line that is not an instruction.
+        self.edit("        pld\n        plb\n        rtl\n\n; ---", "        pld\n        plb\n\n; ---")
+        lines = pbg.active_lines(self.asm, pbg.EN)
+        with self.assertRaises(ParseError) as caught:
+            pbg.assemble_decompressor(lines, pbg.read_hardware_ports(self.dir), self.asm)
+        self.assertIn("is not an instruction", str(caught.exception))
 
     def test_a_differing_cartridge_byte_is_reported(self):
         paths, _, tables = pbg.read_tables(self.dir, pbg.EN)

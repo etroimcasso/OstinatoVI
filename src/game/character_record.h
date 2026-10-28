@@ -139,4 +139,12 @@ struct Party {
     std::array<InventorySlot, kInventorySlots> inventory{};
 };
 
+// A character's record as a new game creates it: level 1 with the character's starting HP, MP,
+// commands, stats and equipment (data/character.h), and the character's own sprite. The
+// characters past Leo are given their sprites by the events that bring them in, so their records
+// keep the default.
+//
+//     party.characters[0] = game::startingRecord(CharacterPropId::TERRA);
+CharacterRecord startingRecord(CharacterPropId actor);
+
 }  // namespace ostinato::game
