@@ -183,8 +183,9 @@ clip, then one `SpriteLayer` per battler in draw order. Run `ostinato-preview-ba
 - **Every battler is its own layer.** A fade or a blend meant for one battler then touches only
   it, and the engine eases nothing between battlers. Use the layer's `LayerOptions` for that.
 - **The sheets are the caller's.** No component uploads anything; the preview's `sheetsFor`
-  shows the carves and holes each component expects, and uploads each sheet once — the renderer
-  keeps every upload for its own lifetime and its store has a ceiling.
+  shows the carves and holes each component expects, and uploads each sheet once. A sheet holds
+  its room in the renderer's store until `releaseAtlas` retires it, so a run that uploads what
+  every scene needs without releasing grows the store with every scene.
 - **A shown cell names palette 5, 6 or 7.** `BattleBackground` asserts it; every cartridge
   background's shown rows do.
 

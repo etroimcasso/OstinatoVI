@@ -216,9 +216,9 @@ preview::BattlerSheet uploadCharacter(retropp::Renderer& renderer, const assets:
     };
 }
 
-// What has been uploaded so far. The renderer keeps every upload for its own lifetime and its
-// store has a ceiling, so each background, monster and party member is uploaded once and reused
-// across the formations a run shows.
+// What has been uploaded so far. A sheet holds its room in the renderer's store until it is
+// released, so each background, monster and party member is uploaded once and reused across the
+// formations a run shows rather than uploaded again for every scene.
 struct Uploaded {
     struct Background {
         BattleBackgroundPicture picture;
