@@ -236,10 +236,39 @@ struct MonsterAnimationPlays {
     std::uint8_t pan = 0;
 };
 
+// One battler's damage numeral: the amount it lost or gained, or "Miss".
+struct DamageNumber {
+    BattlerSlot target = BattlerSlot::character(0);
+    std::uint16_t amount = 0;  // 0 to kLargestDamageNumber; not shown for a miss
+    bool miss = false;         // "Miss" in place of a number
+    bool heals = false;        // drawn green rather than white
+};
+
+// The largest amount a numeral shows: four digits.
+inline constexpr std::uint16_t kLargestDamageNumber = 9999;
+
+// How the script waits on its numerals.
+enum class DamageNumberWait : std::uint8_t {
+    // One numeral at a time, each over its own battler: the script carries on while it bounces.
+    // Each appears two frames after the one before, or ten when a numeral is already over that
+    // battler.
+    CarryOn,
+    // Every battler's numeral at once: the script waits until every numeral on the screen has
+    // gone.
+    UntilGone,
+};
+
+// Damage numerals bounce up over the battlers an attack reached.
+struct DamageNumbersShown {
+    std::vector<DamageNumber> numbers;
+    DamageNumberWait wait = DamageNumberWait::UntilGone;
+};
+
 using BattleScriptCommand =
     std::variant<ReadyStance, StepBack, FormationChanges, AttackAnimation, AttackNameShown, BushidoNameShown,
                  ItemNameShown, EsperNameShown, CommandNameShown, MonsterSpecialAttackNameShown, BattleMessage,
-                 PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays>;
+                 PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays,
+                 DamageNumbersShown>;
 
 // Builds one action's battle script.
 class BattleScriptBuilder {

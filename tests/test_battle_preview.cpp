@@ -9,7 +9,9 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <variant>
+#include <vector>
 
 #include "retropp/draw_state.h"
 #include "retropp/image.h"
@@ -18,6 +20,8 @@
 #include "battle/action_executor.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
+#include "battle/command_executor.h"
+#include "battle/presentation.h"
 #include "battle_preview.h"
 #include "data/attack_animations.h"
 #include "data/battle_background_art.h"
@@ -31,6 +35,8 @@
 #include "render/battle/battle_placement.h"
 #include "render/battle/layout.h"
 #include "render/layers.h"
+#include "preview_damage.h"
+#include "scripted_player.h"
 #include "vanilla_rom.h"
 
 namespace ostinato::preview {
@@ -77,6 +83,10 @@ BattleSheets handles(const battle::BattleState& state, const assets::IngestedCon
     BattleSheets sheets;
     sheets.backdrop = carve(8, 8, {8, 8}, retropp::ContentKind::Tileset, 1, 1);
     sheets.backdropColor = retropp::PaletteId{1};
+    sheets.smallFont = carve(128, 128, {8, 8}, retropp::ContentKind::Tileset, 256, 3);
+    sheets.wallpaper = carve(8 * 28, 8, {8, 8}, retropp::ContentKind::Tileset, 28, 4);
+    sheets.glyphs = carve(256, 256, {16, 16}, retropp::ContentKind::Tileset, 256, 8);
+    sheets.numerals.tiles = carve(96, 8, {8, 8}, retropp::ContentKind::Tileset, 12, 9);
     sheets.picture = content.battleBackgrounds.load(state.background, *content.routines);
     const auto tiles = static_cast<int>(sheets.picture.tileCount());
     sheets.background = {
@@ -111,6 +121,15 @@ BattleSheets handles(const battle::BattleState& state, const assets::IngestedCon
     return sheets;
 }
 
+// The presentation of a battle whose scene has just opened.
+battle::BattlePresentationState opened(const battle::BattleState& state, const assets::IngestedContent& content) {
+    battle::BattlePresentationState shown;
+    const std::vector<battle::BattleRequest> open{battle::OpenBattleScene{}};
+    battle::tickBattlePresentation(shown, state, open,
+                                   {.text = content.text, .metrics = content.dialogFont.metrics}, false);
+    return shown;
+}
+
 const retropp::SpriteContent& spritesOf(const retropp::DrawLayer& layer) {
     return std::get<retropp::SpriteContent>(layer.content);
 }
@@ -118,7 +137,7 @@ const retropp::SpriteContent& spritesOf(const retropp::DrawLayer& layer) {
 // Lobo alone, in a front attack: the backdrop, the background, then the four battlers from the one
 // whose feet are highest on the screen to the lowest. Terra's feet are at 84, Locke's at 102,
 // Edgar's at 120; Lobo's depend on its height and its overlap, read from the data.
-TEST_F(BattlePreviewTest, LobosSceneIsTheBackdropTheBackgroundAndFourBattlersBackToFront) {
+TEST_F(BattlePreviewTest, LobosSceneIsTheBackdropTheBackgroundFourBattlersBackToFrontAndTheHud) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
     const assets::IngestedContent& content = *cartridge_->content;
     battle::ActionExecutor executor;
@@ -127,8 +146,8 @@ TEST_F(BattlePreviewTest, LobosSceneIsTheBackdropTheBackgroundAndFourBattlersBac
     const battle::BattleState& state = sim.state();
     ASSERT_EQ(state.battleType, battle::BattleType::Front);
     const BattleSheets sheets = handles(state, content);
-    const render::Layers layers = BattleScreen(state, sheets);
-    ASSERT_EQ(layers.size(), 6u);
+    const render::Layers layers = BattleScreen(state, opened(state, content), content.text, sheets);
+    ASSERT_EQ(layers.size(), 9u);  // with the HUD's windows, its text and the numerals on top
 
     EXPECT_EQ(layers[0].key.value, render::kBattleBackdropKey);
     EXPECT_EQ(layers[0].z, render::kBattleBackdropZ);
@@ -147,10 +166,14 @@ TEST_F(BattlePreviewTest, LobosSceneIsTheBackdropTheBackgroundAndFourBattlersBac
     EXPECT_EQ(layers[2].key.value, "chr:0");
     const std::string third = loboFeet < 102 ? "mon:0" : "chr:1";
     EXPECT_EQ(layers[3].key.value, third);
-    for (std::size_t i = 2; i < layers.size(); ++i) {
+    for (std::size_t i = 2; i < 6; ++i) {
         EXPECT_EQ(layers[i].z, render::kBattlerBaseZ + static_cast<std::int32_t>(i - 2));
         EXPECT_EQ(spritesOf(layers[i]).sprites.size(), 1u);
     }
+    EXPECT_EQ(layers[6].key.value, render::kHudWindowKey);
+    EXPECT_EQ(layers[7].key.value, render::kHudTextKey);
+    EXPECT_EQ(layers[8].key.value, render::kDamageNumbersKey);
+    EXPECT_TRUE(spritesOf(layers[8]).sprites.empty());
 }
 
 TEST_F(BattlePreviewTest, LoboStandsWhereTheFormationPutsItFacingRight) {
@@ -160,7 +183,7 @@ TEST_F(BattlePreviewTest, LoboStandsWhereTheFormationPutsItFacingRight) {
     battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
                           content.text, content.monsterSprites, executor);
     const BattleSheets sheets = handles(sim.state(), content);
-    const render::Layers layers = BattleScreen(sim.state(), sheets);
+    const render::Layers layers = BattleScreen(sim.state(), opened(sim.state(), content), content.text, sheets);
     const Formation& formation = getFormation(FormationId::LOBO);
     for (const retropp::DrawLayer& layer : layers) {
         if (layer.key.value != "mon:0") {
@@ -184,8 +207,8 @@ TEST_F(BattlePreviewTest, ThePartyStandsOnTheRightInItsIdlePose) {
     battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
                           content.text, content.monsterSprites, executor);
     const BattleSheets sheets = handles(sim.state(), content);
-    const render::Layers layers = BattleScreen(sim.state(), sheets);
-    const PoseFrame idle = characterPoseFrames(kIdlePose)[0];
+    const render::Layers layers = BattleScreen(sim.state(), opened(sim.state(), content), content.text, sheets);
+    const PoseFrame idle = characterPoseFrames(6)[0];  // the idle pose at its first step
     int found = 0;
     for (const retropp::DrawLayer& layer : layers) {
         for (std::size_t slot = 0; slot < 3; ++slot) {
@@ -216,7 +239,7 @@ TEST_F(BattlePreviewTest, APincerFormationMirrorsTheRightGroup) {
                           {}, content.text, content.monsterSprites, executor);
     ASSERT_EQ(sim.state().battleType, battle::BattleType::Pincer);
     const BattleSheets sheets = handles(sim.state(), content);
-    const render::Layers layers = BattleScreen(sim.state(), sheets);
+    const render::Layers layers = BattleScreen(sim.state(), opened(sim.state(), content), content.text, sheets);
     int mirrored = 0;
     int monsters = 0;
     for (const retropp::DrawLayer& layer : layers) {
@@ -237,6 +260,43 @@ TEST_F(BattlePreviewTest, APincerFormationMirrorsTheRightGroup) {
             EXPECT_EQ(spritesOf(layer).sprites[0].x, render::kPartyCenterXPx);
         }
     }
+}
+
+// Lobo fought to a win the way the preview fights it: the stand-in damage, the scripted player, and
+// the presentation telling the battle when it may go on. Every hit shows its numerals, Lobo fades out
+// once it falls, the list of names empties, and the scene closes.
+TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
+    OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
+    const assets::IngestedContent& content = *cartridge_->content;
+    PreviewDamage hooks;
+    battle::CommandExecutor executor(hooks, content.text, content.monsterSprites);
+    battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
+                          content.text, content.monsterSprites, executor);
+    battle::BattlePresentationState shown;
+    const battle::BattlePresentationContext context{.text = content.text, .metrics = content.dialogFont.metrics};
+    ScriptedPlayer player{messageHoldFrames(context.messageSpeed)};
+    std::vector<battle::PlayerAction> answers;
+    bool numeralsShown = false;
+    bool faded = false;
+    int frames = 0;
+    for (; frames < 10 * 60 * 60 && !shown.sceneClosed; ++frames) {
+        battle::BattleInput input = battle::battleInput(shown);
+        input.playerActions = std::exchange(answers, {});
+        sim.tick(input);
+        const std::vector<battle::BattleRequest> requests = sim.takeRequests();
+        answers = player.answer(requests, sim.state());
+        battle::tickBattlePresentation(shown, sim.state(), requests, context, player.confirms(shown));
+        numeralsShown = numeralsShown || shown.numeralsTogether[4].has_value();
+        faded = faded || (shown.deathFade && shown.deathFade->dying.has(BattlerSlot::monster(0)));
+    }
+    ASSERT_TRUE(shown.sceneClosed);
+    ASSERT_TRUE(sim.result().has_value());
+    EXPECT_TRUE(std::holds_alternative<battle::BattleWon>(sim.result()->outcome));
+    EXPECT_TRUE(numeralsShown);
+    EXPECT_TRUE(faded);
+    EXPECT_FALSE(shown.monstersShown.has(BattlerSlot::monster(0)));
+    EXPECT_FALSE(shown.monsterNames[0].has_value());
+    RecordProperty("frames", frames);
 }
 
 }  // namespace

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "data/attack_animations.h"
@@ -9,8 +10,14 @@
 #include "data/formations.h"
 #include "data/monster_align.h"
 #include "ostinato/battle_background_id.h"
+#include "ostinato/game_version.h"
+#include "render/battle/battle_message.h"
 #include "render/battle/battle_placement.h"
+#include "render/battle/hud_text.h"
+#include "render/battle/hud_windows.h"
 #include "render/battle/layout.h"
+#include "render/battle/monster_death_fade.h"
+#include "render/battle/monster_name_list.h"
 #include "render/battle/monster_sprite.h"
 #include "render/layers.h"
 #include "render/sprite_layer.h"
@@ -31,13 +38,15 @@ render::Cells Backdrop(const retropp::AtlasManifest& sheet, retropp::PaletteId c
                          retropp::TileCell{.atlas = sheet.atlasId, .tile = sheet[0].tile, .palette = color});
 }
 
-// Where each battler standing in `state` stands, or nothing for one not on the field.
+// Where each battler shown stands, or nothing for one not on the field.
 struct Standing {
     std::optional<render::MonsterStanding> monster;
     std::optional<render::PartyStanding> member;
 };
 
-std::array<Standing, battle::kBattlerSlots> standings(const battle::BattleState& state, const BattleSheets& sheets) {
+std::array<Standing, battle::kBattlerSlots> standings(const battle::BattleState& state,
+                                                      const battle::BattlePresentationState& presentation,
+                                                      const BattleSheets& sheets) {
     std::array<Standing, battle::kBattlerSlots> out{};
     const Formation& formation = getFormation(state.formation);
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
@@ -48,7 +57,7 @@ std::array<Standing, battle::kBattlerSlots> standings(const battle::BattleState&
             continue;
         }
         if (slot.isMonster()) {
-            if (!battler.monster || !state.monstersStanding.has(slot)) {
+            if (!battler.monster || !presentation.monstersShown.has(slot)) {
                 continue;
             }
             const auto position = static_cast<std::size_t>(slot.position());
@@ -67,18 +76,10 @@ std::array<Standing, battle::kBattlerSlots> standings(const battle::BattleState&
     return out;
 }
 
-}  // namespace
-
-render::Layers BattleScreen(const battle::BattleState& state, const BattleSheets& sheets) {
-    render::Layers layers{
-        render::TileLayer(render::kBattleBackdropKey, render::kBattleBackdropZ,
-                          Backdrop(sheets.backdrop, sheets.backdropColor), kBackdropColumns, kBackdropRows),
-        render::TileLayer(render::kBattlefieldKey, render::kBattlefieldZ,
-                          render::BattleBackground(sheets.picture, sheets.background), kBackgroundColumns,
-                          kBackgroundRowsShown, {.regions = render::BattlefieldClip()}),
-    };
-
-    const std::array<Standing, battle::kBattlerSlots> where = standings(state, sheets);
+// The battlers, one layer each in the draw order.
+void addBattlers(render::Layers& layers, const battle::BattleState& state,
+                 const battle::BattlePresentationState& presentation, const BattleSheets& sheets,
+                 const std::array<Standing, battle::kBattlerSlots>& where) {
     std::array<std::optional<int>, battle::kBattlerSlots> bottomEdges{};
     for (std::size_t index = 0; index < where.size(); ++index) {
         if (where[index].monster) {
@@ -88,7 +89,7 @@ render::Layers BattleScreen(const battle::BattleState& state, const BattleSheets
         }
     }
 
-    const PoseFrame idle = characterPoseFrames(kIdlePose)[0];
+    const std::optional<battle::DeathFade>& fade = presentation.deathFade;
     std::int32_t depth = render::kBattlerBaseZ;
     for (const BattlerSlot slot : render::battlerDrawOrder(bottomEdges)) {
         const auto index = static_cast<std::size_t>(slot.index());
@@ -97,17 +98,81 @@ render::Layers BattleScreen(const battle::BattleState& state, const BattleSheets
                                 std::to_string(slot.position());
         if (where[index].monster) {
             const render::MonsterStanding& at = *where[index].monster;
-            layers.push_back(render::SpriteLayer(
-                key, depth, {render::MonsterSprite(key, at.x, at.y, at.mirrored, sheet.image, sheet.palette, 0)}));
+            const bool dying = fade && fade->dying.has(slot) && fade->inDeathPalette();
+            render::Sprites monster = render::MonsterSprite(key, at.x, at.y, at.mirrored, sheet.image,
+                                                            dying ? sheets.deathColors : sheet.palette, 0);
+            if (dying) {
+                monster = render::MonsterDeathFade(std::move(monster), *fade);
+            }
+            layers.push_back(render::SpriteLayer(key, depth, {monster}));
         } else {
             const render::PartyStanding& at = *where[index].member;
+            const auto position = static_cast<std::size_t>(slot.position());
+            const std::uint8_t pose = battle::partyMemberPose(state.at(slot), presentation.waitingPoses[position]);
+            const PoseFrame step =
+                characterPoseFrames(pose)[static_cast<std::size_t>(battle::poseStep(presentation.poseCounters[position]))];
+            if (step.isNone()) {
+                ++depth;
+                continue;
+            }
             layers.push_back(render::SpriteLayer(
                 key, depth,
-                {render::CharacterSprite(key, at.x, at.y, idle.frameIndex(), at.mirrored != idle.isMirrored(),
+                {render::CharacterSprite(key, at.x, at.y, step.frameIndex(), at.mirrored != step.isMirrored(),
                                          sheet.sheet, sheet.palette, 0)}));
         }
         ++depth;
     }
+}
+
+}  // namespace
+
+render::Layers BattleScreen(const battle::BattleState& state, const battle::BattlePresentationState& presentation,
+                            const TextCorpus& text, const BattleSheets& sheets) {
+    const Language lang = language(state.version);
+    render::Layers layers{
+        render::TileLayer(render::kBattleBackdropKey, render::kBattleBackdropZ,
+                          Backdrop(sheets.backdrop, sheets.backdropColor), kBackdropColumns, kBackdropRows),
+        render::TileLayer(render::kBattlefieldKey, render::kBattlefieldZ,
+                          render::BattleBackground(sheets.picture, sheets.background), kBackgroundColumns,
+                          kBackgroundRowsShown, {.regions = render::BattlefieldClip()}),
+    };
+
+    const std::array<Standing, battle::kBattlerSlots> where = standings(state, presentation, sheets);
+    addBattlers(layers, state, presentation, sheets, where);
+
+    if (presentation.message) {
+        const battle::ShownMessage& shown = presentation.message->shown;
+        layers.push_back(render::TileLayer(
+            render::kMessageWindowKey, render::kMessageWindowZ,
+            render::MessageWindowBox(shown.window, lang, sheets.wallpaper, sheets.windowColors),
+            render::messageWindowColumns(shown.window, lang), render::messageWindowRows(shown.window, lang),
+            {.scroll = render::messageWindowScroll(shown.window, lang), .regions = render::MessageShading(shown.window, lang)}));
+        layers.push_back(render::SpriteLayer(render::kMessageTextKey, render::kMessageTextZ,
+                                             {render::MessageText(shown, sheets.glyphs, sheets.ink, sheets.shadow)},
+                                             {.regions = render::MessageTextClip(shown)}));
+    }
+
+    layers.push_back(render::TileLayer(render::kHudWindowKey, render::kHudWindowZ,
+                                       render::HudWindows(lang, sheets.wallpaper, sheets.windowColors),
+                                       render::hudWindowsColumns(lang), render::kHudWindowRows,
+                                       {.scroll = render::hudWindowsScroll(lang), .regions = render::HudShading(lang)}));
+    layers.push_back(render::SpriteLayer(
+        render::kHudTextKey, render::kHudTextZ,
+        {render::MonsterNameList(presentation.monsterNames, text, lang, sheets.fontPalettes[render::kHudTextPalette],
+                                 sheets.smallFont),
+         render::PartyStatus(state, sheets.fontPalettes, sheets.smallFont)},
+        {.regions = render::HudTextClip()}));
+
+    render::NumeralAnchors anchors{};
+    for (std::size_t index = 0; index < where.size(); ++index) {
+        if (where[index].monster) {
+            anchors[index] = render::numeralAnchor(*where[index].monster);
+        } else if (where[index].member) {
+            anchors[index] = render::numeralAnchor(*where[index].member);
+        }
+    }
+    layers.push_back(render::SpriteLayer(render::kDamageNumbersKey, render::kDamageNumbersZ,
+                                         {render::DamageNumbers(presentation, anchors, sheets.numerals)}));
     return layers;
 }
 

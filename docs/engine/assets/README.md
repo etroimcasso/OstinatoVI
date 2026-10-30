@@ -24,4 +24,4 @@ of the cartridge.
 | File | Covers |
 |---|---|
 | [rom-ingestion.md](rom-ingestion.md) | The whole route — recognizing a cartridge, keeping it, and reading families out of it — plus the region table that says where each family lives and the identity table that says which cartridges are accepted. |
-| [battle-art.md](battle-art.md) | The battle's pictures, decoded on demand: each background's tiles, tilemap and colors, unpacked by the cartridge's own decompressor run on a machine the engine provides; each monster's picture through its stencil; each party member's battle frames and colors; the small font and its palettes; the cartridge's color word and tile formats. |
+| [battle-art.md](battle-art.md) | The battle's pictures, decoded on demand: each background's tiles, tilemap and colors, unpacked by the cartridge's own decompressor run on a machine the engine provides; each monster's picture through its stencil; each party member's battle frames and colors; the small font and its palettes; the damage numerals' digits and "Miss" out of the status art; a dying monster's colors; the cartridge's color word and tile formats. |

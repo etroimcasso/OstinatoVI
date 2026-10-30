@@ -2,10 +2,11 @@
 
 The pictures a battle is drawn from, read out of the player's cartridge: each background's tiles,
 tilemap and colors; each monster's picture through its stencil and its sixteen colors; each party
-member's battle frames cut from its map sprite sheet and the colors it draws through; and the small
-font the HUD, menus and damage numerals are lettered in. None of it is compiled in. A background's
-art is compressed in the cartridge and is unpacked by the cartridge's own routine, run on a machine
-the engine provides.
+member's battle frames cut from its map sprite sheet and the colors it draws through; the small
+font the HUD and menus are lettered in; the damage numerals' digits and "Miss"; and the colors a
+dying monster fades out in. None of it is compiled in. A background's art and the numerals' are
+compressed in the cartridge and are unpacked by the cartridge's own routine, run on a machine the
+engine provides.
 
 Everything here is a view over the ingested cartridge (`assets::IngestedContent`,
 [rom-ingestion.md](rom-ingestion.md)) that decodes one thing when asked. The tables that say where
@@ -33,6 +34,13 @@ const auto colors = characterColors(content.characterSheets, CharacterGfxId::TER
 // The small font's 256 glyphs and the eight palettes the battle draws them through.
 const text::IndexedImage glyphs = text::buildSmallFontSheet(content.smallFont);
 const text::SmallFontPalettes palettes = text::smallFontPalettes(content.smallFontColors, fontColor);
+
+// The damage numerals' ten digits and "Miss", out of the status art.
+const DamageNumeralArt numerals =
+    damageNumeralArt(content.routines->decompress(assets::compressedStream(content.statusArt)));
+
+// The sixteen colors a dying monster fades out in.
+const std::span<const std::uint8_t> deathColors = content.monsterDeathColors;
 ```
 
 | Type | Header | What it is |
@@ -44,6 +52,7 @@ const text::SmallFontPalettes palettes = text::smallFontPalettes(content.smallFo
 | `MonsterImages`, `MonsterImage` | `data/monster_image.h` | The monsters' pictures and one decoded |
 | `CharacterBattleSheets`, `CharacterBattleSheet`, `characterColors` | `data/character_battle_sheet.h` | The party's battle frames and colors |
 | `text::buildSmallFontSheet`, `text::smallFontPalettes` | `text/small_font.h` | The small font's sheet and palettes |
+| `DamageNumeralArt`, `damageNumeralArt` | `data/damage_numerals.h` | The numerals' tiles out of the decoded status art |
 
 All of it is plain data — indexed images and color words — with no rendering type, so a caller
 uploads the sheets it needs ([../rendering/battle.md](../rendering/battle.md) shows how).
@@ -156,6 +165,22 @@ first sixteen font colors become palettes 0-3, with the player's font color repl
 entry of palette 0; palette 4 is black; the last twelve colors become palettes 5-7. Which palette a
 run of HUD text draws through is part of the text.
 
+## The damage numerals
+
+The numerals are part of the status art (`content.statusArt`), a compressed stream that decodes
+through the decompressor to 8,192 bytes — 256 four-plane tiles. `damageNumeralArt` copies out the
+twelve the numerals use: "Miss" is the two tiles at byte `$1800` (`miss`), and digit *d* the tile at
+`$1840` + 32·*d* (`digit(d)`). Their pixels are 0 (see-through), 12 (the outline) and 13 (the fill)
+only — the first two of the four status colors a party member's palette ends in — so a palette of
+sixteen colors whose last four are `statusColors(0)` draws a white numeral, and `statusColors(1)` a
+green one.
+
+## A dying monster's colors
+
+`content.monsterDeathColors` is the sixteen color words a dying monster is drawn in while it fades
+out, read in place of its own palette; empty on a cartridge where they have no known place (the
+Japanese one).
+
 ## Gotchas
 
 - **The decompressor needs a cartridge whose place is known.** `IngestedContent::routines` is null
@@ -181,5 +206,5 @@ run of HUD text draws through is part of the text.
 - [rom-ingestion.md](rom-ingestion.md) — how the cartridge gets in and where each family lives
 - [../data-layer/battle-backgrounds.md](../data-layer/battle-backgrounds.md) — the background records these decode
 - [../data-layer/monster-sprites.md](../data-layer/monster-sprites.md) — the stencils and sizes
-- [../data-layer/battle-gfx-tables.md](../data-layer/battle-gfx-tables.md) — the frames, sheet places and status colors
+- [../data-layer/battle-gfx-tables.md](../data-layer/battle-gfx-tables.md) — the frames, sheet places, status colors and the numerals' bounce
 - [../rendering/battle.md](../rendering/battle.md) — drawing these

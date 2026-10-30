@@ -2,20 +2,21 @@
 
 Behavioral specification for the battle's picture: how the screen is split, how a background's
 art is unpacked and composed, where each monster and party member stands and faces, which frame
-a party member shows, the order the battlers are drawn in, and how the battle's windows are built
-from the wallpaper. All citations point into the pinned reference tree `original-src/`
+a party member shows, the order the battlers are drawn in, how the battle's windows are built
+from the wallpaper and shaded, and what the presentation shows over time — the names and messages
+at the top of the screen, the HUD's text, the damage numerals, a monster's death. All citations point into the pinned reference tree `original-src/`
 (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/btlgfx/btlgfx_main.asm` unless
 another file is named. This document is the test authority for
 `tests/test_battle_background_art.cpp`, `tests/test_monster_image.cpp`,
 `tests/test_character_battle_sheet.cpp`, `tests/test_small_font.cpp`,
-`tests/test_cartridge_routines.cpp`, `tests/test_battle_components.cpp` and
+`tests/test_cartridge_routines.cpp`, `tests/test_battle_components.cpp`,
+`tests/test_battle_presentation.cpp`, `tests/test_battle_hud_components.cpp` and
 `tests/test_battle_preview.cpp`.
 
 What the battle *does* — its clocks, its lines, its commands — is
-[battle_core.md](battle_core.md) and [battle_commands.md](battle_commands.md). This is what it
-looks like standing still. Everything that moves — the entrance, the attack animations, the step
-forward, the HUD's text, the messages, the damage numerals, a monster's death — is specified as it
-is ported.
+[battle_core.md](battle_core.md) and [battle_commands.md](battle_commands.md). This is what the
+player sees of it. The entrance, the attack animations and the step forward are specified as they
+are ported.
 
 ## Sources
 
@@ -33,9 +34,18 @@ is ported.
 | The party's place | `InitCharGfxMain :8203-8475`, `CalcCharXPos :8171-8197`, `Mult816NoHW :3230-3248`, the tables at `:42801-42820` | `partyMemberStanding`, `partyMemberX` |
 | A party member's frames | `_c2c745 :42552-42584`, `LoadCharGfx :8511-8626`, `UpdateCharGfxBuf :7733-7772`, `CharSpriteData :42768-42790`, `DrawCharSprite :7417-7626` | `CharacterBattleSheets::sheet`, `CharacterSprite` |
 | A party member's colors | `LoadCharGfx :8606-8623`, `CharPalTbl :42719-42743`, `LoadStatusPal :8632-8645`, `_c2c689 :42499-42503` | `characterColors` |
-| The idle pose | `DrawCharSprite :7465-7500`, `_c2c6a9 :42508-42547` | the preview's `kIdlePose` |
+| A party member's pose | `DrawCharSprite :7465-7538`, `_c2c6a9 :42508-42547`, `_c13071 :6816-6857`, `InitCharGfxMain :8418-8426` | `partyMemberPose`, `poseStep`, `poseCounters` |
 | The windows | `DrawWindowMain :12331-12437`, `DrawWindowRow :12457-12469`, `DrawWindowCol :12475-12497`, `WindowTileTbl :12516`, `WindowBorderTileTbl :12523` | `MenuWindow` |
 | The small font and its palettes | `LoadMenuGfx :8895-8933`, `btlgfx_ram.inc:5-11` | `text::buildSmallFontSheet`, `text::smallFontPalettes` |
+| Playing a script | `BtlGfx_01 :392-409`, `WaitFrame :425-439`, the `GfxCmd_xx` handlers | `tickBattlePresentation` |
+| The windows at the top | `GfxCmd_01 :22784-22829`, `_c197a1 :22773-22774`, `_c2bb11 :40904-40970`, `GfxCmd_02 :22882-22894`, `GfxCmd_10 :22863-22876`, `GfxCmd_11 :22712-22769`, `InitMsgWindow :22968-22989`, `_c19961 :23058-23072`, `_c19980 :23078-23099`, `chg_center :22926-22942`, `mess_wait :22948-22962`, `MsgSpeedTbl :22899-22900` | `MessagePlayback`, `MessageWindowBox`, `MessageText` |
+| The text drawer | `DrawDlgText :13905-13924`, `DlgTextCmdTbl :14003-14035`, `DrawDlgLetter :14508-14664`, `DlgTextCmd_01 :14400-14454` | `battleMessageSteps`, `monsterDialogSteps` |
+| The message speed a new game starts with | `menu/menu_sram.asm:101-104`, `menu/config.asm:933-960` | `kNewGameMessageSpeed`, `kSlowestMessageSpeed` |
+| The shadings | `InitBattleGfx :2435-2462`, `InitMsgWindowHDMA :22531-22556`, the HDMA table `_c2d138 :43057-43062` | `HudShading`, `MessageShading` |
+| The HUD's text | `LoadMenuText :11406-11435`, `DrawMenuText :15445-15471`, `DrawMenuLetter :15494-15504`, `DrawCharInfo_00..02 :15810-15902`, `TrimZeroes4 :3646-3657`, `GaugeTextTbl :15922-15954`, `MenuText::_0..3 :45063-45087` | `HudText`, `PartyStatus`, `MonsterNameList` |
+| The list of monster names | `battle_main.asm:15194-15238`, `UpdateMonsterNames :322-338` | `monsterNameList` |
+| The damage numerals | `GfxCmd_0b :24664-24784`, `GfxCmd_03 :22512-22525`, `_c1a5fa :24826-24958`, `DrawDmgNumSprites :6085-6182`, `_c12bfc :6188-6242`, `_c12c67 :6250-6293`, `_c12cc2 :6299-6380`, `_c10659 :1030-1107`, `InitBattleGfx :2325-2333` | `DamageNumbersShown`, `ShownNumeral`, `DamageNumbers`, `damageNumeralArt` |
+| A monster's death | `MonsterDeathAnim :22222-22317`, `UpdateMonsterDeathPal :22323-22339`, `SetColorMathHDMA :28695-28713` | `DeathFade`, `MonsterDeathFade` |
 
 ## The screen
 
@@ -222,12 +232,20 @@ set, `:8594-8605`), then the four status colors of the member's party slot (`_c2
 :42499-42503`, `LoadStatusPal :8632-8645`): sixteen in all, in palettes 8, 10, 12 and 14 by slot
 (`:8395-8402`).
 
-### Its pose when nothing is happening
+### Its pose
 
-`DrawCharSprite :7465-7500`: the action in progress, else the status pose, else the idle action 6,
-whose four steps (`_c2c6a9` row 6) are stepped by the member's counter every four frames. Step 0 of
-the idle action is frame 17, not mirrored. The status poses, the waiting poses and the stepping
-counter are the presentation logic's.
+`DrawCharSprite :7465-7500`: the action in progress, else the status pose, else the waiting pose,
+else the idle action 6. The status pose (`_c13071 :6816-6857`, first that applies): Dead → 1 (the
+fallen frame); Sleep → `$0a`; Confuse → `$25`; Chant → 9; Poison → `$0a`; Near-fatal → `$0a` — so
+a poisoned member stands wounded. The waiting pose is the one its command's ready stance sets
+(`commandWaitingPose`), cleared by the step back and by a pose reset.
+
+Each party member has its own pose counter, started at 0, 2, 4 and 6 for slots 0 to 3
+(`InitCharGfxMain :8418-8426`) and counted up once a frame as the member is drawn (`:7538`). The
+pose's step is the counter shifted right by three, masked to 0-3 (`:7472-7487`): a pose takes its
+next step every eight frames, the slots staggered by two frames. (An animation can make a member
+step every four frames, `w7e61d0`; nothing this presentation plays sets it.) Step 0 of the idle
+action is frame 17, not mirrored.
 
 ### Its feet
 
@@ -267,11 +285,192 @@ with the player's font color (`$1d55`), and the last twelve as palettes 5-7; pal
 black. The HUD shows seven of a glyph's eight rows (§ The screen); 101 glyphs have ink in the
 eighth, the digit zero among them ([Bugs.md](../Bugs.md)).
 
+## Playing a script
+
+A battle script plays one command at a time (`BtlGfx_02`'s command loop; each `GfxCmd_xx` returns
+when its part is done). A command that waits for nothing — a ready stance, a step back, a pose
+reset, a formation change, monsters leaving or entering, and here the animations, battle events and
+monster animations, whose pictures belong to the animation programs — takes no frame, and the next
+command follows in the same frame. Battle time runs through every command (`WaitFrame :434-436`
+updates it unless a battle event stops it), so the battle is told time runs every frame; the battle
+loop takes no step while a command is playing, a script is waiting, or a monster is fading out.
+
+Port rulings on the frames a command takes:
+
+- **The transfers around a window are not counted.** Opening a window at the top waits three
+  frames for its tiles and palette to reach video memory (`InitMsgWindow :22976-22983`) and closing
+  it one more (`_c19917 :23027`); a frame-taking command here shows its picture from its first
+  frame and is gone the frame after its last. Those frames are the hardware's transfer budget, not
+  part of the picture, as the HUD's one-cell-a-frame refresh is (`UpdateCharText :9518-9536`): the
+  HUD shows the battle as it stands every frame.
+
+## The windows at the top of the screen
+
+### Which window and what it says
+
+The names go in the narrow window, 18 × 4 tiles at column 7, row 1 (`MenuWindowTbl`, window 12);
+the messages in the wide one, 30 × 4 at column 1, row 1 (window 11). Both are drawn from the
+wallpaper through the battle's window colors (`DrawMsgWindow :12281-12287`: palette 2), on the
+battlefield's own layer, above the battlers.
+
+`GfxCmd_01` takes a name kind and a number. The kind's row of `_c197a1` says how the name is read:
+kind 0 splices an attack name (`$0f`), kind 1 an item name (`$0e`), kind 5 a command name (`$0c`) —
+text commands, read as a battle text reads them, below; kind 2 copies the esper attack name at the
+number (`_c2bb46`); kind 4 the Bushido name at the number (`_c2bb1c`); kind 3 nothing. The battle
+writes kind 0 for an attack (and for Joker Doom and a Blitz), 1 for an item, 2 for a summon with the
+esper's index, 4 for a Bushido technique with its index from Dispatch, 5 for a command. A monster's
+special attack is its own command (`GfxCmd_11`): the monster's special name copied up to its length
+or `$FF`.
+
+A battle message (`GfxCmd_02`) is the battle message text at its index; monster dialog
+(`GfxCmd_10`) the monster dialog at its index.
+
+### How the text appears
+
+The text drawer (`DrawDlgText`) draws every byte from `$20` up as a letter of the dialog font, the
+pen advancing by the font's width table (`FontWidth`, indexed by the byte less `$60`); in English
+the letter is the byte less `$60` as a dialog glyph. A byte below `$20` is a command:
+
+| Command | Does |
+|---|---|
+| `$01` | a line break: the line scrolls up one pixel a frame for sixteen frames and is gone, and the pen goes back to the left (`:14432-14454`) |
+| `$02 c` | the name of the character whose record's first byte is `c`, up to six letters or `$FF` |
+| `$05` | a pause of 60 frames |
+| `$06 n` | a pause of `n` frames |
+| `$07` | waits for a key; the text goes on once the player presses it, and no hold follows (`w7ee9f5`) |
+| `$0c n` | the command name at `n`, up to its length or `$FF`; nothing for `$FF` |
+| `$0e n` | the item name at `n` past its symbol, up to its length or `$FF`; for `$FF` a row of blanks the item name's length |
+| `$0f n` | below `$36` the spell name at `n` past its symbol; below `$51` the esper name at `n` − `$36`; else (in English) the attack name at `n` − `$51` |
+| `$10`, `$11` | the first and second variable as a number, leading zeros dropped, the last digit always shown |
+| `$12 t` | a string from a variable: the name of the party member in the slot variable 1 holds (`t` = 0), or the item, attack or command variable 0 holds (1, 2, 3) |
+
+A name, an attack message and a monster's special attack name are drawn whole: every letter at once
+(`w7e62ac` = 1 skips the per-letter transfer, `:14659-14661`). Monster dialog is typed: one letter a
+frame (`w7e62ac` = 0). Pauses, line breaks and key waits take their frames either way.
+
+Once the text is all down, the window stays up for the message speed's time — `MsgSpeedTbl
+[($1d4d >> 4) & 7]`: 32, 48, 64, 80, 96, 112 frames for settings 0 to 5 — unless the text waited for
+a key (`mess_wait :22950-22951`). The config menu offers settings 0 to 5 (`config.asm:942-944`); a
+new game starts at 2 (`menu_sram.asm:101-104`: `$1d4d = %00101010`). A monster's special attack name
+stays 32 frames whatever the setting (`GfxCmd_11 :22759-22760`).
+
+### Where the text sits
+
+The text is on its own layer at tile rows 2 and 3 — the 16-pixel line from line 16 — the wide
+window's from tile column 2 across 28 columns (`_c19980 :23083-23099`, English), the narrow window's
+from column 9 across 22 (`_c19961 :23058-23072`). A letter's artwork goes four rows into the line
+(`DrawDlgLetter :14555`, the first row written at `+$08`) and four pixels left of the pen
+(`:14540-14547`, `_c16109 :14459`: whichever half of a tile the pen is in, the artwork lands four
+left of it), as the dialog's does. Only the line's tiles show, so text rising out of the line, or
+reaching past the window's columns, is not seen.
+
+The narrow window's text is moved right to sit centered: once it is down, by (104 − the pen) / 2
++ 2, the division rounding down (`chg_center :22926-22942`, through the text layer's scroll).
+
+The ink is the player's font color, the shadow black, one pixel right and down (`_c199ac
+:23120-23128`).
+
+### The shading
+
+Both windows are darkened by color math (the per-line table `_c2d138`, one entry a line): from line
+8, the fixed color is subtracted from the window's layer at intensity 0 for two lines, 1 for the
+next two, up to 15 on lines 38 and 39 (`InitMsgWindowHDMA :22531-22556`). The text and the battlers
+are not darkened.
+
+## The HUD
+
+### Its windows
+
+The monster names' window is 12 × 8 at column 1 and the party's 18 × 8 at column 13 (`MenuWindowTbl`,
+windows 0 and 1), from line 152. From line 151 they are darkened by color math: the fixed color
+subtracted from their layer at intensity 0 for three lines, 1 for the next three, and so on
+(`InitBattleGfx :2441-2462`); the windows' last two lines, 214 and 215, lose 21 31sts. The text is
+not darkened.
+
+### Its text
+
+The text is the small font's glyphs, one a cell, each line on the second of its two tile rows
+(`DrawMenuLetter :15494-15504`), placed at the columns of the battle's text placements: monster
+names at column 2, character names at 14, HP at 21, the gauge at 25 (`_c2df9e`). Each draws through
+the palette its attribute byte names: `$21` (palette 0) unless the text says otherwise
+(`LoadMenuText :11431`).
+
+- **The monster names**: each line of the list (below), the monster's name, its record's length,
+  then a blank (`MenuText::_0`, `MenuTextCmd_0b :16048-16084`).
+- **A party member's name**: six letters of its record's name (`DrawCharInfo_00 :15810-15819`).
+- **HP**: four digits from `ZERO_CHAR` (`$B4`), the leading zeros made blank (`$FF`) up to the third,
+  so the last digit always shows (`HexToDec4 :15967-15980`, `TrimZeroes4 :3646-3657`).
+- **The gauge** (`DrawCharInfo_02 :15869-15902`): with the gauge shown, the left cap, four cells from
+  `GaugeTextTbl` at the gauge's fill shifted right by three, the right cap (`DrawGaugeText
+  :15850-15864`), in palette 2 when the gauge's byte is `$FF` and palette 5 otherwise (`$29`, `$35`);
+  a morphed member shows its Morph gauge the same way in palette 6 (`MenuText::_22..25`, `$39`). The
+  gauge's byte is the battler's ATB meter less one (`battle_main.asm:15149-15163`). With the gauge
+  turned off: "~" (`$CE`), the max HP in four digits, a blank.
+
+The text layer's scroll ramp shows seven of each line's eight pixel rows (§ The screen).
+
+### The list of monster names
+
+The battle keeps four name slots (`battle_main.asm:15194-15238`, as it works out the run difficulty):
+for each monster slot in order whose monster is present, has not died or escaped, is counted in the
+battle, and is not petrified, dead or a zombie, a monster not hidden from the list puts its name
+group into the first empty slot or counts on the slot already holding it. The HUD shows the slots
+when the battle says they changed and no menu is open (`UpdateMonsterNames :322-338`).
+
+## The damage numerals
+
+### Their art
+
+The digits and "Miss" are not the small font: they are four-plane tiles of the status art, which the
+battle unpacks with its decompressor to `$7F:A400` when it starts (`InitBattleGfx :2325-2333`) —
+"Miss" the two tiles at `$7F:BC00`, digit *d* the tile at `$7F:BC40` + 32·*d* (`GfxCmd_0b :24711`,
+`_c1a735 :24989-24991`). Their pixels use colors 12 and 13 only. A numeral draws through palette 4
+(`$38`) — party slot 0's, whose colors 12 to 15 are its status colors — or, green for healing, palette
+5 (`$3a`), slot 1's (`_c12cc2 :6346-6353`).
+
+### One at a time and all at once
+
+- **One numeral** (`GfxCmd_0b`): one of four threads, taken in turn and cleared as it is taken
+  (`:24665-24670`); a frame passes; if another thread's numeral is over the same battler, eight more
+  frames pass (`:24674-24681`); the numeral starts and one more frame passes before the script goes on
+  (`:24782`). The value's bit 15 makes it green, bit 14 makes it "Miss", the low 14 bits are the amount.
+- **Every battler's numeral** (`GfxCmd_03`, `_c1a5fa`): a numeral for each battler with one, started
+  together, only over a battler that is shown; then the script waits frame by frame until no numeral
+  of either kind is left (`:22514-22524`).
+
+A numeral bounces for 64 frames, lifted by `DmgNumBounceTbl` at its frame, then is gone
+(`:6098-6100`, `:6301-6306`). One over a battler that is not shown is dropped (`_c12bfc`).
+
+### Where they sit
+
+A battler's numerals start from its anchor: a monster's center at the top of its bottom tile row
+(`_c10659 :1036-1056`: x + width·4, y + 8·height − 8), a party member's center at its feet (`:1088-
+1100`: x + 8, y + 16). The digits run left to right from the anchor less the numeral's offset: 4 a
+digit, leading zeros dropped (`:24733-24749`, `:24894-24911`), so a number sits centered. "Miss" is
+copied one tile into the numeral (`+$20`, `:24712`, `:24864`) with an offset of 8 shown on its own
+(`:24717`) and 0 shown with the others (`:24841`), so it starts at the anchor or one tile right of it
+([../Bugs.md](../Bugs.md)).
+
+## A monster's death
+
+Between scripts, every frame (`BtlGfx_01`), the monsters shown that the battle no longer counts as
+standing (`$2f2f`) die together (`MonsterDeathAnim`): one frame as they were; then their sprites take
+palette 3, loaded with `MonsterDeathPal` (`:22243-22248`), at priority 0, and color math adds the
+sprites to the background (`:22256-22259`: the sprites on the subscreen, added to the background's
+layer), so a dying monster shows added over what is behind it; then 32 frames, the first showing the
+death palette as loaded and each next with every channel of its sixteen colors one 31st lower, floored
+at 0 (`UpdateMonsterDeathPal`); then the monsters are no longer shown, the color math goes off and
+the palettes come back. A monster that comes back without dying is shown again at once
+(`:22299-22304`).
+
 ## Negatives — not here
 
-The entrance and exit scripts and the step forward; the attack animations; the battle events; the
-menu; the HUD's text and gauges; the messages; the damage numerals; a monster's death fade; the
-status poses, character shadows, status sprites, outlines and skin colors; the imp and Magitek
-graphics swaps; the controlled-target flip; the final battle's scrolls; the wavy background; the
-three background load variants; the scripted battle positions; the BG1 monster path (no shipped
-formation sets a BG1 monster, `:2002-2003`).
+The entrance and exit scripts and the step forward; the attack animations, and an animation's
+faster pose stepping (`w7e61d0`); the battle events and the battle dialog they show; the menu, its
+windows and text, the MP window and its three-digit numbers (`TrimZeroes3`), and the highlight of
+the acting member's HUD row (`_c14ec2`); the condemned numerals and gauge; the pose `DrawCharSprite` forces at `:7436-7464`; the
+character shadows, status sprites, outlines and skin colors; the imp and Magitek graphics swaps;
+the controlled-target flip; the final battle's scrolls; the wavy background; the three background
+load variants; the scripted battle positions; the alternate text color (`$04`), which no battle
+message, monster dialog or name uses; the Japanese monster-list counts; the BG1 monster path (no
+shipped formation sets a BG1 monster, `:2002-2003`).

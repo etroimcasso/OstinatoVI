@@ -99,4 +99,29 @@ inline constexpr std::string_view kCharacterKey = "chr";
 inline constexpr std::string_view kMessageWindowKey = "msgwin";
 inline constexpr std::string_view kHudWindowKey = "hudwin";
 
+// A run of a window's shading: msgsh:<row> on the message window, hudsh:<row> on the HUD's.
+inline constexpr std::string_view kMessageShadingKey = "msgsh";
+inline constexpr std::string_view kHudShadingKey = "hudsh";
+
+// The message text's layer, a glyph of it — msg:<n>, the n-th glyph shown, which a line break
+// starts again — and what hides the text outside its line.
+inline constexpr std::string_view kMessageTextKey = "msgtext";
+inline constexpr std::string_view kMessageGlyphKey = "msg";
+inline constexpr std::string_view kMessageTextClipKey = "msgclip";
+
+// The HUD text's layer, a glyph of it — hud:<part>:<line>:<n> — and what hides each line's last
+// pixel row.
+inline constexpr std::string_view kHudTextKey = "hudtext";
+inline constexpr std::string_view kHudGlyphKey = "hud";
+inline constexpr std::string_view kHudTextClipKey = "hudclip";
+
+// The damage numerals' layer, and a numeral's tile: dmg:<battler>:<n> for one shown with the others
+// at once, dmg1:<thread>:<n> for one shown on its own.
+inline constexpr std::string_view kDamageNumbersKey = "dmglayer";
+inline constexpr std::string_view kDamageNumeralKey = "dmg";
+inline constexpr std::string_view kSingleNumeralKey = "dmg1";
+
+// A dying monster's darkening, on its layer.
+inline constexpr std::string_view kDeathFadeKey = "death";
+
 }  // namespace ostinato::render

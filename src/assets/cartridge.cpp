@@ -243,6 +243,10 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
     if (const auto decompressor = romRegion(RomAsset::DECOMPRESS_ROUTINE, spoken)) {
         routines = std::make_unique<CartridgeRoutines>(art.read(*decompressor));
     }
+    std::span<const std::uint8_t> monsterDeathColors;
+    if (const auto deathPalette = romRegion(RomAsset::MONSTER_DEATH_PAL, spoken)) {
+        monsterDeathColors = art.read(*deathPalette);
+    }
 
     IngestedContent content{
         .version = *version,
@@ -271,6 +275,8 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
                                                  artBytes(RomAsset::BATTLE_CHAR_PAL, "battle character palettes")},
         .smallFont = artBytes(RomAsset::SMALL_FONT, "small font"),
         .smallFontColors = artBytes(RomAsset::BATTLE_FONT_PAL, "battle font palettes"),
+        .statusArt = artBytes(RomAsset::STATUS, "status art"),
+        .monsterDeathColors = monsterDeathColors,
         .routines = std::move(routines),
     };
     return content;

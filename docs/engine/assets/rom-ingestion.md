@@ -100,6 +100,8 @@ content.battleBackgrounds;             // every battle background's art, decoded
 content.monsterImages;                 // every monster's picture and colors
 content.characterSheets;               // every party member's battle frames and colors
 content.smallFont, content.smallFontColors;  // the small font's glyphs and palettes
+content.statusArt;                     // the status art, compressed: the damage numerals among it
+content.monsterDeathColors;            // the colors a dying monster fades out in
 content.routines;                      // the cartridge's decompressor, on a machine of its own
 ```
 

@@ -399,3 +399,28 @@ so a font that changed would show it.
 
 **If you want to change it.** Showing eight rows means a wider line pitch or a
 shorter line count; either moves every HUD line from where the game puts it.
+
+## "Miss" sits right of the battler it is over
+
+**What happens.** A damage numeral is centered on its battler, but the word
+"Miss" is not: shown on its own it starts at the battler's center and runs 16
+pixels to the right, and shown with every other battler's numeral at once it
+starts 8 pixels further right still.
+
+**Where the original does it.** A numeral's digits are copied into its graphics
+from the first tile, and its offset — how far left of the battler it starts —
+is half its width, 4 a digit (`btlgfx/btlgfx_main.asm:24733-24749`,
+`:24894-24911`). "Miss" is copied one tile in (`+$20`, `:24712`, `:24864`), and
+given an offset of 8 when shown on its own (`GfxCmd_0b :24717-24718`) and of 0
+when shown together (`_c1a5fa :24841`, where the offset was cleared and never
+set for a miss). The two tiles of "Miss" therefore start 8 right of where the
+offset puts the numeral: at the center on its own, 8 past it together.
+
+**Where the port keeps it.** `battle::ShownNumeral::offset` carries the two
+offsets (`kSingleMissOffset`, `kTogetherMissOffset` in
+`src/battle/presentation.cpp`), and `render::DamageNumbers` draws "Miss" one
+cell further right than its offset. `tests/test_battle_presentation.cpp` and
+`tests/test_battle_hud_components.cpp` pin both.
+
+**If you want to change it.** Centering "Miss" means an offset of 8 and no
+extra cell in both cases.

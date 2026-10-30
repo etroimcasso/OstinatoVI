@@ -80,6 +80,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/item_attack.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
+    src/battle/presentation.cpp
     src/battle/spell_lists.cpp
     src/battle/system_commands.cpp
     src/battle/targeting.cpp
@@ -126,15 +127,23 @@ add_library(ostinato-vi-lib STATIC
     src/data/battle_gfx_tables.cpp
     src/data/char_ai.cpp
     src/data/character_battle_sheet.cpp
+    src/data/damage_numerals.cpp
     src/data/monster_image.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
     src/game/character_record.cpp
     src/render/battle/battle_background.cpp
+    src/render/battle/battle_message.cpp
     src/render/battle/battle_placement.cpp
     src/render/battle/character_sprite.cpp
+    src/render/battle/damage_numbers.cpp
+    src/render/battle/hud_text.cpp
+    src/render/battle/hud_windows.cpp
     src/render/battle/menu_window.cpp
+    src/render/battle/monster_death_fade.cpp
+    src/render/battle/monster_name_list.cpp
     src/render/battle/monster_sprite.cpp
+    src/render/battle/party_status.cpp
     src/render/color_gradient.cpp
     src/render/sprite_layer.cpp
     src/render/tile_layer.cpp
@@ -526,6 +535,8 @@ add_executable(ostinato-vi-battle-preview-tests
     tests/test_battle_background_art.cpp
     tests/test_battle_components.cpp
     tests/test_battle_gfx_tables.cpp
+    tests/test_battle_hud_components.cpp
+    tests/test_battle_presentation.cpp
     tests/test_battle_preview.cpp
     tests/test_battle_window_colors.cpp
     tests/test_cartridge_routines.cpp

@@ -96,6 +96,14 @@ struct IngestedContent {
     std::span<const std::uint8_t> smallFont;        // RomAsset::SMALL_FONT
     std::span<const std::uint8_t> smallFontColors;  // RomAsset::BATTLE_FONT_PAL
 
+    // The status art, compressed: the damage numerals' digits and "Miss" among it, decoded through
+    // the decompressor (data/damage_numerals.h). RomAsset::STATUS.
+    std::span<const std::uint8_t> statusArt;
+
+    // The sixteen colors a dying monster fades out in. RomAsset::MONSTER_DEATH_PAL; empty on a
+    // cartridge where it has no known place (the Japanese one).
+    std::span<const std::uint8_t> monsterDeathColors;
+
     // The cartridge's decompressor on a machine of its own, which the backgrounds decode through.
     // Empty on a cartridge whose decompressor has no known place (the Japanese one).
     std::unique_ptr<CartridgeRoutines> routines;
