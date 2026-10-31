@@ -2,9 +2,7 @@
 
 #include <cassert>
 #include <cstddef>
-
-#include "render/battle/layout.h"
-#include "render/layers.h"
+#include <optional>
 
 namespace ostinato::render {
 
@@ -28,17 +26,6 @@ Cells BattleBackground(const BattleBackgroundPicture& picture, const BackgroundS
         });
     }
     return cells;
-}
-
-Regions BattlefieldClip() {
-    return {retropp::Region{
-        .key = kBattlefieldClipKey,
-        .shape = retropp::ShapePoints::rectangle(
-            {.x = 0.0f, .y = static_cast<float>(kBattlefieldHeightPx)},
-            static_cast<float>(kScreenSize.width),
-            static_cast<float>(kBackgroundRowsShown * kBattleCellPx - kBattlefieldHeightPx)),
-        .effects = {retropp::ScreenSpaceEffect{.kind = retropp::ScreenSpaceEffectKind::Transparency}},
-    }};
 }
 
 }  // namespace ostinato::render

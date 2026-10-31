@@ -131,24 +131,10 @@ TEST(BattleHudText, EachCodeIsOneGlyphEightPixelsOnAndTheBlankDrawsNothing) {
     EXPECT_EQ(sprites[0].size.width, 8);
 }
 
-TEST(BattleHudText, TheLinesFallTwelvePixelsApartAndEachLosesItsLastRow) {
-    EXPECT_EQ(hudLineY(0), 164);
-    EXPECT_EQ(hudLineY(3), 200);
-    const Regions clip = HudTextClip();
-    ASSERT_EQ(clip.size(), 4u);
-    for (int line = 0; line < 4; ++line) {
-        const retropp::Region& region = clip[static_cast<std::size_t>(line)];
-        ASSERT_EQ(region.effects.size(), 1u);
-        EXPECT_EQ(region.effects[0].kind, retropp::ScreenSpaceEffectKind::Transparency);
-        float top = 1e9f;
-        float bottom = -1e9f;
-        for (const retropp::Point& point : region.shape.points) {
-            top = std::min(top, point.y);
-            bottom = std::max(bottom, point.y);
-        }
-        EXPECT_EQ(top, static_cast<float>(171 + 12 * line)) << line;
-        EXPECT_EQ(bottom - top, 1.0f) << line;
-    }
+TEST(BattleHudText, TheLinesFallTwelvePixelsApartFromLine163) {
+    EXPECT_EQ(hudLineY(0), 163);
+    EXPECT_EQ(hudLineY(1), 175);
+    EXPECT_EQ(hudLineY(3), 199);
 }
 
 // The blank code, which also stands in a number's place for a leading zero (TrimZeroes4
@@ -167,8 +153,8 @@ TEST_F(BattleHudTest, TheMonsterListShowsEachNameOnItsLineAtTheMonsterColumn) {
     const Sprites sprites = MonsterNameList(names, content_->text, Language::EN, retropp::PaletteId{3}, smallFontSheet());
     ASSERT_EQ(sprites.size(), 8u);
     EXPECT_EQ(xs(Sprites(sprites.begin(), sprites.begin() + 4)), (std::vector<int>{16, 24, 32, 40}));
-    EXPECT_EQ(sprites[0].y, 164);
-    EXPECT_EQ(sprites[4].y, 188);
+    EXPECT_EQ(sprites[0].y, 163);
+    EXPECT_EQ(sprites[4].y, 187);
     EXPECT_EQ(sprites[0].tile, smallFontSheet()[0x8b].tile);
     EXPECT_EQ(sprites[1].tile, smallFontSheet()[0xa8].tile);
     EXPECT_EQ(sprites[2].tile, smallFontSheet()[0x9b].tile);
@@ -192,7 +178,7 @@ TEST_F(BattleHudTest, EachPartyMembersNameSitsOnItsSlotsLine) {
     const auto locke = part(sprites, "hud:name:1:");
     ASSERT_FALSE(locke.empty());
     EXPECT_EQ(locke[0]->x, 112);
-    EXPECT_EQ(locke[0]->y, 176);
+    EXPECT_EQ(locke[0]->y, 175);
     EXPECT_EQ(locke[0]->tile, smallFontSheet()[state().party.characters[1].name[0]].tile);
     EXPECT_EQ(locke[0]->palette, fontPalettes()[0]);
     EXPECT_TRUE(part(sprites, "hud:name:3:").empty());  // no fourth member
@@ -266,7 +252,7 @@ TEST_F(BattleHudTest, AMemberInMorphShowsItsMorphGaugeInPaletteSix) {
 TEST(BattleHudWindows, TheTwoWindowsSitSideBySideAtTheHudsTopLine) {
     const retropp::AtlasManifest wallpaper = carve(64, 64, 8, retropp::ContentKind::Tileset, 28, 50);
     EXPECT_EQ(hudWindowsColumns(Language::EN), 30);
-    EXPECT_EQ(hudWindowsScroll(Language::EN), (retropp::LayerScroll{.x = -8, .y = -152}));
+    EXPECT_EQ(hudWindowsScroll(Language::EN), (retropp::LayerScroll{.x = -8, .y = -151}));
     const Cells cells = HudWindows(Language::EN, wallpaper, retropp::PaletteId{9});
     ASSERT_EQ(cells.size(), 30u * 8u);
     const Cells left = MenuWindow(12, 8, wallpaper, retropp::PaletteId{9});
@@ -297,8 +283,8 @@ float widthOf(const retropp::Region& region) {
     return right - left;
 }
 
-// From line 151, a 31st more every three lines over the windows to their last line, 215: the first
-// band takes nothing and gets no region, the last is two lines at 21 31sts.
+// From line 151, a 31st more every three lines over the windows to their last line, 214: the first
+// band takes nothing and gets no region, the last is one line at 21 31sts.
 TEST(BattleHudWindows, TheShadingDarkensAThirtyFirstMoreEveryThreeLinesFromLine151) {
     const Regions shading = HudShading(Language::EN);
     ASSERT_EQ(shading.size(), 21u);
@@ -340,9 +326,9 @@ TEST(BattleMessageText, LettersSitFourRowsIntoTheLineFromTheWindowsTextColumn) {
     ASSERT_EQ(sprites.size(), 4u);  // a shadow and a letter each
     EXPECT_EQ(sprites[1].key.value, "msg:0");
     EXPECT_EQ(sprites[1].x, 12);  // the artwork starts four left of the pen at column 2
-    EXPECT_EQ(sprites[1].y, 20);
+    EXPECT_EQ(sprites[1].y, 19);
     EXPECT_EQ(sprites[3].x, 19);
-    EXPECT_EQ(sprites[3].y, 17);
+    EXPECT_EQ(sprites[3].y, 16);
     EXPECT_EQ(sprites[0].palette, retropp::PaletteId{2});
     battle::ShownMessage narrow{.window = battle::MessageWindow::Narrow, .centering = 30, .glyphs = {{.glyph = 0x25}}};
     EXPECT_EQ(MessageText(narrow, glyphs, retropp::PaletteId{1}, retropp::PaletteId{2})[1].x, 72 + 30 - 4);
@@ -366,8 +352,8 @@ TEST(BattleMessageText, TheClipKeepsOnlyTheLinesTiles) {
     }
     EXPECT_EQ(left, 82.0f);
     EXPECT_EQ(right - left, 22.0f * 8.0f);
-    EXPECT_EQ(top, 16.0f);
-    EXPECT_EQ(bottom, 32.0f);
+    EXPECT_EQ(top, 15.0f);
+    EXPECT_EQ(bottom, 31.0f);
 }
 
 // --- damage numerals -------------------------------------------------------------------------------

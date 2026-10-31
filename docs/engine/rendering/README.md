@@ -13,7 +13,7 @@ made of. A frame is the list of what the components return.
 
 | Kind of component | Returns | Examples |
 |---|---|---|
-| A leaf, or a group of leaves | its `Sprites`, `Cells` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle`, `DialogWindow`, `WindowShading`, `WindowClip`, `ColorGradient`, `BattleBackground`, `BattlefieldClip`, `MonsterSprite`, `CharacterSprite`, `MenuWindow` |
+| A leaf, or a group of leaves | its `Sprites`, `Cells` or `Regions` | `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe`, `MapTitle`, `DialogWindow`, `WindowShading`, `WindowClip`, `ColorGradient`, `ScreenBorder`, `BattleBackground`, `MonsterSprite`, `CharacterSprite`, `MenuWindow` |
 | One that gathers components onto a layer | a `retropp::DrawLayer` | `SpriteLayer`, `TileLayer` |
 | A screen | its `Layers` | — |
 
@@ -25,5 +25,5 @@ changes over time advances there, once per frame; a component only reads.
 
 | File | Covers |
 |---|---|
-| [battle.md](battle.md) | The battle's picture — where it sits on the screen and the depths its layers take; where each battler stands and the order they are drawn in; the background on the battlefield and the line beneath it; a monster's sprite and its death fade; a party member's frames in the pose it stands in; a battle window's box; the windows at the top of the screen and their text; the HUD's windows, shading, monster names, and the party's names, HP and gauges; the damage numerals; a whole screen in the battle preview. |
-| [components.md](components.md) | The return-type aliases (`types.h`); `SpriteLayer`, `TileLayer` and the `LayerOptions` they pass through; the depth table, the screen size and the key names (`layers.h`); `ColorGradient`, bands of color over a layer; the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`; the dialog window components `DialogWindow`, `WindowShading`, `WindowSquash` and `WindowClip`; how to add a component. |
+| [battle.md](battle.md) | The battle's picture — where it sits on the screen, its border, and the depths its layers take; where each battler stands and the order they are drawn in; the background on the battlefield; a monster's sprite and its death fade; a party member's frames in the pose it stands in; a battle window's box; the windows at the top of the screen and their text; the HUD's windows, shading, monster names, and the party's names, HP and gauges; the damage numerals; a whole screen in the battle preview. |
+| [components.md](components.md) | The return-type aliases (`types.h`); `SpriteLayer`, `TileLayer` and the `LayerOptions` they pass through; the depth table, the screen size and the key names (`layers.h`); `ColorGradient`, bands of color over a layer; `ScreenBorder`, the black border around the picture; the dialog components `Glyph`, `DialogText`, `DialogCursor`, `DialogWipe` and `MapTitle`; the dialog window components `DialogWindow`, `WindowShading`, `WindowSquash` and `WindowClip`; how to add a component. |

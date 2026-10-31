@@ -1,8 +1,7 @@
 // MonsterNameList — the list of monster names in the HUD's left window.
 //
 //     SpriteLayer(kHudTextKey, kHudTextZ,
-//                 {MonsterNameList(shown.monsterNames, content.text, Language::EN, palettes[0], font)},
-//                 {.regions = HudTextClip()});
+//                 {MonsterNameList(shown.monsterNames, content.text, Language::EN, palettes[0], font)});
 //
 // The list's lines from the first HUD text line down, each the monster's name from the cartridge's
 // monster names in the small font (HudText), at the column the battle's text placements give the

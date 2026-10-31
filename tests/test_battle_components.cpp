@@ -25,6 +25,7 @@
 #include "render/battle/menu_window.h"
 #include "render/battle/monster_sprite.h"
 #include "render/layers.h"
+#include "render/screen_border.h"
 
 namespace ostinato::render {
 namespace {
@@ -325,16 +326,20 @@ TEST(BattleBackground, TheShownRowsThroughTheCellsPalettesAndFlips) {
     EXPECT_EQ(cells[3].tile, sheet.blankTile);
 }
 
-TEST(BattlefieldClip, OneSeeThroughLineBetweenTheBattlefieldAndTheHud) {
-    const Regions regions = BattlefieldClip();
-    ASSERT_EQ(regions.size(), 1u);
-    EXPECT_EQ(regions[0].key.value, kBattlefieldClipKey);
-    ASSERT_EQ(regions[0].effects.size(), 1u);
-    EXPECT_EQ(regions[0].effects[0].kind, retropp::ScreenSpaceEffectKind::Transparency);
-    ASSERT_EQ(regions[0].shape.points.size(), 4u);
-    EXPECT_FLOAT_EQ(regions[0].shape.points[0].y, 151.0f);
-    EXPECT_FLOAT_EQ(regions[0].shape.points[2].y, 152.0f);
-    EXPECT_FLOAT_EQ(regions[0].shape.points[2].x, 256.0f);
+// --- ScreenBorder ------------------------------------------------------------------------------------
+
+TEST(ScreenBorder, TheBattleShowsColumns8To247AndLines4To218) {
+    const Regions border = ScreenBorder(kBattleTopBlankRows, kBattleBottomBlankRows);
+    ASSERT_EQ(border.size(), 1u);
+    EXPECT_EQ(border[0].key.value, kScreenBorderKey);
+    ASSERT_EQ(border[0].effects.size(), 1u);
+    EXPECT_EQ(border[0].effects[0].kind, retropp::ScreenSpaceEffectKind::Transparency);
+    EXPECT_EQ(border[0].effects[0].stencil, retropp::StencilMode::TransparentOutside);
+    ASSERT_EQ(border[0].shape.points.size(), 4u);
+    EXPECT_FLOAT_EQ(border[0].shape.points[0].x, 8.0f);
+    EXPECT_FLOAT_EQ(border[0].shape.points[0].y, 4.0f);
+    EXPECT_FLOAT_EQ(border[0].shape.points[2].x, 248.0f);
+    EXPECT_FLOAT_EQ(border[0].shape.points[2].y, 219.0f);
 }
 
 // --- MonsterSprite -----------------------------------------------------------------------------------
@@ -399,11 +404,15 @@ TEST(CharacterSprite, TheFallenFrameLiesBelowAndToTheLeftFurtherWhenMirrored) {
 
 TEST(BattleLayout, TheScreenSplitsAtLine151AndTheHudTextSitsTwelveApart) {
     EXPECT_EQ(kBattlefieldHeightPx, 151);
-    EXPECT_EQ(kHudTopPx, 152);
-    EXPECT_EQ(kHudTopPx + kHudWindowRows * kBattleCellPx, 216);
-    EXPECT_EQ(kHudTextFirstLinePx + (kHudTextLines - 1) * kHudTextLinePitchPx, 200);
-    EXPECT_EQ(kHudGlyphRowsShown, 7);
-    EXPECT_LT(kBattlefieldHeightPx, kBackgroundRowsShown * kBattleCellPx);
+    // The background shown from its second pixel row ends on the battlefield's last line.
+    EXPECT_EQ(kBackgroundRowsShown * kBattleCellPx - kBattlefieldScrollPx, kBattlefieldHeightPx);
+    EXPECT_EQ(kHudTopPx, 151);
+    EXPECT_EQ(kHudTopPx + kHudWindowRows * kBattleCellPx, 215);
+    EXPECT_EQ(kHudTextFirstLinePx, 163);
+    EXPECT_EQ(kHudTextFirstLinePx + (kHudTextLines - 1) * kHudTextLinePitchPx, 199);
+    EXPECT_EQ(kMessageTextTopPx, 15);
+    EXPECT_EQ(kBattleTopBlankRows, 4);
+    EXPECT_EQ(kScreenSize.height - kBattleBottomBlankRows, 219);
 }
 
 }  // namespace

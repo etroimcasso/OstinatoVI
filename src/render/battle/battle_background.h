@@ -1,13 +1,13 @@
-// BattleBackground — the battlefield's tiles, and the line beneath them the background does not reach.
+// BattleBackground — the battlefield's tiles.
 //
 //     TileLayer(kBattlefieldKey, kBattlefieldZ, BattleBackground(picture, sheet), kBackgroundColumns,
-//               kBackgroundRowsShown, {.regions = BattlefieldClip()});
+//               kBackgroundRowsShown, {.scroll = {.y = kBattlefieldScrollPx}});
 //
-// The background's tilemap as tile cells, the 19 rows the battlefield shows, every cell drawn from
-// `sheet` — the background's decoded tiles uploaded as one sheet — through the one of its three
-// palettes the cell names, flipped as the cell says. A cell naming a tile none of the background's
-// blocks holds draws the sheet's blank tile. The nineteenth row is a line too tall for the
-// battlefield: BattlefieldClip makes its last line see-through, so the backdrop shows there.
+// The background's tilemap as tile cells, its first 19 rows, every cell drawn from `sheet` — the
+// background's decoded tiles uploaded as one sheet — through the one of its three palettes the cell
+// names, flipped as the cell says. A cell naming a tile none of the background's blocks holds draws
+// the sheet's blank tile. The battlefield shows the tilemap's pixel rows 1 to 151 on lines 0 to 150,
+// so the layer scrolls down by kBattlefieldScrollPx and its last row ends on line 150.
 #pragma once
 
 #include <array>
@@ -32,8 +32,5 @@ struct BackgroundSheet {
 // PRECONDITION (asserted): every shown cell names one of the three palettes, as every cartridge
 // background's does.
 [[nodiscard]] Cells BattleBackground(const BattleBackgroundPicture& picture, const BackgroundSheet& sheet);
-
-// The see-through line between the battlefield and the HUD.
-[[nodiscard]] Regions BattlefieldClip();
 
 }  // namespace ostinato::render

@@ -27,10 +27,6 @@ protected:
 
 test::IngestedCartridge* SmallFontTest::cartridge_ = nullptr;
 
-// How many of the 256 glyphs have ink in their eighth row — the row the HUD does not show. The
-// digit zero is one of them: its bottom edge is cut off on the HUD, as it is in the original.
-constexpr int kGlyphsWithInkInRowSeven = 101;
-
 // 256 glyphs on sixteen rows; the digit zero (glyph $B4) has ink and the blank glyph ($FF) none.
 TEST_F(SmallFontTest, TheSheetHoldsEveryGlyph) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
@@ -56,26 +52,6 @@ TEST_F(SmallFontTest, TheSheetHoldsEveryGlyph) {
     for (const std::uint8_t pixel : sheet.pixels) {
         ASSERT_LT(pixel, 4);
     }
-}
-
-// Whether any glyph has ink in its eighth row: the HUD shows seven of a letter's eight rows.
-TEST_F(SmallFontTest, TheEighthRowIsReportedHonestly) {
-    OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
-    const assets::IngestedContent& content = *cartridge_->content;
-    const IndexedImage sheet = buildSmallFontSheet(content.smallFont);
-    int glyphsWithInkInRowSeven = 0;
-    for (std::size_t glyph = 0; glyph < kSmallFontGlyphCount; ++glyph) {
-        const int x0 = static_cast<int>(glyph % 16) * 8;
-        const int y = static_cast<int>(glyph / 16) * 8 + 7;
-        for (int x = 0; x < 8; ++x) {
-            if (sheet.at(x0 + x, y) != 0) {
-                ++glyphsWithInkInRowSeven;
-                break;
-            }
-        }
-    }
-    EXPECT_EQ(glyphsWithInkInRowSeven, kGlyphsWithInkInRowSeven);
-    EXPECT_NE(sheet.at((0xB4 % 16) * 8 + 3, (0xB4 / 16) * 8 + 7), 0);  // the zero's bottom edge
 }
 
 // Colors 0-15 become palettes 0-3 with the player's color at palette 0's third entry, palette 4 is

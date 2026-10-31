@@ -21,6 +21,9 @@ namespace ostinato::render {
 // Every sprite and tile layer covers the whole screen.
 inline constexpr retropp::PixelSize kScreenSize = retropp::ViewportResolution::Snes.size();
 
+// The columns at the left and the right edges of the screen that show nothing but black.
+inline constexpr int kScreenBorderPx = 8;
+
 // --- depth --------------------------------------------------------------------------------------
 
 // The dialog box and the map-title box, beneath the text they hold and above the field.
@@ -57,6 +60,9 @@ inline constexpr std::int32_t kDamageNumbersZ = 24;
 
 // --- keys ---------------------------------------------------------------------------------------
 
+// The screen border, on the frame.
+inline constexpr std::string_view kScreenBorderKey = "border";
+
 // A dialog glyph: dlg:<page>:<line>:<n>, the n-th glyph of a line of a page. The page count runs
 // on for the life of the dialog state, so nothing on a new page eases from the old page.
 inline constexpr std::string_view kDialogGlyphKey = "dlg";
@@ -87,9 +93,6 @@ inline constexpr std::string_view kShadowKeySuffix = ":shadow";
 inline constexpr std::string_view kBattleBackdropKey = "bfback";
 inline constexpr std::string_view kBattlefieldKey = "bfbg";
 
-// What hides the one line below the battlefield the background's tiles reach.
-inline constexpr std::string_view kBattlefieldClipKey = "bfclip";
-
 // A monster's layer and sprite: mon:<slot>. A party member's: chr:<slot>. Keyed by the battler, never
 // by its place in the draw order, so a battler that steps in front of another stays itself.
 inline constexpr std::string_view kMonsterKey = "mon";
@@ -109,11 +112,9 @@ inline constexpr std::string_view kMessageTextKey = "msgtext";
 inline constexpr std::string_view kMessageGlyphKey = "msg";
 inline constexpr std::string_view kMessageTextClipKey = "msgclip";
 
-// The HUD text's layer, a glyph of it — hud:<part>:<line>:<n> — and what hides each line's last
-// pixel row.
+// The HUD text's layer and a glyph of it: hud:<part>:<line>:<n>.
 inline constexpr std::string_view kHudTextKey = "hudtext";
 inline constexpr std::string_view kHudGlyphKey = "hud";
-inline constexpr std::string_view kHudTextClipKey = "hudclip";
 
 // The damage numerals' layer, and a numeral's tile: dmg:<battler>:<n> for one shown with the others
 // at once, dmg1:<thread>:<n> for one shown on its own.

@@ -134,7 +134,7 @@ render::Layers BattleScreen(const battle::BattleState& state, const battle::Batt
                           Backdrop(sheets.backdrop, sheets.backdropColor), kBackdropColumns, kBackdropRows),
         render::TileLayer(render::kBattlefieldKey, render::kBattlefieldZ,
                           render::BattleBackground(sheets.picture, sheets.background), kBackgroundColumns,
-                          kBackgroundRowsShown, {.regions = render::BattlefieldClip()}),
+                          kBackgroundRowsShown, {.scroll = {.y = render::kBattlefieldScrollPx}}),
     };
 
     const std::array<Standing, battle::kBattlerSlots> where = standings(state, presentation, sheets);
@@ -160,8 +160,7 @@ render::Layers BattleScreen(const battle::BattleState& state, const battle::Batt
         render::kHudTextKey, render::kHudTextZ,
         {render::MonsterNameList(presentation.monsterNames, text, lang, sheets.fontPalettes[render::kHudTextPalette],
                                  sheets.smallFont),
-         render::PartyStatus(state, sheets.fontPalettes, sheets.smallFont)},
-        {.regions = render::HudTextClip()}));
+         render::PartyStatus(state, sheets.fontPalettes, sheets.smallFont)}));
 
     render::NumeralAnchors anchors{};
     for (std::size_t index = 0; index < where.size(); ++index) {

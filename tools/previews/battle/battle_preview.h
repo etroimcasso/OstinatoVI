@@ -67,11 +67,12 @@ struct BattleSheets {
     render::NumeralSheet numerals;
 };
 
-// The preview's screen, back to front: the backdrop; the background on its own tile layer, cut off
-// one line above the HUD; one sprite layer per battler shown, in the battle's draw order, each
+// The preview's screen, back to front: the backdrop; the background on its own tile layer, from its
+// second pixel row down to the HUD; one sprite layer per battler shown, in the battle's draw order, each
 // where the battle puts it — a party member in the pose it stands in, a dying monster fading out;
 // the window at the top of the screen and its text while one is up; the HUD's windows, the list of
-// monster names and the party's names, HP and gauges; and the damage numerals.
+// monster names and the party's names, HP and gauges; and the damage numerals. The frame they go on
+// carries the battle's screen border (render::ScreenBorder), which main.cpp sets.
 [[nodiscard]] render::Layers BattleScreen(const battle::BattleState& state,
                                           const battle::BattlePresentationState& presentation, const TextCorpus& text,
                                           const BattleSheets& sheets);

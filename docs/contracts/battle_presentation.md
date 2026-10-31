@@ -23,7 +23,8 @@ are ported.
 | Behavior | Source | Port surface |
 |---|---|---|
 | The scene is built before the first frame | `InitBattleGfx :2217-2604` | — |
-| The screen split | `_c2d1f2 :43157-43166`, `_c2b6f7 :40402-40439` | `render/battle/layout.h` |
+| The screen split | `_c2d1f2 :43157-43166`, `_c2b6f7 :40402-40439`, `line_copy :1244-1346` | `render/battle/layout.h` |
+| The border | `system_init :43444-43447`, `:1702-1703`, `:2541-2543`, `_c2d0fe :43005-43016`, `InitBattleGfx :2386-2392` | `ScreenBorder`, `kBattleTopBlankRows`, `kBattleBottomBlankRows` |
 | The background loader | `LoadBattleBG :4090-4144`, `TfrBattleBGGfx :3999-4084`, `TfrBattleBGTiles :3934-3990` | `BattleBackgroundArt::load` |
 | The decompressor | `Decompress_ext :48807-48882` | `assets::CartridgeRoutines` |
 | Video memory layout | `InitBattleGfx :2352-2398`, `gfx/battle_bg.asm:40-46` | `kBackgroundBlock2FirstTile`, `kBackgroundBlock3FirstTile` |
@@ -49,19 +50,50 @@ are ported.
 
 ## The screen
 
-The screen is split at scanline 151 (`_c2d1f2 :43157-43166`: 64 + 64 + 23 lines, then 73). Lines
-0-150 show the battlefield's background and the battlers. Line 151 shows the HUD's tile row 31,
-which is blank, so the backdrop color shows there. Lines 152-223 are the HUD.
+| What | Rows / columns |
+|---|---|
+| The border | columns 0-7 and 248-255, rows 0-3 and 219-223: black |
+| The battlefield | rows 0-150: the background's tilemap from its pixel row 1, and the battlers |
+| The HUD's windows | rows 151-214: top border on 151, bottom border on 212-213 |
+| The HUD's text | glyph rows 163-170, 175-182, 187-194, 199-206: every letter's eight rows |
+| The message windows | rows 8-39, from tile row 1 |
+| The message text | the 16-pixel line on rows 15-30; a letter's ink on rows 19-26 |
 
-The HUD's geometry is derived from the per-line scroll tables (`_c2b6f7 :40402-40439`): the
-windows' layer scrolls by `$68` from line 151, which puts the windows' tile row 0 at line 152 and
-their eighth row's last line at 215; the text layer scrolls by `$64` from line 159 and by 4 more
-every 12 lines, which turns its 16-pixel line pitch (letters on odd tile rows, `MenuTextCmd_01
-:15595-15610`) into lines at 164, 176, 188 and 200 that each show seven of their letters' eight
-pixel rows.
+The rows follow from three facts. The console outputs no scanline 0: the first line shown is
+scanline 1, so a background read without a vertical offset begins on the second row of its top
+tile (`engine/third_party/snaggletooth/docs/ppu-behavior.md` § The picture's edges). An HDMA
+entry delivered on line *n* is what line *n* + 1 shows, so HDMA entry *n* is shown row *n*. Hence a
+background's map row *r* shows on row *r* − 1 − its vertical scroll, and a sprite's y is its row.
 
-The backdrop is the first color of the battle font's first palette: `LoadMenuGfx :8925-8931`
-copies the font palette's first eight colors to colors 0-7 of color memory.
+- **The split** is at entry 151 (`_c2d1f2 :43157-43166`: 64 + 64 + 23 lines, then 73).
+- **The battlefield's layer** — the background and every window — scrolls 0 on the battlefield's
+  lines (`line_copy :1326-1343`, both terms 0 at rest; `line_init_long :40395-40401`), so its map
+  row *r* shows on row *r* − 1: the background's pixel rows 1-151 on rows 0-150.
+- **The text layer** scrolls 0 there too (cleared `:40396-40401`), so the message text's tile rows
+  2-3 (map rows 16-31) show on rows 15-30.
+- **The animation layer**, which carries the message window's box (`InitMsgWindowHDMA
+  :22531-22556` sets its color math on it), scrolls −1 (`:1266`), so the box at tile row 1 shows
+  from row 8.
+- **The HUD's windows**: the windows' layer scrolls by `$68` from entry 151 (`_c2b6f7
+  :40434-40439`), which puts the windows' tile row 0 on row 151 and their eighth row's last line on
+  214.
+- **The HUD's text**: the text layer scrolls by `$64` from entry 159 and by 4 more every 12 entries
+  (`:40416-40433`), which turns its 16-pixel line pitch (letters on odd tile rows, `MenuTextCmd_01
+  :15595-15610`) into lines at 163, 175, 187 and 199, each showing all eight rows of its letters.
+- **The blank rows**: the main-screen designation is set per line by HDMA (`_c2d0fe :43005-43016`,
+  to `$212A-$212D`): 4 lines from `w7e8987`, 147 from `w7e898b`, 68 from `w7e898f`, 5 from
+  `w7e8987`. `InitBattleGfx :2386-2392` sets `w7e898d` and `w7e8991` to `$17` (the three
+  backgrounds and the sprites) and `w7e8989` to 0, so rows 0-3 and 219-223 show no layer.
+- **The side columns**: window 1 is inverted on every background and on the sprites (`$33` to
+  `W12SEL`, `W34SEL` and `WOBJSEL`, `system_init :43444-43447`) and masks the main screen (`TMW` =
+  `$17`, `:2541-2543`), its edges 8 and 247 (`:1702-1703`; per line `_c2d13f :43065-43072`, 8/247
+  on the battlefield's lines, `:2409-2418`, and 0/247 from 151, `:2419-2426`, where columns 0-7
+  are blank map anyway). The battle is mode 1 at 256 pixels wide (`BGMODE` `$09`, `:2352-2355`;
+  `SETINI` 0, `:43427`).
+
+The masked and blank area shows color 0, the backdrop color, which is black in battle: the first
+color of the battle font's first palette (`LoadMenuGfx :8925-8931` copies the font palette's first
+eight colors to colors 0-7 of color memory).
 
 ## The background
 
@@ -115,7 +147,8 @@ decodes to `$800` bytes.
 ### What the cells say
 
 A tilemap cell is a word: bits 0-9 the tile number, 10-12 the palette, 13 priority, 14 and 15 the
-horizontal and vertical flips. The battlefield shows rows 0-18 of the 32. Over every shown cell of
+horizontal and vertical flips. The battlefield shows rows 0-18 of the 32, from the first row's
+second pixel row (§ The screen). Over every shown cell of
 every background the palette is 5, 6 or 7 (the background's three, loaded at `:4118-4134`); the
 rows below the shown ones name other palettes. The priority bit is not read by the port: every
 battler's sprite has priority 3 (`InitCharGfxMain :8403`) and is drawn above the background
@@ -275,15 +308,14 @@ same list reversed: ascending by feet, and among equals the later slot first.
 
 Tile number − `$20` is the `WindowTile` the wallpaper sheet is carved into. The window palette is
 the field's seven colors brightened by 8 of 31 per channel (`_c1417e :9053-9102`,
-`battleWindowColors`); the windows' layer scrolls to line 152.
+`battleWindowColors`); the HUD's windows' layer scrolls to line 151.
 
 ## The small font
 
 `SmallFontGfx` is 256 two-plane glyphs (`:8895-8898`, 4,096 bytes). `LoadMenuGfx :8925-8933`
 loads the font palette's first sixteen colors as palettes 0-3, replacing palette 0's third color
 with the player's font color (`$1d55`), and the last twelve as palettes 5-7; palette 4 is left
-black. The HUD shows seven of a glyph's eight rows (§ The screen); 101 glyphs have ink in the
-eighth, the digit zero among them ([Bugs.md](../Bugs.md)).
+black. The HUD shows all eight rows of a glyph (§ The screen).
 
 ## Playing a script
 
@@ -356,7 +388,7 @@ stays 32 frames whatever the setting (`GfxCmd_11 :22759-22760`).
 
 ### Where the text sits
 
-The text is on its own layer at tile rows 2 and 3 — the 16-pixel line from line 16 — the wide
+The text is on its own layer at tile rows 2 and 3 — the 16-pixel line from line 15 — the wide
 window's from tile column 2 across 28 columns (`_c19980 :23083-23099`, English), the narrow window's
 from column 9 across 22 (`_c19961 :23058-23072`). A letter's artwork goes four rows into the line
 (`DrawDlgLetter :14555`, the first row written at `+$08`) and four pixels left of the pen
@@ -382,10 +414,10 @@ are not darkened.
 ### Its windows
 
 The monster names' window is 12 × 8 at column 1 and the party's 18 × 8 at column 13 (`MenuWindowTbl`,
-windows 0 and 1), from line 152. From line 151 they are darkened by color math: the fixed color
+windows 0 and 1), from line 151. From line 151 they are darkened by color math: the fixed color
 subtracted from their layer at intensity 0 for three lines, 1 for the next three, and so on
-(`InitBattleGfx :2441-2462`); the windows' last two lines, 214 and 215, lose 21 31sts. The text is
-not darkened.
+(`InitBattleGfx :2441-2462`); the windows' last line, 214, loses 21 31sts. The text is not
+darkened.
 
 ### Its text
 
@@ -407,7 +439,8 @@ the palette its attribute byte names: `$21` (palette 0) unless the text says oth
   gauge's byte is the battler's ATB meter less one (`battle_main.asm:15149-15163`). With the gauge
   turned off: "~" (`$CE`), the max HP in four digits, a blank.
 
-The text layer's scroll ramp shows seven of each line's eight pixel rows (§ The screen).
+The text layer's scroll ramp puts the lines twelve rows apart from row 163, each showing all eight
+pixel rows of its letters (§ The screen).
 
 ### The list of monster names
 

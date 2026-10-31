@@ -153,8 +153,8 @@ TEST_F(BattlePreviewTest, LobosSceneIsTheBackdropTheBackgroundFourBattlersBackTo
     EXPECT_EQ(layers[0].z, render::kBattleBackdropZ);
     EXPECT_EQ(layers[1].key.value, render::kBattlefieldKey);
     EXPECT_EQ(layers[1].z, render::kBattlefieldZ);
-    ASSERT_EQ(layers[1].regions.size(), 1u);
-    EXPECT_EQ(layers[1].regions[0].key.value, render::kBattlefieldClipKey);
+    EXPECT_TRUE(layers[1].regions.empty());
+    EXPECT_EQ(layers[1].scroll, (retropp::LayerScroll{.x = 0, .y = render::kBattlefieldScrollPx}));
     const auto& field = std::get<retropp::TileContent>(layers[1].content);
     EXPECT_EQ(field.widthInTiles, kBackgroundColumns);
     EXPECT_EQ(field.heightInTiles, kBackgroundRowsShown);

@@ -18,16 +18,17 @@ screen built from them.
 
 | File | Holds |
 |---|---|
-| `src/render/battle/layout.h` | Where the picture sits: the battlefield's 151 lines, the HUD from line 152 and its text lines at 164 + 12·n, the message text's place, and both shadings' bands |
+| `src/render/battle/layout.h` | Where the picture sits: the lines the battle leaves black, the battlefield's 151 lines and the background's one-row scroll, the HUD from line 151 and its text lines at 163 + 12·n, the message text's place, and both shadings' bands |
+| `src/render/screen_border.h` | `ScreenBorder`, the black border around the picture |
 | `src/render/battle/battle_placement.h` | Where each battler stands and the draw order — `monsterStanding`, `colosseumMonsterStanding`, `partyMemberStanding`, `partyMemberX`, `battlerDrawOrder` |
-| `src/render/battle/battle_background.h` | `BattleBackground`, the battlefield's cells; `BattlefieldClip`, the line beneath it; `BackgroundSheet` |
+| `src/render/battle/battle_background.h` | `BattleBackground`, the battlefield's cells; `BackgroundSheet` |
 | `src/render/battle/monster_sprite.h` | `MonsterSprite` |
 | `src/render/battle/monster_death_fade.h` | `MonsterDeathFade`, a dying monster's sprites |
 | `src/render/battle/character_sprite.h` | `CharacterSprite`; `CharacterSheet` |
 | `src/render/battle/menu_window.h` | `MenuWindow`, a battle window's cells |
 | `src/render/battle/battle_message.h` | The windows at the top of the screen: `MessageWindowBox`, `MessageShading`, `MessageText`, `MessageTextClip` and the windows' places |
 | `src/render/battle/hud_windows.h` | `HudWindows`, the HUD's two windows; `HudShading` |
-| `src/render/battle/hud_text.h` | `HudText`, a run of small-font letters; `HudTextClip`; `hudLineY` |
+| `src/render/battle/hud_text.h` | `HudText`, a run of small-font letters; `hudLineY` |
 | `src/render/battle/monster_name_list.h` | `MonsterNameList` |
 | `src/render/battle/party_status.h` | `PartyStatus`, the party's names, HP and gauges, and the HUD's palette numbers |
 | `src/render/battle/damage_numbers.h` | `DamageNumbers`; `NumeralSheet`; `numeralAnchor` |
@@ -36,32 +37,50 @@ screen built from them.
 ## The screen
 
 ```
-line 0   ┌──────────────────────────────┐
-line 8   │ ┌──────────────────────────┐ │   a name or a message while one is up
-line 40  │ └──────────────────────────┘ │
-         │  the battlefield: the        │   the background's first 19 tile rows, cut off
-         │  background and the battlers │   one line short; the battlers over it
-line 151 ├──────────────────────────────┤   one line of the backdrop
-line 152 │  the HUD: two windows of     │
-         │  eight tile rows             │   text lines at 164, 176, 188, 200
-line 223 └──────────────────────────────┘
+          x 0  8                          248 256
+line 0   ┌──┬──────────────────────────────┬──┐   lines 0-3: black
+line 4   │  │                              │  │
+line 8   │  │ ┌──────────────────────────┐ │  │   a name or a message while one is up
+line 40  │  │ └──────────────────────────┘ │  │
+         │  │  the battlefield: the        │  │   the background from its second pixel row,
+         │  │  background and the battlers │  │   its 19 tile rows ending on line 150
+line 151 │  ├──────────────────────────────┤  │
+         │  │  the HUD: two windows of     │  │   text lines at 163, 175, 187, 199
+line 214 │  │  eight tile rows             │  │
+line 219 │  └──────────────────────────────┘  │   lines 219-223: black
+line 223 └────────────────────────────────────┘
 ```
 
-The backdrop — a layer of one color at `kBattleBackdropZ` — shows wherever nothing else draws: the
-background's see-through pixels, line 151, and the margins beside the HUD's windows. Its color is
-the first color of the first small-font palette, as the battle's is.
+`ScreenBorder` cuts the whole frame to columns 8-247 and lines 4-218, so the engine's black
+backdrop shows around it — on every layer and every sprite at once, since it goes on the frame:
+
+```cpp
+#include "render/battle/layout.h"
+#include "render/screen_border.h"
+
+retropp::FrameDrawState frame{.regions = ScreenBorder(kBattleTopBlankRows, kBattleBottomBlankRows)};
+```
+
+The side columns are always `kScreenBorderPx`; the blank lines at the top and bottom are the
+screen's own, four and five for the battle.
+
+The battle's backdrop — a layer of one color at `kBattleBackdropZ` — shows wherever nothing else
+draws inside the border: the background's see-through pixels and the lines below the HUD's
+windows. Its color is the first color of the first small-font palette, as the battle's is; it is
+black, the same as the border.
 
 Depths and keys, from `layers.h`:
 
 | Depth | What | Keys |
 |---|---|---|
+| the frame | the screen border | `border` |
 | `kBattleBackdropZ` 0 | the backdrop | `bfback` |
-| `kBattlefieldZ` 1 | the background | `bfbg`; its clip `bfclip` |
+| `kBattlefieldZ` 1 | the background | `bfbg` |
 | `kBattlerBaseZ` 10 + rank | one layer per battler, rank 0 at the back | `mon:<slot>`, `chr:<slot>`; a dying monster's darkening `death` |
 | `kMessageWindowZ` 20 | the window at the top of the screen | `msgwin`; its shading `msgsh:<row>` |
 | `kMessageTextZ` 21 | that window's text | `msgtext`; glyph `msg:<n>`; its clip `msgclip` |
 | `kHudWindowZ` 22 | the HUD's windows | `hudwin`; their shading `hudsh:<row>` |
-| `kHudTextZ` 23 | the HUD's text | `hudtext`; glyphs `hud:mon:<line>:<n>`, `hud:name:<slot>:<n>`, `hud:hp:<slot>:<n>`, `hud:gauge:<slot>:<n>`; its clip `hudclip:<line>` |
+| `kHudTextZ` 23 | the HUD's text | `hudtext`; glyphs `hud:mon:<line>:<n>`, `hud:name:<slot>:<n>`, `hud:hp:<slot>:<n>`, `hud:gauge:<slot>:<n>` |
 | `kDamageNumbersZ` 24 | the damage numerals | `dmglayer`; tiles `dmg:<battler>:<n>`, `dmg1:<thread>:<n>` |
 
 The dialog box and text keep their depths above these.
@@ -75,14 +94,14 @@ const BattleBackgroundPicture picture = content.battleBackgrounds.load(id, *cont
 const BackgroundSheet sheet = /* uploaded from the picture, below */;
 frame.layers.push_back(TileLayer(kBattlefieldKey, kBattlefieldZ, BattleBackground(picture, sheet),
                                  kBackgroundColumns, kBackgroundRowsShown,
-                                 {.regions = BattlefieldClip()}));
+                                 {.scroll = {.y = kBattlefieldScrollPx}}));
 ```
 
 `BattleBackground` returns the tilemap's first 19 rows as cells, 32 across: each cell names the
 sheet, the tile its number maps to (`sheetTile`), the palette its two bits name, and its flips. A
-cell whose number no block holds draws the sheet's blank tile. The nineteenth row reaches one line
-below the battlefield, so `BattlefieldClip` — one see-through region over line 151 — goes on the
-same layer.
+cell whose number no block holds draws the sheet's blank tile. The battle shows the tilemap from
+its second pixel row, so the layer scrolls down by `kBattlefieldScrollPx` and its 19 rows end on
+line 150, the battlefield's last.
 
 `BackgroundSheet` is the picture's tiles uploaded as one tileset with a blank tile appended, and
 the three palettes:
@@ -232,7 +251,7 @@ A name shows in the narrow window, 18 × 4 tiles at column 7, row 1; a message i
 line 8, over the window's own rectangle. `MessageText` draws each letter in the dialog font with its
 shadow (`Glyph`, [components.md](components.md)), placed against the pen as the dialog's letters
 are: the wide window's pen from tile column 2, the narrow window's from column 9 moved right by the
-message's `centering`, a letter's artwork four rows into the 16-pixel line at line 16 and
+message's `centering`, a letter's artwork four rows into the 16-pixel line at line 15 and
 `text::kGlyphArtLeftOfPen` left of its pen, raised by its `rise` while a line break scrolls it
 away. `MessageTextClip` keeps only the line's tiles — 28 columns in the wide window, 22
 in the narrow — so a rising line disappears at the top of its line.
@@ -251,19 +270,17 @@ frame.layers.push_back(TileLayer(kHudWindowKey, kHudWindowZ, HudWindows(lang, wa
 frame.layers.push_back(SpriteLayer(kHudTextKey, kHudTextZ,
                                    {MonsterNameList(shown.monsterNames, content.text, lang,
                                                     fontPalettes[kHudTextPalette], smallFont),
-                                    PartyStatus(battle, fontPalettes, smallFont)},
-                                   {.regions = HudTextClip()}));
+                                    PartyStatus(battle, fontPalettes, smallFont)}));
 ```
 
 `HudWindows` lays the monster names' window and the party's window side by side into one grid,
-placed at the HUD's top line; `HudShading` darkens them a 31st more every three lines from line
-151, to 21 31sts on their last lines.
+placed at the HUD's top line, 151; `HudShading` darkens them a 31st more every three lines from
+line 151, to 21 31sts on their last line, 214.
 
 The HUD's letters are the small font's 8 × 8 glyphs, each one sprite (`HudText`), drawn through one
 of the font's eight palettes (`text::smallFontPalettes`, uploaded in order as `fontPalettes`). The
-four text lines fall twelve pixels apart from line 164 (`hudLineY`), and `HudTextClip` hides each
-line's eighth pixel row, as the battle shows only seven. `kHudBlank` holds a place and draws
-nothing.
+four text lines fall twelve pixels apart from line 163 (`hudLineY`), every letter shown whole.
+`kHudBlank` holds a place and draws nothing.
 
 - `MonsterNameList` writes each line of the presentation's name list at the monster names' column.
 - `PartyStatus` writes one line per party slot with a member on the field: the name, the HP in four
@@ -294,9 +311,9 @@ sixteen colors whose last four are party slot 0's and slot 1's status colors (`s
 
 ## A whole screen
 
-`tools/previews/battle/battle_preview.cpp` puts it together: the backdrop, the background with its
-clip, one `SpriteLayer` per battler in draw order, the window at the top while one is up, the HUD
-and the numerals. Run `ostinato-preview-battle --capture <dir> 0 41 24` to fight Lobo, a pincer and
+`tools/previews/battle/battle_preview.cpp` puts it together: the backdrop, the background, one
+`SpriteLayer` per battler in draw order, the window at the top while one is up, the HUD and the
+numerals; `tools/previews/battle/main.cpp` puts them on a frame with the screen border. Run `ostinato-preview-battle --capture <dir> 0 41 24` to fight Lobo, a pincer and
 a back attack to their ends and write the moments worth checking to `<dir>`.
 
 ### Reference frames from the cartridge
@@ -349,7 +366,8 @@ runs, so a game saved in the window is there to load next time.
 
 | To do this | Edit |
 |---|---|
-| Move the HUD, its text lines, the message text or a shading's bands | `src/render/battle/layout.h` |
+| Move the HUD, its text lines, the message text or a shading's bands, or change the battle's blank lines | `src/render/battle/layout.h` |
+| Change the border's side columns | `kScreenBorderPx` in `src/render/layers.h` |
 | Change where a battler stands | `src/render/battle/battle_placement.cpp` — the formation's places and the party's lines are data (`partyPlacement`) |
 | Change how a frame sits about its point | the constants in `src/render/battle/character_sprite.h` |
 | Change what a HUD line shows | `src/render/battle/party_status.cpp`, `monster_name_list.cpp` |

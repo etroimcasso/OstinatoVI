@@ -1,6 +1,6 @@
 // PartyStatus — the party's names, HP and gauges in the HUD's right window.
 //
-//     SpriteLayer(kHudTextKey, kHudTextZ, {PartyStatus(battle, palettes, font)}, {.regions = HudTextClip()});
+//     SpriteLayer(kHudTextKey, kHudTextZ, {PartyStatus(battle, palettes, font)});
 //
 // One line per party slot with a member on the field, slot 0 on the first HUD text line, each part
 // at the column the battle's text placements give it:

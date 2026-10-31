@@ -145,6 +145,7 @@ add_library(ostinato-vi-lib STATIC
     src/render/battle/monster_sprite.cpp
     src/render/battle/party_status.cpp
     src/render/color_gradient.cpp
+    src/render/screen_border.cpp
     src/render/sprite_layer.cpp
     src/render/tile_layer.cpp
     src/render/text/dialog_cursor.cpp

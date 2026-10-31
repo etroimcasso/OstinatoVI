@@ -85,6 +85,8 @@
 #include "ostinato/window_tile.h"
 #include "ostinato/wallpaper_id.h"
 #include "preview_damage.h"
+#include "render/battle/layout.h"
+#include "render/screen_border.h"
 #include "scripted_player.h"
 #include "text/font.h"
 #include "text/layout.h"
@@ -512,7 +514,8 @@ int runCapture(const Run& run, const assets::IngestedContent& content, const std
                 fight.tick(context);
                 for (const std::string_view moment : momentsOf(fight, start, seen)) {
                     const retropp::FrameDrawState frame{
-                        .layers = preview::BattleScreen(fight.sim.state(), fight.shown, content.text, sheets)};
+                        .layers = preview::BattleScreen(fight.sim.state(), fight.shown, content.text, sheets),
+                        .regions = render::ScreenBorder(render::kBattleTopBlankRows, render::kBattleBottomBlankRows)};
                     const std::filesystem::path file = directory / (stem + std::string{moment} + ".ppm");
                     if (!writeCapture(file, renderer.captureViewport(frame), screen)) {
                         std::cerr << "Could not write " << file.string() << "\n";
@@ -580,7 +583,8 @@ int runWindow(const Run& run, const assets::IngestedContent& content) {
         }
     });
 
-    retropp::FrameDrawState frame;
+    retropp::FrameDrawState frame{
+        .regions = render::ScreenBorder(render::kBattleTopBlankRows, render::kBattleBottomBlankRows)};
     loop.renderLoop([&] {
         frame.layers = fight ? preview::BattleScreen(fight->sim.state(), fight->shown, content.text, sheets)
                              : render::Layers{};

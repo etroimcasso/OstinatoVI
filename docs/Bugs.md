@@ -378,28 +378,6 @@ game never assigned; blank is the one choice that invents nothing.
 
 ---
 
-## The HUD cuts off the eighth row of its letters
-
-**What happens.** The battle's HUD — the monster list, the party's names, HP
-and gauges — shows each 8 × 8 letter of the small font seven pixel rows tall.
-A glyph with ink in its eighth row loses it: 101 of the 256 glyphs do, the
-digit zero among them, so a zero on the HUD has no bottom edge.
-
-**Where the original does it.** The HUD's text layer is shown through a scroll
-that steps by four every twelve scanlines (`btlgfx/btlgfx_main.asm:40416-40433`),
-which turns the text's sixteen-pixel line pitch (`MenuTextCmd_01 :15595-15610`,
-letters on odd tile rows) into twelve pixels on screen. Each line therefore
-shows seven rows of its letters, and the eighth is covered by the next step of
-the scroll.
-
-**Where the port keeps it.** `src/render/battle/layout.h` fixes the HUD's text
-lines at 164 + 12·n with `kHudGlyphRowsShown` rows of each letter shown.
-`tests/test_small_font.cpp` pins how many glyphs have ink in their eighth row,
-so a font that changed would show it.
-
-**If you want to change it.** Showing eight rows means a wider line pitch or a
-shorter line count; either moves every HUD line from where the game puts it.
-
 ## "Miss" sits right of the battler it is over
 
 **What happens.** A damage numeral is centered on its battler, but the word
