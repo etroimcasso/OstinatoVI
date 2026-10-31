@@ -1,10 +1,21 @@
 // ostinato-frames — the cartridge run on the engine's SNES machine, driven by whoever holds the pad,
-// with its frames written out 1:1 from the moments the triggers named on the command line mark. A
-// developer tool for measuring the picture the console draws; it is not part of the game.
+// recording what happens between the moments the triggers named on the command line mark: its frames
+// written out 1:1, how long each span lasts, or both. A developer tool for measuring what the console
+// draws and when; it is not part of the game.
 //
-//     ostinato-frames <rom> <directory> [--battles] [--gameloaded] [--fieldmenu]
+//     ostinato-frames <rom> <directory> [--record frames|durations|both]
+//                     [--battles] [--gameloaded] [--fieldmenu]
 //
-// At least one trigger is named; both may be. Each is an escape on the cartridge's own code:
+// --record chooses what is recorded, for every trigger alike; it is `frames` unless named:
+//
+//   frames      every fifteenth frame of a span, written as below.
+//   durations   each span's length, in the console's frames and in milliseconds of its 60.0988 Hz
+//               clock, with the frames it began and ended on — a line per span in `durations.log`,
+//               printed as well. A span the window closes on is measured to the last frame run; a
+//               loaded game's span is ended by the next load.
+//   both        the two together.
+//
+// At least one trigger is named; any combination may be. Each is an escape on the cartridge's own code:
 //
 //   --battles     every battle, from the battle program's entry (`Battle_ext`, $C2:0000 — the
 //                 field's `jsl` lands there) to the `rtl` that returns to the field
@@ -21,10 +32,10 @@
 //                 last frame is written with `-end`.
 //
 // The addresses are the US cartridges'. The machine's picture is shown in a window at 3×, exactly
-// as it is drawn; every fifteenth frame after a trigger fires is written under the directory as a
-// 256 × 224 PPM at one byte per channel. Every armed escape is announced as it fires — its key, its
-// address and the frame — and the start of each battle, loaded game and menu, and the end of each
-// battle and menu, are logged and printed. Nothing is asked of the player.
+// as it is drawn; a recorded frame is written under the directory as a 256 × 224 PPM at one byte per
+// channel. Every armed escape is announced as it fires — its key, its address and the frame — and the
+// start of each battle, loaded game and menu, and the end of each battle and menu, are logged in
+// `frames.log` and printed. Nothing is asked of the player.
 //
 // Keys: arrows = d-pad, X = A, Z = B, S = X, A = Y, Q/W = L/R, Enter = Start, Right Shift = Select.
 // Close the window to quit.
@@ -146,6 +157,18 @@ struct Mark {
     bool take() { return fired.exchange(false, std::memory_order_acq_rel); }
 };
 
+// One trigger's span — a battle, a loaded game, a menu: what its files and lines are called, how
+// many have opened, and the frame the open one opened on.
+struct Span {
+    std::string   name;
+    std::string   began;
+    std::string   ended;
+    bool          battleWords = false;  // its frames are logged with the battle's scroll words
+    int           count       = 0;
+    std::uint64_t from        = 0;
+    bool          open        = false;
+};
+
 bool writePpm(const std::filesystem::path& file, const RasterContent& picture) {
     if (picture.format != RasterPixelFormat::Rgba8888 || picture.width <= 0 || picture.height <= 0) {
         return false;
@@ -182,11 +205,13 @@ void logFrame(std::ofstream& log, Vm& machine, const RegionMapId<Places>& places
 }  // namespace
 
 int main(int argc, char** argv) {
-    constexpr const char* kUsage =
-        "usage: ostinato-frames <rom> <directory> [--battles] [--gameloaded] [--fieldmenu]\n";
-    bool battles    = false;
-    bool gameLoaded = false;
-    bool fieldMenu  = false;
+    constexpr const char* kUsage = "usage: ostinato-frames <rom> <directory> [--record frames|durations|both] "
+                                   "[--battles] [--gameloaded] [--fieldmenu]\n";
+    bool battles         = false;
+    bool gameLoaded      = false;
+    bool fieldMenu       = false;
+    bool recordFrames    = true;
+    bool recordDurations = false;
     for (int i = 3; i < argc; ++i) {
         const std::string_view flag{argv[i]};
         if (flag == "--battles") {
@@ -195,6 +220,14 @@ int main(int argc, char** argv) {
             gameLoaded = true;
         } else if (flag == "--fieldmenu") {
             fieldMenu = true;
+        } else if (flag == "--record" && i + 1 < argc) {
+            const std::string_view what{argv[++i]};
+            if (what != "frames" && what != "durations" && what != "both") {
+                std::fprintf(stderr, "--record takes frames, durations or both\n%s", kUsage);
+                return 2;
+            }
+            recordFrames    = what != "durations";
+            recordDurations = what != "frames";
         } else {
             std::fprintf(stderr, "unknown option %s\n%s", argv[i], kUsage);
             return 2;
@@ -213,6 +246,10 @@ int main(int argc, char** argv) {
     }
     std::filesystem::create_directories(directory);
     std::ofstream log{directory / "frames.log", std::ios::app};
+    std::ofstream durations;
+    if (recordDurations) {
+        durations.open(directory / "durations.log", std::ios::app);
+    }
 
     const EngineConfig config{
         .identity     = {.organization = "OstinatoVI", .application = "OstinatoVI"},
@@ -221,6 +258,8 @@ int main(int argc, char** argv) {
         .timing       = TimingProfile::Snes,
         .enhancements = {.windowScale = 3}};
     EngineConfig::setActive(config);
+    // One console frame, which the machine runs one of per tick.
+    const double frameNs = static_cast<double>(config.timing.tickPeriodNs);
     SteadyClock clock;
     RunLoop     loop{clock};
     SdlPlatform platform;
@@ -256,25 +295,23 @@ int main(int argc, char** argv) {
 
     machine.run(Vm::Advance::OnTick);
 
-    std::uint64_t frame       = 0;
-    std::uint64_t battleFrame = 0;
-    int           battleCount = 0;
-    bool          inBattle    = false;
-    std::uint64_t gameFrame   = 0;
-    int           gameCount   = 0;
-    bool          inGame      = false;
-    std::uint64_t menuFrame   = 0;
-    int           menuCount   = 0;
-    bool          inMenu      = false;
+    std::uint64_t frame = 0;
+    Span          battle{.name = "battle", .began = "began", .ended = "ended", .battleWords = true};
+    Span          game{.name = "game", .began = "loaded", .ended = "", .battleWords = false};
+    Span          menu{.name = "menu", .began = "opened", .ended = "closed", .battleWords = false};
 
-    // A battle's frame is logged with the battle's scroll words; a gameplay frame with its name alone.
-    const auto write = [&](const std::string& name, bool withBattleWords) {
+    // A battle's frame is logged with the battle's scroll words; any other frame with its name alone.
+    const auto write = [&](const Span& span, const std::string& suffix) {
+        if (!recordFrames) {
+            return;
+        }
+        const std::string name = span.name + std::to_string(span.count) + "-f" + std::to_string(frame - span.from) + suffix;
         const RasterContent picture = machine.video();
         const std::filesystem::path file = directory / (name + ".ppm");
         if (!writePpm(file, picture)) {
             std::printf("could not write %s\n", file.string().c_str());
             std::fflush(stdout);
-        } else if (withBattleWords) {
+        } else if (span.battleWords) {
             logFrame(log, machine, places, name, frame);
         } else {
             log << name << " frame " << frame << '\n';
@@ -287,6 +324,34 @@ int main(int argc, char** argv) {
         std::printf("%s\n", line.c_str());
         std::fflush(stdout);
     };
+    // A span's length, in the console's frames and in milliseconds of its 60.0988 Hz clock.
+    const auto measured = [&](const Span& span, std::string_view how) {
+        const std::uint64_t frames = frame - span.from;
+        char line[160];
+        std::snprintf(line, sizeof line, "%s %d: %llu frames, %.1f ms (frames %llu to %llu%s%s)", span.name.c_str(),
+                      span.count, static_cast<unsigned long long>(frames),
+                      static_cast<double>(frames) * frameNs / 1e6, static_cast<unsigned long long>(span.from),
+                      static_cast<unsigned long long>(frame), how.empty() ? "" : ", ", std::string{how}.c_str());
+        durations << line << '\n';
+        durations.flush();
+        note(line);
+    };
+    const auto open = [&](Span& span) {
+        ++span.count;
+        span.from = frame;
+        span.open = true;
+        note(span.name + " " + std::to_string(span.count) + " " + span.began + " at frame " + std::to_string(frame));
+        write(span, "");
+    };
+    const auto close = [&](Span& span) {
+        write(span, "-end");
+        span.open = false;
+        note(span.name + " " + std::to_string(span.count) + " " + span.ended + " at frame " + std::to_string(frame) +
+             " (" + std::to_string(frame - span.from) + " frames)");
+        if (recordDurations) {
+            measured(span, "");
+        }
+    };
     // Every escape that fired is announced, by its key and address, with the frame it fired on.
     const auto fired = [&](Mark& mark) {
         if (!mark.take()) {
@@ -297,53 +362,42 @@ int main(int argc, char** argv) {
         note(std::string{"escape \""} + mark.key + "\" (" + at + ") fired at frame " + std::to_string(frame));
         return true;
     };
-    const auto offset = [](std::uint64_t now, std::uint64_t since) { return std::to_string(now - since); };
+    // Within an open span, every kFramePitch-th frame after the one it opened on.
+    const auto onPitch = [&](const Span& span) {
+        return span.open && frame != span.from && (frame - span.from) % kFramePitch == 0;
+    };
 
     loop.simTick([&](const InputState& input) {
         machine.buttons(snes::Ports{.one = snes::held(input), .two = std::nullopt});
         machine.advanceTick();
         ++frame;
 
+        // A save loaded while a loaded game's span is open ends that span and begins the next.
         if (fired(loaded)) {
-            ++gameCount;
-            gameFrame = frame;
-            inGame    = true;
-            note("saved game " + std::to_string(gameCount) + " loaded at frame " + std::to_string(frame));
-        }
-        if (inGame && (frame - gameFrame) % kFramePitch == 0) {
-            write("game" + std::to_string(gameCount) + "-f" + offset(frame, gameFrame), false);
+            if (game.open && recordDurations) {
+                measured(game, "ended by the next load");
+            }
+            open(game);
+        } else if (onPitch(game)) {
+            write(game, "");
         }
 
         if (fired(entered)) {
-            ++battleCount;
-            battleFrame = frame;
-            inBattle    = true;
-            note("battle " + std::to_string(battleCount) + " began at frame " + std::to_string(frame));
+            open(battle);
+        } else if (onPitch(battle)) {
+            write(battle, "");
         }
-        if (inBattle && (frame - battleFrame) % kFramePitch == 0) {
-            write("battle" + std::to_string(battleCount) + "-f" + offset(frame, battleFrame), true);
-        }
-        if (fired(returned) && inBattle) {
-            write("battle" + std::to_string(battleCount) + "-f" + offset(frame, battleFrame) + "-end", true);
-            inBattle = false;
-            note("battle " + std::to_string(battleCount) + " ended at frame " + std::to_string(frame) + " (" +
-                 offset(frame, battleFrame) + " frames)");
+        if (fired(returned) && battle.open) {
+            close(battle);
         }
 
         if (fired(opened)) {
-            ++menuCount;
-            menuFrame = frame;
-            inMenu    = true;
-            note("menu " + std::to_string(menuCount) + " opened at frame " + std::to_string(frame));
+            open(menu);
+        } else if (onPitch(menu)) {
+            write(menu, "");
         }
-        if (inMenu && (frame - menuFrame) % kFramePitch == 0) {
-            write("menu" + std::to_string(menuCount) + "-f" + offset(frame, menuFrame), false);
-        }
-        if (fired(closed) && inMenu) {
-            write("menu" + std::to_string(menuCount) + "-f" + offset(frame, menuFrame) + "-end", false);
-            inMenu = false;
-            note("menu " + std::to_string(menuCount) + " closed at frame " + std::to_string(frame) + " (" +
-                 offset(frame, menuFrame) + " frames)");
+        if (fired(closed) && menu.open) {
+            close(menu);
         }
     });
 
@@ -358,10 +412,21 @@ int main(int argc, char** argv) {
         renderer.renderFrame(drawn);
     });
 
-    std::printf("Frames are written under %s once a trigger fires:%s%s%s\n", directory.string().c_str(),
-                battles ? " --battles" : "", gameLoaded ? " --gameloaded" : "", fieldMenu ? " --fieldmenu" : "");
+    std::printf("Recording %s under %s once a trigger fires:%s%s%s\n",
+                recordFrames && recordDurations ? "frames and durations" : recordFrames ? "frames" : "durations",
+                directory.string().c_str(), battles ? " --battles" : "", gameLoaded ? " --gameloaded" : "",
+                fieldMenu ? " --fieldmenu" : "");
     std::fflush(stdout);
     WindowedHost{loop, platform}.run();
     machine.stop();
+
+    // A span the window closed on is measured to the last frame the machine ran.
+    if (recordDurations) {
+        for (const Span* span : {&battle, &game, &menu}) {
+            if (span->open) {
+                measured(*span, "still open when the window closed");
+            }
+        }
+    }
     return 0;
 }

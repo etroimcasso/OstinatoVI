@@ -78,6 +78,7 @@ conveniences work against it.
 | `engine/` | [Polyrhythm](https://github.com/RetroPlusPlus/Polyrhythm) engine submodule |
 | `original-src/` | Not part of this repository (ignored). Developers clone the [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly (GPL-3.0) here as a read-only reference; nothing in the build or the distribution needs it |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
+| `tools/` | Developer tools: the previews, the frame recorder and the data parsers ([index](tools/README.md)) |
 | `scripts/` | Development tooling |
 
 > **Note on the engine submodule:** it is public and initializes without credentials

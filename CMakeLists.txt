@@ -225,10 +225,10 @@ target_link_libraries(ostinato-preview-battle PRIVATE ostinato-vi-lib)
 target_compile_definitions(ostinato-preview-battle PRIVATE
     OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
-# ostinato-frames <rom> <directory> [--battles] [--gameloaded] [--fieldmenu]: the cartridge run on the
-# engine's SNES machine, driven from the pad, writing its frames 1:1 from the moments the named
-# triggers mark — a battle, a saved game's load, the field's menu — the reference the previews are
-# measured against.
+# ostinato-frames <rom> <directory> [--record frames|durations|both] [--battles] [--gameloaded]
+# [--fieldmenu]: the cartridge run on the engine's SNES machine, driven from the pad, recording its
+# frames 1:1, the spans' durations, or both, between the moments the named triggers mark — a battle,
+# a saved game's load, the field's menu — the reference the previews are measured against.
 add_executable(ostinato-frames tools/frames/main.cpp)
 target_compile_features(ostinato-frames PRIVATE cxx_std_20)
 target_compile_options(ostinato-frames PRIVATE ${_ostinato_warn})

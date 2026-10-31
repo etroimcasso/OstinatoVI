@@ -308,8 +308,11 @@ L/R, Enter = Start, Right Shift = Select). Escapes on the cartridge's own code m
 record; you choose them on the command line, at least one:
 
 ```sh
-ostinato-frames <rom> <directory> --battles --gameloaded --fieldmenu
+ostinato-frames <rom> <directory> --record both --battles --gameloaded --fieldmenu
 ```
+
+`--record frames|durations|both` chooses whether it writes frames, the length of each span, or both;
+without it, frames are recorded.
 
 | Trigger | Records | Files |
 |---|---|---|
@@ -317,9 +320,11 @@ ostinato-frames <rom> <directory> --battles --gameloaded --fieldmenu
 | `--gameloaded` | from the moment the field is set up from a loaded save (`$C0:BD20`) until the window closes | `game<n>-f<offset>.ppm` |
 | `--fieldmenu` | each opening of the field's main menu, from `$C0:C636` to its return to the field at `$C0:C651` | `menu<n>-f<offset>.ppm`, the last one `-end` |
 
-While a trigger's span is open, every fifteenth frame is written 1:1 as a 256 × 224 PPM.
+When recording frames, every fifteenth frame of an open span is written 1:1 as a 256 × 224 PPM.
 `<directory>/frames.log` gets a line per frame, and a battle's lines also carry the scroll values the
-battle keeps in work RAM. Every escape is printed and logged as it fires, with its address and frame
+battle keeps in work RAM. When recording durations, `<directory>/durations.log` gets a line per span:
+its length in frames and in milliseconds, and the frames it began and ended on. The tool's own
+[README](../../../tools/frames/README.md) has the details. Every escape is printed and logged as it fires, with its address and frame
 number. The addresses are the US cartridges'. The machine keeps the cartridge's battery save between
 runs, so a game saved in the window is there to load next time.
 
