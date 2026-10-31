@@ -299,6 +299,30 @@ clip, one `SpriteLayer` per battler in draw order, the window at the top while o
 and the numerals. Run `ostinato-preview-battle --capture <dir> 0 41 24` to fight Lobo, a pincer and
 a back attack to their ends and write the moments worth checking to `<dir>`.
 
+### Reference frames from the cartridge
+
+`ostinato-frames` (`tools/frames/main.cpp`) is what the preview's captures are compared against. It
+hosts the cartridge on the engine's SNES machine with its video on, shows the machine's picture in a
+window at 3×, and takes the pad from the keyboard (arrows = d-pad, X = A, Z = B, S = X, A = Y, Q/W =
+L/R, Enter = Start, Right Shift = Select). Escapes on the cartridge's own code mark the moments to
+record; you choose them on the command line, at least one:
+
+```sh
+ostinato-frames <rom> <directory> --battles --gameloaded --fieldmenu
+```
+
+| Trigger | Records | Files |
+|---|---|---|
+| `--battles` | each battle, from the battle program's entry (`$C2:0000`) to its return to the field (`$C2:00CB`) | `battle<n>-f<offset>.ppm`, the last one `-end` |
+| `--gameloaded` | from the moment the field is set up from a loaded save (`$C0:BD20`) until the window closes | `game<n>-f<offset>.ppm` |
+| `--fieldmenu` | each opening of the field's main menu, from `$C0:C636` to its return to the field at `$C0:C651` | `menu<n>-f<offset>.ppm`, the last one `-end` |
+
+While a trigger's span is open, every fifteenth frame is written 1:1 as a 256 × 224 PPM.
+`<directory>/frames.log` gets a line per frame, and a battle's lines also carry the scroll values the
+battle keeps in work RAM. Every escape is printed and logged as it fires, with its address and frame
+number. The addresses are the US cartridges'. The machine keeps the cartridge's battery save between
+runs, so a game saved in the window is there to load next time.
+
 ## Gotchas
 
 - **Every battler is its own layer.** A blend meant for one battler then touches only it, and the
