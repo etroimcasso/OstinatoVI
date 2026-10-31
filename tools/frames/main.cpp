@@ -417,16 +417,22 @@ int main(int argc, char** argv) {
                 directory.string().c_str(), battles ? " --battles" : "", gameLoaded ? " --gameloaded" : "",
                 fieldMenu ? " --fieldmenu" : "");
     std::fflush(stdout);
-    WindowedHost{loop, platform}.run();
-    machine.stop();
 
-    // A span the window closed on is measured to the last frame the machine ran.
-    if (recordDurations) {
-        for (const Span* span : {&battle, &game, &menu}) {
-            if (span->open) {
-                measured(*span, "still open when the window closed");
+    // Closing the window: a span still open is measured to the last frame the machine ran, before
+    // the program is torn down.
+    loop.exitAction([&] {
+        note("window closed at frame " + std::to_string(frame));
+        if (recordDurations) {
+            for (const Span* span : {&battle, &game, &menu}) {
+                if (span->open) {
+                    measured(*span, "still open when the window closed");
+                }
             }
         }
-    }
+        return ExitVerdict::Proceed;
+    });
+
+    WindowedHost{loop, platform}.run();
+    machine.stop();
     return 0;
 }

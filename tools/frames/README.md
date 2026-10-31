@@ -68,7 +68,8 @@ either. The addresses are the US cartridges'.
   A loaded game's span runs until the next load or until the window closes. Any span still open when
   the window closes is measured to the last frame the machine ran, and its line says so.
 - **Escape announcements:** every escape is printed and logged in `frames.log` as it fires, with its
-  name, address and frame number. So is the start and end of each span:
+  name, address and frame number. So is the start and end of each span, and the frame the window
+  was closed on:
 
   ```
   escape "field menu opened" ($C0:C636) fired at frame 2210
