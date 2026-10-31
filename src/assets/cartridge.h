@@ -16,10 +16,15 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 
+#include "assets/cartridge_routines.h"
+#include "data/battle_background_art.h"
+#include "data/character_battle_sheet.h"
+#include "data/monster_image.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 #include "data/world_map.h"
@@ -73,7 +78,8 @@ struct InstallResult {
 // Everything one launch reads out of the cartridge.
 //
 // The spans inside stay valid for the life of the program: the bytes are held by the engine's data
-// library, which resolves an entry once and never evicts it.
+// library, which resolves an entry once and never evicts it. The content moves but never copies:
+// `routines` is a machine, and a machine stays where it is.
 struct IngestedContent {
     GameVersion version{};
     TextCorpus text;
@@ -81,6 +87,26 @@ struct IngestedContent {
     text::DialogFont dialogFont;
     text::WindowArt windowArt;
     MonsterSprites monsterSprites;
+
+    // The battle's artwork, decoded from these when a battle asks: the backgrounds, the monsters'
+    // pictures, the party's sprite sheets, the small font's glyphs and the colors it draws through.
+    BattleBackgroundArt battleBackgrounds;
+    MonsterImages monsterImages;
+    CharacterBattleSheets characterSheets;
+    std::span<const std::uint8_t> smallFont;        // RomAsset::SMALL_FONT
+    std::span<const std::uint8_t> smallFontColors;  // RomAsset::BATTLE_FONT_PAL
+
+    // The status art, compressed: the damage numerals' digits and "Miss" among it, decoded through
+    // the decompressor (data/damage_numerals.h). RomAsset::STATUS.
+    std::span<const std::uint8_t> statusArt;
+
+    // The sixteen colors a dying monster fades out in. RomAsset::MONSTER_DEATH_PAL; empty on a
+    // cartridge where it has no known place (the Japanese one).
+    std::span<const std::uint8_t> monsterDeathColors;
+
+    // The cartridge's decompressor on a machine of its own, which the backgrounds decode through.
+    // Empty on a cartridge whose decompressor has no known place (the Japanese one).
+    std::unique_ptr<CartridgeRoutines> routines;
 };
 
 // Read a cartridge image already in memory: host it on a VM, take the families the game needs, and

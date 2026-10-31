@@ -346,3 +346,59 @@ any ally whose actor is Mog or later. `tests/test_commands.cpp`
 
 **If you want to change it.** Dropping the extra one makes every thrown ally add
 exactly its hands' battle power.
+
+---
+
+## The Phantom Train's background names two tiles nothing loaded
+
+**What happens.** Two cells of the Phantom Train battle background's tilemap
+name tiles 652 and 653. No graphics block of any background covers those
+numbers: block 1 holds tiles 0 to 127 (0 to 255 when it is double width),
+block 2 128 to 255 and block 3 896 to 1023. On the hardware the two cells show
+whatever that part of video memory happened to hold from before the battle,
+which is not part of the background's art.
+
+**Where the original does it.** `LoadBattleBG` (`btlgfx/btlgfx_main.asm:4090-4144`)
+transfers the three blocks to fixed places in video memory and the tilemap as
+it is; nothing checks that a cell's tile number lands in a block. The tilemap
+is the compressed stream `BattleBGTiles::GHOST_TRAIN` (`gfx/battle_bg.asm`),
+background `BATTLE_BG::GHOST_TRAIN` (50). The other background whose cells
+reach outside its blocks' art, `BATTLE_BG_31` (49), upstream marks unused and
+no map or event names it.
+
+**Where the port keeps it.** `BattleBackgroundPicture::sheetTile()`
+(`src/data/battle_background_art.h`) returns nothing for a number no block
+loads, and `BattleBackground` (`src/render/battle/battle_background.h`) draws
+such a cell as a blank tile. `tests/test_battle_background_art.cpp` decodes all
+56 backgrounds and pins that only this one has such cells, and that they are
+exactly these two.
+
+**If you want to change it.** Drawing something there means choosing art the
+game never assigned; blank is the one choice that invents nothing.
+
+---
+
+## "Miss" sits right of the battler it is over
+
+**What happens.** A damage numeral is centered on its battler, but the word
+"Miss" is not: shown on its own it starts at the battler's center and runs 16
+pixels to the right, and shown with every other battler's numeral at once it
+starts 8 pixels further right still.
+
+**Where the original does it.** A numeral's digits are copied into its graphics
+from the first tile, and its offset — how far left of the battler it starts —
+is half its width, 4 a digit (`btlgfx/btlgfx_main.asm:24733-24749`,
+`:24894-24911`). "Miss" is copied one tile in (`+$20`, `:24712`, `:24864`), and
+given an offset of 8 when shown on its own (`GfxCmd_0b :24717-24718`) and of 0
+when shown together (`_c1a5fa :24841`, where the offset was cleared and never
+set for a miss). The two tiles of "Miss" therefore start 8 right of where the
+offset puts the numeral: at the center on its own, 8 past it together.
+
+**Where the port keeps it.** `battle::ShownNumeral::offset` carries the two
+offsets (`kSingleMissOffset`, `kTogetherMissOffset` in
+`src/battle/presentation.cpp`), and `render::DamageNumbers` draws "Miss" one
+cell further right than its offset. `tests/test_battle_presentation.cpp` and
+`tests/test_battle_hud_components.cpp` pin both.
+
+**If you want to change it.** Centering "Miss" means an offset of 8 and no
+extra cell in both cases.

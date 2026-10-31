@@ -36,6 +36,10 @@ public:
     // the region table disagrees with the cartridge in hand, which is never something to read past.
     [[nodiscard]] std::span<const std::uint8_t> read(const retropp::MemoryRegion& where) const;
 
+    // The bytes from `at` to the end of the image, for a read that begins in one family and runs
+    // on past it. Throws as read() does for an address outside the cartridge.
+    [[nodiscard]] std::span<const std::uint8_t> readToEnd(std::uint32_t at) const;
+
 private:
     std::span<const std::uint8_t> image_;
 };

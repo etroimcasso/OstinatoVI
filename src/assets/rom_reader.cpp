@@ -58,4 +58,13 @@ std::span<const std::uint8_t> HiRomImage::read(const retropp::MemoryRegion& wher
     return image_.subspan(offset, length);
 }
 
+std::span<const std::uint8_t> HiRomImage::readToEnd(std::uint32_t at) const {
+    const std::size_t offset = imageOffset(at);
+    if (offset >= image_.size()) {
+        throw std::out_of_range("cartridge address " + describe(at) + " is past the end of a " +
+                                std::to_string(image_.size()) + "-byte image");
+    }
+    return image_.subspan(offset);
+}
+
 }  // namespace ostinato::assets

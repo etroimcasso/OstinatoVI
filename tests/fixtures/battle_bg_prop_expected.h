@@ -27,7 +27,7 @@ namespace ostinato::test {
 // of the enum-symbol rows in battle_bg_prop_data.inc, so symbol/value
 // drift in either artifact fails the full-corpus byte-equivalence test.
 struct ExpectedBattleBackgroundRecord {
-    std::uint8_t graphics1;  // BATTLE_BG_GFX | bit 7: 128-tile form
+    std::uint8_t graphics1;  // BATTLE_BG_GFX | bit 7: 256-tile form
     std::uint8_t graphics2;  // BATTLE_BG_GFX
     std::uint8_t graphics3;  // BATTLE_BG_GFX
     std::uint8_t tilemap1;   // BATTLE_BG_TILES

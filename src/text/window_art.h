@@ -59,4 +59,15 @@ IndexedImage buildWindowSheet(const WindowArt& art, WallpaperId wallpaper);
 // The cartridge's colors for `wallpaper`: colors 1 to 7 of its palette.
 WindowColors defaultWindowColors(const WindowArt& art, WallpaperId wallpaper);
 
+// How much brighter a battle draws its windows than the field: each channel of each color is
+// raised by this many 31sts of full strength, and stops at full strength.
+inline constexpr int kBattleWindowBrightening = 8;
+
+// The colors a battle's windows draw in, given the window colors the field draws in. `colors`
+// holds channels as the cartridge's five-bit colors expand to eight bits, as defaultWindowColors
+// returns them.
+//
+//     const WindowColors battle = battleWindowColors(defaultWindowColors(art, wallpaper));
+WindowColors battleWindowColors(const WindowColors& colors);
+
 }  // namespace ostinato::text

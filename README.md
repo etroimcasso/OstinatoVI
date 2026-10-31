@@ -24,7 +24,8 @@ the dialog engine and its window run in their own preview tool under `tools/prev
 - [x] **Field dialog window** — the box the text types into, drawn from the cartridge's own art:
   opening and closing, top or bottom placement, text-only messages, the map-title box
 - [ ] **Battle engine** *(in progress)*
-- [ ] **Battle presentation**
+- [ ] **Battle presentation** *(in progress)* — the background, the monsters and the party drawn where
+  the battle stands them, from the cartridge's own art, with a self-playing preview
 - [ ] **Field engine** — maps, movement, NPCs, transitions, screen effects
 - [ ] **Event scripts**
 - [ ] **World map**
@@ -33,6 +34,19 @@ the dialog engine and its window run in their own preview tool under `tools/prev
 - [ ] **Audio** — the original music and sound effects
 - [ ] **Saving and loading**
 - [ ] **Packaging and release**
+
+## Screenshots
+
+The preview tools under `tools/previews/`, each drawing from an installed cartridge.
+
+**Battle** — `ostinato-preview-battle`: the background, the monster and the party, and the windows
+with the monster list and the party's names, HP and gauges.
+
+![The battle preview fighting Lobo](media/previews/battle_preview.png)
+
+**Field dialog** — `ostinato-preview-dialog`: a message typed into the dialog window.
+
+![The dialog preview showing a message](media/previews/dialog_preview.png)
 
 ## Version support
 
@@ -77,7 +91,9 @@ conveniences work against it.
 | `engine/` | [Polyrhythm](https://github.com/RetroPlusPlus/Polyrhythm) engine submodule |
 | `original-src/` | Not part of this repository (ignored). Developers clone the [everything8215/ff6](https://github.com/everything8215/ff6) SNES disassembly (GPL-3.0) here as a read-only reference; nothing in the build or the distribution needs it |
 | `docs/` | Project documentation (design context, feature docs, and the [developer guide](docs/engine/README.md) to the shipped surfaces) |
+| `tools/` | Developer tools: the previews, the frame recorder and the data parsers ([index](tools/README.md)) |
 | `scripts/` | Development tooling |
+| `media/` | The screenshots on this page |
 
 > **Note on the engine submodule:** it is public and initializes without credentials
 > (`git submodule update --init --recursive`).

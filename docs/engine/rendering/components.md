@@ -44,11 +44,14 @@ its children returned.
 | Name | What it is |
 |---|---|
 | `kScreenSize` | The screen, 256 × 224 (`retropp::ViewportResolution::Snes`). Every sprite and tile layer covers it. |
+| `kScreenBorderPx`, `kScreenBorderKey` | The columns at the screen's left and right edges that show only black, 8, and the name of the region that blacks them out: see [`ScreenBorder`](#screenborder). |
 | `kDialogWindowZ` | The depth of the dialog box and the map-title box: 25, beneath the text they hold. |
 | `kDialogTextZ` | The depth of the dialog text, its arrow and the map title: 30. The field's world and sprite layers take the depths below the box. |
 | `kShadowSpriteZ`, `kInkSpriteZ` | Within a sprite layer, every drop shadow (0) sits beneath every piece of ink (1), so no shadow ever darkens a letter. |
 | `kDialogGlyphKey`, `kTitleGlyphKey`, `kDialogCursorKey`, `kDialogWipeKey`, `kShadowKeySuffix` | The names sprites and regions go by. See [Keys](#keys). |
 | `kDialogWindowKey`, `kWindowShadingKey`, `kWindowClipKey` | The box's layer, its shading regions and its clip. |
+| `kBattleBackdropZ` … `kDamageNumbersZ` | The battle's depths, 0 to 24, beneath the dialog box: see [battle.md](battle.md). |
+| `kBattleBackdropKey`, `kBattlefieldKey`, `kMonsterKey`, `kCharacterKey`, `kMessageWindowKey`, `kMessageShadingKey`, `kMessageTextKey`, `kMessageGlyphKey`, `kMessageTextClipKey`, `kHudWindowKey`, `kHudShadingKey`, `kHudTextKey`, `kHudGlyphKey`, `kDamageNumbersKey`, `kDamageNumeralKey`, `kSingleNumeralKey`, `kDeathFadeKey` | The battle's layers, regions and sprites: see the key table in [battle.md](battle.md). |
 
 A new layer takes its depth from this table, and a new kind of sprite takes its key prefix from
 it, so two components never collide.
@@ -123,6 +126,72 @@ beneath show through. `options.scroll` places the grid — screen pixel `(x, y)`
 
 Its cells are a view the renderer reads, so TileLayer keeps them under `key` until the next call
 with that key, exactly as SpriteLayer keeps its sprites.
+
+## `ColorGradient`
+
+```cpp
+#include "render/color_gradient.h"
+
+struct GradientBand {
+    int rows;
+    std::uint8_t level;               // 0 to kGradientFullLevel (31)
+    retropp::BlendMode blend;
+    retropp::Rgba8 color = {.r = 255, .g = 255, .b = 255};
+};
+
+Regions ColorGradient(std::string_view keyPrefix, retropp::Point topLeft, float width,
+                      std::span<const GradientBand> bands);
+```
+
+Horizontal bands of color laid over a rectangle `width` pixels wide, top to bottom: the first band
+starts at `topLeft` and each one covers `rows` pixel rows directly below the one before. A band's
+fill is its `color` at `level` 31sts of full strength on each channel, rounded to the nearest value
+— with the default white, level *n* is a gray of *n*/31 — and combines with what lies beneath under
+the band's `blend`: `BlendMode::Add` lightens, `BlendMode::Subtract` darkens.
+
+It returns one `ColorFill` region per run of neighboring bands with the same level, color and
+blend, keyed `<keyPrefix>:<row>`, where `row` is the run's first row counted from `topLeft`. A band
+at level 0 adds or takes away nothing and gets no region, but its rows still count, so the bands
+below it keep their place and their keys.
+
+```cpp
+// A box lighter toward its top and darker toward its bottom, shading the box's layer only.
+const std::array<GradientBand, 3> bands{{
+    {.rows = 8, .level = 7, .blend = retropp::BlendMode::Add},
+    {.rows = 4, .level = 0, .blend = retropp::BlendMode::Add},
+    {.rows = 8, .level = 7, .blend = retropp::BlendMode::Subtract},
+}};
+frame.layers.push_back(TileLayer("box", z, std::move(cells), columns, rows,
+                                 {.regions = ColorGradient("boxshade", {8, 16}, 240, bands)}));
+```
+
+Give the regions to a layer's `regions` to shade that layer alone, or to the frame's to shade
+everything drawn beneath them. They are in screen pixels: a layer's scroll or transform does not
+move them.
+
+## `ScreenBorder`
+
+```cpp
+#include "render/screen_border.h"
+
+Regions ScreenBorder(int topBlankRows, int bottomBlankRows);
+```
+
+The black border around the picture. Everything outside a rectangle `kScreenBorderPx` (8)
+columns in from the screen's left and right edges, `topBlankRows` lines down from its top and
+`bottomBlankRows` up from its bottom, goes see-through, so the engine's black backdrop shows there.
+It is one `TransparentOutside` stencil region keyed `kScreenBorderKey`.
+
+```cpp
+// The battle: columns 8-247 and lines 4-218 shown.
+retropp::FrameDrawState frame{
+    .layers = BattleScreen(...),
+    .regions = ScreenBorder(kBattleTopBlankRows, kBattleBottomBlankRows)};
+```
+
+Give it to the frame's `regions`, so every layer and every sprite stops at the same edges. The side
+columns are the same on every screen; the blank lines are each screen's own. Both counts are
+asserted not negative and to leave lines to show.
 
 ## The dialog components
 
@@ -279,12 +348,14 @@ closed, before its first opening step, and for a text-only message.
 Regions WindowShading(const text::DialogWindowState& state, retropp::Point boxTopLeft);
 ```
 
-The light and dark bands across the box: one region per run of rows sharing a shading level and a
-side of the middle, a `ColorFill` of that level in gray (level *n* is *n*/31 of full), with
-`BlendMode::Add` above the middle and `BlendMode::Subtract` from it down. Level 0 rows get none.
-While the box opens, each step shades the rows it shows with its own height's table; open and
-closing, the open box's table covers the rows that show. Give it to the box's layer only, so the
-text is not shaded.
+The light and dark bands across the box, as a `ColorGradient` keyed `dlgsh`: each row of the
+shading table is a one-row band at its level in gray (level *n* is *n*/31 of full), with
+`BlendMode::Add` above the table's middle and `BlendMode::Subtract` from it down, so the result is
+one region per run of rows sharing a level and a side of the middle. Level 0 rows get none. While
+the box opens, each step shades the rows it shows with its own height's table; open and closing,
+the open box's table covers the rows that show, the rows above them passed as one blank band so
+each run keeps the key it had while the box was open. Give it to the box's layer only, so the text
+is not shaded.
 
 ### `WindowSquash`
 
@@ -333,6 +404,8 @@ layer it keeps the text within the rows shown.
 |---|---|
 | Where the dialog sits on screen, and how far apart its lines are | The `(x, y)` and `linePitch` the caller passes — the dialog window's ([../text/window.md](../text/window.md)). |
 | How the box is drawn, shaded, squashed or cropped | `src/render/window/` |
+| How bands of color are laid over a layer | `src/render/color_gradient.cpp` |
+| The width of the screen border's side columns | `kScreenBorderPx` in `src/render/layers.h` |
 | The box's tiles, or its shading levels | `src/text/window_layout.h` and the tables it includes, generated by `tools/asm_parser/parse_window_data.py` |
 | The shadow's offset, the text area's geometry, where glyphs sit in a line | `src/text/layout.h` |
 | A layer's depth, the screen size, a key's name | `src/render/layers.h` |

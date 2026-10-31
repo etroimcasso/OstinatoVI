@@ -18,8 +18,9 @@ Sources:
     world animation frames are one: their artwork is ripped but the records
     arranging it are left in the assembly, so their extent is resolved from the
     assembly and proved against the cartridge instead (see _ASM_REGIONS). The
-    dialog font's width table, the choice-cursor arrow and the monster graphics
-    properties are three more.
+    dialog font's width table, the choice-cursor arrow, the monster graphics
+    properties, the battle backgrounds' two pointer tables, the dying
+    monster's palette and the decompressor routine are six more.
   * tools/extract_assets.py — the three CRC32 branches that name a ROM, the
     language each maps to, and the copier-header size its diagnostic names.
   * cfg/ff6-en.cfg — the linker's bank map, whose ROM-region extent gives the
@@ -75,6 +76,7 @@ import re
 import sys
 
 import common
+import parse_battle_gfx_tables
 import parse_font_metrics
 import parse_monster_sprites
 import parse_world_anim
@@ -153,11 +155,41 @@ def _resolve_monster_gfx_prop(source_root, rip_rows):
         _load_rom_if_present(source_root), aligns)
 
 
+def _resolve_battle_bg_gfx_ptrs(source_root, rip_rows):
+    """The battle backgrounds' graphics pointers: between the ripped palettes
+    and tilemaps, both languages, every English entry checked."""
+    return parse_battle_gfx_tables.place_background_pointers(
+        source_root, rip_rows, _load_rom_if_present(source_root))[0]
+
+
+def _resolve_battle_bg_tiles_ptrs(source_root, rip_rows):
+    """The battle backgrounds' tilemap pointers, placed with the graphics
+    pointers."""
+    return parse_battle_gfx_tables.place_background_pointers(
+        source_root, rip_rows, _load_rom_if_present(source_root))[1]
+
+
+def _resolve_monster_death_pal(source_root, _rip_rows):
+    """The dying monster's palette: English only, read off the cartridge."""
+    return parse_battle_gfx_tables.place_monster_death_pal(
+        source_root, _load_rom_if_present(source_root))
+
+
+def _resolve_decompressor(source_root, _rip_rows):
+    """The cartridge's LZ decoder: English only, assembled from the source and
+    found once in the battle graphics code."""
+    return parse_battle_gfx_tables.place_decompressor(
+        source_root, _load_rom_if_present(source_root))
+
+
 # The families sourced from the assembly: the world animation frames, whose
 # artwork upstream rips but whose arrangements it leaves in the assembly; the
 # dialog font's width table, between two ripped fonts; the choice-cursor
-# arrow, inside the field code; and the monster graphics properties, which
-# upstream assembles from the graphics it rips.
+# arrow, inside the field code; the monster graphics properties, which
+# upstream assembles from the graphics it rips; the battle backgrounds' two
+# pointer tables, between the ripped palettes and tilemaps; the dying
+# monster's palette, inside the battle graphics code; and the decompressor the
+# battle backgrounds are decoded by, a routine of that same code.
 _ASM_REGIONS = (
     AsmRegion(asset="WORLD_ANIM_FRAMES",
               path="src/world/world_anim.asm",
@@ -171,6 +203,18 @@ _ASM_REGIONS = (
     AsmRegion(asset="MONSTER_GFX_PROP",
               path="src/gfx/monster_gfx.asm",
               resolve=_resolve_monster_gfx_prop),
+    AsmRegion(asset="BATTLE_BG_GFX_PTRS",
+              path="src/gfx/battle_bg.asm",
+              resolve=_resolve_battle_bg_gfx_ptrs),
+    AsmRegion(asset="BATTLE_BG_TILES_PTRS",
+              path="src/gfx/battle_bg.asm",
+              resolve=_resolve_battle_bg_tiles_ptrs),
+    AsmRegion(asset="MONSTER_DEATH_PAL",
+              path="src/btlgfx/btlgfx_main.asm",
+              resolve=_resolve_monster_death_pal),
+    AsmRegion(asset="DECOMPRESS_ROUTINE",
+              path="src/btlgfx/btlgfx_main.asm",
+              resolve=_resolve_decompressor),
 )
 
 # Upstream ROM names -> the GameVersion enumerator each is. Every name the CRC

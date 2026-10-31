@@ -96,16 +96,32 @@ content.worldTiles;                    // the world-map tile pool
 content.dialogFont;                    // the dialog font: artwork, widths, choice arrow
 content.windowArt;                     // the dialog box's wallpapers and their palettes
 content.monsterSprites;                // every monster's stencil, for its size in battle
+content.battleBackgrounds;             // every battle background's art, decoded on demand
+content.monsterImages;                 // every monster's picture and colors
+content.characterSheets;               // every party member's battle frames and colors
+content.smallFont, content.smallFontColors;  // the small font's glyphs and palettes
+content.statusArt;                     // the status art, compressed: the damage numerals among it
+content.monsterDeathColors;            // the colors a dying monster fades out in
+content.routines;                      // the cartridge's decompressor, on a machine of its own
 ```
 
 `dialogFont` is described in [../text/font.md](../text/font.md), `windowArt` in
-[../text/window.md](../text/window.md), and `monsterSprites` in
-[../data-layer/monster-sprites.md](../data-layer/monster-sprites.md).
+[../text/window.md](../text/window.md), `monsterSprites` in
+[../data-layer/monster-sprites.md](../data-layer/monster-sprites.md), and the battle's art and
+the routine that unpacks it in [battle-art.md](battle-art.md). `IngestedContent` is move-only:
+the routine machine stays where it is.
 
 Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps
 its banks straight onto the image, so an address becomes an offset by arithmetic —
 `assets::HiRomImage` (`src/assets/rom_reader.h`) is the one place that knows how, and it
-is the only place in the port that does arithmetic on a cartridge address.
+is the only place in the port that does arithmetic on a cartridge address. `read` takes a
+region; `readToEnd` takes an address and gives everything from it to the end of the image,
+for the one read that begins inside a family and runs on past it (a battle background's map
+graphics block).
+
+The one thing a plain read cannot reach is a compressed family: the battle backgrounds'
+tilemaps and graphics are unpacked by the cartridge's own routine, placed on a machine the
+engine runs for the purpose ([battle-art.md](battle-art.md)).
 
 The spans inside `IngestedContent` outlive the call: the tile pool is cataloged with the
 engine's data library, which resolves an entry once and keeps it for the life of the
@@ -131,21 +147,23 @@ const std::optional<retropp::MemoryRegion> place = romRegion(RomAsset::DLG1, Lan
 const RomAsset asset = textClassAsset(TextClass::ITEM_NAME);
 ```
 
-- `RomAsset` (`include/ostinato/rom_asset.h`) names all 160 families — the script, the
-  graphics, the sound samples, and the numeric tables alike.
+- `RomAsset` (`include/ostinato/rom_asset.h`) names all 164 families — the script, the
+  graphics, the sound samples, the numeric tables, and one routine.
 - `romRegion` returns `nullopt` when a language does not ship a family. The US cartridges
   name item types and the Japanese one gives characters titles; neither has the other's
   table.
-- `romRegions()` is the whole 315-row table, for iteration.
+- `romRegions()` is the whole 321-row table, for iteration.
 
-Most families come from the rip lists upstream's extraction tooling walks. Four it leaves in
-the assembly — the world animation frames, the dialog font's width table, the choice arrow and
-the monster graphics properties — are placed by `tools/asm_parser/parse_rom_regions.py` from the
+Most families come from the rip lists upstream's extraction tooling walks. Eight it leaves in
+the assembly — the world animation frames, the dialog font's width table, the choice arrow, the
+monster graphics properties, the battle backgrounds' two pointer tables, the dying monster's
+palette and the decompressor — are placed by `tools/asm_parser/parse_rom_regions.py` from the
 assembly. Each is proved against the cartridge, pinned exactly between two ripped neighbors, or —
 the monster graphics properties — ends exactly where the ripped monster palettes begin with every
-record's stencil number and flags compared with the cartridge. The world animation frames and the
-arrow have no Japanese row: the Japanese build moves them by an amount only assembling it would
-settle.
+record's stencil number and flags compared with the cartridge; the decompressor is assembled from
+its source and found exactly once. The world animation frames, the arrow, the palette and the
+decompressor have no Japanese row: the Japanese build moves them by an amount only assembling it
+would settle.
 
 Addresses are the cartridge's own. A family wider than the bank it starts in reads
 straight through — the dialog bank does exactly this — because a read is one extent

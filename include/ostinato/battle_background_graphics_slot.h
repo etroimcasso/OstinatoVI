@@ -22,14 +22,15 @@ struct BattleBackgroundGraphicsSlot {
     explicit constexpr BattleBackgroundGraphicsSlot(std::uint8_t raw)
         : bits(raw) {}
 
-    // A 64-tile block: the id alone, no flag.
+    // A 128-tile block: the id alone, no flag.
     static constexpr BattleBackgroundGraphicsSlot single(
         BattleBackgroundGraphicsId id) {
         return BattleBackgroundGraphicsSlot{static_cast<std::uint8_t>(id)};
     }
 
-    // A 128-tile block. The record's second block is not loaded when this is
-    // set — the first block occupies both slots' worth of VRAM.
+    // A 256-tile block, taking the tile numbers the second block would have
+    // covered. The loader still loads whatever the second slot names; every
+    // record with a double-width first block leaves that slot empty.
     static constexpr BattleBackgroundGraphicsSlot doubleWidth(
         BattleBackgroundGraphicsId id) {
         return BattleBackgroundGraphicsSlot{
@@ -43,7 +44,8 @@ struct BattleBackgroundGraphicsSlot {
                          : static_cast<BattleBackgroundGraphicsId>(bits & 0x7F);
     }
 
-    // Bit 7: the block is 128 tiles rather than 64.
+    // Bit 7: the block is 256 tiles rather than 128. Meaningful only on a slot
+    // that is not empty; the $FF sentinel has the bit set too.
     constexpr bool isDoubleWidth() const { return (bits & 0x80) != 0; }
 
     // The whole byte is $FF: nothing is loaded into this slot. Note that a

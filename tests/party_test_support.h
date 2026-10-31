@@ -6,33 +6,13 @@
 #include <initializer_list>
 
 #include "battle/battle_state.h"
-#include "data/character.h"
 #include "game/character_record.h"
 
 namespace ostinato::test {
 
 // A level-1 record for `actor` with its starting HP, MP, commands, stats and equipment.
 inline game::CharacterRecord startingRecord(CharacterPropId actor) {
-    const CharacterBaseStats& base = getCharacterBaseStats(actor);
-    game::CharacterRecord record;
-    record.actor = actor;
-    record.level = 1;
-    record.hp = base.hp;
-    record.maxHp = base.hp;
-    record.mp = base.mp;
-    record.maxMp = base.mp;
-    record.commands = base.commands;
-    record.vigor = base.strength;
-    record.speed = base.agility;
-    record.stamina = base.stamina;
-    record.magicPower = base.magicPower;
-    record.weapon = base.weapon;
-    record.shield = base.shield;
-    record.helmet = base.helmet;
-    record.armor = base.armor;
-    record.relic1 = base.relic1;
-    record.relic2 = base.relic2;
-    return record;
+    return game::startingRecord(actor);
 }
 
 // A record with nothing equipped.

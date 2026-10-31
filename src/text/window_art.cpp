@@ -19,6 +19,16 @@ std::uint8_t expandChannel(unsigned fiveBit) {
     return static_cast<std::uint8_t>((fiveBit * 255 + kChannelMax / 2) / kChannelMax);
 }
 
+// The five-bit channel an expanded channel came from.
+unsigned narrowChannel(std::uint8_t eightBit) {
+    return (eightBit * kChannelMax + 255 / 2) / 255;
+}
+
+std::uint8_t brightenChannel(std::uint8_t eightBit) {
+    const unsigned raised = narrowChannel(eightBit) + static_cast<unsigned>(kBattleWindowBrightening);
+    return expandChannel(raised < kChannelMax ? raised : kChannelMax);
+}
+
 std::span<const std::uint8_t> wallpaperTiles(const WindowArt& art, WallpaperId wallpaper) {
     const auto at = static_cast<std::size_t>(wallpaper) * kWallpaperBytes;
     assert(art.tiles.size() >= at + kWallpaperBytes && "no such wallpaper");
@@ -73,6 +83,18 @@ WindowColors defaultWindowColors(const WindowArt& art, WallpaperId wallpaper) {
         };
     }
     return colors;
+}
+
+WindowColors battleWindowColors(const WindowColors& colors) {
+    WindowColors battle{};
+    for (std::size_t i = 0; i < kWindowColorCount; ++i) {
+        battle[i] = retropp::Rgba8{
+            .r = brightenChannel(colors[i].r),
+            .g = brightenChannel(colors[i].g),
+            .b = brightenChannel(colors[i].b),
+        };
+    }
+    return battle;
 }
 
 }  // namespace ostinato::text

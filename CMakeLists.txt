@@ -58,8 +58,10 @@ add_library(ostinato-vi-lib STATIC
     src/ostinato.cpp
     src/assets/asset_root.cpp
     src/assets/cartridge.cpp
+    src/assets/cartridge_routines.cpp
     src/assets/first_start.cpp
     src/assets/rom_reader.cpp
+    src/assets/tile_planes.cpp
     src/battle/action_queue.cpp
     src/battle/actions.cpp
     src/battle/attack.cpp
@@ -78,6 +80,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/item_attack.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
+    src/battle/presentation.cpp
     src/battle/spell_lists.cpp
     src/battle/system_commands.cpp
     src/battle/targeting.cpp
@@ -120,9 +123,29 @@ add_library(ostinato-vi-lib STATIC
     src/data/world_anim.cpp
     src/data/world_cutscenes.cpp
     src/data/battle_backgrounds.cpp
+    src/data/battle_background_art.cpp
+    src/data/battle_gfx_tables.cpp
     src/data/char_ai.cpp
+    src/data/character_battle_sheet.cpp
+    src/data/damage_numerals.cpp
+    src/data/monster_image.cpp
     src/data/world_map.cpp
     src/data/world_tiles.cpp
+    src/game/character_record.cpp
+    src/render/battle/battle_background.cpp
+    src/render/battle/battle_message.cpp
+    src/render/battle/battle_placement.cpp
+    src/render/battle/character_sprite.cpp
+    src/render/battle/damage_numbers.cpp
+    src/render/battle/hud_text.cpp
+    src/render/battle/hud_windows.cpp
+    src/render/battle/menu_window.cpp
+    src/render/battle/monster_death_fade.cpp
+    src/render/battle/monster_name_list.cpp
+    src/render/battle/monster_sprite.cpp
+    src/render/battle/party_status.cpp
+    src/render/color_gradient.cpp
+    src/render/screen_border.cpp
     src/render/sprite_layer.cpp
     src/render/tile_layer.cpp
     src/render/text/dialog_cursor.cpp
@@ -137,6 +160,7 @@ add_library(ostinato-vi-lib STATIC
     src/text/dialog.cpp
     src/text/dialog_window.cpp
     src/text/font.cpp
+    src/text/small_font.cpp
     src/text/window_art.cpp)
 # src/ is on the public include path for the data-layer headers
 # ("data/character.h", "data/rng_table.h") consumed by the tests.
@@ -190,6 +214,26 @@ target_compile_options(ostinato-preview-dialog PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-preview-dialog PRIVATE ostinato-vi-lib)
 target_compile_definitions(ostinato-preview-dialog PRIVATE
     OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ostinato-preview-battle <formation>...: a battle's standing scene — the background, the monsters
+# and the party where the battle puts them — from the installed cartridge.
+add_executable(ostinato-preview-battle
+    tools/previews/battle/main.cpp
+    tools/previews/battle/battle_preview.cpp)
+target_compile_features(ostinato-preview-battle PRIVATE cxx_std_20)
+target_compile_options(ostinato-preview-battle PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-preview-battle PRIVATE ostinato-vi-lib)
+target_compile_definitions(ostinato-preview-battle PRIVATE
+    OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
+
+# ostinato-frames <rom> <directory> [--record frames|durations|both] [--battles] [--gameloaded]
+# [--fieldmenu]: the cartridge run on the engine's SNES machine, driven from the pad, recording its
+# frames 1:1, the spans' durations, or both, between the moments the named triggers mark — a battle,
+# a saved game's load, the field's menu — the reference the previews are measured against.
+add_executable(ostinato-frames tools/frames/main.cpp)
+target_compile_features(ostinato-frames PRIVATE cxx_std_20)
+target_compile_options(ostinato-frames PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-frames PRIVATE retropp::engine)
 
 # ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
@@ -490,6 +534,35 @@ target_compile_options(ostinato-vi-dialog-window-tests PRIVATE ${_ostinato_warn}
 target_include_directories(ostinato-vi-dialog-window-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-dialog-window-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-dialog-window-tests)
+
+# The battle's picture: the tables that place and time it, every row against the cartridge's
+# bytes in both builds; the cartridge's decompressor placed and run, and every background, monster
+# and party sprite sheet decoded from the cartridge through it; where the battlers stand and the
+# order they are drawn in; the battle components read back from what they return; the color
+# gradient read back from its regions; the colors the battle's windows draw in; and the preview's
+# standing scene. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-preview-tests
+    tests/test_battle_background_art.cpp
+    tests/test_battle_components.cpp
+    tests/test_battle_gfx_tables.cpp
+    tests/test_battle_hud_components.cpp
+    tests/test_battle_presentation.cpp
+    tests/test_battle_preview.cpp
+    tests/test_battle_window_colors.cpp
+    tests/test_cartridge_routines.cpp
+    tests/test_character_battle_sheet.cpp
+    tests/test_color_gradient.cpp
+    tests/test_monster_image.cpp
+    tests/test_small_font.cpp
+    tests/test_tile_planes.cpp
+    tools/previews/battle/battle_preview.cpp)
+target_compile_features(ostinato-vi-battle-preview-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-preview-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-preview-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/previews/battle)
+target_link_libraries(ostinato-vi-battle-preview-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-preview-tests)
 
 # The battle core: the battle slots and sets, the ATB gauge and the battle's random numbers; battle
 # time update by update — the two-frame gate, the ATB rate, the gauges, the advance waits and the

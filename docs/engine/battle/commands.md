@@ -384,7 +384,10 @@ The commands:
 | `BattleEventPlays` | a battle event |
 | `MonstersEnterOrLeave` | monsters coming back by an entrance type, or else leaving by it |
 | `MonsterAnimationPlays` | a monster animation, or a sound effect with its pan |
+| `DamageNumbersShown` | damage numerals over the battlers an attack reached — an amount, or "Miss", green for healing — every one at once with the script waiting (`DamageNumberWait::UntilGone`) or one at a time with the script going on (`CarryOn`) |
 | `ReadyStance`, `StepBack` | written by the battle core |
+
+How long each command takes on screen is [presentation.md](presentation.md).
 
 An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) shows no animation.
 `kJokerDoomName` is the attack-name entry that reads "Joker Doom".

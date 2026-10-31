@@ -94,7 +94,9 @@ as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](..
 A `CharacterRecord` holds the character's actor (whose battle properties they use), sprite, name,
 level, HP, MP, experience, lasting statuses, four commands, vigor, speed, stamina, magic power,
 esper and six equipment slots. `maxHp` and `maxMp` are the character's own: a Muscle Belt or a
-Crystal Orb raises them in battle, not in the record.
+Crystal Orb raises them in battle, not in the record. `game::startingRecord(actor)` is the record a
+new game creates: level 1 with the character's starting stats, commands and equipment from the
+character table, and the character's own sprite.
 
 ## The party, step by step
 

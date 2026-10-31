@@ -544,11 +544,25 @@ class EndToEndTests(unittest.TestCase):
             # begin, in both languages: 416 records of five bytes.
             ("MONSTER_GFX_PROP", "en"): (0xD27000, 2080),
             ("MONSTER_GFX_PROP", "jp"): (0xD27000, 2080),
+            # The battle backgrounds' two pointer tables lie end to end
+            # between the ripped palettes and tilemaps in both languages: 75
+            # graphics pointers and 93 empty ones, then 112 tilemap pointers.
+            ("BATTLE_BG_GFX_PTRS", "en"): (0xE71650, 504),
+            ("BATTLE_BG_GFX_PTRS", "jp"): (0xE71650, 504),
+            ("BATTLE_BG_TILES_PTRS", "en"): (0xE71848, 224),
+            ("BATTLE_BG_TILES_PTRS", "jp"): (0xE71848, 224),
+            # The dying monster's palette sits in the battle graphics code, so
+            # only English.
+            ("MONSTER_DEATH_PAL", "en"): (0xC2B05D, 32),
+            # The decompressor is a routine of the battle graphics code,
+            # assembled from its source and found once; only English.
+            ("DECOMPRESS_ROUTINE", "en"): (0xC2FF6D, 147),
         })
         # Every English byte of the first three is compared with the
-        # cartridge, and every English monster record's stencil number; the
-        # Japanese rows are placed by their neighbors alone.
-        self.assertEqual(checked, 5294 + 256 + 12 + 416)
+        # cartridge, and every English monster record's stencil number; every
+        # English pointer, the palette's bytes and the decompressor's bytes are
+        # checked; the Japanese rows are placed by their neighbors alone.
+        self.assertEqual(checked, 5294 + 256 + 12 + 416 + 504 + 224 + 32 + 147)
 
     def test_run_check_only_ok(self):
         self.assertEqual(prr.run(self.root, self.repo, check_only=True), 0)

@@ -194,10 +194,14 @@ enum class RomAsset : std::uint8_t {
     FONT_WIDTH,
     DLG_CURSOR_GFX,
     MONSTER_GFX_PROP,
+    BATTLE_BG_GFX_PTRS,
+    BATTLE_BG_TILES_PTRS,
+    MONSTER_DEATH_PAL,
+    DECOMPRESS_ROUTINE,
 };
 
 // How many families there are. The region table's asset column
 // never exceeds this.
-inline constexpr std::size_t kRomAssetCount = 160;
+inline constexpr std::size_t kRomAssetCount = 164;
 
 }  // namespace ostinato
