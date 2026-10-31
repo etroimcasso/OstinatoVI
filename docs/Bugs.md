@@ -349,6 +349,62 @@ exactly its hands' battle power.
 
 ---
 
+## A strong enough spell does almost nothing at level 99
+
+**What happens.** A spell's base damage is four times its power plus the power
+times the caster's magic stat times the level, divided by 32 — and that sum is
+kept as a 16-bit number. At level 99 it passes 65,535 for every spell of power 84
+or more once the magic stat is high enough, and starts over from zero. Ultima
+(power 150) cast by a party member with a magic stat of 140 — a magic power of 94
+and up, the stat being one and a half times it — comes to 65,568 and does 32
+before the target's defense; at a stat of 139 it does 65,104. Goner (power 220),
+a monster's spell, wraps from a magic stat of 95 and does 3. Atomic Ray (80) and
+everything weaker never reach it.
+
+**Where the original does it.** `CalcMagicDmg` (`battle/battle_main.asm:7188-7210`)
+shifts the 24-bit product right five times keeping 16 bits (`LsrA`, `:2150-2158`)
+and adds the base with a 16-bit `adc`.
+
+**Where the port keeps it.** `magicDamage()` in `src/battle/damage.cpp` keeps
+the low 16 bits of the sum. `tests/test_damage_formulas.cpp`
+(`DamageFormulaTest.MagicDamage_WrapsPastSixtyFiveThousand`) pins (150, 140, 99)
+at 32 and (150, 139, 99) at 65,104, against the cartridge's routine as well.
+
+**If you want to change it.** Working the sum out in `int` and stopping it at
+65,535 keeps the strongest spells at the cap instead of wrapping; every spell
+under the wrap is unchanged.
+
+---
+
+## A strong enough blow loses most of its damage at a high level
+
+**What happens.** A blow's base damage multiplies the attack (the power, four
+times it for a monster, plus the vigor stat) by the level twice, and the first
+product is kept as a 16-bit number before the second multiplication. When it
+passes 65,535 the blow does a fraction of what it should. The Guardian at Vector,
+power 250 and level 71, has an attack of 1,056 to 1,063 (its vigor is drawn from
+56 to 63), and 1,056 × 71 = 74,976 is kept as 9,440: its blows come to 2,618 to
+2,756 before the target's defense where 20,795 to 20,933 was meant. For a party
+member it takes a weapon of power 255 held in both hands (counted as 446) with a
+vigor stat of 255 from level 94: at level 99 the blow comes to 2,494 where 40,506
+was meant.
+
+**Where the original does it.** `CalcDmg` (`battle/battle_main.asm:7253-7259`)
+reassembles the low two bytes of `Mult24`'s 24-bit product and drops the third
+before multiplying by the level again.
+
+**Where the port keeps it.** `physicalDamage()` in `src/battle/damage.cpp` keeps
+the low 16 bits of the first product. `tests/test_damage_formulas.cpp`
+(`DamageFormulaTest.PhysicalDamage_TheFirstProductByTheLevelKeepsSixteenBits`)
+pins a party member's blow at 2,494 at level 99 and 2,070 at level 98, against
+the cartridge's routine as well.
+
+**If you want to change it.** Keeping the whole product makes the Guardian's
+blows, and a level-94-plus party member's strongest blows, land at their full
+strength; every blow under the cut is unchanged.
+
+---
+
 ## The Phantom Train's background names two tiles nothing loaded
 
 **What happens.** Two cells of the Phantom Train battle background's tilemap

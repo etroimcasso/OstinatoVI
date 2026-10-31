@@ -349,6 +349,9 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | `reflectedAttack` | after a spell bounced off anyone |
 | `applyPendingStatuses` | after each attack |
 
+`baseDamage` and `scaleDamage` are the formulas in [damage.md](damage.md): `battle::baseDamage()`
+and `battle::scaleDamage()`, which a hooks class calls from those members.
+
 ```cpp
 struct TenEach : AttackHooks {
     void targetDamage(BattleState& state, AttackInFlight&, BattlerSlot, BattlerSlot target) override {
