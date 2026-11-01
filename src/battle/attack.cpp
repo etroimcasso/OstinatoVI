@@ -52,7 +52,8 @@ std::uint8_t raw(AttackId id) {
     return static_cast<std::uint8_t>(id);
 }
 
-// The animation the attack in flight is shown with.
+}  // namespace
+
 AttackAnimation animationOf(const AttackInFlight& attack) {
     AttackAnimation animation{.attack = attack.attack,
                               .offHand = attack.offHand,
@@ -72,6 +73,8 @@ AttackAnimation animationOf(const AttackInFlight& attack) {
     }
     return animation;
 }
+
+namespace {
 
 std::optional<BattlerSlot> stragoInBattle(const BattleState& state) {
     for (int position = 0; position < kPartySlots; ++position) {

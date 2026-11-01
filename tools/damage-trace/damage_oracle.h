@@ -28,12 +28,15 @@
 // value the port has no name for; cells a routine does not read are left as the machine has them. The
 // routines are at the addresses both US cartridges hold them; the oracle checks each one's opening
 // bytes and refuses an image that does not have them. `ostinato-damage-trace --check` runs it from
-// the command line; tests/test_damage_formulas.cpp runs it against the port's formulas.
+// the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
+// the port's formulas.
 #pragma once
 
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <random>
 #include <span>
 #include <string>
@@ -46,6 +49,7 @@
 #include "battle/attack.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "ostinato/status_set.h"
 
 namespace ostinato::trace {
 
@@ -62,6 +66,31 @@ struct MultiplierResult {
     std::uint16_t damage = 0;
     int stepsLeft = 0;
 };
+
+// What the per-target pass leaves, as the same fields on both sides: the ledger, each battler's
+// statuses to set and to clear, whether it still has a controller and its last-attacker mark, the
+// multiplier's steps left, the animation's second value, the second value the attack's animation
+// was rewritten with (none when it was not), and the random-number position.
+struct TargetDamageResult {
+    battle::DamageLedger ledger;
+    std::array<StatusSet, battle::kBattlerSlots> statusesToSet{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToClear{};
+    std::array<bool, battle::kBattlerSlots> controlled{};
+    // The last attacker's slot index, with the top bit set while it is waiting to be answered; 0
+    // with no last attacker.
+    std::array<std::uint8_t, battle::kBattlerSlots> lastAttackerMark{};
+    int stepsLeft = 0;
+    std::uint8_t secondary = 0;
+    std::optional<std::uint8_t> animationRewrittenWith;
+    std::uint8_t rngPosition = 0;
+};
+
+// The port's per-target pass over `scenario` against `target`, read back as a TargetDamageResult.
+[[nodiscard]] TargetDamageResult portTargetDamage(DamageScenario scenario, battle::BattlerSlot target);
+
+// Every field where `port` and `guest` differ, one per line naming the cell and both values; empty
+// when they agree.
+[[nodiscard]] std::string differences(const TargetDamageResult& port, const TargetDamageResult& guest);
 
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
@@ -112,6 +141,10 @@ public:
     // The multiplier over the scenario's damage and multiplier steps (ApplyDmgMult).
     [[nodiscard]] MultiplierResult applyMultiplier(const DamageScenario& scenario);
 
+    // The damage to `target` over the scenario (CalcTargetDmg): every battler's cells the pass reads
+    // written from the scenario, then read back.
+    [[nodiscard]] TargetDamageResult targetDamage(const DamageScenario& scenario, battle::BattlerSlot target);
+
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
     [[nodiscard]] const std::vector<WatchedWrite>& writes() const { return writes_; }
@@ -138,11 +171,14 @@ public:
 private:
     using Call = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
     using Multiply = std::uint16_t(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    using TargetCall = void(std::uint16_t, std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
 
     // Run `routine` with the watches recording.
     void call(const std::function<void()>& routine);
 
     void writeScenario(const DamageScenario& scenario);
+    void writeTargetCells(const DamageScenario& scenario);
+    [[nodiscard]] TargetDamageResult readTargetResult();
     void writeByte(std::uint32_t at, std::uint8_t value);
     void writeWord(std::uint32_t at, std::uint16_t value);
     [[nodiscard]] std::uint8_t readByte(std::uint32_t at);
@@ -156,6 +192,7 @@ private:
     retropp::Routine<Call> calcDmg_;
     retropp::Routine<Call> relicDmgEffect_;
     retropp::Routine<Multiply> applyDmgMult_;
+    retropp::Routine<TargetCall> calcTargetDmg_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -173,5 +210,23 @@ inline constexpr std::uint32_t kSweepSeed = 0x0D4A2B9D;
 
 // One line naming a drawn scenario's inputs, for a report.
 [[nodiscard]] std::string describe(const DamageScenario& scenario);
+
+// A scenario for the per-target pass and the target it is worked out against.
+struct TargetScenario {
+    DamageScenario scenario;
+    battle::BattlerSlot target = battle::BattlerSlot::monster(0);
+};
+
+// The scenarios the per-target sweep draws, from the same seed: every cell the pass reads drawn
+// within the game's own ranges — the record's bytes (a fractional attack's power at most 16, as
+// every one in the game has), the damage and the multiplier's steps, the
+// command, the effect (the Atma Weapon only for a party member), the flags the frame sets, the
+// blocks, Forcefield and the random-number position, and for every battler its level, HP and MP (a
+// party member's at most 9,999 and 999, never above the maximum), defenses, elements, statuses,
+// stance, links and ledger entries.
+[[nodiscard]] TargetScenario drawTargetScenario(std::mt19937& rng);
+
+// One line naming a drawn per-target scenario's inputs, for a report.
+[[nodiscard]] std::string describe(const TargetScenario& drawn);
 
 }  // namespace ostinato::trace

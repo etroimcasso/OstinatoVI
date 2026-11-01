@@ -99,4 +99,4 @@ back to raw ROM bytes; and the visible JP-variant skip.
 
 ## Used by
 
-The battle commands ([battle/commands.md](../battle/commands.md)): `loadAttackRecord()` copies a record into the attack in flight, which every attack then changes on its copy; `initTargeting()` ([battle/targeting.md](../battle/targeting.md)) reads its targeting byte and traits.
+The battle commands ([battle/commands.md](../battle/commands.md)): `loadAttackRecord()` copies a record into the attack in flight, which every attack then changes on its copy; `initTargeting()` ([battle/targeting.md](../battle/targeting.md)) reads its targeting byte and traits. The damage formulas ([battle/damage.md](../battle/damage.md)) read the copy's power, traits, flags, elements and statuses.

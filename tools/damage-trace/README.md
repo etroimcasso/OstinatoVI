@@ -74,11 +74,12 @@ answers; any disagreement is printed and fails the run:
 ./build/ostinato-damage-trace rom/cartridge.sfc /tmp/damage --check 2000
 ```
 
-The same draws are what `tests/test_damage_formulas.cpp` sweeps.
+The same draws are what `tests/test_damage_formulas.cpp` sweeps; `tests/test_target_damage.cpp`
+sweeps the damage to one target the same way, from its own draws.
 
 ## Files
 
 | File | What it holds |
 |---|---|
 | `main.cpp` | the command line, the window and its escapes and watches, and the check run |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`; `drawScenario()`, the seeded draws |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`, the damage to one target included; `drawScenario()` and `drawTargetScenario()`, the seeded draws; `portTargetDamage()` and `differences()`, the port's per-target pass read back the same way and compared cell by cell |

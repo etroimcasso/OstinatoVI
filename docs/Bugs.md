@@ -281,24 +281,40 @@ target.
 **If you want to change it.** Moving the Vanish test after the protection checks
 would make Vanish a defense against instant death rather than a way past it.
 
-## Each target hit in the back raises the damage for every target after it
+## A back-hit step carries to the next target when its own target's damage leaves it
 
-**What happens.** A blow that hits several targets in the back adds one damage
-step for each of them, and keeps the steps: the first target it reaches gets
-one step, the second two, and so on, whether or not the later targets were hit
-in the back themselves.
+**What happens.** A blow adds one damage step for each target it hits in the
+back, just before that target's damage is worked out, and working the damage out
+uses the step up. So each target hit in the back normally gets one step. But
+when a target's damage does not use the multiplier — the attack has no power,
+its special effect missed that target, Zinger is holding that target, the damage
+is a fraction of the target's
+HP, the damage does not vary (as for GP Rain), or the attack ignores defense and
+is not multiplied — the step is left over, and the next target hit gets it too:
+two steps if it was hit in the back as well, one if it was not.
 
 **Where the original does it.** `CalcAttackEffect`
-(`battle/battle_main.asm:8344-8351`) adds to the damage multiplier `$bc` inside
-the loop over the targets hit and never takes the step off again before the
-next target.
+(`battle/battle_main.asm:8349-8351`) adds to the damage multiplier `$bc` inside
+the loop over the targets hit, before it skips the target Zinger holds
+(`:8353-8354`) or one the effect missed (`:8358-8359`). `CalcDmgMod` (`:2034-2036`) runs the multiplier on
+the target's damage, and `ApplyDmgMult` (`:8847`) sets `$bc` to 0 only when it
+applies it. `CalcTargetDmg` returns before it for an attack of power 0
+(`:1812-1813`), and does not call `CalcDmgMod` at all for fractional damage
+(`:1814-1818`); `CalcDmgMod` returns before it when damage modification is off
+(`:1967-1968`).
 
 **Where the port keeps it.** `resolveAttack()` in `src/battle/attack.cpp` adds
-to `AttackInFlight::multiplier` in the same loop. `tests/test_attack_frame.cpp`
-(`AttackFrame.EachTargetHitInTheBackAddsAStepForTheRest`) pins the steps.
+to `AttackInFlight::multiplier` in the same loop, and `targetDamage()` in
+`src/battle/damage.cpp` uses the steps up only where the original does.
+`tests/test_attack_frame.cpp` (`AttackFrame.EachTargetHitInTheBackAddsAStepForTheRest`)
+pins the frame's additions; `tests/test_target_damage.cpp`
+(`TargetDamageTest.BackHits_EachTargetUsesUpTheStepAddedForIt`,
+`TargetDamageTest.BackHits_TheStepCarriesWhenTheDamageIsNotModified`) pins one
+step for each of two back hits, and one then two when the damage does not vary,
+against the cartridge's routine as well.
 
-**If you want to change it.** Counting the step for its own target only would
-lower the damage of spread blows in side and pincer attacks.
+**If you want to change it.** Taking the step off after each target, whether or
+not its damage used it, keeps every step with its own target.
 
 ## A pincer cannot be run from at its start, even with every monster on one side
 
@@ -402,6 +418,69 @@ the cartridge's routine as well.
 **If you want to change it.** Keeping the whole product makes the Guardian's
 blows, and a level-94-plus party member's strongest blows, land at their full
 strength; every blow under the cut is unchanged.
+
+---
+
+## A hard enough Atma Weapon hit does almost nothing
+
+**What happens.** The Atma Weapon multiplies each hit's damage by its strength —
+the wielder's level, times its HP left counted in 256s, divided by its maximum
+HP counted the same way — divides by 64 and adds 1, and keeps the result as a
+16-bit number. When the damage times the strength reaches 4,194,304 the result
+starts over from zero. At level 99 and full HP the strength is 99, so any hit of
+42,367 or more before the weapon's own step wraps: a hit of 45,000 does 4,074
+instead of the 9,999 a hit can do at most, and one from 42,367 to 48,830 always
+shows less than 9,999. A level-99 wielder's critical hit can be that strong. The
+beam the hit shows is chosen from the wrapped number, so such a hit can also show
+a shorter beam.
+
+**Where the original does it.** `UltimaEffect` (`battle/battle_main.asm:2248-2281`)
+multiplies with `Mult24`, shifts the 24-bit product right six times keeping 16
+bits (`LsrA`, `:2150-2158`), adds 1 with a 16-bit `inc`, and compares that with
+501 and 1001 for the beam.
+
+**Where the port keeps it.** The Atma Weapon's step in `targetDamage()` in
+`src/battle/damage.cpp` keeps the low 16 bits. `tests/test_target_damage.cpp`
+(`TargetDamageTest.Atma_TheDamageWrapsPastSixtyFiveThousand`) pins 45,000 at level
+99 at 4,074 with the longest beam, against the cartridge's routine as well.
+
+**If you want to change it.** Working the product out in `int` and stopping it at
+65,535 lets the strongest Atma Weapon hits reach the 9,999 cap; every hit under
+the wrap is unchanged.
+
+---
+
+## A monster that drains with its special attack answers its own drain
+
+**What happens.** A drain that is a blow marks the drainer as having been
+attacked by its own target, waiting to answer it. A monster whose special attack
+drains is then counted as attacked, and once anything has damaged it during the
+battle its counter script's "if hit" condition holds, so it answers its own
+drain at once. Number 128, whose special attack drains HP, and Soul Saver, whose
+special attack drains MP, both use their special attack in their main script and
+both counter "if hit": each can follow its own drain with a counterattack. A
+drain that is a spell marks the drainer without the waiting, and nothing follows
+it.
+
+**Where the original does it.** `CalcMaxDmg` (`battle/battle_main.asm:1911-1924`)
+marks the drainer with `_c2362f` (`:8641-8652`), whose waiting bit is the carry
+the attack's physical bit left at `:1892-1893` — clear after a Zombie drainer's
+draw gave Poison or Blind (`ZombieEffect`, `:2220-2233`). `CheckRetal`
+(`:12534-12563`) starts the counter script of a battler waiting to answer
+someone else, and the "if hit" condition `AICond_05` (`:4704-4712`) holds once
+`$327c` names a battler that has damaged it (`:2964`).
+
+**Where the port keeps it.** `targetDamage()` in `src/battle/damage.cpp` marks
+the drainer's `Battler::lastAttacker` and `Battler::retaliationPending`, and
+`checkCounterattacks()` in `src/battle/battle_loop.cpp` reads them.
+`tests/test_target_damage.cpp`
+(`TargetDamageTest.Drain_TheDrainerWaitsToAnswerAfterABlowNotASpell`,
+`TargetDamageTest.Drain_AZombieDrainersBlowWaitsOnlyWhenItsDrawGaveNothing`) pins
+the mark, against the cartridge's routine as well.
+
+**If you want to change it.** Marking a blow's drainer without the waiting, as a
+spell drain does, stops it answering its own drain; a battler a drain hits still
+answers it.
 
 ---
 

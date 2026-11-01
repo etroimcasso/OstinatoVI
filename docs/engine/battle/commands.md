@@ -284,7 +284,7 @@ requires. The shipped record is never changed.
 | the flags | whether it can be critical, Vanish applies, the row counts, a target that is gone is replaced, an attack that ignores defense is multiplied, and so on |
 | `showsAttack`, `chainSawKill`, `newBackground`, `secondary`, `offHand` | what its animation shows |
 | `params` | what the animation is told about who attacked and who was hit |
-| `scratch` | what the command keeps between its attacks |
+| `scratch` | what the command keeps between its attacks, and the damage ledger of the attack being worked out ([damage.md](damage.md)) |
 
 `SpecialEffect` puts an attack's, a weapon's, an item's and a command's effects in one space:
 
@@ -349,8 +349,10 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | `reflectedAttack` | after a spell bounced off anyone |
 | `applyPendingStatuses` | after each attack |
 
-`baseDamage` and `scaleDamage` are the formulas in [damage.md](damage.md): `battle::baseDamage()`
-and `battle::scaleDamage()`, which a hooks class calls from those members.
+`baseDamage`, `scaleDamage` and `targetDamage` are the formulas in [damage.md](damage.md):
+`battle::baseDamage()`, `battle::scaleDamage()` and `battle::targetDamage()`, which a hooks class
+calls from those members. `battle::targetDamage()` also takes the battle script, for the Atma
+Weapon's beam, which the `targetDamage` member is not given.
 
 ```cpp
 struct TenEach : AttackHooks {
@@ -373,6 +375,10 @@ script.addAnimation(AttackAnimation{.what = BattleCommandId::MAGIC, .attack = At
 script.addParams(attack.params);
 script.replaceAnimation(changed);   // writes over the last animation added
 ```
+
+`animationOf(attack)` is the animation an attack in flight is shown with, built from its fields as
+they stand — the command or special animation, the attack, the hand, the second value — so a step
+that changes one of them can write the animation again with `replaceAnimation(animationOf(attack))`.
 
 The commands:
 

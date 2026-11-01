@@ -21,6 +21,7 @@
 // docs/contracts/battle_commands.md.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -121,6 +122,15 @@ struct SketchDrawn {
     AttackId attack{};
 };
 
+// What each battler is about to lose and gain from the attack being worked out, before any of it is
+// taken: the numbers the player sees over the battlers once the attack plays. An empty entry is a
+// battler the attack does nothing to on that side. A second hit on the same battler in one attack
+// adds to its entry, which stops at kDamageCap (battle/damage.h).
+struct DamageLedger {
+    std::array<std::optional<std::uint16_t>, kBattlerSlots> taken{};
+    std::array<std::optional<std::uint16_t>, kBattlerSlots> healed{};
+};
+
 // What one command keeps track of between its attacks.
 struct AttackScratch {
     std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
@@ -152,6 +162,7 @@ struct AttackScratch {
     std::optional<BattlerSlot> interceptorBlocked;  // the party member Interceptor stepped in for
     ItemSpellCast weaponSpellcast;             // the hand's spell, cast one time in four
     bool dragonHorn = false;                   // Dragon Horn: the jump comes down more than once
+    DamageLedger ledger;                       // the damage the attack being worked out does
 };
 
 // One battle command's attack as it is carried out.
@@ -240,6 +251,10 @@ public:
 
 // A command's attack as it begins: aimed where the command was aimed, with the MP it costs.
 AttackInFlight startAttack(const CommandAction& command);
+
+// The animation the attack in flight is shown with, as its fields stand now: the command or the
+// special animation it plays, the attack, the hand and the animation's second value.
+AttackAnimation animationOf(const AttackInFlight& attack);
 
 // Copy the attack's record into the attack in flight and take its special effect.
 void loadAttackRecord(AttackInFlight& attack, AttackId id);

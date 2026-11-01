@@ -622,13 +622,14 @@ target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CUR
 target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-commands-tests)
 
-# The damage formulas: an attack's base damage, the relic bonus and the multiplier, each worked out
-# by hand from the original and checked against the cartridge's own routines, isolated and run on the
-# hosted cartridge over the same battle (tools/damage-trace/damage_oracle). Own binary so the other
-# baselines stay frozen.
+# The damage formulas: an attack's base damage, the relic bonus, the multiplier and the damage to one
+# target, each worked out by hand from the original and checked against the cartridge's own
+# routines, isolated and run on the hosted cartridge over the same battle
+# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-damage-tests
     tests/test_damage_formulas.cpp
     tests/test_damage_oracle.cpp
+    tests/test_target_damage.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
