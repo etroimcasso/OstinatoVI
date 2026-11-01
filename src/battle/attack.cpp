@@ -52,7 +52,8 @@ std::uint8_t raw(AttackId id) {
     return static_cast<std::uint8_t>(id);
 }
 
-// The animation the attack in flight is shown with.
+}  // namespace
+
 AttackAnimation animationOf(const AttackInFlight& attack) {
     AttackAnimation animation{.attack = attack.attack,
                               .offHand = attack.offHand,
@@ -72,6 +73,8 @@ AttackAnimation animationOf(const AttackInFlight& attack) {
     }
     return animation;
 }
+
+namespace {
 
 std::optional<BattlerSlot> stragoInBattle(const BattleState& state) {
     for (int position = 0; position < kPartySlots; ++position) {
@@ -591,7 +594,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     }
     attack.scratch.hitInTheBack = hitInTheBack(state, attack, attacker);
     hooks.attackerEffect(state, attack, attacker);
-    if (attack.scratch.extraHits) {
+    if (state.extraHits) {
         return;
     }
 
@@ -662,14 +665,98 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
             continue;
         }
         attack.params.targetsHit.add(target);
-        hooks.targetDamage(state, attack, attacker, target);
+        hooks.targetDamage(state, attack, attacker, target, script);
     }
-    hooks.applyDamage(state, attack, script);
+    hooks.applyDamage(state, attack, attacker, script);
     learnLore(state, attack);
     if (attack.params.targetsHit.empty()) {
         attack.record.misc.clear(AttackMiscFlag::SHOW_ATTACK_MESSAGE);
     }
     script.addParams(attack.params);
+}
+
+namespace {
+
+// The highest-numbered battler in a set: monster 5 first, party member 0 last.
+std::optional<BattlerSlot> highestIn(BattlerSet set) {
+    for (int index = kBattlerSlots - 1; index >= 0; --index) {
+        const BattlerSlot slot = BattlerSlot::fromIndex(index);
+        if (set.has(slot)) {
+            return slot;
+        }
+    }
+    return std::nullopt;
+}
+
+}  // namespace
+
+void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script,
+                            AttackInFlight& attack, BattlerSlot attacker) {
+    const BattlerSet bouncedOff = attack.params.reflectedOff;
+    attack.params = {};
+    attack.scratch.missed = {};
+    attack.record.flags1.set(AttackFlag1::IGNORE_REFLECT);
+    attack.record.flags1.set(AttackFlag1::RETARGET_IF_INVALID);
+    attack.targeting = Targeting::of(TargetFlags::ENEMY);
+    attack.rules.randomTarget = true;
+    const bool scattered = state.extraHits.has_value();
+    attack.rules.reflected = !scattered;
+    attack.damage >>= 1;
+
+    ReflectedAttackShown bounces{.attack = attack.attack};
+    ScatteredHitsShown hits{.attack = attack.attack, .attacker = attacker};
+    for (int index = kBattlerSlots - 1; index >= 0; --index) {
+        const BattlerSlot from = BattlerSlot::fromIndex(index);
+        if (!bouncedOff.has(from)) {
+            continue;
+        }
+        do {
+            chooseTargets(state, attack, from, attacker);
+            const std::optional<BattlerSlot> target = highestIn(attack.targets);
+            if (!target) {
+                break;
+            }
+            // While hits are still to come, each takes the place of its count; otherwise the place
+            // of the battler the spell bounced off.
+            std::size_t place = static_cast<std::size_t>(index);
+            if (state.extraHits) {
+                place = static_cast<std::size_t>(*state.extraHits - 1);
+                if (--*state.extraHits == 0) {
+                    state.extraHits.reset();
+                }
+            }
+            bounces.bouncedTo[place] = *target;
+            const HitResult result = checkHit(state, attack, from, *target);
+            if (result.block != BlockShown::None) {
+                bounces.blocks[static_cast<std::size_t>(target->position())] = result.block;
+            }
+            if (!result.hit) {
+                continue;
+            }
+            recordLastHit(state, attack, from, *target);
+            attack.scratch.missedByEffect = {};
+            hooks.statusEffect(state, attack, from, *target);
+            if (hooks.targetEffect(state, attack, from, *target)) {
+                attack.scratch.missedByEffect.add(*target);
+            }
+            if (!attack.scratch.missedByEffect.empty()) {
+                continue;
+            }
+            bounces.bouncesThatHit.add(from);
+            hooks.targetDamage(state, attack, from, *target, script);
+        } while (state.extraHits);
+    }
+    if (scattered) {
+        for (int place = kBattlerSlots - 1; place >= 0; --place) {
+            if (const auto& target = bounces.bouncedTo[static_cast<std::size_t>(place)]) {
+                hits.targets.push_back(*target);
+            }
+        }
+        script.add(std::move(hits));
+    } else {
+        script.add(bounces);
+    }
+    hooks.applyDamage(state, attack, attacker, script);
 }
 
 namespace {
@@ -737,7 +824,7 @@ void attackOnce(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scr
             hooks.baseDamage(state, attack, maker);
             resolveAttack(state, hooks, script, attack, maker);
             if (!attack.record.traits.has(AttackTrait::PHYSICAL) && !attack.params.reflectedOff.empty()) {
-                hooks.reflectedAttack(state, attack, maker, script);
+                resolveReflectedAttack(state, hooks, script, attack, maker);
             }
             attack.targets = attack.scratch.currentTargets;
             hooks.applyPendingStatuses(state);
@@ -772,6 +859,7 @@ void runAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scri
 void runSelfAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker) {
     attack.vanishApplies = false;
+    attack.scratch.awayFromTheFieldUnreachable = false;
     attack.rules.mayTargetTheFallen = true;
     attack.rules.keepTargetsThatAreGone = true;
     attack.targets = BattlerSet::of(attacker);

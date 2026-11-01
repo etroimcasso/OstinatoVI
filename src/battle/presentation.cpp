@@ -533,8 +533,8 @@ bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& com
                 beginSingleNumeral(shown);
                 return true;
             } else {
-                // AttackAnimation, BattleEventPlays, MonsterAnimationPlays: their pictures are not
-                // shown here.
+                // AttackAnimation, BattleEventPlays, MonsterAnimationPlays, ReflectedAttackShown,
+                // ScatteredHitsShown: their pictures are not shown here.
                 return false;
             }
         },

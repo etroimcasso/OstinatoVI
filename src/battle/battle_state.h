@@ -338,6 +338,7 @@ struct Battler {
     std::optional<BattlerSlot> seizedBy;
     std::optional<BattlerSlot> lastAttacker;  // the last battler to target it
     bool retaliationPending = false;          // it was hit and may counter lastAttacker
+    std::optional<BattlerSlot> lastDamagedBy; // whose attack last took HP or MP from it
     std::optional<BattlerSlot> bodyguard;     // Love Token: the battler who takes its hits
 
     // --- what the action being run does to it -------------------------------------------------
@@ -502,6 +503,9 @@ struct BattleState {
     std::array<BattleSlotMask, 2> pincerSides{};  // the monsters on each side of a pincer attack
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
     BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
+    BattlerSet invincible;         // monsters their AI has made invincible: damage to them is not taken
+    // The elements Forcefield has nullified: an attack whose every element is here does no damage.
+    ElementSet elementsNullifiedByForcefield;
     // The battlers facing right. In a side or pincer attack, an attacker hits a target in the
     // back when both face the same way. Set when the battle is laid out and changed as attackers
     // turn to face their targets (battle/battle_layout.h).
@@ -581,6 +585,11 @@ struct BattleState {
     std::bitset<game::kLores> loresLearned;               // lores Strago saw this battle, Condemned first
     std::optional<BattlerSlot> lastRager;                 // the party member who last used Rage
     std::uint16_t golemHp = 0;                            // the Golem's HP left; 0 with no Golem
+    // A Launcher's or Super Ball's hits still to come, made by resolveReflectedAttack()
+    // (battle/attack.h). The count belongs to the battle, not the command: one left standing when a
+    // hit finds no one to aim at stays, and while it does every attack stops after its attacker
+    // effect, before its hit check.
+    std::optional<int> extraHits;
     // Party members who come away from the action holding Battler::itemInHand: once the action is
     // over, the item goes into the party's inventory.
     BattlerSet holdingItem;

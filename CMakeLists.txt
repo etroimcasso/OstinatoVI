@@ -67,6 +67,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/attack.cpp
     src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
+    src/battle/battle_hooks.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_layout.cpp
     src/battle/battle_loop.cpp
@@ -77,6 +78,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/command_executor.cpp
     src/battle/command_menu.cpp
     src/battle/commands.cpp
+    src/battle/damage.cpp
     src/battle/item_attack.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
@@ -234,6 +236,17 @@ add_executable(ostinato-frames tools/frames/main.cpp)
 target_compile_features(ostinato-frames PRIVATE cxx_std_20)
 target_compile_options(ostinato-frames PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-frames PRIVATE retropp::engine)
+
+# ostinato-damage-trace <rom> <directory> [--quit-after-frames <n>] | --check <draws>: the cartridge
+# run on the engine's SNES machine with escapes and watches on its damage routines, logging every
+# call as the game is played; or, with --check, its base damage, relic bonus and multiplier routines
+# isolated and run over seeded scenarios against the port's formulas.
+add_executable(ostinato-damage-trace
+    tools/damage-trace/main.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-damage-trace PRIVATE cxx_std_20)
+target_compile_options(ostinato-damage-trace PRIVATE ${_ostinato_warn})
+target_link_libraries(ostinato-damage-trace PRIVATE ostinato-vi-lib)
 
 # ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
@@ -609,3 +622,25 @@ target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_war
 target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-commands-tests)
+
+# The damage formulas: an attack's base damage, the relic bonus, the multiplier and the damage to one
+# target, each worked out by hand from the original and checked against the cartridge's own
+# routines, isolated and run on the hosted cartridge over the same battle
+# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-damage-tests
+    tests/test_apply_damage.cpp
+    tests/test_damage_formulas.cpp
+    tests/test_damage_oracle.cpp
+    tests/test_reflected_attack.cpp
+    tests/test_target_damage.cpp
+    tests/test_trace_replay.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-damage-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-damage-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
+target_link_libraries(ostinato-vi-battle-damage-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-damage-tests)

@@ -21,6 +21,7 @@
 // docs/contracts/battle_commands.md.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <optional>
 
@@ -121,6 +122,15 @@ struct SketchDrawn {
     AttackId attack{};
 };
 
+// What each battler is about to lose and gain from the attack being worked out, before any of it is
+// taken: the numbers the player sees over the battlers once the attack plays. An empty entry is a
+// battler the attack does nothing to on that side. A second hit on the same battler in one attack
+// adds to its entry, which stops at kDamageCap (battle/damage.h).
+struct DamageLedger {
+    std::array<std::optional<std::uint16_t>, kBattlerSlots> taken{};
+    std::array<std::optional<std::uint16_t>, kBattlerSlots> healed{};
+};
+
 // What one command keeps track of between its attacks.
 struct AttackScratch {
     std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
@@ -137,7 +147,9 @@ struct AttackScratch {
     bool quietMisses = false;                  // a miss shows nothing, and no hit shows nothing
     bool hideWithoutTargets = false;           // an attack aimed at no one shows nothing
     bool aimExactly = false;                   // the next aim keeps the targets exactly as given
-    std::optional<int> extraHits;              // Launcher or Super Ball: the hits still to come
+    // Battlers away from the field are not aimed at. An attack aimed at its own attacker
+    // (runSelfAttack()) turns this off for the rest of the command.
+    bool awayFromTheFieldUnreachable = true;
 
     int attacksLeft = 0;                       // attacks still to run after this one
     int targetCount = 0;                       // the targets this attack was aimed at
@@ -152,6 +164,7 @@ struct AttackScratch {
     std::optional<BattlerSlot> interceptorBlocked;  // the party member Interceptor stepped in for
     ItemSpellCast weaponSpellcast;             // the hand's spell, cast one time in four
     bool dragonHorn = false;                   // Dragon Horn: the jump comes down more than once
+    DamageLedger ledger;                       // the damage the attack being worked out does
 };
 
 // One battle command's attack as it is carried out.
@@ -216,10 +229,13 @@ inline constexpr BattleCommandId kRouletteCommand = static_cast<BattleCommandId>
 //   controlMenu       a controlled monster acted: its controller's menu is redrawn
 //   statusEffect      the statuses the attack puts on or takes off a target
 //   targetEffect      the special effect on a target; true if the effect missed it
-//   targetDamage      the damage to one target
+//   targetDamage      the damage to one target, into attack.scratch.ledger
 //   applyDamage       every target's damage is taken and shown
-//   reflectedAttack   a spell bounced off Reflect goes on to its new targets
 //   applyPendingStatuses  the statuses set and cleared by the attack take effect
+//
+// A spell that bounced off Reflect calls statusEffect, targetEffect, targetDamage and applyDamage
+// again for its new targets (resolveReflectedAttack()). The battle's own hooks are BattleHooks
+// (battle/battle_hooks.h).
 class AttackHooks {
 public:
     virtual ~AttackHooks() = default;
@@ -232,14 +248,18 @@ public:
     virtual bool targetEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {
         return false;
     }
-    virtual void targetDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {}
-    virtual void applyDamage(BattleState&, AttackInFlight&, BattleScriptBuilder&) {}
-    virtual void reflectedAttack(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattleScriptBuilder&) {}
+    virtual void targetDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/,
+                              BattleScriptBuilder&) {}
+    virtual void applyDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattleScriptBuilder&) {}
     virtual void applyPendingStatuses(BattleState&) {}
 };
 
 // A command's attack as it begins: aimed where the command was aimed, with the MP it costs.
 AttackInFlight startAttack(const CommandAction& command);
+
+// The animation the attack in flight is shown with, as its fields stand now: the command or the
+// special animation it plays, the attack, the hand and the animation's second value.
+AttackAnimation animationOf(const AttackInFlight& attack);
 
 // Copy the attack's record into the attack in flight and take its special effect.
 void loadAttackRecord(AttackInFlight& attack, AttackId id);
@@ -256,14 +276,29 @@ void runAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scri
                BattlerSlot attacker);
 
 // runAttack() aimed at the attacker itself, by the attack's own targeting even if the attacker is
-// gone or vanished.
+// gone or vanished. For the rest of the command, battlers away from the field can be aimed at.
 void runSelfAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker);
 
 // One attack: aim it, cover the target, pay its MP, decide who it hits and whether it is a
-// critical hit, and work out its effect on every target hit.
+// critical hit, and work out its effect on every target hit. While a Launcher's or Super Ball's
+// hits are still to come (BattleState::extraHits), it stops after the attacker effect.
 void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker);
+
+// The spell after resolveAttack() for the battlers in attack.params.reflectedOff: a spell that
+// bounced off their Reflect goes on to new targets, or a Launcher or Super Ball
+// (BattleState::extraHits) makes its hits. Shown as ReflectedAttackShown or ScatteredHitsShown.
+//
+// The damage is halved. Each battler it bounced off, last slot first, aims the spell at a random
+// target on the other side from itself — for a spell aimed at the other side only, on half the
+// draws back at `attacker` when `attacker` is among those targets. For a Launcher or Super Ball the
+// attacker aims each hit at random, as any random-target attack, until the hits run out or no
+// target is left; the hits not made then stay in BattleState::extraHits. The spell is checked against that target and, when it hits, worked out through
+// `hooks` with the battler it bounced off as its attacker; then every target's damage is taken and
+// shown, with `attacker` as the attacker who made it.
+void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script,
+                            AttackInFlight& attack, BattlerSlot attacker);
 
 // Whether an attack reaches one target, and what the player sees if it does not.
 struct HitResult {

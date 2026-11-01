@@ -35,7 +35,7 @@
 #include "render/battle/battle_placement.h"
 #include "render/battle/layout.h"
 #include "render/layers.h"
-#include "preview_damage.h"
+#include "preview_hooks.h"
 #include "scripted_player.h"
 #include "vanilla_rom.h"
 
@@ -262,21 +262,24 @@ TEST_F(BattlePreviewTest, APincerFormationMirrorsTheRightGroup) {
     }
 }
 
-// Lobo fought to a win the way the preview fights it: the stand-in damage, the scripted player, and
-// the presentation telling the battle when it may go on. Every hit shows its numerals, Lobo fades out
-// once it falls, the list of names empties, and the scene closes.
+// Lobo fought to a win the way the preview fights it: the battle's own damage with the stand-in for
+// statuses, the scripted player, and the presentation telling the battle when it may go on. Every
+// hit shows its numeral over Lobo, the numerals add up to at least the HP it started with, Lobo
+// fades out once it falls, the list of names empties, and the scene closes.
 TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
     const assets::IngestedContent& content = *cartridge_->content;
-    PreviewDamage hooks;
+    PendingStatusesStandIn hooks;
     battle::CommandExecutor executor(hooks, content.text, content.monsterSprites);
     battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
                           content.text, content.monsterSprites, executor);
+    const BattlerSlot lobo = BattlerSlot::monster(0);
+    const int loboHp = sim.state().at(lobo).hp;
     battle::BattlePresentationState shown;
     const battle::BattlePresentationContext context{.text = content.text, .metrics = content.dialogFont.metrics};
     ScriptedPlayer player{messageHoldFrames(context.messageSpeed)};
     std::vector<battle::PlayerAction> answers;
-    bool numeralsShown = false;
+    int damageShownOverLobo = 0;
     bool faded = false;
     int frames = 0;
     for (; frames < 10 * 60 * 60 && !shown.sceneClosed; ++frames) {
@@ -286,15 +289,20 @@ TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
         const std::vector<battle::BattleRequest> requests = sim.takeRequests();
         answers = player.answer(requests, sim.state());
         battle::tickBattlePresentation(shown, sim.state(), requests, context, player.confirms(shown));
-        numeralsShown = numeralsShown || shown.numeralsTogether[4].has_value();
-        faded = faded || (shown.deathFade && shown.deathFade->dying.has(BattlerSlot::monster(0)));
+        for (const std::optional<battle::ShownNumeral>& numeral : shown.singleNumerals) {
+            if (numeral && numeral->target == lobo && numeral->frame == 0 && !numeral->miss) {
+                damageShownOverLobo += numeral->amount;
+            }
+        }
+        faded = faded || (shown.deathFade && shown.deathFade->dying.has(lobo));
     }
     ASSERT_TRUE(shown.sceneClosed);
     ASSERT_TRUE(sim.result().has_value());
     EXPECT_TRUE(std::holds_alternative<battle::BattleWon>(sim.result()->outcome));
-    EXPECT_TRUE(numeralsShown);
+    EXPECT_GE(damageShownOverLobo, loboHp);
+    EXPECT_EQ(sim.state().at(lobo).hp, 0);
     EXPECT_TRUE(faded);
-    EXPECT_FALSE(shown.monstersShown.has(BattlerSlot::monster(0)));
+    EXPECT_FALSE(shown.monstersShown.has(lobo));
     EXPECT_FALSE(shown.monsterNames[0].has_value());
     RecordProperty("frames", frames);
 }
