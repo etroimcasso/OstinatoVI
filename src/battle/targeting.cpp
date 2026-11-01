@@ -87,7 +87,8 @@ BattlerSet charactersActingAsEnemies(const BattleState& state) {
 
 // Drop the targets the attack cannot reach: seized party members, monsters their AI hides from
 // aiming, battlers not on the field, and those away from it (jumping, carried off, held in Seize)
-// unless counterattacks are off for this action. Then the attack's own exclusions.
+// unless the command has made an attack aimed at its own attacker. Then the attack's own
+// exclusions.
 void maskTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attacker) {
     if (std::exchange(attack.scratch.aimExactly, false)) {
         return;
@@ -99,7 +100,7 @@ void maskTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attacke
             reachable.remove(slot);
         }
     }
-    if (state.scratch.countersEnabled) {
+    if (attack.scratch.awayFromTheFieldUnreachable) {
         reachable = reachable.without(state.awayFromTheField);
     }
     attack.targets = attack.targets & reachable;

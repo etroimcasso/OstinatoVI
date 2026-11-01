@@ -172,8 +172,9 @@ constexpr std::uint32_t kReachCharacters = kWorkRam + 0x3403;
 constexpr std::uint32_t kReachFirst = kWorkRam + 0x3A78;
 constexpr std::uint32_t kReachSecond = kWorkRam + 0x3408;
 constexpr std::uint32_t kCountersEnabled = kWorkRam + 0x341A;   // negative: counterattacks are on
-// The reach check loads the counterattack cell as a word, so its sign is this next cell's, which a
-// command starts at $FF and only an attack aimed at its own attacker clears.
+// The reach check loads the counterattack cell as a word, so its sign is this next cell's: negative,
+// battlers away from the field are dropped. A command starts it at $FF and only an attack aimed at
+// its own attacker clears it.
 constexpr std::uint32_t kReachKeepsAway = kWorkRam + 0x341B;
 constexpr std::uint32_t kAwayFromTheField = kWorkRam + 0x3F2C;
 constexpr std::uint32_t kTargetCount = kWorkRam + 0x3EC9;
@@ -210,7 +211,8 @@ constexpr std::uint8_t kVanishAppliesBit = 0x80;
 constexpr std::uint8_t kInstantDeathProtectedBit = 0x04;
 constexpr std::uint8_t kEquipmentBlocks = 0x0F;
 constexpr std::uint8_t kCountersOn = 0x80;
-constexpr std::uint8_t kNotQuiet = 0xFF;  // also a command's start for kReachKeepsAway
+constexpr std::uint8_t kNotQuiet = 0xFF;
+constexpr std::uint8_t kAwayUnreachable = 0xFF;  // kReachKeepsAway as a command starts
 constexpr std::uint8_t kNoHitsToCome = 0xFF;
 // The bounce's two commands.
 constexpr std::uint8_t kReflectedCommand = 0x09;
@@ -621,7 +623,7 @@ ReflectedAttackResult portReflectedAttack(DamageScenario scenario) {
     }
     result.damage = scenario.attack.damage;
     result.canBeCritical = scenario.attack.canBeCritical;
-    result.extraHits = scenario.attack.scratch.extraHits;
+    result.extraHits = scenario.state.extraHits;
     result.golemBlocked = scenario.attack.scratch.golemBlocked;
     result.interceptorBlocked = scenario.attack.scratch.interceptorBlocked;
     result.rngPosition = scenario.state.rng.position();
@@ -682,7 +684,7 @@ void DamageOracle::writeAimCells(const DamageScenario& scenario) {
     writeWord(kReachFirst, maskOf(state.targetableOrPresent & state.countedInBattle));
     writeWord(kReachSecond, static_cast<std::uint16_t>(~maskOf(state.aiUntargetable)));
     writeByte(kCountersEnabled, state.scratch.countersEnabled ? kCountersOn : 0);
-    writeByte(kReachKeepsAway, kNotQuiet);
+    writeByte(kReachKeepsAway, attack.scratch.awayFromTheFieldUnreachable ? kAwayUnreachable : 0);
     writeWord(kAwayFromTheField, maskOf(state.awayFromTheField));
 
     writeByte(kTargetCount, static_cast<std::uint8_t>(attack.scratch.targetCount));
@@ -691,8 +693,7 @@ void DamageOracle::writeAimCells(const DamageScenario& scenario) {
     writeByte(kQueuedCommand, static_cast<std::uint8_t>(attack.queuedCommand));
     writeByte(kLastSpell, attack.scratch.lastSpell ? static_cast<std::uint8_t>(*attack.scratch.lastSpell) : kNoOne);
     writeByte(kLastItem, attack.scratch.lastItem ? static_cast<std::uint8_t>(*attack.scratch.lastItem) : kNoOne);
-    writeByte(kExtraHits, attack.scratch.extraHits ? static_cast<std::uint8_t>(*attack.scratch.extraHits - 1)
-                                                   : kNoHitsToCome);
+    writeByte(kExtraHits, state.extraHits ? static_cast<std::uint8_t>(*state.extraHits - 1) : kNoHitsToCome);
     // The block before the bounce's: the frame's own, whose attacker is the caster.
     writeByte(kNextParamsBlock, kParamsBlockSize);
     writeByte(kParamsBlocks + 1, static_cast<std::uint8_t>(scenario.attacker.index()));
@@ -1305,8 +1306,12 @@ DamageScenario drawReflectScenario(std::mt19937& rng) {
     rules.keepTargetsThatAreGone = oneIn(rng, 2);
     rules.opposingSideOnly = oneIn(rng, 2);
     rules.excludeAttacker = oneIn(rng, 8);
+    // The hits to come and the battlers the spell bounced off are drawn apart: a Launcher's own
+    // bounce is off its attacker, and a count left standing meets whatever bounce comes next.
     if (oneIn(rng, 3)) {
-        attack.scratch.extraHits = 1 + upTo(rng, 7);
+        state.extraHits = 1 + upTo(rng, 7);
+    }
+    if (oneIn(rng, 3)) {
         attack.params.reflectedOff = battle::BattlerSet::of(s.attacker);
     } else {
         attack.params.reflectedOff = anySet();
@@ -1321,9 +1326,8 @@ DamageScenario drawReflectScenario(std::mt19937& rng) {
     state.targetableOrPresent = oneIn(rng, 4) ? anySet() : battle::BattlerSet::allCharacters() | battle::BattlerSet::allMonsters();
     state.aiUntargetable = oneIn(rng, 8) ? anySet().monstersOnly() : battle::BattlerSet{};
     state.awayFromTheField = oneIn(rng, 8) ? anySet() : battle::BattlerSet{};
-    // Counterattacks stay on: the reach check reads the next cell's sign (kReachKeepsAway), which the
-    // port has no field for.
-    state.scratch.countersEnabled = true;
+    state.scratch.countersEnabled = !oneIn(rng, 4);
+    attack.scratch.awayFromTheFieldUnreachable = !oneIn(rng, 4);
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
         battle::Battler& battler = state.battlers[i];
@@ -1856,11 +1860,8 @@ std::string DamageOracle::replay(const TracedCall& call) {
     }
 
     if (routine.entry == kCalcTargetDmg) {
-        battle::BattlerSlot target = battle::BattlerSlot::character(0);
-        if (!bounce) {
-            s.attacker = slotNamed(call.params[kBlockAttacker], "the params block's attacker");
-            // The target is the battler whose cells the routine touched, other than the attacker; with
-            // no other, the attacker itself.
+        // The battlers whose cells the routine touched, other than `attacker`.
+        const auto touchedBesides = [&](battle::BattlerSlot attacker) {
             std::set<int> touched;
             for (const auto* cells : {&call.inputs, &call.writes}) {
                 for (const auto& [cell, value] : *cells) {
@@ -1869,7 +1870,15 @@ std::string DamageOracle::replay(const TracedCall& call) {
                     }
                 }
             }
-            touched.erase(s.attacker.index());
+            touched.erase(attacker.index());
+            return touched;
+        };
+        battle::BattlerSlot target = battle::BattlerSlot::character(0);
+        if (!bounce) {
+            s.attacker = slotNamed(call.params[kBlockAttacker], "the params block's attacker");
+            // The target is the battler whose cells the routine touched, other than the attacker; with
+            // no other, the attacker itself.
+            const std::set<int> touched = touchedBesides(s.attacker);
             if (touched.size() > 1) {
                 throw std::runtime_error("CalcTargetDmg touched more than one battler besides the attacker");
             }
@@ -1887,14 +1896,45 @@ std::string DamageOracle::replay(const TracedCall& call) {
             s.attacker = battle::BattlerSlot::fromIndex(from);
             target = slotNamed(call.params[static_cast<std::size_t>(from)], "the bounce's target");
         } else {
-            // A Launcher's or Super Ball's hit: made by the attacker of the block before, at the target in
-            // the byte the hit was given, one past the hits now to come.
-            if (!call.previousAttacker) {
-                throw std::runtime_error("a scattered hit with no params block before it");
+            // Hits were still to come as the bounce began. The hit is made from the lowest battler in
+            // the bounces that hit (bytes 14-15), which takes its bit just before the call, the bounce
+            // going last slot first: for a Launcher's or Super Ball's own hits, the attacker. While
+            // hits are still to come the target is in the byte the hit was given, one past the hits
+            // now to come. Once they have run out a later bounce's target is in its own battler's
+            // byte, so a call with none to come is the last hit (byte 0) or a later bounce, told
+            // apart by whose cells the call touched.
+            const battle::BattlerSet hitters =
+                setOf(static_cast<std::uint16_t>(call.params[kBlockSet] | call.params[kBlockSet + 1] << 8));
+            std::optional<battle::BattlerSlot> from;
+            for (int index = battle::kBattlerSlots - 1; index >= 0; --index) {
+                if (hitters.has(battle::BattlerSlot::fromIndex(index))) {
+                    from = battle::BattlerSlot::fromIndex(index);
+                }
             }
-            s.attacker = slotNamed(*call.previousAttacker, "the block before's attacker");
-            target = slotNamed(call.params[static_cast<std::uint8_t>(call.hitsToCome + 1) % kParamsSize],
-                               "the hit's target");
+            if (!from) {
+                throw std::runtime_error("a scattered hit whose block names no battler it was made from");
+            }
+            s.attacker = *from;
+            std::vector<std::uint8_t> bytes;
+            if (call.hitsToCome != kNoHitsToCome) {
+                bytes.push_back(call.params[static_cast<std::size_t>(call.hitsToCome + 1) % kParamsSize]);
+            } else {
+                bytes.push_back(call.params[0]);
+                bytes.push_back(call.params[static_cast<std::size_t>(from->index())]);
+            }
+            std::erase(bytes, kNoOne);
+            if (bytes.empty()) {
+                throw std::runtime_error("a scattered hit whose block names no target");
+            }
+            // With no other battler touched, a byte naming the battler the hit is made from is the
+            // target.
+            const std::set<int> touched = touchedBesides(s.attacker);
+            target = slotNamed(bytes.front(), "the hit's target");
+            for (const std::uint8_t byte : bytes) {
+                if (touched.empty() ? byte == from->index() : touched.contains(byte)) {
+                    target = slotNamed(byte, "the hit's target");
+                }
+            }
         }
         const TargetDamageResult port = portTargetDamage(s, target);
         writeScenario(s);

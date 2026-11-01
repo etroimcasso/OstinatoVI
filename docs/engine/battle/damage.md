@@ -140,9 +140,9 @@ battle::applyDamage(state, attack, hero, script);
 spell with anyone in `attack.params.reflectedOff`. The damage is halved; each battler the spell
 bounced off, last slot first, aims it at a random target on the other side from itself and checks it
 against that target; a hit is worked out through the hooks with that battler as its attacker. A
-Launcher or Super Ball (`AttackScratch::extraHits`) makes its hits the same way, from the attacker,
-until the hits run out or no target is left. Then `applyDamage` runs with the caster as the
-attacker.
+Launcher or Super Ball makes its hits the same way, from the attacker, while
+`BattleState::extraHits` holds hits still to come, until they run out or no target is left. Then
+`applyDamage` runs with the caster as the attacker.
 
 ```cpp
 attack.params.reflectedOff = battle::BattlerSet::of(foe);   // the spell bounced off the foe
@@ -219,8 +219,9 @@ for (const trace::TracedCall& call : trace::parseTrace(log)) {
 ```
 
 The attacker comes from the params block the trace logs at each entry (for a bounce, the battler it
-bounced off, or for a Launcher's hits the attacker of the block before), and the target from the
-battler cells the routine touched. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
+bounced off — for a Launcher's or Super Ball's hits, the lowest battler in the bounces that hit —
+and for the damage shown after a bounce, the attacker of the block before), and the target from the
+battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
 `tests/test_trace_replay.cpp`. `DamageOracle::trace(true)` logs the oracle's own calls in the same
 lines, which is how the replay itself is checked against the cartridge.
@@ -261,8 +262,11 @@ bonus and multiplier sweep and writes every scenario with both answers to `check
   battler it blocked for.
 - **A bounced spell has two attackers.** Its hit record and the target's mark to answer name the
   battler it bounced off; the HP it takes is remembered as the caster's (`Battler::lastDamagedBy`).
-- **A Launcher that runs out of targets keeps its count.** `AttackScratch::extraHits` is left as it
-  was when no target is left for the next hit; it lasts the command.
+- **A Launcher that runs out of targets keeps its count — for the rest of the battle.**
+  `BattleState::extraHits` is left as it was when no target is left for the next hit, and nothing
+  but a bounce counts it down. While it holds hits, `resolveAttack()` stops every later attack after
+  its attacker effect, before the hit check, whoever makes it; a bounce that comes with hits still
+  to come is shown as `ScatteredHitsShown`.
 - **A monster's blow ignores the relic bits.** The party-member step, the Offering and the Genji
   Glove apply to party slots only; a monster with those bits set in its battler is unaffected.
 - **The oracle needs a started machine.** Calling a routine before `start()` throws; `start()` runs

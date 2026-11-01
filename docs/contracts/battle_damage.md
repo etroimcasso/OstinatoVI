@@ -479,7 +479,9 @@ Called after the attack for a spell (`$11a2.0` clear) with anyone in `$a6`
 Launcher or Super Ball (attacker effects `$2c` and `$4a`), the attacker itself: `AttackerEffect_2c
 :10439-10445` stores `$3018,y`, and `DoAttackerEffect :10123` has set Y to the attacker with `txy`.
 Those effects put the hit count in `$3405` (8 for a Launcher, 1 to 4 for a Super Ball; the port's
-`AttackScratch::extraHits` is the hits still to come, `$3405` + 1).
+`BattleState::extraHits` is the hits still to come, `$3405` + 1). The cell is the battle's, not the
+command's: `InitBattle :6063-6067` sets it to `$ff` (none to come) as a battle starts, and the
+per-command refill `ExecCmd :3103-3109` covers `$3410-$341f` only.
 
 1. **Fresh** (`:8380-8390`): the params `$a0-$af` cleared (`ClearGfxParams`), the missed set
    cleared, the record's flags 1 gain `IGNORE_REFLECT` and `RETARGET_IF_INVALID` (`$11a3 |= $22`),
@@ -512,8 +514,14 @@ Confused, on tails it goes to the caster if the caster is among the targets (`Ch
 A Launcher's hits are aimed as any random-target attack from the attacker.
 
 **A target lost.** When `ChooseTarget` finds no one for a Launcher's or Super Ball's next hit, the
-loop moves on with `$3405` left as it is; nothing else in the battle program writes it. The port's
-count is `AttackScratch::extraHits`, which ends with the command.
+loop moves on with `$3405` left as it is, and nothing else in the battle program writes it: the count
+stays for the rest of the battle (`BattleState::extraHits`). While it stands, every attack — any
+battler's, any command's — stops after its attacker effect (`CalcAttackEffect :8276-8279`), before
+the hit check: nothing it is aimed at is checked, shown or worked out, and it bounces off no one.
+Another Launcher or Super Ball stores a new count and its own bit in `$a6`, so it comes here and
+makes its hits. A bounce that comes here with a count standing takes the `$15` form whoever it
+bounced off, each hit taking the count's byte until the count runs out and a later battler's hit its
+own byte (step 3).
 
 **What the script shows.** The command's 16-byte block, as its readers take it:
 
@@ -544,8 +552,11 @@ that path is never taken here.)
 | no one on the other side | the command with no bounce, nothing shown | `NoOneToBounceTo_ShowsNoBounceAndDoesNothing` |
 | aimed at the other side only, every random-number position | the hero or the ally, the hero more often, the port and the cartridge alike | `BounceAimedAtTheOtherSideOnly_GoesBackToTheCasterOnHalfTheDraws` |
 | three hits from the hero, one foe | `4 4 4`, 1,500, no hits left | `ScatteredHits_EachOnARandomFoeTheirDamageAddingUp` |
-| eight hits, no foe | nothing, the count kept | `ScatteredHitsWithNoOneToHit_KeepTheirCount` |
+| eight hits, no foe | nothing, the count kept by the battle | `ScatteredHitsWithNoOneToHit_KeepTheirCount` |
 | two hits with a hit rate of 0 | `4 4`, no damage | `ScatteredHits_MissedOnesStillFly` |
+| the hero's Fire bounced off a foe with two hits standing, only the ally standing | the `$15` form, `1 1`, 1,000 to the ally, no hits left | `HitsLeftStanding_MakeASpellsBounceScattered` |
+| bounced off a foe, the ally away from the field, counterattacks off | no one reached, nothing shown | `ABattlerAwayFromTheField_IsNotReachedWhenCounterattacksAreOff` |
+| the same after an attack aimed at its own attacker (`$341b` clear) | 500 to the ally, shown `4>1` | `ABattlerAwayFromTheField_IsReachedAfterASelfAimedAttack` |
 | the special effect misses the target | no damage, no bounce hit | `ABounceTheSpecialEffectMisses_DoesNoDamageAndDoesNotCountAsAHit` |
 
 ## The oracle
@@ -581,7 +592,7 @@ the spellcast, the ledger, and the numerals decoded from the queue (`$0b` comman
 slots, `$03` commands from the buffer). For `CalcReflectDmg` it adds the aiming cells (`$b8`, `$ba`,
 `$3a46`, `$3a4e`, `$3a40`, the battle type `$201f`, the pincer sides `$2eac`/`$2ead`, each battler's
 charm `$3395` and presence `$3aa0`), the reach check's cells (written so that what they leave between
-them is the port's reachable set, with `$341b` at `$FF` as a command starts it), the hit check's
+them is the port's reachable set, with `$341b` from `AttackScratch::awayFromTheFieldUnreachable`), the hit check's
 (`$3ec9`, `$341c`, `$3a54`, and each battler's stamina, evade and magic block, block graphics,
 Retort and instant-death protection), the hit record's (`$3a7c`, `$3410`, `$3411`, each battler's
 last hits), `$3405`, and the params block before the bounce's; it reads back a
@@ -599,9 +610,14 @@ traced call is rebuilt from the cells the routine read; its attacker is the para
 its target the battler whose cells it touched other than the attacker. A bounce's calls are told by
 their return sites (`$C2:3509`, `$C2:3528`): with the reflected rule set (`$ba.4`), the battler it
 bounced off is the lowest slot of the params block's bytes that is set and its byte the target
-(`:8414-8427`); a Launcher's or Super Ball's hit is the attacker of the params block before this one
-(`$2c6e` + `$3a32` − 15) at the target in the byte one past the hits now to come; the showing routine
-after a bounce is the attacker of the block before. A blow's base damage is a party member's when it
+(`:8414-8427`). Without it — hits were still to come as the bounce began — the hit is made from the
+lowest battler in the bounces that hit (bytes 14-15, `$ae`, which takes that battler's bit just
+before the call, `:8438-8439`, the loop running last slot first): for a Launcher's or Super Ball's
+own hits, the attacker. Its target is in the byte one past the hits now to come; with none to come
+it is in byte 0 (the count's last hit) or the battler's own byte (a later bounce), told apart by
+whose cells the call touched, and with no cells touched but the battler's, its own byte. The
+showing routine after a bounce is the attacker of the params block before this one (`$2c6e` +
+`$3a32` − 15). A blow's base damage is a party member's when it
 reads that member's relic word (`$3c58,x`), else a monster's, and a spell's does not depend on who
 cast it. `tests/test_trace_replay.cpp` replays 200 of the oracle's own calls of each kind and every
 recording under `tests/fixtures/damage-trace/`.
@@ -615,6 +631,7 @@ most 9,999 and 999 and never above the maximum, the Atma Weapon only for a party
 fractional attack's power at most 16), asserting the port against the cartridge.
 `tests/test_apply_damage.cpp` sweeps 500 through the showing routine and
 `tests/test_reflected_attack.cpp` 500 through `CalcReflectDmg` (a spell's own command, the blocks
-equipment can show, counterattacks on).
+equipment can show, counterattacks and `$341b` each drawn, and the hits to come drawn apart from the
+battlers the spell bounced off).
 `ostinato-damage-trace --check` runs the first four routines' sweep from the command line
 (`tools/damage-trace/README.md`).

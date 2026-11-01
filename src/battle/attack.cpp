@@ -594,7 +594,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     }
     attack.scratch.hitInTheBack = hitInTheBack(state, attack, attacker);
     hooks.attackerEffect(state, attack, attacker);
-    if (attack.scratch.extraHits) {
+    if (state.extraHits) {
         return;
     }
 
@@ -699,7 +699,7 @@ void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScript
     attack.record.flags1.set(AttackFlag1::RETARGET_IF_INVALID);
     attack.targeting = Targeting::of(TargetFlags::ENEMY);
     attack.rules.randomTarget = true;
-    const bool scattered = attack.scratch.extraHits.has_value();
+    const bool scattered = state.extraHits.has_value();
     attack.rules.reflected = !scattered;
     attack.damage >>= 1;
 
@@ -716,14 +716,16 @@ void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScript
             if (!target) {
                 break;
             }
-            if (scattered) {
-                hits.targets.push_back(*target);
-                if (--*attack.scratch.extraHits == 0) {
-                    attack.scratch.extraHits.reset();
+            // While hits are still to come, each takes the place of its count; otherwise the place
+            // of the battler the spell bounced off.
+            std::size_t place = static_cast<std::size_t>(index);
+            if (state.extraHits) {
+                place = static_cast<std::size_t>(*state.extraHits - 1);
+                if (--*state.extraHits == 0) {
+                    state.extraHits.reset();
                 }
-            } else {
-                bounces.bouncedTo[static_cast<std::size_t>(index)] = *target;
             }
+            bounces.bouncedTo[place] = *target;
             const HitResult result = checkHit(state, attack, from, *target);
             if (result.block != BlockShown::None) {
                 bounces.blocks[static_cast<std::size_t>(target->position())] = result.block;
@@ -742,9 +744,14 @@ void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScript
             }
             bounces.bouncesThatHit.add(from);
             hooks.targetDamage(state, attack, from, *target, script);
-        } while (attack.scratch.extraHits);
+        } while (state.extraHits);
     }
     if (scattered) {
+        for (int place = kBattlerSlots - 1; place >= 0; --place) {
+            if (const auto& target = bounces.bouncedTo[static_cast<std::size_t>(place)]) {
+                hits.targets.push_back(*target);
+            }
+        }
         script.add(std::move(hits));
     } else {
         script.add(bounces);
@@ -852,6 +859,7 @@ void runAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scri
 void runSelfAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker) {
     attack.vanishApplies = false;
+    attack.scratch.awayFromTheFieldUnreachable = false;
     attack.rules.mayTargetTheFallen = true;
     attack.rules.keepTargetsThatAreGone = true;
     attack.targets = BattlerSet::of(attacker);

@@ -73,9 +73,10 @@ monster flags, pending statuses, Forcefield elements and statuses (`kTracedRange
 
 With `--replay` nothing opens. Every call in `<directory>/damage-trace.log` is rebuilt as a battle —
 each cell the routine read as it read it, every other cell as a battle starts it — and worked out by
-the port: the attacker from the params block (for a bounce, the battler it bounced off, or the
-attacker of the block before), the target from the battler cells the routine touched (for a bounce,
-the battler it went on to). The port's answer is compared with every cell the routine wrote. Each
+the port: the attacker from the params block (for a bounce, the battler it bounced off — for a
+Launcher's or Super Ball's hits, the lowest battler in the bounces that hit — and for the damage
+shown after a bounce, the attacker of the block before), the target from the battler cells the
+routine touched (for a bounce, the battler its byte names). The port's answer is compared with every cell the routine wrote. Each
 call is logged to `replay.log` with its differences; any difference is printed and fails the run:
 
 ```sh

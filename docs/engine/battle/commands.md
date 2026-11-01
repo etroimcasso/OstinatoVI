@@ -298,7 +298,9 @@ attack.effect.isNone();
 
 `runAttack()` runs the command's attacks — `scratch.attacksLeft` more after the first — and
 `resolveAttack()` one of them. A Fight is two attacks, one per hand; with an Offering it is eight. A
-hand with no battle power makes no attack. `runSelfAttack()` aims at the attacker itself.
+hand with no battle power makes no attack. `runSelfAttack()` aims at the attacker itself, and for
+the rest of the command battlers away from the field can be aimed at
+([targeting.md](targeting.md#gotchas)).
 
 On the way an attack can:
 
@@ -314,9 +316,12 @@ On the way an attack can:
 - **be learned** — Strago learns a learnable lore he sees used;
 - **bounce** — a spell that bounced off anyone's Reflect goes on, halved, from each of them to a
   random target on the other side (`resolveReflectedAttack()`); a Launcher's or Super Ball's hits
-  (`scratch.extraHits`) are made the same way. Each bounce is checked and worked out through the
+  (`BattleState::extraHits`) are made the same way. Each bounce is checked and worked out through the
   hooks with the battler it bounced off as its attacker, and shown as `ReflectedAttackShown` or
-  `ScatteredHitsShown` ([damage.md](damage.md#a-spell-bounced-off-reflect)).
+  `ScatteredHitsShown` ([damage.md](damage.md#a-spell-bounced-off-reflect));
+- **stop short** — while `BattleState::extraHits` holds hits a Launcher or Super Ball could not
+  make, every attack stops after its attacker effect, before the hit check: nothing is shown or
+  worked out on its targets.
 
 `rememberTargets()` notes each attack's targets as the command's current ones and adds them to its
 earlier targets. While an attack is aimed at random (`scratch.randomizeTargets`), it takes the

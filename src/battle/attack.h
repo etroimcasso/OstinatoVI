@@ -147,8 +147,9 @@ struct AttackScratch {
     bool quietMisses = false;                  // a miss shows nothing, and no hit shows nothing
     bool hideWithoutTargets = false;           // an attack aimed at no one shows nothing
     bool aimExactly = false;                   // the next aim keeps the targets exactly as given
-    // Launcher or Super Ball: the hits still to come, made by resolveReflectedAttack().
-    std::optional<int> extraHits;
+    // Battlers away from the field are not aimed at. An attack aimed at its own attacker
+    // (runSelfAttack()) turns this off for the rest of the command.
+    bool awayFromTheFieldUnreachable = true;
 
     int attacksLeft = 0;                       // attacks still to run after this one
     int targetCount = 0;                       // the targets this attack was aimed at
@@ -275,24 +276,25 @@ void runAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scri
                BattlerSlot attacker);
 
 // runAttack() aimed at the attacker itself, by the attack's own targeting even if the attacker is
-// gone or vanished.
+// gone or vanished. For the rest of the command, battlers away from the field can be aimed at.
 void runSelfAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker);
 
 // One attack: aim it, cover the target, pay its MP, decide who it hits and whether it is a
-// critical hit, and work out its effect on every target hit.
+// critical hit, and work out its effect on every target hit. While a Launcher's or Super Ball's
+// hits are still to come (BattleState::extraHits), it stops after the attacker effect.
 void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker);
 
 // The spell after resolveAttack() for the battlers in attack.params.reflectedOff: a spell that
 // bounced off their Reflect goes on to new targets, or a Launcher or Super Ball
-// (AttackScratch::extraHits) makes its hits. Shown as ReflectedAttackShown or ScatteredHitsShown.
+// (BattleState::extraHits) makes its hits. Shown as ReflectedAttackShown or ScatteredHitsShown.
 //
 // The damage is halved. Each battler it bounced off, last slot first, aims the spell at a random
 // target on the other side from itself — for a spell aimed at the other side only, on half the
 // draws back at `attacker` when `attacker` is among those targets. For a Launcher or Super Ball the
 // attacker aims each hit at random, as any random-target attack, until the hits run out or no
-// target is left. The spell is checked against that target and, when it hits, worked out through
+// target is left; the hits not made then stay in BattleState::extraHits. The spell is checked against that target and, when it hits, worked out through
 // `hooks` with the battler it bounced off as its attacker; then every target's damage is taken and
 // shown, with `attacker` as the attacker who made it.
 void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script,

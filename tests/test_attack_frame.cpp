@@ -557,6 +557,40 @@ TEST(AttackFrame, AnAttackShownPastTheCommandsIsASpecialAnimation) {
               (std::variant<BattleCommandId, battle::SpecialAnimation>{battle::SpecialAnimation::UmaroTackle}));
 }
 
+// --- a Launcher's or Super Ball's hits still to come ---------------------------------------------
+
+TEST(AttackFrame, HitsLeftStandingStopALaterCommandsAttackBeforeItsHitCheck) {
+    // Hits a Launcher could not make are the battle's: a later command's attack stops after its
+    // attacker effect — no hit check, no animation, nothing worked out on any target — and the count
+    // is still there afterwards.
+    BattleState state = armedBattle(0);
+    state.extraHits = 3;
+    RecordingHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    const auto script = executor.execute(
+        state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
+    EXPECT_TRUE(animations(script).empty());
+    EXPECT_TRUE(hooks.effects.empty());
+    EXPECT_TRUE(hooks.damaged.empty());
+    EXPECT_EQ(state.extraHits, 3);
+}
+
+TEST(AttackFrame, OnceABounceUsesTheHitsUpALaterCommandRunsAsUsual) {
+    BattleState state = armedBattle(0);
+    state.extraHits = 1;
+    RecordingHooks hooks;
+    AttackInFlight launcher = battle::startAttack(CommandAction{.command = BattleCommandId::MAGIC});
+    launcher.params.reflectedOff = BattlerSet::of(kTerra);
+    BattleScriptBuilder bounce;
+    battle::resolveReflectedAttack(state, hooks, bounce, launcher, kTerra);
+    EXPECT_FALSE(state.extraHits);
+
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    const auto script = executor.execute(
+        state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
+    EXPECT_EQ(animations(script).size(), 1u);
+}
+
 // --- the executor --------------------------------------------------------------------------------
 
 TEST(CommandExecutor, FightRunsAndReportsItsBlow) {

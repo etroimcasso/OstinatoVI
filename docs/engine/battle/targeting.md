@@ -65,7 +65,8 @@ otherwise the item's spell or the thrown edge's spell is loaded.
 `chooseTargets()`, in short:
 
 - drops the targets it cannot reach: off the field, seized, hidden by a monster's AI, away from the
-  field while counterattacks are on, and anyone the rules exclude;
+  field (jumping, carried off, held in Seize) while `AttackScratch::awayFromTheFieldUnreachable`
+  holds, and anyone the rules exclude;
 - with targets left, keeps them all when the attack may hit them all and picks one otherwise;
 - with none left, aims at a whole side — the attacker's own, turned by the enemy-first flag, Charm,
   Confuse or fighting against the party, or both sides for a Zombie or an initial "all" — unless the
@@ -106,6 +107,11 @@ traits, the command body and the attack frame add the rest.
   them.
 - **An exact aim lasts one aim.** `AttackScratch::aimExactly` skips the reach check once and is
   cleared by it.
+- **A self-aimed attack opens the field for the rest of the command.** Every command starts with
+  battlers away from the field out of reach; `runSelfAttack()` clears
+  `AttackScratch::awayFromTheFieldUnreachable`, and every later aim in the same command can reach
+  them. Turning counterattacks off (`ActionScratch::countersEnabled`) does not change who can be
+  reached.
 - **A target off the field is kept only by the rules.** With `mayTargetTheFallen` set, the dead and
   the absent stay targets; otherwise a dead party member, a dead, petrified or zombie monster, and
   anyone hidden or absent is dropped.

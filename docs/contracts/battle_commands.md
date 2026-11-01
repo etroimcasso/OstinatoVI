@@ -123,8 +123,10 @@ the bodyguards.
 
 `ExecCmd :3093-3109`: a fresh script, one attack, no targets remembered; the casting swirl
 suppressed, no extra multiplier, no weapon spellcast, no continuous jump; every flag of `$b2` and
-`$b3` set and the per-command cells `$3410-$341f` cleared. `startAttack()` holds the command, its
-attack and targets as they were chosen, and its MP cost. After the body the script ends
+`$b3` set and the per-command cells `$3410-$341f` set to `$ff`. `startAttack()` holds the command,
+its attack and targets as they were chosen, and its MP cost; its `AttackScratch` starts fresh with
+them, battlers away from the field out of reach (`$341b`). A Launcher's or Super Ball's hits to come
+(`$3405`) are outside that range and stay with the battle (`BattleState::extraHits`). After the body the script ends
 (`_c2629b :3116`); the port's script ends where its list ends.
 
 `$b2` and `$b3`, read from their writers and readers:
@@ -187,8 +189,12 @@ the no-party trait keeps party members out. An item that is the attack itself sk
 2. The reach check (`_c258fa`, `_c25917`): unless the next aim is exact — Joker Doom and Seize's
    drain set it, and the check clears it — the targets keep only battlers on the field
    (`targetableOrPresent`) and counted in the battle, party members not seized, monsters their AI
-   has not hidden, and while counterattacks are on (`$341a` negative, the default) not those away
-   from the field. Then the no-party and never-the-user rules.
+   has not hidden, and while `$341b` is negative not those away from the field (jumping, carried
+   off, held in Seize). `_c25917 :14638-14644` loads `$341a` with a 16-bit accumulator, so its `bpl`
+   tests the high byte, `$341b`: set as every command starts and cleared only by an attack aimed at
+   its own attacker (`ExecSelfAttack :8004`; `AttackScratch::awayFromTheFieldUnreachable`).
+   `$341a`, the counterattack cell `TargetEffect_23 :9753` clears, plays no part. Then the no-party
+   and never-the-user rules.
 3. A random-target rule re-aims at once (step 5). Otherwise, unless the fallen may be aimed at, the
    targets off the field are dropped.
 4. Targets left: with `& $2c` they are all kept, otherwise one is picked at random; no battle-layout
@@ -282,7 +288,9 @@ current one, and a weapon's spell adds one. Each attack:
     stepped in for is the one it guards (`state.scratch.interceptorGuarding`).
 
 `ExecSelfAttack :7998-8009` aims at the attacker itself, with Vanish not applying, the fallen
-reachable and the target kept even if gone.
+reachable and the target kept even if gone. It also clears `$341b` (`:8004`,
+`AttackScratch::awayFromTheFieldUnreachable`), so for the rest of the command battlers away from
+the field can be aimed at (§ Who an attack reaches, step 2).
 
 ### Runic
 
@@ -327,8 +335,11 @@ answer itself, ready only when the attack affects MP — the carry from the reco
 6. The damage is halved across two or more targets unless unsplit, and halved again for a
    back-row attacker whose row counts (`:8259-8273`).
 7. The targets hit in the back; the special effect on the attacker
-   (`AttackHooks::attackerEffect`). A Launcher or Super Ball with hits still to come stops the
-   attack here (`$3405`, `:8277-8279`): its hits are made by the reflected-attack step.
+   (`AttackHooks::attackerEffect`). With a Launcher's or Super Ball's hits still to come the attack
+   stops here (`$3405`, `:8277-8279`; `BattleState::extraHits`): its own hits are made by the
+   reflected-attack step. The count is the battle's, so hits a Launcher could not make stop every
+   later attack here, any battler's and any command's, until a bounce uses them up
+   (`docs/contracts/battle_damage.md` § The reflected attack).
 8. The hit check for each target, last slot first; a miss leaves the targets hit.
 9. With misses quiet and no one hit, or with the animation hidden for an attack aimed at no one,
    it is shown as Mimic's.
@@ -599,7 +610,6 @@ battle wearing an Offering shows Fight's own targeting until the first refresh.
 
 ### What is not ported, and why
 
-- `ExecSelfAttack :8004` clears `$341b`, which nothing reads.
 - Sketch's `$b7 = $ff` has no reader on Sketch's path.
 
 ## The battle's own actions

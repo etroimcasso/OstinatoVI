@@ -265,11 +265,35 @@ TEST(ChooseTargets, TargetsOutOfReachAreDropped) {
     AttackInFlight attack = aimedAt(everyone, Targeting::of(TargetFlags::INIT_ALL));
     battle::chooseTargets(state, attack, kGuard);
     EXPECT_EQ(attack.targets, BattlerSet::of(kGuard));
+}
 
+TEST(ChooseTargets, ABattlerAwayFromTheFieldStaysOutOfReachWhenCounterattacksAreOff) {
+    BattleState state = makeAimableBattle();
+    state.awayFromTheField.add(kTerra);
     state.scratch.countersEnabled = false;
-    AttackInFlight again = aimedAt(everyone, Targeting::of(TargetFlags::INIT_ALL));
-    battle::chooseTargets(state, again, kGuard);
-    EXPECT_EQ(again.targets, BattlerSet::of(kTerra) | BattlerSet::of(kGuard));
+    const BattlerSet everyone = BattlerSet::of(kTerra) | BattlerSet::of(kGuard);
+    AttackInFlight attack = aimedAt(everyone, Targeting::of(TargetFlags::INIT_ALL));
+    battle::chooseTargets(state, attack, kGuard);
+    EXPECT_EQ(attack.targets, BattlerSet::of(kGuard));
+}
+
+TEST(ChooseTargets, AnAttackAimedAtItsOwnAttackerLetsTheCommandReachBattlersAwayFromTheField) {
+    // runSelfAttack() turns the reach rule off for the rest of the command: a later aim in the same
+    // command keeps a battler away from the field.
+    BattleState state = makeAimableBattle();
+    state.awayFromTheField.add(kTerra);
+    AttackInFlight attack = battle::startAttack(battle::CommandAction{.command = BattleCommandId::FIGHT});
+    EXPECT_TRUE(attack.scratch.awayFromTheFieldUnreachable);
+    battle::AttackHooks hooks;
+    battle::BattleScriptBuilder script;
+    battle::runSelfAttack(state, hooks, script, attack, kGuard);
+    EXPECT_FALSE(attack.scratch.awayFromTheFieldUnreachable);
+
+    attack.targets = BattlerSet::of(kTerra) | BattlerSet::of(kGuard);
+    attack.targeting = Targeting::of(TargetFlags::INIT_ALL);
+    attack.rules = {};
+    battle::chooseTargets(state, attack, kGuard);
+    EXPECT_EQ(attack.targets, BattlerSet::of(kTerra) | BattlerSet::of(kGuard));
 }
 
 TEST(ChooseTargets, AimingExactlySkipsTheReachCheckOnce) {

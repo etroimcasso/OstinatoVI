@@ -585,6 +585,11 @@ struct BattleState {
     std::bitset<game::kLores> loresLearned;               // lores Strago saw this battle, Condemned first
     std::optional<BattlerSlot> lastRager;                 // the party member who last used Rage
     std::uint16_t golemHp = 0;                            // the Golem's HP left; 0 with no Golem
+    // A Launcher's or Super Ball's hits still to come, made by resolveReflectedAttack()
+    // (battle/attack.h). The count belongs to the battle, not the command: one left standing when a
+    // hit finds no one to aim at stays, and while it does every attack stops after its attacker
+    // effect, before its hit check.
+    std::optional<int> extraHits;
     // Party members who come away from the action holding Battler::itemInHand: once the action is
     // over, the item goes into the party's inventory.
     BattlerSet holdingItem;

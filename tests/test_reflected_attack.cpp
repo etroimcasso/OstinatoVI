@@ -231,7 +231,7 @@ TEST_F(ReflectedAttackTest, ScatteredHits_EachOnARandomFoeTheirDamageAddingUp) {
     withOracle([](trace::DamageOracle& oracle) {
         // Three hits from the hero, with only one foe on the field: each is half of 1,000.
         DamageScenario s = bounce(kHero, battle::BattlerSet::of(kHero));
-        s.attack.scratch.extraHits = 3;
+        s.state.extraHits = 3;
         s.state.at(kOtherFoe).present = false;
         const Both both = reflect(oracle, s);
         EXPECT_SHOWN(both, "scattered attack 0 from 0: 4 4 4");
@@ -244,8 +244,9 @@ TEST_F(ReflectedAttackTest, ScatteredHits_EachOnARandomFoeTheirDamageAddingUp) {
 
 TEST_F(ReflectedAttackTest, ScatteredHitsWithNoOneToHit_KeepTheirCount) {
     withOracle([](trace::DamageOracle& oracle) {
+        // The count is the battle's: the hits not made stay for whatever attack comes next.
         DamageScenario s = bounce(kHero, battle::BattlerSet::of(kHero));
-        s.attack.scratch.extraHits = 8;
+        s.state.extraHits = 8;
         s.state.at(kFoe).present = false;
         s.state.at(kOtherFoe).present = false;
         const Both both = reflect(oracle, s);
@@ -257,12 +258,56 @@ TEST_F(ReflectedAttackTest, ScatteredHitsWithNoOneToHit_KeepTheirCount) {
 TEST_F(ReflectedAttackTest, ScatteredHits_MissedOnesStillFly) {
     withOracle([](trace::DamageOracle& oracle) {
         DamageScenario s = bounce(kHero, battle::BattlerSet::of(kHero));
-        s.attack.scratch.extraHits = 2;
+        s.state.extraHits = 2;
         s.attack.record.hitRate = 0;
         s.state.at(kOtherFoe).present = false;
         const Both both = reflect(oracle, s);
         EXPECT_SHOWN(both, "scattered attack 0 from 0: 4 4");
         EXPECT_HP(both, kFoe, 5000);
+    });
+}
+
+TEST_F(ReflectedAttackTest, HitsLeftStanding_MakeASpellsBounceScattered) {
+    withOracle([](trace::DamageOracle& oracle) {
+        // With two hits left standing, Fire bounced off the foe goes without the reflected rule: the
+        // foe aims both hits at the party, where only the ally stands, each for half of 1,000, and
+        // they are shown as scattered hits from the hero, who cast it.
+        DamageScenario s = bounce(kHero, battle::BattlerSet::of(kFoe));
+        s.state.at(kHero).present = false;
+        s.state.extraHits = 2;
+        const Both both = reflect(oracle, s);
+        EXPECT_SHOWN(both, "scattered attack 0 from 0: 1 1");
+        EXPECT_HP(both, kAlly, 4000);
+        EXPECT_THREE_WAYS(both.port.extraHits, std::optional<int>{}, both.guest.extraHits);
+    });
+}
+
+// ─── who a bounce can reach ─────────────────────────────────────────────────────────────────────
+
+TEST_F(ReflectedAttackTest, ABattlerAwayFromTheField_IsNotReachedWhenCounterattacksAreOff) {
+    withOracle([](trace::DamageOracle& oracle) {
+        // The reach check reads the cell an attack aimed at its own attacker clears, not the
+        // counterattack cell: with counterattacks off, the ally away from the field is still out of
+        // reach, and the bounce has no one to go to.
+        DamageScenario s = bounce(kHero, battle::BattlerSet::of(kFoe));
+        s.state.at(kHero).present = false;
+        s.state.awayFromTheField.add(kAlly);
+        s.state.scratch.countersEnabled = false;
+        const Both both = reflect(oracle, s);
+        EXPECT_SHOWN(both, "bounced attack 0: hit 0 blocks 0 0 0 0");
+        EXPECT_HP(both, kAlly, 5000);
+    });
+}
+
+TEST_F(ReflectedAttackTest, ABattlerAwayFromTheField_IsReachedAfterASelfAimedAttack) {
+    withOracle([](trace::DamageOracle& oracle) {
+        DamageScenario s = bounce(kHero, battle::BattlerSet::of(kFoe));
+        s.state.at(kHero).present = false;
+        s.state.awayFromTheField.add(kAlly);
+        s.attack.scratch.awayFromTheFieldUnreachable = false;
+        const Both both = reflect(oracle, s);
+        EXPECT_SHOWN(both, "bounced attack 0: 4>1 hit 256 blocks 0 0 0 0");
+        EXPECT_HP(both, kAlly, 4500);
     });
 }
 
