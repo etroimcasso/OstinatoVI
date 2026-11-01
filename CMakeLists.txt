@@ -67,6 +67,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/attack.cpp
     src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
+    src/battle/battle_hooks.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_layout.cpp
     src/battle/battle_loop.cpp
@@ -627,14 +628,19 @@ gtest_discover_tests(ostinato-vi-battle-commands-tests)
 # routines, isolated and run on the hosted cartridge over the same battle
 # (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-damage-tests
+    tests/test_apply_damage.cpp
     tests/test_damage_formulas.cpp
     tests/test_damage_oracle.cpp
+    tests/test_reflected_attack.cpp
     tests/test_target_damage.cpp
+    tests/test_trace_replay.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-damage-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-damage-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-damage-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-damage-tests)

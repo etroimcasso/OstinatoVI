@@ -1,15 +1,18 @@
 # Battle damage — behavioral contract
 
 Behavioral specification for the numbers an attack does: the base damage of a spell and of a blow,
-the attacker's relic bonus on it, the damage multiplier, and the damage to each target the attack
-hits. All citations point into the pinned reference tree `original-src/` (everything8215/ff6 @
-`1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another file is named. This
-document is the test authority for `tests/test_damage_formulas.cpp`, `tests/test_target_damage.cpp`
-and `tests/test_damage_oracle.cpp`.
+the attacker's relic bonus on it, the damage multiplier, the damage to each target the attack hits,
+that damage taken from HP or MP and shown as numerals, and a spell bounced off Reflect. All
+citations point into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line
+numbers are into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:` names a
+line of `src/btlgfx/btlgfx_main.asm`. This document is the test authority for
+`tests/test_damage_formulas.cpp`, `tests/test_target_damage.cpp`, `tests/test_apply_damage.cpp`,
+`tests/test_reflected_attack.cpp` and `tests/test_damage_oracle.cpp`.
 
-The attack frame (`docs/contracts/battle_commands.md`) calls these at four of its `AttackHooks`
-points; this contract starts at those calls. Taking the damage and showing the numerals, and the
-reflected attack, are not part of it.
+The attack frame (`docs/contracts/battle_commands.md`) calls these at its `AttackHooks` damage
+points and, for a spell that bounced off Reflect, runs the bounce itself; this contract starts at
+those calls. The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`), one call each
+into `src/battle/damage.h`.
 
 Every claim here is also checked against the cartridge itself: the routines named below are run on
 the cartridge, hosted on the engine's SNES machine, over the same inputs the port is given
@@ -26,6 +29,9 @@ the cartridge, hosted on the engine's SNES machine, over the same inputs the por
 | The multiplier | `ApplyDmgMult` `:8827-8849` | `applyMultiplier()`, `scaleDamage()` |
 | The damage to one target | `CalcTargetDmg` `:1809-1882` | `targetDamage()` |
 | Its parts | `CalcDmgMod` `:1961-2039`, `CalcDmgRatio` `:2100-2138`, `FixMPDmg` `:2166-2177`, `UltimaEffect` `:2248-2281`, `CalcMaxDmg` `:1891-1953`, `ZombieEffect` `:2220-2242`, `FixDrainDmg` `:2183-2214`, `_c2362f` `:8641-8652` | the steps of `targetDamage()` |
+| Taking the damage | `ApplyDmg` `:2947-2969`, `ApplyDmgHP` `:2979-3000`, `ApplyDmgMP` `:3005-3033`, `_c21390` `:3041-3051`, `_c213a7` `:3060-3082` | `applyDamage()` |
+| Showing it | `_c262ef` `:16193-16274`, `ShowDmgNumerals` `:16280-16295`, `ShowDmgNumeralsMulti` `:16301-16319` | `applyDamage()`, `DamageNumbersShown` |
+| A spell bounced off Reflect, and a Launcher's or Super Ball's hits | `CalcReflectDmg` `:8377-8456`; the readers `GfxCmd_09` `btlgfx:25033-25243`, `GfxCmd_15` `btlgfx:25249-25367` | `resolveReflectedAttack()` (`src/battle/attack.h`), `ReflectedAttackShown`, `ScatteredHitsShown` |
 | The arithmetic | `MultAB` `:11801-11809`, `Div` `:11818-11833`, `Mult24` `:11841-11858`, `MultDmg` `:2045-2054`, `CalcRatio` `:2144-2147`, `LsrA` `:2150-2158` | expressions in `damage.cpp` |
 
 ## Where the frame calls them
@@ -44,6 +50,11 @@ the cartridge, hosted on the engine's SNES machine, over the same inputs the por
 4. For each target hit that the special effect did not miss, highest slot first, `CalcTargetDmg`
    (`:8362`) with X the attacker and Y the target. The port: `targetDamage(state, attack, attacker,
    target, script)` adds to `attack.scratch.ledger`.
+5. `_c262ef` (`:8365`), taking every battler's entries and showing them. The port:
+   `applyDamage(state, attack, attacker, script)`.
+6. Back in `ExecAttack`, for a spell (`$11a2.0` clear) with someone in `$a6`, `CalcReflectDmg`
+   (`:8100-8105`). The port: `resolveReflectedAttack(state, hooks, script, attack, attacker)`, called by
+   the frame itself.
 
 Before each target in 4 the frame adds a step to `$bc` when that target is hit in the back
 (`:8349-8351`); the same multiplier routine runs again inside the damage to that target, and uses
@@ -365,9 +376,181 @@ attack adds to it; and the sum stops at 9,999, also when the 16-bit add carries.
 | a Zombie drainer's blow, draws 31 / 182 | the target / the target, waiting | `Drain_AZombieDrainersBlowWaitsOnlyWhenItsDrawGaveNothing` |
 | 5,000 + 1,000 / 9,500 + 1,000 / 9,999 + 60,000 / healed 9,500 + 1,000 | 6,000 / 9,999 / 9,999 / 9,999 | `Ledger_AddsToWhatIsThereAndStopsAtNineThousandNineHundredNinetyNine` |
 
+## Taking the damage — `ApplyDmg :2947-2969`
+
+Run by the showing routine (§ Showing it) for each battler with an entry, with X the battler who made
+the attack and Y the battler, the accumulator 16-bit.
+
+1. **The loss and the gain** (`_c213a7 :3060-3082`). The loss is the battler's taken entry, 0 when
+   it is empty. A battler in the invincible set (`$3018,y & $3a3c`, `state.invincible`) has the entry
+   itself set to 0, so it also shows 0. While a Golem or Interceptor blocks, the loss is 0 for every
+   battler: `lda $3a81; and $3a82` is a 16-bit read whose high byte is the two block bytes ANDed, and
+   `bmi` passes only while both are empty (`:3072-3075`). The gain is the healed entry, 0 when empty.
+   The net is the gain less the loss; the routine's comment calls its carry "set = damage was taken",
+   but the `sbc` leaves the carry **clear** when the loss is greater.
+2. **The pool.** `ApplyDmg`'s `lda $11a2` runs with the accumulator wide, so its `bmi` tests bit 15:
+   `$11a3.7`, `AttackFlag1::AFFECT_MP` (`:2952-2953`). An attack on MP changes MP, anything else HP.
+3. **A net of 0** changes nothing and marks nothing (`beq _133b`).
+4. **A gain** adds to the pool and stops at the maximum, also when the add carries past 65,535
+   (`bcs`, `:2984-2990`, `:3009-3015`).
+5. **A loss** comes off the pool. Anything left: the battler stays. Nothing or less (`beq` and the
+   borrow, `:2998-3000`): `_c21390` sets HP to 0, cancels the weapon's spell (`$3a89`,
+   `AttackScratch::weaponSpellcast`) and, unless the battler is a Zombie (status 1 bit 1), sets it to
+   die (`$3dd4`, `Battler::statusesToSet`). On the MP path MP is set to 0 and only a battler that
+   dies at 0 MP (`$3c95.0`, `Battler::diesAtZeroMp`) goes on to `_c21390`, whose HP then becomes 0
+   too (`:3023-3030`).
+6. **An MP change** either way, a gain or a loss, marks the battler's castable spells to be worked
+   out again (`$3204.7`, `pendingUpdates.enabledMagic`, `:3032-3033`).
+7. **The carry out** is "lost anything": set for every loss, the battler left standing or not (`bcs
+   _133c` returns it set for a survivor, `:3031 sec` on the MP path), clear for a gain or a net of 0.
+   The comment at `:2945` calls it "target died"; the code is the contract.
+8. **On a loss** (`:2957-2966`): `_c2362f` with the carry set marks the battler as attacked by the
+   attacker, waiting to answer it, unless it is already waiting to answer someone (`$32e0` bit 7;
+   `Battler::lastAttacker`, `retaliationPending`). Then, unless the attacker is the battler itself:
+   `$327c,y` ← the attacker (`Battler::lastDamagedBy`, which AI condition `$05` reads), and the
+   battler's bit comes off `$3419` — an 8-bit `trb` of the low byte of `$3018,y`, which holds only the
+   party members' bits, so a party member becomes one a Black Belt may counter for
+   (`state.scratch.blackBeltEligible`) and a monster changes nothing.
+
+The widths: the entries are at most 9,999, so the net is within ±9,999; the gain's carry is the stop
+at the maximum and the loss's borrow is the stop at 0. The port writes the arithmetic in `int`.
+
+## Showing it — `_c262ef :16193-16274`
+
+For each battler, last slot first (`ldy #$12 … dey2`):
+
+1. Both entries empty: on to step 4 (`:16201-16205`).
+2. The battler leaves the missed set (`$3a5a`, `AttackScratch::missed`) and its damage is taken
+   (§ Taking the damage). If it is the battler the Golem blocked for (`$3a82`, compared with Y) and
+   its taken entry is not empty, the Golem's HP (`$3a36`, `state.golemHp`) loses the entry, stopping
+   at 0 (`:16209-16219`) — the blocked hit is shown over the battler, taken from nobody, and taken
+   from the Golem.
+3. A healed entry gets the gain mark (bit 15, `ora #$8000`). With the taken entry empty, the gain
+   moves into it and the healed entry empties, so the gain shows in the first pass; with both, both
+   stay (`:16220-16235`).
+4. A battler still in the missed set — one with no entries — gets the "Miss" mark (`$4000`) as its
+   taken entry (`:16236-16240`).
+5. A taken entry that is not empty is counted (`:16241-16244`).
+
+Then the numerals: with fewer than five counted, one command `$0b` per battler with a taken entry,
+last slot first, b1 the battler and b2-b3 the word (`ShowDmgNumerals`); with five or more, one command
+`$03` and the whole ledger copied to the graphics buffer at `$2bce` + 20 · `$3a34`
+(`ShowDmgNumeralsMulti`). `cpy #5` sets the carry for five or more; `ShowDmgNumerals` returns at once
+with it set, and otherwise leaves it clear (the last `lsr` of an even slot index), so exactly one of
+the two runs. If any battler both lost and gained, every healed entry is copied into the taken entry
+and shown again the same way, counted afresh (`:16251-16264`). Last, every entry is emptied.
+
+The port's `applyDamage()` shows each pass as one `DamageNumbersShown`, its numbers in the order the
+commands go in, each `DamageNumber` the battler, the low 14 bits as the amount, the miss mark and the
+gain mark; `wait` is `DamageNumberWait::UntilGone` from `kNumeralsShownTogether` (5) on and
+`CarryOn` below it (the reader's two timings, `docs/contracts/battle_presentation.md`). A battler that
+both lost and gained shows its loss in the first and its gain in the second. Nothing is shown when no
+battler has a numeral.
+
+| Case | Result | Test |
+|---|---|---|
+| a loss of 120 | 880 HP, the numeral, the ledger empty | `Loss_ComesOffHpAndTheLedgerEmpties` |
+| a gain of 300 at 1,900 of 2,000 | 2,000, a gain numeral | `Gain_StopsAtTheMaximum` |
+| a gain of 9,999 at 65,000 of 65,535 | 65,535 | `GainPastSixtyFiveThousand_StopsAtTheMaximum` |
+| a loss of 50 on 50 HP | 0, set to die, the weapon's spell canceled | `LossToExactlyZero_SetsTheBattlerToDieAndCancelsTheWeaponSpell` |
+| 9,999 on 30 HP | 0, set to die, 9,999 shown | `LossPastZero_StopsAtZero` |
+| 50 on 51 HP | 1, the weapon's spell kept | `LossLeavingOneHp_KeepsTheWeaponSpell` |
+| a Zombie brought to 0 | 0, not set to die, the spell canceled | `Zombie_AtZeroHpIsNotSetToDie` |
+| lose 100 gain 30 / lose 30 gain 100 | 930 / 1,070; both shown, the gains second | `LossAndGain_TheDifferenceIsTakenAndBothAreShownTheGainSecond` |
+| an attack on MP | MP changes, the spells marked, HP untouched | `AttackOnMp_ChangesMpAndMarksTheSpellsToBeWorkedOut` |
+| MP to 0, dying at 0 MP or not | 0 MP and 0 HP, set to die / 0 MP, remembered | `MpToZero_KillsOnlyABattlerThatDiesAtZeroMpAndTakesItsHpToo` |
+| invincible, 500 | untouched, 0 shown | `Invincible_LosesNothingAndShowsZero` |
+| a Golem block, 300 on the blocked ally | nobody loses HP, a gain still counts, the Golem 1,000 → 700 | `GolemBlock_NobodyLosesAnythingAndTheGolemTakesTheBlockedHit` |
+| the Golem at 100 | 0 | `GolemHp_StopsAtZero` |
+| an Interceptor block | nobody loses HP, the Golem untouched | `InterceptorBlock_NobodyLosesAnythingAndTheGolemIsUntouched` |
+| a loss on a battler not waiting / already waiting | marked waiting / kept; both remember the attacker | `Loss_MarksTheAttackerToBeAnsweredAndRemembersIt` |
+| a party member loses, one gains, a monster loses | only the first may be countered for | `PartyMemberThatLosesAnything_MayBeCounteredForByABlackBelt` |
+| the attacker's own loss | marked waiting on itself, not remembered | `LossByItsOwnAttack_IsMarkedButNotRemembered` |
+| a gain / a loss of 0 | nobody marked; both shown | `GainOrZero_MarksNoOne` |
+| missed with and without an entry | "Miss" only over the one without | `Miss_ShownOnlyOverABattlerWithNoEntry` |
+| no entries, no misses | nothing shown | `NoEntryAndNoMiss_ShowsNothing` |
+| four / five numerals | one at a time / all at once | `FourNumerals_OneAtATime_FiveAllAtOnce` |
+| five losses, one of them also a gain | all at once, then the gain alone | `SecondPass_WaitsByItsOwnCount` |
+
+## The reflected attack — `CalcReflectDmg :8377-8456`
+
+Called after the attack for a spell (`$11a2.0` clear) with anyone in `$a6`
+(`AttackAnimationParams::reflectedOff`). The set is the battlers the spell bounced off — or, for a
+Launcher or Super Ball (attacker effects `$2c` and `$4a`), the attacker itself: `AttackerEffect_2c
+:10439-10445` stores `$3018,y`, and `DoAttackerEffect :10123` has set Y to the attacker with `txy`.
+Those effects put the hit count in `$3405` (8 for a Launcher, 1 to 4 for a Super Ball; the port's
+`AttackScratch::extraHits` is the hits still to come, `$3405` + 1).
+
+1. **Fresh** (`:8380-8390`): the params `$a0-$af` cleared (`ClearGfxParams`), the missed set
+   cleared, the record's flags 1 gain `IGNORE_REFLECT` and `RETARGET_IF_INVALID` (`$11a3 |= $22`),
+   the targeting byte becomes `$40` (one target, enemy first), the aiming rules gain random target
+   and reflected (`$ba |= $50`), and the script's b2 is the attack (`$3a2a` ← `$b6`).
+2. **The command** (`:8391-8398`): with hits to come (`$3405` not negative) the reflected rule comes
+   off again and the command is `$15`; otherwise `$09`. The per-slot bytes `$a0-$a9` are set to `$ff`
+   and the damage is **halved** (`lsr $11b0`).
+3. **Each battler *r* in the set, last slot first** (`:8406-8445`): `ChooseTarget` with *r* as the
+   attacker. No target: on to the next *r*. The target *t* is the highest slot of the result
+   (`BitToTargetID :13438-13452`), which is always its only battler: random target re-aims and the
+   single-target byte picks one. Its byte: `$a0` + *r* ← *t*, or with hits to come `$3405` is
+   decremented and `$a0` + its old value ← *t*. Then `CheckHit` (*r*, *t*); on a hit, `_c235e3`
+   records the hit **by *r*** — *t*'s last hit and its mark to answer name the battler the spell
+   bounced off — then the status pass and the special effect, and unless the effect missed, *r*
+   joins `$ae` and `CalcTargetDmg` (*r*, *t*) works out the damage, *r* its attacker. With hits to
+   come the loop repeats on the same *r* while `$3405` is not negative.
+4. **Without the reflected rule** (a Launcher's or Super Ball's hits, `:8448-8454`): `$ae` ← the
+   attacker's bit and the party's block bytes `$aa-$ad` ← 0.
+5. **Taken and shown**: `_c262ef` with X the attacker who made the attack — the caster — then the
+   params copied to the script's buffer (`CopyGfxParamsToBuf`). A battler that loses HP to a bounced
+   spell is therefore marked to answer the battler it bounced off (step 3) and remembers the caster
+   as the one who damaged it (§ Taking the damage, step 8).
+
+**The aim** (`ChooseTarget :14543-14603`, ported at `docs/contracts/battle_commands.md` § Aiming).
+With the reflected rule the re-aim goes to the side opposite *r* and nothing else turns it
+(`Retarget :14661-14663`); then, for a spell aimed at the other side only (`$ba.1`) and an *r* not
+Confused, on tails it goes to the caster if the caster is among the targets (`CheckTargetsBattleType
+:14719-14742`; the caster is the attacker of the params block before this one, `$2c5f` + `$3a32`).
+A Launcher's hits are aimed as any random-target attack from the attacker.
+
+**A target lost.** When `ChooseTarget` finds no one for a Launcher's or Super Ball's next hit, the
+loop moves on with `$3405` left as it is; nothing else in the battle program writes it. The port's
+count is `AttackScratch::extraHits`, which ends with the command.
+
+**What the script shows.** The command's 16-byte block, as its readers take it:
+
+- `$09` (`GfxCmd_09`): bytes 0-9 by the slot of the battler the spell bounced off, the battler it
+  went on to (`$ff` none; below 4 a party member). The bounces the reader draws are one per battler
+  with a byte, from it to its target. Bytes 10-13 are the party's blocks (`btlgfx:25119-25127` reads a
+  block of 3, the shield's, for a party member the spell bounced off). Bytes 14-15 are `$ae`, the
+  bounces that hit. b2 is the attack whose animation plays (`InitAnimProp`).
+  The port: `ReflectedAttackShown{attack, bouncedTo, bouncesThatHit, blocks}`.
+- `$15` (`GfxCmd_15`): bytes 0-9 one per hit, the hit's target, the first hit at the highest byte;
+  bytes 14-15 the attacker the hits fly from (`_c1aaad`, `btlgfx:25395-25405`). Bytes 10-13 are read
+  for a party target's block, and this form has set them to 0. The port:
+  `ScatteredHitsShown{attack, attacker, targets}`, the targets in hit order, missed hits included.
+- b1 and b3 are left over from the last command written; neither reader reads them.
+
+**The blocks.** A Golem or Interceptor steps in only for Fight or Capture (`CheckHit :5840-5867`),
+and a bounce is always a spell, so neither blocks a bounce. (The block routine `_c223bf` stores the
+battler's slot times two plus one in `$3a82`/`$3a83` when the attack is not physical, `:6024-6038`;
+that path is never taken here.)
+
+| Case | Result | Test |
+|---|---|---|
+| the hero's Fire bounced off a foe, only the ally standing | 500 to the ally, shown `4>1`, the foe's bounce hit | `Bounce_IsHalvedAndGoesToTheOtherSideFromTheBattlerItBouncedOff` |
+| the same | the ally's last hit by the foe and waiting to answer it; damaged by the hero | `Bounce_TheBattlerItBouncedOffIsTheAttackerOfRecordTheCasterTheDamager` |
+| bounced off both foes | `4>1 5>1`, 1,000 to the ally | `TwoBounces_LastSlotFirstAndTheirDamageAddsUp` |
+| a hit rate of 0 | "Miss" over the ally, no bounce hit | `BounceThatMisses_ShowsMissAndHitsNoOne` |
+| the same, the ally with a shield's block | the block shown for the ally | `BounceAPartyMemberBlocks_ShowsTheBlock` |
+| no one on the other side | the command with no bounce, nothing shown | `NoOneToBounceTo_ShowsNoBounceAndDoesNothing` |
+| aimed at the other side only, every random-number position | the hero or the ally, the hero more often, the port and the cartridge alike | `BounceAimedAtTheOtherSideOnly_GoesBackToTheCasterOnHalfTheDraws` |
+| three hits from the hero, one foe | `4 4 4`, 1,500, no hits left | `ScatteredHits_EachOnARandomFoeTheirDamageAddingUp` |
+| eight hits, no foe | nothing, the count kept | `ScatteredHitsWithNoOneToHit_KeepTheirCount` |
+| two hits with a hit rate of 0 | `4 4`, no damage | `ScatteredHits_MissedOnesStillFly` |
+| the special effect misses the target | no damage, no bounce hit | `ABounceTheSpecialEffectMisses_DoesNoDamageAndDoesNotCountAsAHit` |
+
 ## The oracle
 
-`tools/damage-trace/damage_oracle.h` runs the five routines on the cartridge. The cartridge is
+`tools/damage-trace/damage_oracle.h` runs the seven routines on the cartridge. The cartridge is
 hosted on the engine's SNES machine and started from a tick of the run loop as far as `Reset`
 (`field/reset.asm`, `$C0:0019`), the first instruction after its `clc; xce`: the processor is in
 native mode and nothing of the game has run. Each routine is bound at its address and called with the
@@ -389,6 +572,40 @@ steps left, `$b7`, whether the queue's place was rewritten and with what second 
 and `portTargetDamage()` builds the same from the port; `differences()` names every cell where they
 part.
 
+For the showing routine it also writes every battler's bit in `$3018`, the missed set `$3a5a`, the
+invincible set `$3a3c`, the Golem's HP `$3a36`, the weapon's spellcast `$3a89`, the Black Belt cell
+`$3419`, each battler's update flags `$3204` and last damager `$327c`, and an empty script queue and
+buffer count; it reads back an `ApplyDamageResult` — every battler's HP, MP, statuses to set,
+last-attacker mark, last damager and update flag, the Black Belt set, the missed set, the Golem's HP,
+the spellcast, the ledger, and the numerals decoded from the queue (`$0b` commands in a run down the
+slots, `$03` commands from the buffer). For `CalcReflectDmg` it adds the aiming cells (`$b8`, `$ba`,
+`$3a46`, `$3a4e`, `$3a40`, the battle type `$201f`, the pincer sides `$2eac`/`$2ead`, each battler's
+charm `$3395` and presence `$3aa0`), the reach check's cells (written so that what they leave between
+them is the port's reachable set, with `$341b` at `$FF` as a command starts it), the hit check's
+(`$3ec9`, `$341c`, `$3a54`, and each battler's stamina, evade and magic block, block graphics,
+Retort and instant-death protection), the hit record's (`$3a7c`, `$3410`, `$3411`, each battler's
+last hits), `$3405`, and the params block before the bounce's; it reads back a
+`ReflectedAttackResult` — everything the showing routine leaves, each battler's statuses to clear and
+last hitter, the bounce as the script shows it, the damage, whether the attack can still be critical,
+the hits to come, the blocks and `$be`. The routine runs the cartridge's own status and special-effect
+passes, which the port's hooks leave out, so its scenarios are spells those passes change nothing
+for: no statuses or special effect, no Vanished or Frozen target, no miss for a status the target is
+immune to.
+
+**Replaying a game.** `DamageTrace` puts the same escapes and watches on any machine: the window of
+`ostinato-damage-trace` records a game as it is played, and the oracle records its own calls. Each
+traced call is rebuilt from the cells the routine read; its attacker is the params block's attacker
+(`$a1`, written by `InitGfxParams :14428-14434` before the per-target pass and the showing routine),
+its target the battler whose cells it touched other than the attacker. A bounce's calls are told by
+their return sites (`$C2:3509`, `$C2:3528`): with the reflected rule set (`$ba.4`), the battler it
+bounced off is the lowest slot of the params block's bytes that is set and its byte the target
+(`:8414-8427`); a Launcher's or Super Ball's hit is the attacker of the params block before this one
+(`$2c6e` + `$3a32` − 15) at the target in the byte one past the hits now to come; the showing routine
+after a bounce is the attacker of the block before. A blow's base damage is a party member's when it
+reads that member's relic word (`$3c58,x`), else a monster's, and a spell's does not depend on who
+cast it. `tests/test_trace_replay.cpp` replays 200 of the oracle's own calls of each kind and every
+recording under `tests/fixtures/damage-trace/`.
+
 Every case in the tables above asserts three ways — the port's value, the value worked out here, and
 the cartridge's — and the per-target cases compare every other cell of the two results as well.
 `tests/test_damage_formulas.cpp` sweeps 2,000 scenarios drawn from a fixed seed through each of the
@@ -396,5 +613,8 @@ first four routines, within the game's own ranges (a party member's level 1 to 9
 `tests/test_target_damage.cpp` sweeps 500 through `CalcTargetDmg` (a party member's HP and MP at
 most 9,999 and 999 and never above the maximum, the Atma Weapon only for a party member, a
 fractional attack's power at most 16), asserting the port against the cartridge.
+`tests/test_apply_damage.cpp` sweeps 500 through the showing routine and
+`tests/test_reflected_attack.cpp` 500 through `CalcReflectDmg` (a spell's own command, the blocks
+equipment can show, counterattacks on).
 `ostinato-damage-trace --check` runs the first four routines' sweep from the command line
 (`tools/damage-trace/README.md`).

@@ -1,13 +1,17 @@
-// The damage an attack does: its base damage, the relic bonus on it and the damage multiplier, then
-// the damage to each target it hits.
+// The damage an attack does: its base damage, the relic bonus on it and the damage multiplier, the
+// damage to each target it hits, and that damage taken and shown.
 //
-// The attack frame (battle/attack.h) works an attack out in steps, and these are four of them:
+// The attack frame (battle/attack.h) works an attack out in steps, and these are five of them:
 //
 //     baseDamage(state, attack, attacker);   // attack.damage from the power, the stat and the level
 //     // ... the frame halves it for a split and for a back-row attacker ...
 //     scaleDamage(attack);                   // attack.damage times the multiplier's steps
 //     // ... then for each target hit:
 //     targetDamage(state, attack, attacker, target, script);   // into attack.scratch.ledger
+//     // ... and once every target is worked out:
+//     applyDamage(state, attack, attacker, script);   // HP and MP change, the numerals are shown
+//
+// BattleHooks (battle/battle_hooks.h) calls them at those steps.
 //
 // magicDamage() is the spell formula on its own, for anything that works a spell out with no battle
 // around it.
@@ -16,6 +20,7 @@
 // rule comes from, is specified in docs/contracts/battle_damage.md.
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 
 #include "battle/attack.h"
@@ -130,5 +135,33 @@ void scaleDamage(AttackInFlight& attack);
 // attack.
 void targetDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattlerSlot target,
                   BattleScriptBuilder& script);
+
+// From this many numerals on, an attack shows them all at once and waits until they are gone
+// (DamageNumberWait::UntilGone); fewer bounce one at a time while the script carries on.
+inline constexpr std::size_t kNumeralsShownTogether = 5;
+
+// Every battler's entry in attack.scratch.ledger taken from it or given to it, and shown, last slot
+// first; the ledger is empty afterwards. `attacker` is the battler who made the attack.
+//
+// For each battler with an entry:
+//
+// 1. It is no longer shown "Miss". What it loses is its taken entry, set to 0 for a battler in
+//    state.invincible, and nothing at all while a Golem or Interceptor blocks
+//    (AttackScratch::golemBlocked, interceptorBlocked); what it gains is its healed entry. The
+//    difference goes to its MP for an attack on MP (AttackFlag1::AFFECT_MP), else to its HP: a
+//    gain stops at the maximum, a loss stops at 0. At 0 HP the battler is set to die
+//    (Battler::statusesToSet) unless it is a Zombie, and the weapon's spell is not cast; at 0 MP
+//    the same happens only to a battler that dies at 0 MP (Battler::diesAtZeroMp), whose HP is
+//    then 0 too. An MP change marks the battler's castable spells to be worked out again.
+// 2. A battler that lost anything is marked as attacked by `attacker`, waiting to answer it, unless
+//    it is already waiting to answer someone. Attacked by another battler, it remembers who
+//    (Battler::lastDamagedBy), and a party member becomes one a Black Belt may counter for.
+// 3. The battler the Golem blocked for takes its taken entry off state.golemHp, which stops at 0.
+//
+// Then the numerals, as one DamageNumbersShown: the amount each battler loses, or gains for one
+// that only gains; "Miss" over each battler in attack.scratch.missed that has no entry. A battler
+// that both loses and gains shows its gain in a second DamageNumbersShown after the first. Each
+// waits by its count (kNumeralsShownTogether). Nothing is shown when no battler has a numeral.
+void applyDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattleScriptBuilder& script);
 
 }  // namespace ostinato::battle

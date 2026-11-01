@@ -75,7 +75,7 @@ whether one is waiting.
 | `PoseReset` | that battler's waiting pose cleared | none |
 | `FormationChanges` | the new formation's monsters shown | none |
 | `MonstersEnterOrLeave` | the revived shown, or the hidden no longer shown | none |
-| `AttackAnimation`, `BattleEventPlays`, `MonsterAnimationPlays` | nothing | none |
+| `AttackAnimation`, `BattleEventPlays`, `MonsterAnimationPlays`, `ReflectedAttackShown`, `ScatteredHitsShown` | nothing | none |
 
 The message time is `messageHoldFrames(context.messageSpeed)`: 32 frames at speed 0 up to 112 at
 speed 5, 64 at a new game's speed 2. A message that waited for a key closes the frame after the

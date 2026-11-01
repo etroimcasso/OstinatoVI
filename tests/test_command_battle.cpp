@@ -1,9 +1,11 @@
 // A whole battle fought to a win on the battle's own executor: the party's Fights carried out by
-// CommandExecutor through BattleSim, with hooks that take 10 HP from every target hit.
+// CommandExecutor through BattleSim, with the battle's own damage (BattleHooks) and a stand-in for
+// the statuses it sets taking effect.
 
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 #include <type_traits>
@@ -12,6 +14,7 @@
 #include <vector>
 
 #include "battle/battle_sim.h"
+#include "battle/battle_hooks.h"
 #include "battle/command_executor.h"
 #include "battle_test_support.h"
 #include "party_test_support.h"
@@ -26,16 +29,19 @@ using battle::BattlerSlot;
 using battle::BattleSim;
 using battle::BattleState;
 
-// Every target hit loses 10 HP and falls at 0.
-struct TenDamage : battle::AttackHooks {
-    int hits = 0;
-    void targetDamage(BattleState& state, battle::AttackInFlight&, BattlerSlot, BattlerSlot target) override {
-        battle::Battler& battler = state.at(target);
-        battler.hp = static_cast<std::uint16_t>(std::max(0, battler.hp - 10));
-        if (battler.hp == 0) {
-            battler.status.set(StatusId::DEAD);
+// The battle's damage, with a stand-in for its statuses taking effect: after each attack every
+// battler's statuses to set are put on it and its statuses to clear taken off, so a battler brought
+// to 0 HP falls at once. It stands in until the battle applies statuses itself.
+struct StatusesTakeEffect : battle::BattleHooks {
+    void applyPendingStatuses(BattleState& state) override {
+        for (battle::Battler& battler : state.battlers) {
+            for (std::size_t i = 0; i < battler.status.bytes.size(); ++i) {
+                battler.status.bytes[i] = static_cast<std::uint8_t>(
+                    (battler.status.bytes[i] | battler.statusesToSet.bytes[i]) & ~battler.statusesToClear.bytes[i]);
+            }
+            battler.statusesToSet = {};
+            battler.statusesToClear = {};
         }
-        ++hits;
     }
 };
 
@@ -52,7 +58,7 @@ std::string nameOf(const battle::BattleScriptCommand& command) {
 }
 
 TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
-    TenDamage hooks;
+    StatusesTakeEffect hooks;
     battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     battle::BattleStart start;
     start.formation = FormationRef::of(FormationId::LOBO);
@@ -79,8 +85,7 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
     ASSERT_TRUE(battle.result().has_value());
     EXPECT_TRUE(std::holds_alternative<battle::BattleWon>(battle.result()->outcome));
     EXPECT_TRUE(battle.state().at(lobo).status.has(StatusId::DEAD));
-    // Each hit takes 10: the blows that reached Lobo brought it down from full and no further.
-    EXPECT_EQ(hooks.hits, (loboHp + 9) / 10);
+    EXPECT_EQ(battle.state().at(lobo).hp, 0);
 
     // The log: the scene opens, the fighters step forward, swing and step back, and the scene
     // closes last. Every swing is a Fight by a party member at Lobo.
@@ -90,6 +95,7 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
     int stances = 0;
     int stepsBack = 0;
     int swings = 0;
+    std::vector<int> damageToLobo;
     std::string sequence;
     for (const BattleRequest& request : log) {
         const auto* script = std::get_if<battle::RunBattleScript>(&request);
@@ -106,12 +112,33 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
                 EXPECT_TRUE(swing->params.attacker.isCharacter());
                 EXPECT_EQ(swing->params.targets, BattlerSet::of(lobo));
             }
+            if (const auto* shown = std::get_if<battle::DamageNumbersShown>(&command)) {
+                for (const battle::DamageNumber& number : shown->numbers) {
+                    if (number.target == lobo && !number.miss) {
+                        EXPECT_FALSE(number.heals);
+                        damageToLobo.push_back(number.amount);
+                    }
+                }
+            }
         }
     }
     RecordProperty("scripts", sequence);
     EXPECT_GT(stances, 0);
-    EXPECT_GE(stepsBack, stances);  // every turn ends with a step back, the monsters' empty ones too
-    EXPECT_GE(swings, hooks.hits);
+    // Every swing is followed by a step back, as the monsters' empty turns are; a fighter still
+    // standing ready when Lobo falls never swings.
+    EXPECT_GE(stepsBack, swings);
+    // Every hit on Lobo showed its damage, and the damage shown took it from full HP to 0: the
+    // hits before the last one left it standing.
+    ASSERT_FALSE(damageToLobo.empty());
+    EXPECT_GE(swings, static_cast<int>(damageToLobo.size()));
+    int total = 0;
+    for (const int amount : damageToLobo) {
+        EXPECT_GT(amount, 0);
+        total += amount;
+    }
+    EXPECT_GE(total, loboHp);
+    EXPECT_LT(total - damageToLobo.back(), loboHp);
+    RecordProperty("damage", total);
     EXPECT_EQ(std::count_if(log.begin(), log.end(),
                             [](const BattleRequest& r) { return std::holds_alternative<battle::AddItemObtained>(r); }),
               0);

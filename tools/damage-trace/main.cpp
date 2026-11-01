@@ -4,22 +4,24 @@
 //
 //     ostinato-damage-trace <rom> <directory> [--quit-after-frames <n>]
 //     ostinato-damage-trace <rom> <directory> --check <draws>
+//     ostinato-damage-trace <rom> <directory> --replay
 //
-// Without --check the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard, and three of its damage routines are traced: escapes on each routine's entry and on the
-// instruction its caller returns to open and close a span, and watches over every cell the routines
-// read or write log each access made inside a span, in order, with its address and byte. Every call
-// is logged — nothing is filtered — to `damage-trace.log` under <directory>:
-//
-//   f<frame> enter <routine> $<bank>:<address>
-//   f<frame> r $7E:<cell> <byte>              a read the routine made
-//   f<frame> w $7E:<cell> <byte>              a write it made
-//   f<frame> return <routine> $<bank>:<address>
+// Without --check or --replay the cartridge is run on the engine's SNES machine in a window, played
+// from the keyboard, and three of its damage routines are traced (trace::DamageTrace): escapes on each
+// routine's entry and on the instructions its callers return to open and close a call, the attack's
+// context logged at each entry, and watches over every cell the routines read or write log each
+// access made inside a call, in order, with its address and byte. Every call is logged — nothing is
+// filtered — to `damage-trace.log` under <directory>, in the lines damage_oracle.h names.
 //
 // The routines: the base damage (`CalcDmg`, $C2:2B9D, returning to $C2:322E), the damage to one
-// target (`CalcTargetDmg`, $C2:0B83, returning to $C2:346C) and applying and showing it (`_c262ef`,
-// $C2:62EF, returning to $C2:3473). The addresses are the US cartridges'. --quit-after-frames closes
-// the window after that many frames; otherwise close it to quit.
+// target (`CalcTargetDmg`, $C2:0B83, returning to $C2:346C from the attack and $C2:3509 from a
+// bounce) and taking and showing it (`_c262ef`, $C2:62EF, returning to $C2:3473 and $C2:3528). The
+// addresses are the US cartridges'. --quit-after-frames closes the window after that many frames;
+// otherwise close it to quit.
+//
+// With --replay nothing opens. Every call in <directory>/damage-trace.log is rebuilt as a battle and
+// worked out by the port, and the port's answer is compared with every cell the cartridge wrote;
+// each call is logged to `replay.log` with its differences, and any difference fails the run.
 //
 // With --check nothing opens. The cartridge is started as far as its reset code, its base damage,
 // relic bonus and multiplier routines are bound where it holds them, and <draws> scenarios drawn
@@ -71,50 +73,12 @@ namespace {
 using namespace retropp;
 using namespace ostinato;
 
-// --- the routines traced -------------------------------------------------------------------------
-
-// Each routine's entry and the instruction its caller in `CalcAttackEffect` returns to
-// (battle/battle_main.asm:7224, 8094; 1809, 8362; 16193, 8365 — the program sits at $C2:0000).
-struct Traced {
-    const char*   name;
-    std::uint32_t entry;
-    std::uint32_t returnSite;
-};
-constexpr Traced kTraced[] = {
-    {"CalcDmg", 0xC22B9D, 0xC2322E},
-    {"CalcTargetDmg", 0xC20B83, 0xC2346C},
-    {"ApplyAndShowDamage", 0xC262EF, 0xC23473},
-};
-
-// The cells the three routines read and write, as ranges of work RAM: the direct-page attack flags
-// and multiplier; the attack's record copy and damage; the links between battlers; the damage
-// ledger; the per-command cells; the battle's own cells (the missed set, the blocks, the Golem's
-// HP, the script queue pointer); each battler's flags, stats, monster flags, pending statuses,
-// Forcefield's elements and statuses.
-struct Watched {
-    const char*   key;
-    std::uint32_t at;
-    std::uint32_t size;
-};
-constexpr Watched kWatched[] = {
-    {"direct page", 0x7E00B0, 16},     {"attack record", 0x7E11A0, 18}, {"links", 0x7E327C, 120},
-    {"ledger", 0x7E33D0, 40},          {"command cells", 0x7E3400, 32}, {"battle cells", 0x7E3A30, 96},
-    {"flags", 0x7E3AA0, 20},           {"stats", 0x7E3B18, 340},        {"monster flags", 0x7E3C95, 20},
-    {"pending statuses", 0x7E3DD4, 61}, {"forcefield", 0x7E3EC8, 1},    {"statuses", 0x7E3EE4, 40},
-};
-
 std::vector<std::uint8_t> readRom(const std::filesystem::path& file) {
     std::ifstream in{file, std::ios::binary};
     if (!in) {
         return {};
     }
     return std::vector<std::uint8_t>{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
-}
-
-std::string busAddress(std::uint32_t at) {
-    char text[12];
-    std::snprintf(text, sizeof text, "$%02X:%04X", (at >> 16) & 0xFF, at & 0xFFFF);
-    return text;
 }
 
 // --- the trace, in a window -------------------------------------------------------------------
@@ -140,58 +104,19 @@ int runTrace(std::span<const std::uint8_t> image, const std::filesystem::path& d
     machine.video(true);
 
     std::uint64_t frame = 0;
-    int           open  = 0;  // spans open: accesses are logged while one is
 
-    const auto note = [&](const std::string& line) {
-        log << line << '\n';
-        log.flush();
-        std::printf("%s\n", line.c_str());
-        std::fflush(stdout);
-    };
-
-    // The escapes fire on the thread that steps the machine — the tick below — so they log directly.
-    EscapeMap escapes;
-    for (const Traced& routine : kTraced) {
-        escapes.declarations.push_back(GuestEscape{
-            .key     = std::string{routine.name} + " entry",
-            .at      = routine.entry,
-            .handler = [&, routine](Vm&, std::uint32_t at) {
-                ++open;
-                note("f" + std::to_string(frame) + " enter " + routine.name + " " + busAddress(at));
-            }});
-        escapes.declarations.push_back(GuestEscape{
-            .key     = std::string{routine.name} + " return",
-            .at      = routine.returnSite,
-            .handler = [&, routine](Vm&, std::uint32_t at) {
-                if (open > 0) {
-                    --open;
-                }
-                note("f" + std::to_string(frame) + " return " + routine.name + " " + busAddress(at));
-            }});
-    }
-    machine.registerEscapes(escapes);
-
-    // A watch names the address the access drove; a direct-page access drives $00:00xx, and the
-    // same byte of work RAM is logged under its $7E address so every line names one cell one way.
-    const auto access = [&](char how) {
-        return [&, how](Vm&, std::uint32_t at, std::uint8_t value) {
-            if (open > 0) {
-                char line[48];
-                std::snprintf(line, sizeof line, "f%llu %c $7E:%04X %02X", static_cast<unsigned long long>(frame),
-                              how, at & 0xFFFF, value);
-                log << line << '\n';
+    // The trace's lines go to the log; each call's entry and return is also printed.
+    const trace::DamageTrace traced{
+        machine,
+        [&](const std::string& line) {
+            log << line << '\n';
+            if (line.find(" enter ") != std::string::npos || line.find(" return ") != std::string::npos) {
+                log.flush();
+                std::printf("%s\n", line.c_str());
+                std::fflush(stdout);
             }
-            return AccessVerdict::proceed();
-        };
-    };
-    WatchMap watches;
-    for (const Watched& range : kWatched) {
-        watches.declarations.push_back(GuestWatch{.key     = range.key,
-                                                  .at      = MemoryRegion{.at = range.at, .size = range.size},
-                                                  .onRead  = access('r'),
-                                                  .onWrite = access('w')});
-    }
-    machine.registerWatches(watches);
+        },
+        [&] { return frame; }};
 
     ActionMap controls{
         {snes::Button::A,      {SDL_SCANCODE_X, PadButton::FaceLabelA}},
@@ -233,7 +158,9 @@ int runTrace(std::span<const std::uint8_t> image, const std::filesystem::path& d
     std::fflush(stdout);
 
     loop.exitAction([&] {
-        note("window closed at frame " + std::to_string(frame));
+        log << "window closed at frame " << frame << '\n';
+        log.flush();
+        std::printf("window closed at frame %llu\n", static_cast<unsigned long long>(frame));
         return ExitVerdict::Proceed;
     });
 
@@ -307,6 +234,50 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
     return mismatches == 0 ? 0 : 1;
 }
 
+// --- the replay, with no window --------------------------------------------------------------
+
+int runReplay(std::span<const std::uint8_t> image, const std::filesystem::path& directory) {
+    std::ifstream recorded{directory / "damage-trace.log"};
+    if (!recorded) {
+        std::fprintf(stderr, "%s could not be read\n", (directory / "damage-trace.log").string().c_str());
+        return 1;
+    }
+    const std::vector<trace::TracedCall> calls = trace::parseTrace(recorded);
+    std::ofstream log{directory / "replay.log"};
+    trace::DamageOracle oracle{image};
+    int parted = 0;
+
+    trace::TickClock clock{TimingProfile::Snes.tickPeriod()};
+    RunLoop loop{clock, TimingProfile::Snes};
+    bool done = false;
+    loop.simTick([&](const InputState&) {
+        if (done) {
+            return;
+        }
+        done = true;
+        oracle.start();
+        for (const trace::TracedCall& call : calls) {
+            const std::string differences = oracle.replay(call);
+            log << "f" << call.frame << ' ' << call.routine << (differences.empty() ? " agrees\n" : " PARTS\n")
+                << differences;
+            if (!differences.empty()) {
+                ++parted;
+                std::printf("frame %llu, %s:\n%s", static_cast<unsigned long long>(call.frame), call.routine.c_str(),
+                            differences.c_str());
+            }
+        }
+        loop.exitRequest();
+    });
+    loop.renderLoop([] {});
+    loop.exitAction([&] {
+        std::printf("%zu calls replayed, %d differing from the cartridge; %s\n", calls.size(), parted,
+                    (directory / "replay.log").string().c_str());
+        return ExitVerdict::Proceed;
+    });
+    loop.run();
+    return parted == 0 ? 0 : 1;
+}
+
 std::optional<std::uint64_t> parseCount(std::string_view arg) {
     std::uint64_t count = 0;
     const auto [end, error] = std::from_chars(arg.data(), arg.data() + arg.size(), count);
@@ -321,16 +292,20 @@ std::optional<std::uint64_t> parseCount(std::string_view arg) {
 int main(int argc, char** argv) {
     constexpr const char* kUsage =
         "usage: ostinato-damage-trace <rom> <directory> [--quit-after-frames <n>]\n"
-        "       ostinato-damage-trace <rom> <directory> --check <draws>\n";
+        "       ostinato-damage-trace <rom> <directory> --check <draws>\n"
+        "       ostinato-damage-trace <rom> <directory> --replay\n";
     if (argc < 3) {
         std::fprintf(stderr, "%s", kUsage);
         return 2;
     }
     std::optional<std::uint64_t> quitAfterFrames;
     std::optional<std::uint64_t> draws;
+    bool replay = false;
     for (int i = 3; i < argc; ++i) {
         const std::string_view flag{argv[i]};
-        if (flag == "--quit-after-frames" && i + 1 < argc) {
+        if (flag == "--replay") {
+            replay = true;
+        } else if (flag == "--quit-after-frames" && i + 1 < argc) {
             quitAfterFrames = parseCount(argv[++i]);
             if (!quitAfterFrames) {
                 std::fprintf(stderr, "--quit-after-frames takes a number of frames\n%s", kUsage);
@@ -358,6 +333,9 @@ int main(int argc, char** argv) {
     std::filesystem::create_directories(directory, ec);
     const std::span<const std::uint8_t> image = assets::stripCopierHeader(rom);
 
+    if (replay) {
+        return runReplay(image, directory);
+    }
     if (draws) {
         return runCheck(image, directory, static_cast<int>(*draws));
     }

@@ -147,7 +147,8 @@ struct AttackScratch {
     bool quietMisses = false;                  // a miss shows nothing, and no hit shows nothing
     bool hideWithoutTargets = false;           // an attack aimed at no one shows nothing
     bool aimExactly = false;                   // the next aim keeps the targets exactly as given
-    std::optional<int> extraHits;              // Launcher or Super Ball: the hits still to come
+    // Launcher or Super Ball: the hits still to come, made by resolveReflectedAttack().
+    std::optional<int> extraHits;
 
     int attacksLeft = 0;                       // attacks still to run after this one
     int targetCount = 0;                       // the targets this attack was aimed at
@@ -227,10 +228,13 @@ inline constexpr BattleCommandId kRouletteCommand = static_cast<BattleCommandId>
 //   controlMenu       a controlled monster acted: its controller's menu is redrawn
 //   statusEffect      the statuses the attack puts on or takes off a target
 //   targetEffect      the special effect on a target; true if the effect missed it
-//   targetDamage      the damage to one target
+//   targetDamage      the damage to one target, into attack.scratch.ledger
 //   applyDamage       every target's damage is taken and shown
-//   reflectedAttack   a spell bounced off Reflect goes on to its new targets
 //   applyPendingStatuses  the statuses set and cleared by the attack take effect
+//
+// A spell that bounced off Reflect calls statusEffect, targetEffect, targetDamage and applyDamage
+// again for its new targets (resolveReflectedAttack()). The battle's own hooks are BattleHooks
+// (battle/battle_hooks.h).
 class AttackHooks {
 public:
     virtual ~AttackHooks() = default;
@@ -243,9 +247,9 @@ public:
     virtual bool targetEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {
         return false;
     }
-    virtual void targetDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {}
-    virtual void applyDamage(BattleState&, AttackInFlight&, BattleScriptBuilder&) {}
-    virtual void reflectedAttack(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattleScriptBuilder&) {}
+    virtual void targetDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/,
+                              BattleScriptBuilder&) {}
+    virtual void applyDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattleScriptBuilder&) {}
     virtual void applyPendingStatuses(BattleState&) {}
 };
 
@@ -279,6 +283,20 @@ void runSelfAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
 // critical hit, and work out its effect on every target hit.
 void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
                    BattlerSlot attacker);
+
+// The spell after resolveAttack() for the battlers in attack.params.reflectedOff: a spell that
+// bounced off their Reflect goes on to new targets, or a Launcher or Super Ball
+// (AttackScratch::extraHits) makes its hits. Shown as ReflectedAttackShown or ScatteredHitsShown.
+//
+// The damage is halved. Each battler it bounced off, last slot first, aims the spell at a random
+// target on the other side from itself — for a spell aimed at the other side only, on half the
+// draws back at `attacker` when `attacker` is among those targets. For a Launcher or Super Ball the
+// attacker aims each hit at random, as any random-target attack, until the hits run out or no
+// target is left. The spell is checked against that target and, when it hits, worked out through
+// `hooks` with the battler it bounced off as its attacker; then every target's damage is taken and
+// shown, with `attacker` as the attacker who made it.
+void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script,
+                            AttackInFlight& attack, BattlerSlot attacker);
 
 // Whether an attack reaches one target, and what the player sees if it does not.
 struct HitResult {

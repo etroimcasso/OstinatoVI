@@ -271,8 +271,9 @@ current one, and a weapon's spell adds one. Each attack:
    not casting Imp, shows only the maker going back to standing and does nothing else.
 9. Runic, Air Anchor, the base damage (`AttackHooks::baseDamage`), and the attack itself
    (`resolveAttack`).
-10. A spell, not a blow, that bounced off anyone goes on to its new targets
-    (`AttackHooks::reflectedAttack`). The targets become the attack's current ones; the statuses
+10. A spell, not a blow, that bounced off anyone goes on to its new targets (`CalcReflectDmg
+    :8377-8456`, the frame's own `resolveReflectedAttack()`; `docs/contracts/battle_damage.md` § The
+    reflected attack). The targets become the attack's current ones; the statuses
     set and cleared take effect (`AttackHooks::applyPendingStatuses`); the weapon's spell is cast one
     time in four (`CheckWeaponMagic`), not between the landings of a continuous jump.
 11. A battle message set by the attack is shown; a monster's attack whose record asks shows the
@@ -338,7 +339,8 @@ answer itself, ready only when the attack affects MP — the carry from the reco
     kills its attacker sets it to die; a controlled monster's controller has its menu redrawn
     (`AttackHooks::controlMenu`).
 12. **Each target hit**, last slot first (`:8344-8364`): one more step for a target hit in the back
-    — cumulative, so it counts for every target after it too; the target records the hit; a target
+    — added to the steps the damage to that target uses up, so it goes on to the next target only when
+    that target's damage leaves it (`docs/contracts/battle_damage.md`); the target records the hit; a target
     Zinger holds is skipped; the statuses (`AttackHooks::statusEffect`) and the special effect
     (`AttackHooks::targetEffect`) on it; a target the effect missed is no longer hit, the rest take
     their damage (`AttackHooks::targetDamage`).

@@ -21,7 +21,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/commands.h` | `runCommand()`, the bodies' loaders — `initAttacker()`, `attackerLevel()`, `loadWeaponAttack()`, `plainCommandAttack()`, `fightAttack()`, `setRage()` — and `commandForAttack()`, `isSpear()`, `itemStatuses()`, `kBattleEventTerraMagicScene`, `kTimeUpdatesBeforeDesperation` |
 | `src/battle/item_attack.h` | `itemAttack()`, `ItemUse` |
 | `src/battle/command_menu.h` | `refreshCommandMenu()`, `kMorphSupplyToMorph`, `kOfferingTargeting` |
-| `src/battle/attack.h` | `AttackInFlight`, `AttackScratch`, `SketchDrawn`, `AimingRules`, `SpecialEffect`, `CommandEffect`, `AttackNameKind`, `AttackHooks`, `startAttack()`, `loadAttackRecord()`, `rememberTargets()`, `runAttack()`, `runSelfAttack()`, `resolveAttack()`, `checkHit()`, `HitResult`, `hitInTheBack()`, `recordLastHit()` |
+| `src/battle/attack.h` | `AttackInFlight`, `AttackScratch`, `SketchDrawn`, `AimingRules`, `SpecialEffect`, `CommandEffect`, `AttackNameKind`, `AttackHooks`, `startAttack()`, `loadAttackRecord()`, `rememberTargets()`, `runAttack()`, `runSelfAttack()`, `resolveAttack()`, `resolveReflectedAttack()`, `checkHit()`, `HitResult`, `hitInTheBack()`, `recordLastHit()` |
 | `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `MonsterAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
 | `src/battle/battle_inventory.h` | `putAwayItemsObtained()` ([below](#items-obtained)) |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
@@ -311,7 +311,12 @@ On the way an attack can:
 - **be a critical hit** — one blow in 32 aimed at the other side, an automatic critical, or an Imp
   with the Imp critical flag; two damage steps and the screen flash;
 - **cast the weapon's spell** — one time in four, as one more attack after the hit;
-- **be learned** — Strago learns a learnable lore he sees used.
+- **be learned** — Strago learns a learnable lore he sees used;
+- **bounce** — a spell that bounced off anyone's Reflect goes on, halved, from each of them to a
+  random target on the other side (`resolveReflectedAttack()`); a Launcher's or Super Ball's hits
+  (`scratch.extraHits`) are made the same way. Each bounce is checked and worked out through the
+  hooks with the battler it bounced off as its attacker, and shown as `ReflectedAttackShown` or
+  `ScatteredHitsShown` ([damage.md](damage.md#a-spell-bounced-off-reflect)).
 
 `rememberTargets()` notes each attack's targets as the command's current ones and adds them to its
 earlier targets. While an attack is aimed at random (`scratch.randomizeTargets`), it takes the
@@ -344,21 +349,22 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | `controlMenu` | after a controlled monster attacks, for its controller |
 | `statusEffect` | for each target hit |
 | `targetEffect` | for each target hit, after `statusEffect`; return `true` if the effect missed it. Sketch's effect sets `attack.scratch.sketch` when it catches |
-| `targetDamage` | for each target hit that the effect did not miss |
-| `applyDamage` | once, after every target; write the damage numbers into the script |
-| `reflectedAttack` | after a spell bounced off anyone |
+| `targetDamage` | for each target hit that the effect did not miss; add to `attack.scratch.ledger`. Given the script, for an animation the damage rewrites |
+| `applyDamage` | once, after every target; take the ledger from the battlers and write the damage numbers into the script. Given the battler who made the attack |
 | `applyPendingStatuses` | after each attack |
 
-`baseDamage`, `scaleDamage` and `targetDamage` are the formulas in [damage.md](damage.md):
-`battle::baseDamage()`, `battle::scaleDamage()` and `battle::targetDamage()`, which a hooks class
-calls from those members. `battle::targetDamage()` also takes the battle script, for the Atma
-Weapon's beam, which the `targetDamage` member is not given.
+A spell that bounced off anyone's Reflect calls `statusEffect`, `targetEffect`, `targetDamage` and
+`applyDamage` again for its new targets, from `resolveReflectedAttack()`.
+
+The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`): `baseDamage`,
+`scaleDamage`, `targetDamage` and `applyDamage` are one call each into the formulas in
+[damage.md](damage.md), and the status and special-effect members are still `AttackHooks`' own. A
+class that needs one more part overrides it on top of `BattleHooks`:
 
 ```cpp
-struct TenEach : AttackHooks {
-    void targetDamage(BattleState& state, AttackInFlight&, BattlerSlot, BattlerSlot target) override {
-        Battler& hit = state.at(target);
-        hit.hp = hit.hp > 10 ? hit.hp - 10 : 0;
+struct StatusesTakeEffect : BattleHooks {
+    void applyPendingStatuses(BattleState& state) override {
+        for (Battler& battler : state.battlers) { /* put on statusesToSet, take off statusesToClear */ }
     }
 };
 ```
@@ -394,6 +400,8 @@ The commands:
 | `MonstersEnterOrLeave` | monsters coming back by an entrance type, or else leaving by it |
 | `MonsterAnimationPlays` | a monster animation, or a sound effect with its pan |
 | `DamageNumbersShown` | damage numerals over the battlers an attack reached — an amount, or "Miss", green for healing — every one at once with the script waiting (`DamageNumberWait::UntilGone`) or one at a time with the script going on (`CarryOn`) |
+| `ReflectedAttackShown` | a spell bouncing on from the battlers it bounced off: by each one's slot, the battler it went on to; the bounces that hit; the party's blocks |
+| `ScatteredHitsShown` | a Launcher's or Super Ball's hits flying from the attacker, one target per hit, missed hits included |
 | `ReadyStance`, `StepBack` | written by the battle core |
 
 How long each command takes on screen is [presentation.md](presentation.md).
@@ -410,8 +418,9 @@ An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) s
 - **Every miss turns criticals off.** A miss on one target takes away the critical hit and the
   weapon's spell for the rest of the attack, so the order targets are checked in matters: last slot
   first.
-- **Hit-in-the-back steps add up.** Each target hit in the back raises `attack.multiplier` for itself
-  and every target after it ([`docs/Bugs.md`](../../Bugs.md)).
+- **Hit-in-the-back steps add up until they are used.** Each target hit in the back raises
+  `attack.multiplier`; the damage to that target uses the steps up, so a step goes on to the next
+  target only when that target's damage leaves it ([`docs/Bugs.md`](../../Bugs.md)).
 - **Blows are evaded by Magic Block.** `checkHit()` reads `magicBlockFactor` for every attack, and
   Blind changes nothing ([`docs/Bugs.md`](../../Bugs.md)).
 - **The Golem and Interceptor make a hit.** When one of them steps in, the target counts as hit and

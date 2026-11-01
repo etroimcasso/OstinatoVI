@@ -3,9 +3,10 @@
 //
 // Nobody drives it. Each formation is started as a battle and fought to its end: a scripted player
 // answers every battle menu with Fight at the first monster still standing and confirms a message
-// that waits for a key once it has been up for the message time; every hit takes a fixed amount of
-// HP (preview_damage.h). In a window the battles play one after another with a second's pause
-// between them and the window closes itself after the last. With --capture nothing opens: for each
+// that waits for a key once it has been up for the message time; the damage is the battle's own,
+// with the statuses it sets taking effect after each attack (preview_hooks.h). In a window the
+// battles play one after another with a second's pause between them and the window closes itself
+// after the last. With --capture nothing opens: for each
 // formation the moments worth checking are written to <dir> as battle-<formation>-<moment>.ppm —
 // `scene` (the battle's first frame), `name` and `message` (the first name and the first message
 // once their text is all up), `hit` (the first numeral at the top of its bounce), `hp` (the first
@@ -84,7 +85,7 @@
 #include "ostinato/ostinato.h"
 #include "ostinato/window_tile.h"
 #include "ostinato/wallpaper_id.h"
-#include "preview_damage.h"
+#include "preview_hooks.h"
 #include "render/battle/layout.h"
 #include "render/screen_border.h"
 #include "scripted_player.h"
@@ -168,10 +169,10 @@ game::Party partyOf(std::span<const CharacterPropId> actors, const TextCorpus& t
     return party;
 }
 
-// One battle being fought, frame by frame: the battle, its presentation, the stand-in damage and the
-// scripted player.
+// One battle being fought, frame by frame: the battle, its presentation, the hooks and the scripted
+// player.
 struct Fight {
-    preview::PreviewDamage hooks;
+    preview::PendingStatusesStandIn hooks;
     battle::CommandExecutor executor;
     battle::BattleSim sim;
     battle::BattlePresentationState shown;

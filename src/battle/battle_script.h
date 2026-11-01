@@ -264,11 +264,32 @@ struct DamageNumbersShown {
     DamageNumberWait wait = DamageNumberWait::UntilGone;
 };
 
+// A spell that bounced off Reflect goes on: from each battler it bounced off to the battler it went
+// on to, with the spell's own animation.
+struct ReflectedAttackShown {
+    AttackId attack{};
+    // By the slot of the battler it bounced off: the battler the spell went on to. Empty for a
+    // battler it did not bounce off, or that found no one to send it to.
+    std::array<std::optional<BattlerSlot>, kBattlerSlots> bouncedTo{};
+    // The battlers it bounced off whose bounce hit.
+    BattlerSet bouncesThatHit;
+    // Per party slot, what a party member the spell went on to showed when it blocked.
+    std::array<BlockShown, kPartySlots> blocks{};
+};
+
+// A Launcher's or Super Ball's hits fly from the attacker to each of their targets, with the
+// attack's own animation.
+struct ScatteredHitsShown {
+    AttackId attack{};
+    BattlerSlot attacker = BattlerSlot::character(0);
+    std::vector<BattlerSlot> targets;  // one per hit, the first hit's first, hit or missed
+};
+
 using BattleScriptCommand =
     std::variant<ReadyStance, StepBack, FormationChanges, AttackAnimation, AttackNameShown, BushidoNameShown,
                  ItemNameShown, EsperNameShown, CommandNameShown, MonsterSpecialAttackNameShown, BattleMessage,
                  PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays,
-                 DamageNumbersShown>;
+                 DamageNumbersShown, ReflectedAttackShown, ScatteredHitsShown>;
 
 // Builds one action's battle script.
 class BattleScriptBuilder {

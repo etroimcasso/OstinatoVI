@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cstddef>
 #include <optional>
+#include <utility>
+#include <vector>
 
 #include "ostinato/attack_flags.h"
 #include "ostinato/battle_command_id.h"
@@ -211,6 +213,69 @@ void addToLedger(DamageLedger& ledger, BattlerSlot slot, int amount, bool heals)
     entry = static_cast<std::uint16_t>(std::min(entry.value_or(0) + amount, kDamageCap));
 }
 
+// --- taking the damage -------------------------------------------------------------------------
+
+// A battler brought to 0 HP, or to 0 MP when it dies of that: its HP is 0, the weapon's spell is
+// not cast, and unless it is a Zombie it is set to die.
+void broughtDown(Battler& battler, AttackInFlight& attack) {
+    battler.hp = 0;
+    attack.scratch.weaponSpellcast = {};
+    if (!battler.status.has(StatusId::ZOMBIE)) {
+        battler.statusesToSet.set(StatusId::DEAD);
+    }
+}
+
+// The battler's ledger entries taken from its HP or MP. True when it lost anything.
+bool takeEntries(BattleState& state, AttackInFlight& attack, BattlerSlot slot) {
+    std::optional<std::uint16_t>& taken = attack.scratch.ledger.taken[at(slot)];
+    if (taken && state.invincible.has(slot)) {
+        taken = 0;
+    }
+    int loss = taken.value_or(0);
+    if (attack.scratch.golemBlocked || attack.scratch.interceptorBlocked) {
+        loss = 0;
+    }
+    const int net = attack.scratch.ledger.healed[at(slot)].value_or(0) - loss;
+    if (net == 0) {
+        return false;
+    }
+
+    Battler& battler = state.at(slot);
+    const bool mp = attack.record.flags1.has(AttackFlag1::AFFECT_MP);
+    std::uint16_t& pool = mp ? battler.mp : battler.hp;
+    const int most = mp ? battler.maxMp : battler.maxHp;
+    if (mp) {
+        battler.pendingUpdates.enabledMagic = true;
+    }
+    if (net > 0) {
+        pool = static_cast<std::uint16_t>(std::min(pool + net, most));
+        return false;
+    }
+    if (pool > -net) {
+        pool = static_cast<std::uint16_t>(pool + net);
+        return true;
+    }
+    pool = 0;
+    if (!mp || battler.diesAtZeroMp) {
+        broughtDown(battler, attack);
+    }
+    return true;
+}
+
+// One battler's numeral as the script shows it.
+DamageNumber numeral(BattlerSlot slot, std::uint16_t amount, bool heals) {
+    return DamageNumber{.target = slot, .amount = amount, .heals = heals};
+}
+
+void show(BattleScriptBuilder& script, std::vector<DamageNumber> numbers) {
+    if (numbers.empty()) {
+        return;
+    }
+    const DamageNumberWait wait =
+        numbers.size() >= kNumeralsShownTogether ? DamageNumberWait::UntilGone : DamageNumberWait::CarryOn;
+    script.add(DamageNumbersShown{.numbers = std::move(numbers), .wait = wait});
+}
+
 }  // namespace
 
 std::uint16_t magicDamage(std::uint8_t power, std::uint8_t magicStat, std::uint8_t level) {
@@ -365,6 +430,48 @@ void targetDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attack
         addToLedger(attack.scratch.ledger, attacker, damage, !heals);
     }
     addToLedger(attack.scratch.ledger, target, damage, heals);
+}
+
+void applyDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattleScriptBuilder& script) {
+    DamageLedger& ledger = attack.scratch.ledger;
+    std::vector<DamageNumber> shown;
+    std::vector<DamageNumber> gainsShownAfter;
+    for (int index = kBattlerSlots - 1; index >= 0; --index) {
+        const BattlerSlot slot = BattlerSlot::fromIndex(index);
+        std::optional<std::uint16_t>& taken = ledger.taken[at(slot)];
+        const std::optional<std::uint16_t>& healed = ledger.healed[at(slot)];
+        if (!taken && !healed) {
+            if (attack.scratch.missed.has(slot)) {
+                shown.push_back(DamageNumber{.target = slot, .miss = true});
+            }
+            continue;
+        }
+        attack.scratch.missed.remove(slot);
+        if (takeEntries(state, attack, slot)) {
+            Battler& battler = state.at(slot);
+            markAttackedBy(battler, attacker, true);
+            if (attacker != slot) {
+                battler.lastDamagedBy = attacker;
+                if (slot.isCharacter()) {
+                    state.scratch.blackBeltEligible.add(slot);
+                }
+            }
+        }
+        if (attack.scratch.golemBlocked == slot && taken) {
+            state.golemHp = static_cast<std::uint16_t>(std::max(0, state.golemHp - *taken));
+        }
+        if (taken) {
+            shown.push_back(numeral(slot, *taken, false));
+            if (healed) {
+                gainsShownAfter.push_back(numeral(slot, *healed, true));
+            }
+        } else {
+            shown.push_back(numeral(slot, *healed, true));
+        }
+    }
+    show(script, std::move(shown));
+    show(script, std::move(gainsShownAfter));
+    ledger = {};
 }
 
 }  // namespace ostinato::battle
