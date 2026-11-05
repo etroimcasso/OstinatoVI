@@ -25,6 +25,7 @@
 #include "battle/battle_hooks.h"
 #include "battle/battle_script.h"
 #include "battle/damage.h"
+#include "battle/status.h"
 #include "data/attack_properties.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
@@ -46,6 +47,8 @@ constexpr std::uint32_t kApplyDmgMult = 0xC2370B;
 constexpr std::uint32_t kCalcTargetDmg = 0xC20B83;
 constexpr std::uint32_t kApplyAndShowDmg = 0xC262EF;
 constexpr std::uint32_t kCalcReflectDmg = 0xC23483;
+constexpr std::uint32_t kUpdateStatus = 0xC24391;
+constexpr std::uint32_t kMagicStatusEffect = 0xC24406;
 
 // `Reset` (field/reset.asm), where the reset vector's `jml` lands after `clc; xce`
 // (field/header.asm): the first instruction the game runs in native mode.
@@ -66,7 +69,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 7> kOpenings{{
+constexpr std::array<RoutineOpening, 9> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -74,6 +77,8 @@ constexpr std::array<RoutineOpening, 7> kOpenings{{
     {"CalcTargetDmg", kCalcTargetDmg, {0x08, 0xE2, 0x20, 0xAD}, 4},  // php; sep #$20; lda $11a6
     {"the apply-and-show routine", kApplyAndShowDmg, {0xDA, 0x5A, 0x64, 0xF0}, 4},  // phx; phy; stz $f0
     {"CalcReflectDmg", kCalcReflectDmg, {0xDA, 0x48, 0x20, 0x00}, 3},                // phx; pha; jsr
+    {"UpdateStatus", kUpdateStatus, {0xDA, 0x08, 0xC2, 0x20}, 4},                    // phx; php; rep #$20
+    {"MagicStatusEffect", kMagicStatusEffect, {0x08, 0xC2, 0x20, 0xB9}, 4},          // php; rep #$20; lda $3ee4,y
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
@@ -321,6 +326,13 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
          .isa = retropp::Isa::Wdc65816});
     calcTargetDmg_ = machine_.bindRoutine<TargetCall>(
         kCalcTargetDmg,
+        {.inputs = {retropp::snes::X, retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+         .isa = retropp::Isa::Wdc65816});
+    updateStatus_ = machine_.bindRoutine<PassCall>(
+        kUpdateStatus,
+        {.inputs = {retropp::snes::P, retropp::snes::DB, retropp::snes::D}, .isa = retropp::Isa::Wdc65816});
+    magicStatusEffect_ = machine_.bindRoutine<TargetCall>(
+        kMagicStatusEffect,
         {.inputs = {retropp::snes::X, retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
          .isa = retropp::Isa::Wdc65816});
 }
@@ -1962,6 +1974,348 @@ std::string DamageOracle::replay(const TracedCall& call) {
     writeByte(kNumeralBufferCount, buffers);
     overlayWrites(0);
     return differences(port, readApplyResult(queueEnd / kQueueCommandSize, buffers));
+}
+
+
+// --- the statuses -----------------------------------------------------------------------------------
+
+namespace {
+
+// Per battler, at twice the battler's index: the statuses it can be given, its flags, its triggers,
+// its four status timers and the statuses it is to have for a counterattack. A party member's
+// equipment flag is one byte per party slot.
+constexpr std::uint32_t kInflictable12 = kWorkRam + 0x331C;
+constexpr std::uint32_t kInflictable34 = kWorkRam + 0x3330;
+constexpr std::uint32_t kTriggers = kWorkRam + 0x3E4C;      // the first byte: bit 0 Retort
+constexpr std::uint32_t kMoreTriggers = kWorkRam + 0x3E4D;  // bit 1 Overcast, bit 6 Phantasm
+constexpr std::uint32_t kSleepTimer = kWorkRam + 0x3CF9;
+constexpr std::uint32_t kStopTimer = kWorkRam + 0x3AF1;
+constexpr std::uint32_t kReflectTimer = kWorkRam + 0x3F0C;
+constexpr std::uint32_t kFreezeTimer = kWorkRam + 0x3F0D;
+constexpr std::uint32_t kForCounter12 = kWorkRam + 0x3E60;
+constexpr std::uint32_t kForCounter34 = kWorkRam + 0x3E74;
+constexpr std::uint32_t kEquipmentChanged = kWorkRam + 0x2F30;
+// The battle's own: the monsters standing and fallen (a byte of monster bits each), the battlers that
+// died this action, the party members whose statuses changed, and the effect's misses.
+constexpr std::uint32_t kMonstersStanding = kWorkRam + 0x2F2F;
+constexpr std::uint32_t kMonstersFallen = kWorkRam + 0x3A3A;
+constexpr std::uint32_t kDiedThisAction = kWorkRam + 0x3A56;
+constexpr std::uint32_t kStatusChanged = kWorkRam + 0x3A4A;
+constexpr std::uint32_t kMissedByEffect = kWorkRam + 0x3A48;
+
+constexpr std::uint8_t kPresentBit = 0x01;
+constexpr std::uint8_t kMenuMayOpenBit = 0x80;
+constexpr std::uint8_t kEmptyGaugeBit = 0x40;
+constexpr std::uint8_t kRetortBit = 0x01;
+constexpr std::uint8_t kOvercastBit = 0x02;
+constexpr std::uint8_t kPhantasmBit = 0x40;
+
+// What is to be worked out again, as the cartridge's byte holds it.
+std::uint8_t pendingByte(const battle::PendingUpdates& pending) {
+    std::uint8_t bits = 0;
+    bits |= pending.enabledMagic ? 0x80 : 0;
+    bits |= pending.removeAllActions ? 0x40 : 0;
+    bits |= pending.startCondemned ? 0x20 : 0;
+    bits |= pending.stopCondemned ? 0x10 : 0;
+    bits |= pending.commandList ? 0x08 : 0;
+    bits |= pending.speed ? 0x04 : 0;
+    bits |= pending.morph ? 0x02 : 0;
+    bits |= pending.leaveTheField ? 0x01 : 0;
+    return bits;
+}
+
+std::string statusesText(const StatusSet& set) {
+    return std::to_string(set.bytes[0]) + "/" + std::to_string(set.bytes[1]) + "/" + std::to_string(set.bytes[2]) +
+           "/" + std::to_string(set.bytes[3]);
+}
+
+}  // namespace
+
+void DamageOracle::writeStatusCells(const DamageScenario& scenario) {
+    const battle::BattleState& state = scenario.state;
+    writeByte(kMonstersStanding, state.monstersStanding.monsters.bits);
+    writeByte(kMonstersFallen, state.monstersFallen.monsters.bits);
+    writeWord(kDiedThisAction, maskOf(state.diedAwaitingCounter));
+    writeWord(kStatusChanged, maskOf(state.statusChanged));
+    writeWord(kMissed, maskOf(scenario.attack.scratch.missed));
+    writeWord(kMissedByEffect, 0);
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        writeWord(kBattlerBit + at, maskOf(battle::BattlerSet::of(slot)));
+        writeByte(kInflictable12 + at, battler.inflictableStatuses.bytes[0]);
+        writeByte(kInflictable12 + at + 1, battler.inflictableStatuses.bytes[1]);
+        writeByte(kInflictable34 + at, battler.inflictableStatuses.bytes[2]);
+        writeByte(kInflictable34 + at + 1, battler.inflictableStatuses.bytes[3]);
+        std::uint8_t flags = battler.present ? kPresentBit : 0;
+        flags |= battler.menuMayOpen ? kMenuMayOpenBit : 0;
+        writeByte(kOnTheField + at, flags);
+        std::uint8_t stance = 0;
+        stance |= battler.defending ? kDefendingBit : 0;
+        stance |= battler.backRow ? kBackRowBit : 0;
+        stance |= battler.instantDeathProtected ? kInstantDeathProtectedBit : 0;
+        stance |= battler.emptyGaugeAfterAction ? kEmptyGaugeBit : 0;
+        writeByte(kStance + at, stance);
+        writeByte(kToUpdate + at, pendingByte(battler.pendingUpdates));
+        writeByte(kTriggers + at, battler.triggers.retort ? kRetortBit : 0);
+        std::uint8_t triggers = battler.triggers.overcast ? kOvercastBit : 0;
+        triggers |= battler.triggers.phantasm ? kPhantasmBit : 0;
+        writeByte(kMoreTriggers + at, triggers);
+        writeByte(kSleepTimer + at, battler.sleepTimer);
+        writeByte(kStopTimer + at, battler.stopTimer);
+        writeByte(kReflectTimer + at, battler.reflectTimer);
+        writeByte(kFreezeTimer + at, battler.freezeTimer);
+        writeByte(kForCounter12 + at, battler.statusForCounter.bytes[0]);
+        writeByte(kForCounter12 + at + 1, battler.statusForCounter.bytes[1]);
+        writeByte(kForCounter34 + at, battler.statusForCounter.bytes[2]);
+        writeByte(kForCounter34 + at + 1, battler.statusForCounter.bytes[3]);
+        if (slot.isCharacter()) {
+            writeByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position()), battler.equipmentChanged ? 1 : 0);
+        }
+    }
+}
+
+StatusChangesResult DamageOracle::statusChanges(const DamageScenario& scenario) {
+    writeScenario(scenario);
+    writeTargetCells(scenario);
+    writeStatusCells(scenario);
+    call([&] { updateStatus_(kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readStatusChangesResult();
+}
+
+StatusChangesResult DamageOracle::readStatusChangesResult() {
+    StatusChangesResult result;
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        const auto readStatuses = [&](std::uint32_t first12, std::uint32_t first34) {
+            return StatusSet{{readByte(first12 + at), readByte(first12 + at + 1), readByte(first34 + at),
+                              readByte(first34 + at + 1)}};
+        };
+        result.status[i] = readStatuses(kStatus12, kStatus34);
+        result.statusesToSet[i] = readStatuses(kToSet12, kToSet34);
+        result.statusesToClear[i] = readStatuses(kToClear12, kToClear34);
+        result.statusForCounter[i] = readStatuses(kForCounter12, kForCounter34);
+        result.pendingUpdates[i] = readByte(kToUpdate + at);
+        result.menuMayOpen[i] = (readByte(kOnTheField + at) & kMenuMayOpenBit) != 0;
+        result.emptyGaugeAfterAction[i] = (readByte(kStance + at) & kEmptyGaugeBit) != 0;
+        result.phantasm[i] = (readByte(kMoreTriggers + at) & kPhantasmBit) != 0;
+        if (slot.isCharacter()) {
+            result.equipmentChanged[i] = readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())) != 0;
+        }
+        result.sleepTimer[i] = readByte(kSleepTimer + at);
+        result.stopTimer[i] = readByte(kStopTimer + at);
+        result.reflectTimer[i] = readByte(kReflectTimer + at);
+        result.freezeTimer[i] = readByte(kFreezeTimer + at);
+    }
+    result.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
+    result.statusChanged = setOf(readWord(kStatusChanged));
+    result.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));
+    result.monstersFallen.monsters = BattleSlotMask(readByte(kMonstersFallen));
+    return result;
+}
+
+StatusChangesResult portStatusChanges(DamageScenario scenario) {
+    battle::applyStatusChanges(scenario.state);
+    const battle::BattleState& state = scenario.state;
+    StatusChangesResult result;
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        result.status[i] = battler.status;
+        result.statusesToSet[i] = battler.statusesToSet;
+        result.statusesToClear[i] = battler.statusesToClear;
+        result.statusForCounter[i] = battler.statusForCounter;
+        result.pendingUpdates[i] = pendingByte(battler.pendingUpdates);
+        result.menuMayOpen[i] = battler.menuMayOpen;
+        result.emptyGaugeAfterAction[i] = battler.emptyGaugeAfterAction;
+        result.phantasm[i] = battler.triggers.phantasm;
+        result.equipmentChanged[i] = battle::BattlerSlot::fromIndex(static_cast<int>(i)).isCharacter() &&
+                                     battler.equipmentChanged;
+        result.sleepTimer[i] = battler.sleepTimer;
+        result.stopTimer[i] = battler.stopTimer;
+        result.reflectTimer[i] = battler.reflectTimer;
+        result.freezeTimer[i] = battler.freezeTimer;
+    }
+    result.diedAwaitingCounter = state.diedAwaitingCounter;
+    result.statusChanged = state.statusChanged;
+    result.monstersStanding = state.monstersStanding.monstersOnly();
+    result.monstersFallen = state.monstersFallen.monstersOnly();
+    return result;
+}
+
+std::string differences(const StatusChangesResult& port, const StatusChangesResult& guest) {
+    std::string out;
+    const auto note = [&](const std::string& cell, const std::string& ours, const std::string& theirs) {
+        if (ours != theirs) {
+            out += cell + ": port " + ours + ", cartridge " + theirs + "\n";
+        }
+    };
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const std::string slot = " of battler " + std::to_string(i);
+        note("statuses" + slot, statusesText(port.status[i]), statusesText(guest.status[i]));
+        note("statuses to set" + slot, statusesText(port.statusesToSet[i]), statusesText(guest.statusesToSet[i]));
+        note("statuses to clear" + slot, statusesText(port.statusesToClear[i]), statusesText(guest.statusesToClear[i]));
+        note("statuses for a counterattack" + slot, statusesText(port.statusForCounter[i]),
+             statusesText(guest.statusForCounter[i]));
+        note("to work out again" + slot, std::to_string(port.pendingUpdates[i]), std::to_string(guest.pendingUpdates[i]));
+        note("menu may open" + slot, std::to_string(port.menuMayOpen[i]), std::to_string(guest.menuMayOpen[i]));
+        note("gauge empties after the action" + slot, std::to_string(port.emptyGaugeAfterAction[i]),
+             std::to_string(guest.emptyGaugeAfterAction[i]));
+        note("Phantasm" + slot, std::to_string(port.phantasm[i]), std::to_string(guest.phantasm[i]));
+        note("equipment to work out" + slot, std::to_string(port.equipmentChanged[i]),
+             std::to_string(guest.equipmentChanged[i]));
+        note("sleep timer" + slot, std::to_string(port.sleepTimer[i]), std::to_string(guest.sleepTimer[i]));
+        note("stop timer" + slot, std::to_string(port.stopTimer[i]), std::to_string(guest.stopTimer[i]));
+        note("reflect timer" + slot, std::to_string(port.reflectTimer[i]), std::to_string(guest.reflectTimer[i]));
+        note("freeze timer" + slot, std::to_string(port.freezeTimer[i]), std::to_string(guest.freezeTimer[i]));
+    }
+    note("died this action", std::to_string(maskOf(port.diedAwaitingCounter)),
+         std::to_string(maskOf(guest.diedAwaitingCounter)));
+    note("statuses changed", std::to_string(maskOf(port.statusChanged)), std::to_string(maskOf(guest.statusChanged)));
+    note("monsters standing", std::to_string(maskOf(port.monstersStanding)),
+         std::to_string(maskOf(guest.monstersStanding)));
+    note("monsters fallen", std::to_string(maskOf(port.monstersFallen)), std::to_string(maskOf(guest.monstersFallen)));
+    return out;
+}
+
+StatusEffectResult DamageOracle::statusEffect(const DamageScenario& scenario, battle::BattlerSlot target) {
+    writeScenario(scenario);
+    writeTargetCells(scenario);
+    writeStatusCells(scenario);
+    call([&] {
+        magicStatusEffect_(slotIndex(scenario.attacker), slotIndex(target), kWideAccumulatorStatus, kBattleDataBank,
+                           kBattleDirectPage);
+    });
+    const auto at = static_cast<std::uint32_t>(slotIndex(target));
+    return StatusEffectResult{
+        .statusesToSet = StatusSet{{readByte(kToSet12 + at), readByte(kToSet12 + at + 1), readByte(kToSet34 + at),
+                                    readByte(kToSet34 + at + 1)}},
+        .statusesToClear = StatusSet{{readByte(kToClear12 + at), readByte(kToClear12 + at + 1),
+                                      readByte(kToClear34 + at), readByte(kToClear34 + at + 1)}},
+        .missedByEffect = setOf(readWord(kMissedByEffect)),
+        .missed = setOf(readWord(kMissed)),
+    };
+}
+
+StatusEffectResult portStatusEffect(DamageScenario scenario, battle::BattlerSlot target) {
+    scenario.attack.scratch.missedByEffect = {};
+    battle::statusEffect(scenario.state, scenario.attack, scenario.attacker, target);
+    const battle::Battler& battler = scenario.state.at(target);
+    return StatusEffectResult{
+        .statusesToSet = battler.statusesToSet,
+        .statusesToClear = battler.statusesToClear,
+        .missedByEffect = scenario.attack.scratch.missedByEffect,
+        .missed = scenario.attack.scratch.missed,
+    };
+}
+
+std::string differences(const StatusEffectResult& port, const StatusEffectResult& guest) {
+    std::string out;
+    const auto note = [&](const std::string& cell, const std::string& ours, const std::string& theirs) {
+        if (ours != theirs) {
+            out += cell + ": port " + ours + ", cartridge " + theirs + "\n";
+        }
+    };
+    note("statuses to set", statusesText(port.statusesToSet), statusesText(guest.statusesToSet));
+    note("statuses to clear", statusesText(port.statusesToClear), statusesText(guest.statusesToClear));
+    note("missed by the effect", std::to_string(maskOf(port.missedByEffect)), std::to_string(maskOf(guest.missedByEffect)));
+    note("shown Miss", std::to_string(maskOf(port.missed)), std::to_string(maskOf(guest.missed)));
+    return out;
+}
+
+namespace {
+
+StatusSet anyStatuses(std::mt19937& rng) {
+    return StatusSet{{byte(rng), byte(rng), byte(rng), byte(rng)}};
+}
+
+battle::BattlerSet anyBattlers(std::mt19937& rng) {
+    return battle::BattlerSet{BattleSlotMask(static_cast<std::uint8_t>(byte(rng) & 0x0F)),
+                              BattleSlotMask(static_cast<std::uint8_t>(byte(rng) & 0x3F))};
+}
+
+}  // namespace
+
+DamageScenario drawStatusChangesScenario(std::mt19937& rng) {
+    DamageScenario s;
+    battle::BattleState& state = s.state;
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        battle::Battler& battler = state.battlers[i];
+        const bool character = battle::BattlerSlot::fromIndex(static_cast<int>(i)).isCharacter();
+        battler.present = !oneIn(rng, 4);
+        battler.status = anyStatuses(rng);
+        battler.statusesToSet = anyStatuses(rng);
+        battler.statusesToClear = anyStatuses(rng);
+        battler.inflictableStatuses = anyStatuses(rng);
+        battler.statusForCounter = anyStatuses(rng);
+        battler.maxHp = static_cast<std::uint16_t>(character ? 1 + upTo(rng, kPartyMaxHp - 1) : 1 + upTo(rng, 65534));
+        // Half the time the HP is within a step of an eighth of the maximum, where Near fatal turns.
+        if ((rng() & 1) != 0) {
+            const int eighth = battler.maxHp / 8;
+            battler.hp = static_cast<std::uint16_t>(std::clamp(eighth - 1 + upTo(rng, 2), 0, static_cast<int>(battler.maxHp)));
+        } else {
+            battler.hp = static_cast<std::uint16_t>(upTo(rng, battler.maxHp));
+        }
+        battler.triggers.overcast = (rng() & 1) != 0;
+        battler.triggers.phantasm = (rng() & 1) != 0;
+        battler.triggers.retort = (rng() & 1) != 0;
+        battler.retaliationPending = (rng() & 1) != 0;
+        if ((rng() & 1) != 0) {
+            battler.lastAttacker = anySlot(rng);
+        }
+        const std::uint8_t pending = byte(rng);
+        battler.pendingUpdates = battle::PendingUpdates{
+            .leaveTheField = (pending & 0x01) != 0,
+            .enabledMagic = (pending & 0x80) != 0,
+            .removeAllActions = (pending & 0x40) != 0,
+            .startCondemned = (pending & 0x20) != 0,
+            .stopCondemned = (pending & 0x10) != 0,
+            .commandList = (pending & 0x08) != 0,
+            .speed = (pending & 0x04) != 0,
+            .morph = (pending & 0x02) != 0,
+        };
+        battler.menuMayOpen = (rng() & 1) != 0;
+        battler.emptyGaugeAfterAction = (rng() & 1) != 0;
+        battler.equipmentChanged = character && (rng() & 1) != 0;
+        battler.sleepTimer = byte(rng);
+        battler.stopTimer = byte(rng);
+        battler.reflectTimer = byte(rng);
+        battler.freezeTimer = byte(rng);
+    }
+    state.diedAwaitingCounter = anyBattlers(rng);
+    state.statusChanged = anyBattlers(rng);
+    state.monstersStanding = anyBattlers(rng).monstersOnly();
+    state.monstersFallen = anyBattlers(rng).monstersOnly();
+    return s;
+}
+
+TargetScenario drawStatusEffectScenario(std::mt19937& rng) {
+    TargetScenario drawn;
+    DamageScenario& s = drawn.scenario;
+    s.attacker = anySlot(rng);
+    drawn.target = anySlot(rng);
+    AttackProperties& record = s.attack.record;
+    record.traits.bits = byte(rng);
+    record.element.bits = byte(rng);
+    record.flags2.bits = byte(rng);
+    // Never both status modes: no attack has them, and the cartridge would take the bytes after its
+    // three-entry mode table as an address and run whatever code is there.
+    if (record.flags2.has(AttackFlag2::REMOVE_STATUS) && record.flags2.has(AttackFlag2::TOGGLE_STATUS)) {
+        record.flags2.clear((rng() & 1) != 0 ? AttackFlag2::REMOVE_STATUS : AttackFlag2::TOGGLE_STATUS);
+    }
+    record.misc.bits = byte(rng);
+    record.statuses = anyStatuses(rng);
+    s.attack.vanishApplies = (rng() & 1) != 0;
+    s.attack.scratch.missed = anyBattlers(rng);
+    battle::Battler& target = s.state.at(drawn.target);
+    target.present = true;
+    target.status = anyStatuses(rng);
+    target.statusesToSet = anyStatuses(rng);
+    target.statusesToClear = anyStatuses(rng);
+    target.inflictableStatuses = (rng() & 1) != 0 ? anyStatuses(rng) : StatusSet{};
+    target.undead = (rng() & 1) != 0;
+    return drawn;
 }
 
 }  // namespace ostinato::trace

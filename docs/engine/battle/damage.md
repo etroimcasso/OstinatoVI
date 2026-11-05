@@ -17,7 +17,7 @@ The rules, and the line of the original each is read from, are in
 | File | Holds |
 |---|---|
 | `src/battle/damage.h` | `magicDamage()`, `physicalDamage()`, `relicBonus()`, `baseDamage()`, `applyMultiplier()`, `scaleDamage()`, `targetDamage()`, `applyDamage()`, `kDamageWordMax`, `kDamageCap`, `kNumeralsShownTogether` |
-| `src/battle/battle_hooks.h` | `BattleHooks`, the battle's `AttackHooks`: each damage hook one call into `damage.h` |
+| `src/battle/battle_hooks.h` | `BattleHooks`, the battle's `AttackHooks`: each damage hook one call into `damage.h`, each status hook one call into `status.h` |
 | `src/battle/attack.h` | `DamageLedger`, kept as `AttackScratch::ledger`; `resolveReflectedAttack()`, a spell bounced off Reflect |
 | `src/battle/battle_script.h` | `DamageNumbersShown`, `ReflectedAttackShown`, `ScatteredHitsShown` |
 | `tools/damage-trace/damage_oracle.h` | `DamageOracle`, the cartridge's routines run over a `DamageScenario`; `runOnLoop()`; the seeded draws; the results and `differences()` for the per-target pass, taking and showing, and the bounce; `DamageTrace`, `parseTrace()` and `DamageOracle::replay()`, a game's damage calls recorded and replayed against the port |
@@ -36,11 +36,10 @@ battle::CommandExecutor executor(hooks, text, sprites);
 ```
 
 `BattleHooks` overrides `baseDamage`, `scaleDamage`, `targetDamage` and `applyDamage`, each with one
-call into `damage.h`. Its status and special-effect hooks are `AttackHooks`' own, which do nothing,
-so the statuses the damage sets and clears — a battler brought to 0 HP is set to die — wait in
-`Battler::statusesToSet` and `statusesToClear`. A caller that needs them to take effect overrides
-`applyPendingStatuses` on a class derived from `BattleHooks`, as the battle preview does
-(`tools/previews/battle/preview_hooks.h`).
+call into `damage.h`. The statuses the damage sets and clears — a battler brought to 0 HP is set to
+die — wait in `Battler::statusesToSet` and `statusesToClear` until the end of the attack, when
+`BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its special-effect hooks
+are `AttackHooks`' own, which do nothing.
 
 ## The formulas
 
@@ -272,8 +271,9 @@ bonus and multiplier sweep and writes every scenario with both answers to `check
 - **The oracle needs a started machine.** Calling a routine before `start()` throws; `start()` runs
   from a loop's tick.
 - **The oracle's bounce leaves out what the hooks leave out.** The cartridge's bounce runs its own
-  status and special-effect passes; `reflectedAttack()` is only comparable for a spell those passes
-  change nothing for, which is what `drawReflectScenario()` draws.
+  status and special-effect passes, and `BattleHooks` the status pass only; `reflectedAttack()` is
+  only comparable for a spell those passes change nothing for, which is what `drawReflectScenario()`
+  draws.
 
 ## Where to change
 

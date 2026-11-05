@@ -243,6 +243,54 @@ struct ReflectedAttackResult {
 
 [[nodiscard]] std::string differences(const ReflectedAttackResult& port, const ReflectedAttackResult& guest);
 
+// What every battler's waiting statuses taking effect leaves, as the same fields on both sides:
+// each battler's statuses, its statuses to set and to clear, the statuses it is to have for a
+// counterattack, what is to be worked out again for it (as the cartridge's byte holds it: bit 7
+// castable spells, 6 drop its actions, 5 start a condemned count, 4 stop it, 3 its commands, 2 its
+// speed, 1 its menu after Morph, 0 Palidor), whether its menu may open, whether its gauge empties
+// after the action, Phantasm's drain, whether a party member's equipment is to be worked out again,
+// its four status timers; and the battlers that died this action, the party members whose statuses
+// changed, and the monsters standing and fallen.
+struct StatusChangesResult {
+    std::array<StatusSet, battle::kBattlerSlots> status{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToSet{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToClear{};
+    std::array<StatusSet, battle::kBattlerSlots> statusForCounter{};
+    std::array<std::uint8_t, battle::kBattlerSlots> pendingUpdates{};
+    std::array<bool, battle::kBattlerSlots> menuMayOpen{};
+    std::array<bool, battle::kBattlerSlots> emptyGaugeAfterAction{};
+    std::array<bool, battle::kBattlerSlots> phantasm{};
+    std::array<bool, battle::kBattlerSlots> equipmentChanged{};
+    std::array<std::uint8_t, battle::kBattlerSlots> sleepTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> stopTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> reflectTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> freezeTimer{};
+    battle::BattlerSet diedAwaitingCounter;
+    battle::BattlerSet statusChanged;
+    battle::BattlerSet monstersStanding;
+    battle::BattlerSet monstersFallen;
+};
+
+// The port's statuses taking effect over `scenario`, read back as a StatusChangesResult.
+[[nodiscard]] StatusChangesResult portStatusChanges(DamageScenario scenario);
+
+[[nodiscard]] std::string differences(const StatusChangesResult& port, const StatusChangesResult& guest);
+
+// What an attack's statuses on one target leave, as the same fields on both sides: the target's
+// statuses to set and to clear, the battlers the effect missed and the battlers shown "Miss".
+struct StatusEffectResult {
+    StatusSet statusesToSet;
+    StatusSet statusesToClear;
+    battle::BattlerSet missedByEffect;
+    battle::BattlerSet missed;
+};
+
+// The port's statuses of the scenario's attack on `target`, read back as a StatusEffectResult. The
+// effect's misses start empty, as the attack frame leaves them for each target.
+[[nodiscard]] StatusEffectResult portStatusEffect(DamageScenario scenario, battle::BattlerSlot target);
+
+[[nodiscard]] std::string differences(const StatusEffectResult& port, const StatusEffectResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -303,10 +351,19 @@ public:
 
     // The spell in the scenario bounced off the battlers in its attack.params.reflectedOff, or a
     // Launcher's or Super Ball's hits made (CalcReflectDmg). The routine runs the cartridge's own
-    // status and special-effect passes, which the port's hooks leave out, so its scenarios are spells
-    // those passes change nothing for: no statuses or special effect, no element that melts Frozen on
-    // a Frozen target, no Vanished target, no miss for a status the target is immune to.
+    // status and special-effect passes for each bounce that hits; the port's hooks run the status
+    // pass and leave the special effects out, and this comparison is written for spells neither pass
+    // changes anything for: no statuses or special effect, no element that melts Frozen on a Frozen
+    // target, no Vanished target, no miss for a status the target is immune to.
     [[nodiscard]] ReflectedAttackResult reflectedAttack(const DamageScenario& scenario);
+
+    // Every present battler's waiting statuses taking effect over the scenario (UpdateStatus): every
+    // battler's cells the pass reads written from the scenario, then read back.
+    [[nodiscard]] StatusChangesResult statusChanges(const DamageScenario& scenario);
+
+    // The statuses of the scenario's attack on `target`, one of the targets it hits
+    // (MagicStatusEffect), with the scenario's attacker as the one who made it.
+    [[nodiscard]] StatusEffectResult statusEffect(const DamageScenario& scenario, battle::BattlerSlot target);
 
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
@@ -347,6 +404,7 @@ private:
     using Call = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
     using Multiply = std::uint16_t(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
     using TargetCall = void(std::uint16_t, std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    using PassCall = void(std::uint8_t, std::uint8_t, std::uint16_t);
 
     // Run `routine` with the watches recording.
     void call(const std::function<void()>& routine);
@@ -356,6 +414,8 @@ private:
     void writeApplyCells(const DamageScenario& scenario);
     void writeAimCells(const DamageScenario& scenario);
     void writeContext(const DamageScenario& scenario);
+    void writeStatusCells(const DamageScenario& scenario);
+    [[nodiscard]] StatusChangesResult readStatusChangesResult();
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,
@@ -382,6 +442,8 @@ private:
     retropp::Routine<TargetCall> calcTargetDmg_;
     retropp::Routine<Call> applyAndShowDmg_;
     retropp::Routine<TargetCall> calcReflectDmg_;
+    retropp::Routine<PassCall> updateStatus_;
+    retropp::Routine<TargetCall> magicStatusEffect_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -432,5 +494,22 @@ struct TargetScenario {
 // graphics drawn; the battle type and pincer sides, the aiming rules, Charm and the party members
 // fighting against the party.
 [[nodiscard]] DamageScenario drawReflectScenario(std::mt19937& rng);
+
+// The scenarios the statuses-taking-effect sweep draws, from the same seed: for every battler,
+// whether it is on the field, its statuses, its statuses to set and to clear and the statuses it can
+// be given, every bit of each drawn; its HP and maximum HP (a party member's at most 9,999), often
+// near an eighth of the maximum; its Overcast and Phantasm triggers, whether it is waiting to
+// retaliate, what is to be worked out again for it, its menu and gauge flags, its timers and
+// whether its equipment is to be worked out again; and the battlers that died this action, the
+// party members whose statuses changed and the monsters standing and fallen.
+[[nodiscard]] DamageScenario drawStatusChangesScenario(std::mt19937& rng);
+
+// The scenarios the status-effect sweep draws, from the same seed: an attack with every bit of its
+// traits, element, second flags, misc flags and statuses drawn — except the two status modes
+// together, which no attack has and on which the cartridge runs unrelated code — whether Vanish
+// applies, and a target
+// with its statuses, statuses to set and to clear, the statuses it can be given and whether it is
+// undead drawn; and the battlers already shown "Miss".
+[[nodiscard]] TargetScenario drawStatusEffectScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

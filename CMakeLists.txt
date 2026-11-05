@@ -84,6 +84,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/player_intake.cpp
     src/battle/presentation.cpp
     src/battle/spell_lists.cpp
+    src/battle/status.cpp
     src/battle/system_commands.cpp
     src/battle/targeting.cpp
     src/data/attack_animations.cpp
@@ -644,3 +645,20 @@ target_compile_definitions(ostinato-vi-battle-damage-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-damage-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-damage-tests)
+
+# The battle's statuses: an attack's statuses on each target it hits and every battler's waiting
+# statuses taking effect, each worked out by hand from the original and checked against the
+# cartridge's own routines, run on the hosted cartridge over the same battle
+# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-status-tests
+    tests/test_status_changes.cpp
+    tests/test_status_effect.cpp
+    tests/test_status_oracle.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-status-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-status-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-status-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_link_libraries(ostinato-vi-battle-status-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-status-tests)

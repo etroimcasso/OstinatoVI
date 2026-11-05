@@ -317,7 +317,8 @@ struct Battler {
     // The equippable-by bits an item must share for this party member to hold it.
     EquipPermissions equipsAs;
 
-    // The battle's Item menu swapped what it holds; the battle re-derives it on its next step.
+    // What it holds is to be worked out again on the battle's next step: the battle's Item menu
+    // swapped it, or Imp went on or came off, or Rage came off.
     bool equipmentChanged = false;
 
     std::array<MenuCommand, 4> commands{};
@@ -344,6 +345,10 @@ struct Battler {
     // --- what the action being run does to it -------------------------------------------------
     StatusSet statusesToSet;    // put on it when the action's statuses take effect
     StatusSet statusesToClear;  // taken off it then
+    // The statuses it will have once they take effect, worked out as they start to while it is
+    // waiting to retaliate: before its immunities, and before anything going on or coming off
+    // changes the rest. Whether it answers the attack is decided on them.
+    StatusSet statusForCounter;
     LastHits lastHit;
 
     // --- what it has waiting ------------------------------------------------------------------

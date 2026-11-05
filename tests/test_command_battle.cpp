@@ -1,6 +1,5 @@
 // A whole battle fought to a win on the battle's own executor: the party's Fights carried out by
-// CommandExecutor through BattleSim, with the battle's own damage (BattleHooks) and a stand-in for
-// the statuses it sets taking effect.
+// CommandExecutor through BattleSim, with the battle's own damage and statuses (BattleHooks).
 
 #include <gtest/gtest.h>
 
@@ -29,22 +28,6 @@ using battle::BattlerSlot;
 using battle::BattleSim;
 using battle::BattleState;
 
-// The battle's damage, with a stand-in for its statuses taking effect: after each attack every
-// battler's statuses to set are put on it and its statuses to clear taken off, so a battler brought
-// to 0 HP falls at once. It stands in until the battle applies statuses itself.
-struct StatusesTakeEffect : battle::BattleHooks {
-    void applyPendingStatuses(BattleState& state) override {
-        for (battle::Battler& battler : state.battlers) {
-            for (std::size_t i = 0; i < battler.status.bytes.size(); ++i) {
-                battler.status.bytes[i] = static_cast<std::uint8_t>(
-                    (battler.status.bytes[i] | battler.statusesToSet.bytes[i]) & ~battler.statusesToClear.bytes[i]);
-            }
-            battler.statusesToSet = {};
-            battler.statusesToClear = {};
-        }
-    }
-};
-
 std::string nameOf(const battle::BattleScriptCommand& command) {
     return std::visit(
         [](const auto& c) -> std::string {
@@ -58,7 +41,7 @@ std::string nameOf(const battle::BattleScriptCommand& command) {
 }
 
 TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
-    StatusesTakeEffect hooks;
+    battle::BattleHooks hooks;
     battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
     battle::BattleStart start;
     start.formation = FormationRef::of(FormationId::LOBO);

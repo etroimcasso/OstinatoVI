@@ -3,8 +3,8 @@
 //
 // Nobody drives it. Each formation is started as a battle and fought to its end: a scripted player
 // answers every battle menu with Fight at the first monster still standing and confirms a message
-// that waits for a key once it has been up for the message time; the damage is the battle's own,
-// with the statuses it sets taking effect after each attack (preview_hooks.h). In a window the
+// that waits for a key once it has been up for the message time; the damage and the statuses are
+// the battle's own (battle/battle_hooks.h). In a window the
 // battles play one after another with a second's pause between them and the window closes itself
 // after the last. With --capture nothing opens: for each
 // formation the moments worth checking are written to <dir> as battle-<formation>-<moment>.ppm —
@@ -64,6 +64,7 @@
 #include "assets/cartridge.h"
 #include "assets/cartridge_routines.h"
 #include "assets/tile_planes.h"
+#include "battle/battle_hooks.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
 #include "battle/command_executor.h"
@@ -85,7 +86,6 @@
 #include "ostinato/ostinato.h"
 #include "ostinato/window_tile.h"
 #include "ostinato/wallpaper_id.h"
-#include "preview_hooks.h"
 #include "render/battle/layout.h"
 #include "render/screen_border.h"
 #include "scripted_player.h"
@@ -172,7 +172,7 @@ game::Party partyOf(std::span<const CharacterPropId> actors, const TextCorpus& t
 // One battle being fought, frame by frame: the battle, its presentation, the hooks and the scripted
 // player.
 struct Fight {
-    preview::PendingStatusesStandIn hooks;
+    battle::BattleHooks hooks;
     battle::CommandExecutor executor;
     battle::BattleSim sim;
     battle::BattlePresentationState shown;

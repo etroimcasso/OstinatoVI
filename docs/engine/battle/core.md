@@ -121,7 +121,7 @@ The fields of `Battler` group as follows.
 | A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
 | What its command took up | `itemInHand`, `dance`, `rage` |
 | Links | `controlledBy`, `charmedBy`, `seizing`, `seizedBy`, `lastAttacker`, `retaliationPending`, `bodyguard` (who takes its hits for a Love Token) |
-| What the action being run does to it | `statusesToSet`, `statusesToClear`, `lastHit` (who last hit it, with which command, spell, item and elements) |
+| What the action being run does to it | `statusesToSet`, `statusesToClear`, `statusForCounter` (the statuses it is to have, for its answer to an attack), `lastHit` (who last hit it, with which command, spell, item and elements) |
 | What it has waiting | `actions`, `counterActions` |
 
 `BattleState` holds the ten battlers and the battle as a whole: the lines (`advanceWaitQueue`,

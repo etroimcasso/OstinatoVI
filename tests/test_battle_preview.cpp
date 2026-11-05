@@ -18,6 +18,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/action_executor.h"
+#include "battle/battle_hooks.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
 #include "battle/command_executor.h"
@@ -35,7 +36,6 @@
 #include "render/battle/battle_placement.h"
 #include "render/battle/layout.h"
 #include "render/layers.h"
-#include "preview_hooks.h"
 #include "scripted_player.h"
 #include "vanilla_rom.h"
 
@@ -262,14 +262,14 @@ TEST_F(BattlePreviewTest, APincerFormationMirrorsTheRightGroup) {
     }
 }
 
-// Lobo fought to a win the way the preview fights it: the battle's own damage with the stand-in for
-// statuses, the scripted player, and the presentation telling the battle when it may go on. Every
+// Lobo fought to a win the way the preview fights it: the battle's own damage and statuses, the
+// scripted player, and the presentation telling the battle when it may go on. Every
 // hit shows its numeral over Lobo, the numerals add up to at least the HP it started with, Lobo
 // fades out once it falls, the list of names empties, and the scene closes.
 TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
     const assets::IngestedContent& content = *cartridge_->content;
-    PendingStatusesStandIn hooks;
+    battle::BattleHooks hooks;
     battle::CommandExecutor executor(hooks, content.text, content.monsterSprites);
     battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
                           content.text, content.monsterSprites, executor);
