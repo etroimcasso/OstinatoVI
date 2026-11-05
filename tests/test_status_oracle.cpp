@@ -1,14 +1,18 @@
 // The status routines on the oracle: each is where the US cartridges hold it and is refused where it
-// is not, the attack frame calls each where the oracle's return sites sit, a scenario written for the
-// status pass reads back from the cells it was written to, and a petrified battler is marked as
-// having died on every pass the cartridge makes, not only the first.
+// is not, the attack frame, the battle's start and a formation change call them where the trace's
+// return sites sit, a scenario written for the status pass reads back from the cells it was written
+// to, a petrified battler is marked as having died on every pass the cartridge makes, not only the
+// first, and the cartridge's own calls of both routines, traced, replay against the port.
 
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <cstdint>
+#include <random>
 #include <span>
+#include <sstream>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #include "assets/cartridge.h"
@@ -78,6 +82,112 @@ TEST_F(StatusOracleTest, TheFramesCallsReturnWhereTheTraceExpects) {
         EXPECT_EQ(callBefore(0xC2324D), toUpdateStatus);
         EXPECT_EQ(callBefore(0xC2345C), toMagicStatusEffect);
         EXPECT_EQ(callBefore(0xC234F9), toMagicStatusEffect);
+    });
+}
+
+// The two other calls of UpdateStatus the trace follows: the battle's start, returning to $C2:24A7
+// (:6128), and a formation change, returning to $C2:50AA (:13231).
+TEST_F(StatusOracleTest, TheStartsAndAFormationChangesCallsReturnWhereTheTraceExpects) {
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        const auto callBefore = [&](std::uint32_t returnSite) {
+            return oracle.machine().read(retropp::MemoryRegion{.at = returnSite - 3, .size = 3});
+        };
+        const std::vector<std::uint8_t> toUpdateStatus{0x20, 0x91, 0x43};
+        const trace::TracedRoutine& updateStatus = trace::kTracedRoutines[3];
+        ASSERT_STREQ(updateStatus.name, "UpdateStatus");
+        EXPECT_EQ(updateStatus.otherReturns[0], 0xC224A7u);
+        EXPECT_EQ(updateStatus.otherReturns[1], 0xC250AAu);
+        for (const std::uint32_t site : updateStatus.otherReturns) {
+            EXPECT_EQ(callBefore(site), toUpdateStatus);
+        }
+    });
+}
+
+// --- the cartridge's own calls, traced and replayed -----------------------------------------------
+
+constexpr int kReplayDraws = 200;
+
+std::vector<trace::TracedCall> parse(const std::vector<std::string>& lines) {
+    std::string text;
+    for (const std::string& line : lines) {
+        text += line + "\n";
+    }
+    std::istringstream in{text};
+    return trace::parseTrace(in);
+}
+
+TEST_F(StatusOracleTest, TheStatusesTakingEffectReplayAsTheCartridgeWorkedThemOut) {
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        std::mt19937 rng{trace::kSweepSeed};
+        int calls = 0;
+        for (int index = 0; index < kReplayDraws; ++index) {
+            const DamageScenario drawn = trace::drawStatusChangesScenario(rng);
+            oracle.trace(true);
+            (void)oracle.statusChanges(drawn);
+            oracle.trace(false);
+            for (const trace::TracedCall& call : parse(oracle.takeTrace())) {
+                EXPECT_EQ(call.routine, "UpdateStatus");
+                EXPECT_EQ(oracle.replay(call), "") << "draw " << index;
+                ++calls;
+            }
+        }
+        EXPECT_EQ(calls, kReplayDraws);
+    });
+}
+
+TEST_F(StatusOracleTest, AnAttacksStatusesOnATargetReplayAsTheCartridgeWorkedThemOut) {
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        std::mt19937 rng{trace::kSweepSeed};
+        int calls = 0;
+        for (int index = 0; index < kReplayDraws; ++index) {
+            const trace::TargetScenario drawn = trace::drawStatusEffectScenario(rng);
+            oracle.trace(true);
+            (void)oracle.statusEffect(drawn.scenario, drawn.target);
+            oracle.trace(false);
+            for (const trace::TracedCall& call : parse(oracle.takeTrace())) {
+                EXPECT_EQ(call.routine, "MagicStatusEffect");
+                EXPECT_EQ(oracle.replay(call), "") << "draw " << index;
+                ++calls;
+            }
+        }
+        EXPECT_EQ(calls, kReplayDraws);
+    });
+}
+
+// A call of UpdateStatus from the battle's start replays as one from the attack frame does; a call
+// that returned anywhere the trace does not follow is refused.
+TEST_F(StatusOracleTest, AStartsStatusPassReplaysAndAnUnknownCallerIsRefused) {
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        std::mt19937 rng{trace::kSweepSeed};
+        const DamageScenario drawn = trace::drawStatusChangesScenario(rng);
+        oracle.trace(true);
+        (void)oracle.statusChanges(drawn);
+        oracle.trace(false);
+        std::vector<std::string> lines = oracle.takeTrace();
+        const auto returnedTo = [&](const std::string& site) {
+            std::vector<std::string> moved = lines;
+            for (std::string& line : moved) {
+                if (const std::size_t at = line.find(" return UpdateStatus $C2:324D"); at != std::string::npos) {
+                    line.replace(at, std::string{" return UpdateStatus $C2:324D"}.size(), " return UpdateStatus " + site);
+                }
+            }
+            return parse(moved);
+        };
+        const std::vector<trace::TracedCall> fromStart = returnedTo("$C2:24A7");
+        ASSERT_EQ(fromStart.size(), 1u);
+        EXPECT_EQ(fromStart[0].returnedTo, 0xC224A7u);
+        EXPECT_EQ(oracle.replay(fromStart[0]), "");
+
+        const std::vector<trace::TracedCall> fromElsewhere = returnedTo("$C2:1234");
+        ASSERT_EQ(fromElsewhere.size(), 1u);
+        EXPECT_THROW((void)oracle.replay(fromElsewhere[0]), std::runtime_error);
     });
 }
 

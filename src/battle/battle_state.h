@@ -259,7 +259,6 @@ struct Battler {
     std::uint8_t magicBlockFactor = 0;
 
     StatusSet status;
-    StatusSet innateStatuses;       // set on the battler when the battle starts
     StatusSet equipmentStatuses;    // statuses its equipment keeps on it
     StatusSet inflictableStatuses = kAllStatuses;  // the statuses that can be put on it
     bool instantDeathProtected = false;  // immune to instant death (equipment that blocks Dead)

@@ -277,7 +277,7 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.triggers.monsterRunic = battler.triggers.monsterRunic || (special & 0x02) != 0;
     battler.triggers.piranha = battler.triggers.piranha || (special & 0x80) != 0;
     battler.monsterFlags = record.battleFlags;
-    battler.innateStatuses = loadMonsterTraits(battler, id);
+    battler.statusesToSet = loadMonsterTraits(battler, id);
     loadMonsterNature(battler, record);
     battler.specialAttackAnimation = monsterSpecialAnim(id);
     checkFirstStrike(state, slot);

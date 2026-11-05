@@ -1486,12 +1486,17 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                 }
                 line_(context);
             }});
-        for (const std::uint32_t site : {routine.frameReturn, routine.bounceReturn}) {
+        for (const std::uint32_t site :
+             {routine.frameReturn, routine.bounceReturn, routine.otherReturns[0], routine.otherReturns[1]}) {
             if (site == 0) {
                 continue;
             }
+            const char* caller = site == routine.frameReturn    ? " frame return"
+                                 : site == routine.bounceReturn ? " bounce return"
+                                 : site == routine.otherReturns[0] ? " return 1"
+                                                                   : " return 2";
             escapes.declarations.push_back(retropp::GuestEscape{
-                .key = std::string{routine.name} + (site == routine.frameReturn ? " frame return" : " bounce return"),
+                .key = std::string{routine.name} + caller,
                 .at = site,
                 .handler = [this, routine](retropp::Vm&, std::uint32_t at) {
                     if (open_ > 0) {
@@ -1820,9 +1825,14 @@ DamageScenario DamageOracle::readScenario() {
 std::string DamageOracle::replay(const TracedCall& call) {
     const TracedRoutine& routine = routineNamed(call.routine);
     const bool bounce = routine.bounceReturn != 0 && call.returnedTo == routine.bounceReturn;
-    if (!bounce && call.returnedTo != routine.frameReturn) {
+    const bool other = std::find(routine.otherReturns.begin(), routine.otherReturns.end(), call.returnedTo) !=
+                       routine.otherReturns.end();
+    if (!bounce && !other && call.returnedTo != routine.frameReturn) {
         throw std::runtime_error(call.routine + " returned to " + busAddress(call.returnedTo) +
-                                 ", which is neither the frame's call nor the bounce's");
+                                 ", which is none of the calls the trace follows");
+    }
+    if (routine.entry == kUpdateStatus || routine.entry == kMagicStatusEffect) {
+        return replayStatusCall(call, routine);
     }
 
     // The battle as the oracle writes a default scenario, then every cell the routine read as it read it.
@@ -2081,6 +2091,7 @@ StatusChangesResult DamageOracle::statusChanges(const DamageScenario& scenario) 
     writeTargetCells(scenario);
     writeStatusCells(scenario);
     call([&] { updateStatus_(kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    trace_->returnToFrame(kTracedRoutines[3]);
     return readStatusChangesResult();
 }
 
@@ -2187,6 +2198,11 @@ StatusEffectResult DamageOracle::statusEffect(const DamageScenario& scenario, ba
         magicStatusEffect_(slotIndex(scenario.attacker), slotIndex(target), kWideAccumulatorStatus, kBattleDataBank,
                            kBattleDirectPage);
     });
+    trace_->returnToFrame(kTracedRoutines[4]);
+    return readStatusEffectResult(target);
+}
+
+StatusEffectResult DamageOracle::readStatusEffectResult(battle::BattlerSlot target) {
     const auto at = static_cast<std::uint32_t>(slotIndex(target));
     return StatusEffectResult{
         .statusesToSet = StatusSet{{readByte(kToSet12 + at), readByte(kToSet12 + at + 1), readByte(kToSet34 + at),
@@ -2196,6 +2212,104 @@ StatusEffectResult DamageOracle::statusEffect(const DamageScenario& scenario, ba
         .missedByEffect = setOf(readWord(kMissedByEffect)),
         .missed = setOf(readWord(kMissed)),
     };
+}
+
+DamageScenario DamageOracle::readStatusScenario() {
+    DamageScenario s = readScenario();
+    battle::BattleState& state = s.state;
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        battle::Battler& battler = state.battlers[i];
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        const auto statuses = [&](std::uint32_t first12, std::uint32_t first34) {
+            return StatusSet{{readByte(first12 + at), readByte(first12 + at + 1), readByte(first34 + at),
+                              readByte(first34 + at + 1)}};
+        };
+        battler.inflictableStatuses = statuses(kInflictable12, kInflictable34);
+        battler.statusForCounter = statuses(kForCounter12, kForCounter34);
+        const std::uint8_t flags = readByte(kOnTheField + at);
+        battler.present = (flags & kPresentBit) != 0;
+        battler.menuMayOpen = (flags & kMenuMayOpenBit) != 0;
+        battler.emptyGaugeAfterAction = (readByte(kStance + at) & kEmptyGaugeBit) != 0;
+        const std::uint8_t pending = readByte(kToUpdate + at);
+        battler.pendingUpdates = battle::PendingUpdates{
+            .leaveTheField = (pending & 0x01) != 0,
+            .enabledMagic = (pending & 0x80) != 0,
+            .removeAllActions = (pending & 0x40) != 0,
+            .startCondemned = (pending & 0x20) != 0,
+            .stopCondemned = (pending & 0x10) != 0,
+            .commandList = (pending & 0x08) != 0,
+            .speed = (pending & 0x04) != 0,
+            .morph = (pending & 0x02) != 0,
+        };
+        battler.triggers.retort = (readByte(kTriggers + at) & kRetortBit) != 0;
+        const std::uint8_t triggers = readByte(kMoreTriggers + at);
+        battler.triggers.overcast = (triggers & kOvercastBit) != 0;
+        battler.triggers.phantasm = (triggers & kPhantasmBit) != 0;
+        battler.sleepTimer = readByte(kSleepTimer + at);
+        battler.stopTimer = readByte(kStopTimer + at);
+        battler.reflectTimer = readByte(kReflectTimer + at);
+        battler.freezeTimer = readByte(kFreezeTimer + at);
+        if (slot.isCharacter()) {
+            battler.equipmentChanged = readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())) != 0;
+        }
+    }
+    state.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
+    state.statusChanged = setOf(readWord(kStatusChanged));
+    state.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));
+    state.monstersFallen.monsters = BattleSlotMask(readByte(kMonstersFallen));
+    return s;
+}
+
+std::string DamageOracle::replayStatusCall(const TracedCall& call, const TracedRoutine& routine) {
+    // The battle as the oracle writes a default scenario, then every cell the routine read as it read it.
+    const DamageScenario plain;
+    writeScenario(plain);
+    writeTargetCells(plain);
+    writeApplyCells(plain);
+    writeStatusCells(plain);
+    for (const auto& [cell, value] : call.inputs) {
+        writeByte(cell, value);
+    }
+    const DamageScenario s = readStatusScenario();
+    // The cartridge's answer: the scenario's cells as the oracle writes them, then the routine's writes.
+    const auto guestCells = [&] {
+        writeScenario(s);
+        writeTargetCells(s);
+        writeStatusCells(s);
+        for (const auto& [cell, value] : call.writes) {
+            writeByte(cell, value);
+        }
+    };
+
+    if (routine.entry == kUpdateStatus) {
+        const StatusChangesResult port = portStatusChanges(s);
+        guestCells();
+        return differences(port, readStatusChangesResult());
+    }
+
+    // The target is the one battler whose cells the routine touched.
+    std::set<int> touched;
+    for (const auto* cells : {&call.inputs, &call.writes}) {
+        for (const auto& [cell, value] : *cells) {
+            if (const std::optional<int> battler = battlerOfCell(cell)) {
+                touched.insert(*battler);
+            }
+            for (const std::uint32_t first : {kInflictable12, kInflictable34}) {
+                if (cell >= first && cell < first + 2 * battle::kBattlerSlots) {
+                    touched.insert(static_cast<int>((cell - first) / 2));
+                }
+            }
+        }
+    }
+    if (touched.size() != 1) {
+        throw std::runtime_error("MagicStatusEffect touched " + std::to_string(touched.size()) +
+                                 " battlers' cells; its target is the one it touches");
+    }
+    const battle::BattlerSlot target = battle::BattlerSlot::fromIndex(*touched.begin());
+    const StatusEffectResult port = portStatusEffect(s, target);
+    guestCells();
+    return differences(port, readStatusEffectResult(target));
 }
 
 StatusEffectResult portStatusEffect(DamageScenario scenario, battle::BattlerSlot target) {

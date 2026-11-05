@@ -7,7 +7,7 @@
 //     ostinato-damage-trace <rom> <directory> --replay
 //
 // Without --check or --replay the cartridge is run on the engine's SNES machine in a window, played
-// from the keyboard, and three of its damage routines are traced (trace::DamageTrace): escapes on each
+// from the keyboard, and five of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
 // access made inside a call, in order, with its address and byte. Every call is logged — nothing is
@@ -15,8 +15,11 @@
 //
 // The routines: the base damage (`CalcDmg`, $C2:2B9D, returning to $C2:322E), the damage to one
 // target (`CalcTargetDmg`, $C2:0B83, returning to $C2:346C from the attack and $C2:3509 from a
-// bounce) and taking and showing it (`_c262ef`, $C2:62EF, returning to $C2:3473 and $C2:3528). The
-// addresses are the US cartridges'. --quit-after-frames closes the window after that many frames;
+// bounce), taking and showing it (`_c262ef`, $C2:62EF, returning to $C2:3473 and $C2:3528), the
+// statuses taking effect (`UpdateStatus`, $C2:4391, returning to $C2:324D from the attack, $C2:24A7
+// from the battle's start and $C2:50AA from a formation change) and an attack's statuses on one
+// target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9). The addresses are the
+// US cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
 // With --replay nothing opens. Every call in <directory>/damage-trace.log is rebuilt as a battle and
@@ -153,7 +156,7 @@ int runTrace(std::span<const std::uint8_t> image, const std::filesystem::path& d
         renderer.renderFrame(drawn);
     });
 
-    std::printf("Tracing CalcDmg, CalcTargetDmg and the apply-and-show routine to %s\n",
+    std::printf("Tracing CalcDmg, CalcTargetDmg, the apply-and-show routine, UpdateStatus and MagicStatusEffect to %s\n",
                 (directory / "damage-trace.log").string().c_str());
     std::fflush(stdout);
 

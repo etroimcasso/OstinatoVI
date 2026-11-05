@@ -1,19 +1,22 @@
 # Battle statuses — behavioral contract
 
 Behavioral specification for how statuses go on the battlers and come off: what an attack's status
-bytes do to one target it hits, and how the statuses waiting on every battler take effect once the
-attack is over. All citations point into the pinned reference tree `original-src/`
-(everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another
-file is named, and `ram:` names a line of `notes/battle-ram.txt`. This document is the test authority
-for `tests/test_status_effect.cpp`, `tests/test_status_changes.cpp` and `tests/test_status_oracle.cpp`.
+bytes do to one target it hits, how the statuses waiting on every battler take effect once the attack
+is over, the statuses a battle starts with, and the spells a battler's relics cast when it is near
+fatal. All citations point into the pinned reference tree `original-src/` (everything8215/ff6 @
+`1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another file is named, and
+`ram:` names a line of `notes/battle-ram.txt`. This document is the test authority for
+`tests/test_status_effect.cpp`, `tests/test_status_changes.cpp`, `tests/test_status_oracle.cpp`,
+`tests/test_near_fatal.cpp` and `tests/test_status_start.cpp`.
 
 The attack frame (`docs/contracts/battle_commands.md`) calls both at its `AttackHooks` status points;
 this contract starts at those calls. The battle's own hooks are `BattleHooks`
 (`src/battle/battle_hooks.h`), one call each into `src/battle/status.h`.
 
-Every claim here is also checked against the cartridge itself: the two routines named below are run
-on the cartridge, hosted on the engine's SNES machine, over the same inputs the port is given
-(`tools/damage-trace/damage_oracle.h`).
+The claims about `MagicStatusEffect` and `UpdateStatus` are also checked against the cartridge
+itself: the two routines are run on the cartridge, hosted on the engine's SNES machine, over the same
+inputs the port is given (`tools/damage-trace/damage_oracle.h`), and every call of either that the
+trace tool records replays against the port.
 
 ## Sources
 
@@ -27,6 +30,10 @@ on the cartridge, hosted on the engine's SNES machine, over the same inputs the 
 | The new statuses | `CalcStatus` `:11153-11163` | `calcStatus()` |
 | A Zombie's statuses | `_c24585` `:11319-11328` | the last step of `applyStatusChanges()` |
 | The pending statuses emptied | `ResetStatusMod` `:11248-11254` | the same |
+| The statuses a party member starts with | `LoadCharProp` `:6632-6659` | `loadPartyMember()` and `buildCommandList()` (`src/battle/party_setup.cpp`) |
+| The statuses a monster starts with, and a rager takes on | `LoadRageProp` `:7518-7528` | `loadMonsterTraits()` (`src/battle/battle_start.cpp`), written by `loadMonster()` and Rage |
+| The near-fatal relics | `NearFatalEffect` `:1619-1655` | `nearFatalRelicSpells()` |
+| Reraise | `ReraiseEffect` `:1217-1225`, from `AfterAction1` `:1104-1109` | `checkTheFallen()` (`src/battle/battle_loop.cpp`) |
 
 ## The status words
 
@@ -50,10 +57,12 @@ Beside them sit, per battler:
 |---|---|---|
 | `MagicStatusEffect` | each target the attack hits, `:8356` in the frame and `:8434` in the bounce, after the hit check and before the special effect and the damage | `AttackHooks::statusEffect` → `statusEffect(state, attack, attacker, target)` |
 | `UpdateStatus` | `ExecAttack` `:8109`, once per attack, after the attack and its bounce and before the weapon's spell | `AttackHooks::applyPendingStatuses` → `applyStatusChanges(state)` |
+| `UpdateStatus` | a battle's start (`:6128`) and a formation change (`:13231`), after the monsters are loaded | `ActionExecutor::applyStatusChanges` → `CommandExecutor::applyStatusChanges` → `applyStatusChanges(state)` |
+| `NearFatalEffect` | `AfterAction2` `:1374`, the last thing for each present battler as the battle settles after an action (and at the start, `:6132`) | `ActionExecutor::checkNearFatal` → `CommandExecutor::checkNearFatal` → `nearFatalRelicSpells(state, slot)` |
 
-`UpdateStatus` is also called at a battle's start (`:6128`) and at a formation change (`:13231`); those
-calls are `ActionExecutor::applyStatusChanges` (`docs/contracts/battle_core.md`). Neither routine has
-any other caller.
+None of the three routines has any other caller. `ActionExecutor`'s own `applyStatusChanges` and
+`checkNearFatal` do nothing, so a battle run on an executor that does not override them puts no status
+on and casts no relic spell.
 
 The frame clears the "missed by the effect" cell `$3a48` (`attack.scratch.missedByEffect`) just before
 each `MagicStatusEffect` call (`:8355`, `:8432`), runs the special effect after it (`:8357`), and skips
@@ -239,6 +248,63 @@ It does not change HP: a battler set to die keeps its HP until the battle checks
 `emptyGaugeAfterAction` and `pendingUpdates` after the action. It does not read the attack: an attack's
 statuses reach it only through the pending statuses `statusEffect` wrote.
 
+## The statuses a battle starts with
+
+The statuses a battler starts a battle with are written into its **statuses to set** (`$3dd4` /
+`$3de8`) — the same cells an attack's statuses wait in — and go on with the pass that follows. There
+is no separate cell for them.
+
+- **A party member** (`LoadCharProp` `:6632-6659`): the record's statuses the battle keeps
+  (`kRecordStatuses`) together with the statuses its equipment keeps on it; the record's first status
+  byte is written whole (`sta $3dd4,x`, `:6641`), so whatever was waiting before is replaced. A party
+  member in a battle where Terra stays morphed is also to be set Morph.
+- **A monster** (`LoadRageProp` `:7518-7528`): its record's statuses 1-2 and, of statuses 3-4, the
+  flying flag as Float and Reraise and Float of the fourth byte (`and #$84fe`). No monster's record
+  gives it Reraise, so no monster starts a battle with it.
+- **A rager** takes on the monster's statuses the same way, as its Rage command runs; they go on with
+  the pass at the end of its attack.
+
+At the start (`:6127-6132`) the monsters are loaded, then the pass runs, then the battle checks the
+fallen (`AfterAction1`), the level of the last attack becomes 20 and the battle settles
+(`AfterAction2`) — so a party member who starts near fatal has its near-fatal relics' spells waiting
+before the first frame. A formation change (`:13230-13233`) loads the new monsters, runs the pass,
+checks the fallen and settles. The pass runs for the party too, so a party member's statuses change
+only by what is waiting on it, as after any action; nothing of the party is loaded again.
+
+## The near-fatal relics — `nearFatalRelicSpells`
+
+For a battler as the battle settles after an action (`NearFatalEffect` `:1619-1655`):
+
+1. Nothing happens if it is held by a status (`$3aa0.4`, `Battler::heldByStatus` — dead, petrified or
+   stopped), is not near fatal (`$3ee5.1`), or has already had its chance this battle (`$3205.1` clear;
+   `Battler::nearFatalSpellAvailable` false).
+2. The chance is spent (`eor/sta $3205`, `:1628-1629`) — **before** the relics are read. A battler with
+   none of the effects below that falls near fatal has no near-fatal spell left for the battle.
+3. Its fifth relic effects (`$3c59`, `Battler::relicEffects5`) are read low bit first, and each casts a
+   spell on it as an action with no caster, added to the actions that run before anything else
+   (`CreateImmediateAction $26`), in this order:
+
+| `RelicEffect5` | Spell |
+|---|---|
+| `SHELL_WHEN_HP_LOW` (bit 0) | Shell (`$25`) |
+| `SAFE_WHEN_HP_LOW` (bit 1) | Safe (`$1c`) |
+| `WALL_WHEN_HP_LOW` (bit 2) | Reflect (`$24`) |
+
+A dead battler is near fatal (step 1 of the pass) but held by its status, so it casts nothing. That
+the chance is spent before the relics are read could only show if a battler's relics changed during
+the battle, and they cannot: the battle's Item menu swaps what is in the hands, not the relics
+(`UpdateCharProp` `:5595-5629`).
+
+## Reraise — verified, unchanged
+
+`AfterAction1` (`:1104-1109`) takes a battler that still has Dead once a Zombie's Dead has been dealt
+with, and has Reraise (`$3ef9.2`), through `ReraiseEffect` (`:1217-1225`): Reraise comes off, the
+monster's bit comes out of `$2f2f` (the monsters standing — the source's "make monster alive" describes
+the Life that follows, not the `trb`), and Life (`$30`) is cast on it as an action with no caster.
+`checkTheFallen()` (`src/battle/battle_loop.cpp:178-185`) does these three in that order; taking a
+party member out of `monstersStanding` changes nothing, as the party member's monster bit (`$3019`) is
+0.
+
 ## Not here
 
 - The field menu's use of an item or a spell (`CalcMagicEffect` `:11736-11756`) calls `ApplyStatusMod`
@@ -247,6 +313,8 @@ statuses reach it only through the pending statuses `statusEffect` wrote.
   `status`.
 - `diedAwaitingCounter` and `statusChanged` are emptied elsewhere (`ExecAIRetal` `:12475`;
   `docs/contracts/battle_core.md`); the pass only adds to them.
-- The special effects that write the pending statuses directly, the status timers' counting, the
-  start's starting statuses and the immunity masks themselves are the special effects', the battle
-  core's and the battle start's.
+- The special effects that write the pending statuses directly, the status timers' counting and the
+  immunity masks themselves are the special effects', the battle core's and the battle start's.
+- A petrified battler is marked as having died this action on every pass (step 1 of the pass); whether
+  a petrified monster then answers more than the attack that petrified it is decided by the monster AI's
+  counterattack step (`ExecAIRetal` `:12475-12492`), which reads that mark.

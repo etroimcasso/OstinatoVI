@@ -29,7 +29,8 @@
 // routines are at the addresses both US cartridges hold them; the oracle checks each one's opening
 // bytes and refuses an image that does not have them. `ostinato-damage-trace --check` runs it from
 // the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
-// the port's formulas.
+// the port's formulas, and tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
+// status rules.
 #pragma once
 
 #include <array>
@@ -59,41 +60,52 @@ namespace ostinato::trace {
 
 // --- the trace ---------------------------------------------------------------------------------
 
-// A routine the trace follows: where it starts, where the attack frame's call to it returns, and
-// where the call to it from the reflected attack returns (0: it is not called from there).
+// A routine the trace follows: where it starts, where the attack frame's call to it returns, where
+// the call to it from the reflected attack returns (0: it is not called from there), and where the
+// calls from anywhere else return (0: no other).
 struct TracedRoutine {
     const char* name;
     std::uint32_t entry;
     std::uint32_t frameReturn;
     std::uint32_t bounceReturn;
+    std::array<std::uint32_t, 2> otherReturns{};
 };
 
-// The base damage, the damage to one target, and the damage taken and shown (battle/battle_main.asm:
-// 7217 and 8096; 1809, 8362 and 8440; 16193, 8365 and 8455 — the program sits at $C2:0000).
-inline constexpr std::array<TracedRoutine, 3> kTracedRoutines{{
+// The base damage, the damage to one target, the damage taken and shown, the statuses taking effect,
+// and an attack's statuses on one target (battle/battle_main.asm: 7217 and 8096; 1809, 8362 and 8440;
+// 16193, 8365 and 8455; 11032, 8109, and the battle's start 6128 and a formation change 13231; 11094,
+// 8356 and 8434 — the program sits at $C2:0000).
+inline constexpr std::array<TracedRoutine, 5> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
+    {"UpdateStatus", 0xC24391, 0xC2324D, 0, {0xC224A7, 0xC250AA}},
+    {"MagicStatusEffect", 0xC24406, 0xC2345C, 0xC234F9},
 }};
 
 // The cells the traced routines read and write, as ranges of work RAM: the direct-page attack flags
 // and multiplier; the attack's record copy and damage; each battler's bit; the numeral buffer; the
-// script queue; what is to be worked out again for each battler; the links between battlers; the
-// damage ledger; the per-command cells; the battle's own cells (the missed set, the blocks, the
-// Golem's HP, the script queue's place and end); each battler's flags, stats, monster flags, pending
-// statuses, Forcefield's elements and statuses.
+// script queue; the monsters standing, a party member's equipment to work out and the monsters'
+// drawing flags; what is to be worked out again for each battler; the links between battlers; the
+// statuses each battler can be given; the damage ledger; the per-command cells; the battle's own
+// cells (the missed sets, the blocks, the Golem's HP, the monsters fallen, the battlers that died this
+// action and whose statuses changed, the script queue's place and end); each battler's flags, stop
+// timer, stats, monster flags, sleep timer, pending statuses, triggers, statuses for a counterattack,
+// Forcefield's elements, statuses, and Reflect and freeze timers.
 struct TracedRange {
     const char* key;
     std::uint32_t at;
     std::uint32_t size;
 };
-inline constexpr std::array<TracedRange, 16> kTracedRanges{{
-    {"direct page", 0x7E00B0, 16},     {"attack record", 0x7E11A0, 18}, {"battler bits", 0x7E3018, 20},
-    {"numeral buffer", 0x7E2BCE, 160}, {"script queue", 0x7E2D6E, 256}, {"to work out", 0x7E3204, 20},
-    {"links", 0x7E327C, 120},          {"ledger", 0x7E33D0, 40},        {"command cells", 0x7E3400, 32},
-    {"battle cells", 0x7E3A30, 96},    {"flags", 0x7E3AA0, 20},         {"stats", 0x7E3B18, 340},
-    {"monster flags", 0x7E3C95, 20},   {"pending statuses", 0x7E3DD4, 61}, {"forcefield", 0x7E3EC8, 1},
-    {"statuses", 0x7E3EE4, 40},
+inline constexpr std::array<TracedRange, 23> kTracedRanges{{
+    {"direct page", 0x7E00B0, 16},      {"attack record", 0x7E11A0, 18},     {"battler bits", 0x7E3018, 20},
+    {"numeral buffer", 0x7E2BCE, 160},  {"script queue", 0x7E2D6E, 256},     {"monster cells", 0x7E2F2F, 38},
+    {"to work out", 0x7E3204, 20},      {"links", 0x7E327C, 120},            {"immunities", 0x7E331C, 40},
+    {"ledger", 0x7E33D0, 40},           {"command cells", 0x7E3400, 32},     {"battle cells", 0x7E3A30, 96},
+    {"flags", 0x7E3AA0, 20},            {"stop timers", 0x7E3AF0, 20},       {"stats", 0x7E3B18, 340},
+    {"monster flags", 0x7E3C95, 20},    {"sleep timers", 0x7E3CF8, 20},      {"pending statuses", 0x7E3DD4, 80},
+    {"triggers", 0x7E3E4C, 20},         {"statuses for a counter", 0x7E3E60, 40}, {"forcefield", 0x7E3EC8, 1},
+    {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},
 }};
 
 // The trace on one machine: escapes on each traced routine's entry and return sites and watches over
@@ -150,7 +162,7 @@ struct TracedCall {
 };
 
 // Every call in a trace, in order. A call that never returns to one of its routine's return sites —
-// one neither the frame nor the reflected attack made — is left out, and a return with no call open
+// one none of the callers kTracedRoutines names made — is left out, and a return with no call open
 // is skipped. Throws std::runtime_error naming the line for a line that starts like an event and is
 // not one.
 [[nodiscard]] std::vector<TracedCall> parseTrace(std::istream& log);
@@ -372,8 +384,10 @@ public:
     // Replay one call the trace logged against the port: the battle is rebuilt from the cells the
     // routine read (every other cell as the oracle writes a default scenario), the attacker and target
     // from the attack's context and the cells the routine touched, and the port's answer is compared
-    // with the cells the routine wrote. Returns every cell where they part, one per line; empty when
-    // they agree. Throws std::runtime_error for a call it cannot rebuild, naming why.
+    // with the cells the routine wrote. The statuses taking effect replay from any of their callers;
+    // an attack's statuses on one target take the target from the battler cells they touched. Returns
+    // every cell where they part, one per line; empty when they agree. Throws std::runtime_error for a
+    // call it cannot rebuild, naming why.
     [[nodiscard]] std::string replay(const TracedCall& call);
 
     // Log every call the oracle's routines make to the traced routines in the trace's own lines; a
@@ -416,6 +430,9 @@ private:
     void writeContext(const DamageScenario& scenario);
     void writeStatusCells(const DamageScenario& scenario);
     [[nodiscard]] StatusChangesResult readStatusChangesResult();
+    [[nodiscard]] StatusEffectResult readStatusEffectResult(battle::BattlerSlot target);
+    [[nodiscard]] DamageScenario readStatusScenario();
+    [[nodiscard]] std::string replayStatusCall(const TracedCall& call, const TracedRoutine& routine);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,

@@ -46,7 +46,9 @@ berserk party member, say, gets one monster. `chooseAutomaticAction()` and `runA
 battlers no one chooses for ([below](#automatic-actions)), and `chooseDanceStep()`,
 `chooseRageAttack()` and `chooseRandomEsper()` settle the menu choices that come down to chance.
 `refreshCommandList()` decides which of a party member's commands can be chosen
-([below](#the-command-menu)).
+([below](#the-command-menu)). `applyStatusChanges()` puts on the statuses waiting at the battle's start
+and at a formation change, and `checkNearFatal()` has a near-fatal battler's relics cast their spells
+as the battle settles after an action ([status.md](status.md)).
 
 Without the executor, `runCommand()` runs one command into a script:
 

@@ -75,8 +75,9 @@ public:
     // Run down the Morph meter of the morphed battler on every time update.
     virtual void tickMorph(BattleState&, BattlerSlot) {}
 
-    // Put on every battler the statuses waiting to be set (Battler::innateStatuses and the
-    // like) and take off those waiting to be cleared.
+    // Put on every battler the statuses waiting to be set (Battler::statusesToSet — at the
+    // battle's start and at a formation change, the statuses its record starts it with) and take
+    // off those waiting to be cleared.
     virtual void applyStatusChanges(BattleState&) {}
 
     // Get a battler's AI ready from its script (Battler::aiScript): where its turns and its

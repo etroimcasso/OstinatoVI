@@ -1,8 +1,9 @@
 # ostinato-damage-trace
 
-Runs the cartridge on the engine's SNES machine and watches its damage routines: what each one
-reads and writes while the game is played, whether every call so recorded comes out the same from
-the port, or whether the port's damage formulas give the same numbers the cartridge's own code does.
+Runs the cartridge on the engine's SNES machine and watches its damage and status routines: what
+each one reads and writes while the game is played, whether every call so recorded comes out the
+same from the port, or whether the port's damage formulas give the same numbers the cartridge's own
+code does.
 It is a developer tool and is not part of the game.
 
 ```sh
@@ -35,7 +36,7 @@ Close the window to quit, or pass `--quit-after-frames <n>` to have it close its
 frames. The machine keeps the cartridge's battery save between runs, so a game saved in the window is
 there to load the next time.
 
-Three routines are traced. An escape on each one's entry and on each instruction its callers return
+Five routines are traced. An escape on each one's entry and on each instruction its callers return
 to opens and closes a call; watches over every cell the routines read or write log each access made
 inside a call:
 
@@ -44,6 +45,8 @@ inside a call:
 | `CalcDmg` | `$C2:2B9D` | `$C2:322E` | an attack's base damage |
 | `CalcTargetDmg` | `$C2:0B83` | `$C2:346C` from the attack, `$C2:3509` from a spell's bounce | the damage to one target |
 | the apply-and-show routine | `$C2:62EF` | `$C2:3473` from the attack, `$C2:3528` from a bounce | taking the damage off and showing the numerals |
+| `UpdateStatus` | `$C2:4391` | `$C2:324D` from the attack, `$C2:24A7` from the battle's start, `$C2:50AA` from a formation change | every battler's waiting statuses taking effect |
+| `MagicStatusEffect` | `$C2:4406` | `$C2:345C` from the attack, `$C2:34F9` from a bounce | an attack's statuses on one target |
 
 Every call is logged to `damage-trace.log` under `<directory>`, nothing filtered, one line per event:
 
@@ -64,10 +67,12 @@ Launcher's or Super Ball's hits to come (`$7E:3405`), the aiming rules (`$7E:00B
 the params block before this one in the script's buffer (`--` when there is none). `r` and `w` are a
 read and a write of the cell named, with the byte read or written. The cells watched are the
 direct-page attack flags and multiplier, the attack's record and damage, each battler's bit, the
-numeral buffer, the script queue, what is to be worked out again for each battler, the links between
-battlers, the damage ledger, the per-command and per-battle cells, and each battler's flags, stats,
-monster flags, pending statuses, Forcefield elements and statuses (`kTracedRanges` in
-`damage_oracle.h`). The addresses are the US cartridges'.
+numeral buffer, the script queue, the monsters standing and the cells beside them, what is to be
+worked out again for each battler, the links between battlers, the statuses each battler can be
+given, the damage ledger, the per-command and per-battle cells, and each battler's flags, stats,
+monster flags, pending statuses, triggers, statuses for a counterattack, four status timers,
+Forcefield elements and statuses (`kTracedRanges` in `damage_oracle.h`). The addresses are the US
+cartridges'.
 
 ## Replaying
 
@@ -76,8 +81,11 @@ each cell the routine read as it read it, every other cell as a battle starts it
 the port: the attacker from the params block (for a bounce, the battler it bounced off — for a
 Launcher's or Super Ball's hits, the lowest battler in the bounces that hit — and for the damage
 shown after a bounce, the attacker of the block before), the target from the battler cells the
-routine touched (for a bounce, the battler its byte names). The port's answer is compared with every cell the routine wrote. Each
-call is logged to `replay.log` with its differences; any difference is printed and fails the run:
+routine touched (for a bounce, the battler its byte names). The statuses taking effect need neither,
+and replay from any of their three callers; an attack's statuses on one target take the target from
+the battler cells the call touched. The port's answer is compared with every cell the routine wrote.
+Each call is logged to `replay.log` with its differences; any difference is printed and fails the
+run:
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --replay
@@ -85,7 +93,8 @@ call is logged to `replay.log` with its differences; any difference is printed a
 
 A call the log opens and never closes — the routine left by some other way than its callers' return
 sites — is not replayed. Copy a recording into `tests/fixtures/damage-trace/` (any `.log` file name) and
-`tests/test_trace_replay.cpp` replays it with the rest of the damage tests.
+`tests/test_trace_replay.cpp` replays it with the rest of the damage tests. The cartridge's own calls
+of the two status routines, traced through the oracle, are replayed by `tests/test_status_oracle.cpp`.
 
 ## Checking
 
@@ -109,4 +118,4 @@ the damage taken and shown, and a spell bounced off Reflect the same way, each f
 | File | What it holds |
 |---|---|
 | `main.cpp` | the command line, the window and the trace on it, the replay run and the check run |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, and a spell bounced off Reflect; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()` and `drawReflectScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect and an attack's statuses on one target; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()` and `drawStatusEffectScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |

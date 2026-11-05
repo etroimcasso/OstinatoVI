@@ -116,7 +116,7 @@ The fields of `Battler` group as follows.
 |---|---|
 | Whose turn it is | `present`, `takesMenuInput`, `inBattleMenu`, `atbStopped`, `heldByStatus`, `heldByControl`, `actionQueued`, `menuMayOpen`, `skipAdvanceWait`, `defending`, `dotActionPending`, `emptyGaugeAfterAction`, `requeuePending`, `pendingUpdates`, `nearFatalSpellAvailable`, `airAnchored`, `mayActAfterJump` |
 | The clocks | `gauge`, `atbRate`, `advanceWait`, `advanceWaitCounter`, `statusTimer`, `statusTimerStep`, `stopTimer`, `reflectTimer`, `freezeTimer`, `sleepTimer`, `condemnedNumber`, `damageOverTimePhase`, `morphGauge`, `turnTimer`, `runProgress`, `runFactor` |
-| Who it is | `actor`, `record`, `graphics`, `level`, `hp`, `maxHp`, `mp`, `maxMp`, `speed`, `vigor`, `stamina`, `magicPower`, `defense`, `magicDefense`, `evadeFactor`, `magicBlockFactor`, `status`, `innateStatuses`, `equipmentStatuses`, `inflictableStatuses`, `instantDeathProtected`, `backRow`, `human`, `undead`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `aiScript` |
+| Who it is | `actor`, `record`, `graphics`, `level`, `hp`, `maxHp`, `mp`, `maxMp`, `speed`, `vigor`, `stamina`, `magicPower`, `defense`, `magicDefense`, `evadeFactor`, `magicBlockFactor`, `status`, `equipmentStatuses`, `inflictableStatuses`, `instantDeathProtected`, `backRow`, `human`, `undead`, `triggers`, `actsAsEnemy`, `aiTakesTurns`, `hasCounterScript`, `aiScript` |
 | A monster's record | `monster`, `monsterFlags` (first strike, harder to run from, can't run, the immunities), `diesAtZeroMp`, `impCritical`, `nameHidden`, `nameGroup`, `rareSteal`, `commonSteal`, `experience`, `gold`, `metamorph`, `specialAttack`, `specialAttackAnimation` |
 | A party member's equipment | `weaponHand`, `shieldHand`, `relics`, the four element sets, `physicalBlockGraphics`, `magicBlockGraphics`, `relicEffects1`-`5`, `mayHoldTwoWeapons`, `equipsAs`, `equipmentChanged`, `commands`, `spells`, `spellCount` |
 | What its command took up | `itemInHand`, `dance`, `rage` |
@@ -267,9 +267,10 @@ nothing.
 | `runAi(state, actor)` | a battler's AI takes its turn |
 | `runCounterAi(state, actor)` | a battler's counter AI answers |
 | `checkControl`, `releaseLinks`, `clearControl` | after every command, for control, Zinger, Love Token and Charm |
-| `refreshCommandList`, `refreshMorph`, `checkNearFatal` | an action left those updates pending for a battler; `refreshCommandList` also after an equipment change |
+| `refreshCommandList`, `refreshMorph` | an action left those updates pending for a battler; `refreshCommandList` also after an equipment change |
+| `checkNearFatal(state, slot)` | the last thing for each battler as the battle settles after an action: a near-fatal battler's relics cast their spells |
 | `tickMorph(state, slot)` | every time update, for the morphed battler |
-| `applyStatusChanges(state)` | the battle's start: the statuses waiting to be set go on |
+| `applyStatusChanges(state)` | the battle's start and a formation change: the statuses waiting to be set go on |
 | `initAi(state, slot)` | a monster is loaded: get its AI ready from `aiScript` and set `hasCounterScript` |
 | `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
 | `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back |
@@ -302,7 +303,9 @@ struct Swing : ActionExecutor {
 
 `NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
 ([commands.md](commands.md)) is the battle's own: it carries out every action, aims commands,
-chooses for the battlers no one chooses for, and settles the menu choices left to chance.
+chooses for the battlers no one chooses for, settles the menu choices left to chance, puts on the
+statuses waiting at the start and at a formation change, and casts the near-fatal relics' spells
+([status.md](status.md)).
 
 ## Requests
 

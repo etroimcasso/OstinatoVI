@@ -68,7 +68,8 @@ Morph available, Gau having joined before, Shadow kept — come from the battle 
 
 `startBattle()` runs, in order: the formation; the party placed and loaded (below), the battle
 inventory and known skills; the monsters; the statuses waiting to be set
-(`executor.applyStatusChanges`); the after-command checks once; the battle type; status immunity; the
+(`executor.applyStatusChanges` — on `CommandExecutor`, the battle's own pass, [status.md](status.md));
+the after-command checks once, near-fatal relics included; the battle type; status immunity; the
 starting gauges; the opening message; whether the party can run; everyone placed on the field and
 facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`.
 
@@ -178,8 +179,10 @@ grip survives only beside a bare hand and only with a Gauntlet.
 
 `loadPartyMember(state, slot, stats, joinedFromSetup)` sets HP and MP from the record, the maximums
 raised by `stats`' boosts (`boostedMaximum()`) and capped at 9999 and 999, the level, and
-`innateStatuses` — the statuses the battle starts the battler with. `joinedFromSetup` heals to full
-and leaves the record only Blind, Poison, Magitek and Imp of its first eight statuses.
+`statusesToSet` — the statuses the battle starts the battler with, the record's and its
+equipment's, which go on when the start's statuses take effect ([status.md](status.md)).
+`joinedFromSetup` heals to full and leaves the record only Blind, Poison, Magitek and Imp of its first
+eight statuses.
 
 ## Battle commands
 
@@ -274,8 +277,8 @@ starts over — off the field, no monster in it, the start's recalculations pend
 formation's monsters are loaded with `hp` (above). The statuses waiting to be set take effect, the
 fallen are dealt with, the battle settles, `refreshAliveSets()` counts who is fighting, status
 immunity is worked out, the battle type is chosen again and the monsters are placed for it; the
-monsters still fighting become the monsters standing. The party, its places and every slot's
-statuses are left as they are, and a slot whose monster had fallen stays fallen.
+monsters still fighting become the monsters standing. The party and its places are left as they
+are, no slot's statuses are cleared, and a slot whose monster had fallen stays fallen.
 
 ```cpp
 changeFormation(state, executor, FormationId::LOBO_X2_MARSHAL, MonsterHp::FromRecord,
@@ -288,7 +291,7 @@ The part of that a party member raging as the monster takes on too — its speci
 weak, absorbed and nullified elements, the statuses it cannot be given, the statuses its record keeps
 on it and its True Knight cover — is `loadMonsterTraits(battler, id)`. It returns the statuses the
 monster starts with rather than setting them: `loadMonster()` makes them the monster's
-`innateStatuses`, and a Rage puts them on when its action's statuses take effect
+`statusesToSet`, and a Rage makes them the rager's, so they go on when the statuses take effect
 ([commands.md](commands.md#sketch-rage-and-control)).
 
 ## The battle type

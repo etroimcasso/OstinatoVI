@@ -6,6 +6,7 @@
 #include "battle/automatic_actions.h"
 #include "battle/command_menu.h"
 #include "battle/commands.h"
+#include "battle/status.h"
 #include "battle/system_commands.h"
 #include "battle/targeting.h"
 #include "data/battle_commands.h"
@@ -102,6 +103,14 @@ void CommandExecutor::runAi(BattleState& state, BattlerSlot actor) {
 
 void CommandExecutor::refreshCommandList(BattleState& state, BattlerSlot slot) {
     refreshCommandMenu(state, slot);
+}
+
+void CommandExecutor::applyStatusChanges(BattleState& state) {
+    battle::applyStatusChanges(state);
+}
+
+void CommandExecutor::checkNearFatal(BattleState& state, BattlerSlot slot) {
+    nearFatalRelicSpells(state, slot);
 }
 
 AttackId CommandExecutor::chooseDanceStep(BattleState& state, BattlerSlot dancer, AttackId) {

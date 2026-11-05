@@ -114,4 +114,17 @@ void statusEffect(BattleState& state, AttackInFlight& attack, BattlerSlot attack
 // HP is not touched: a battler set to die keeps its HP until the battle checks who has fallen.
 void applyStatusChanges(BattleState& state);
 
+// The spells `slot`'s relics cast when it is near fatal, once a battle: for a battler that is near
+// fatal, is not held by a status (Battler::heldByStatus — dead, petrified or stopped) and still has
+// Battler::nearFatalSpellAvailable, the chance is spent and each of its RelicEffect5 near-fatal
+// effects casts its spell on it, in this order: SHELL_WHEN_HP_LOW Shell, SAFE_WHEN_HP_LOW Safe,
+// WALL_WHEN_HP_LOW Reflect. Each is a SpellWithoutCaster aimed at `slot`, added to the actions that
+// run before anything else (addImmediateAction()).
+//
+// The chance is spent whatever the relics are: a battler with none of the three effects that falls
+// near fatal has no near-fatal spell left for the rest of the battle.
+//
+//     nearFatalRelicSpells(state, slot);   // after an action, for each battler on the field
+void nearFatalRelicSpells(BattleState& state, BattlerSlot slot);
+
 }  // namespace ostinato::battle

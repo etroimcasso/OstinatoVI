@@ -3,7 +3,10 @@
 #include <array>
 #include <cstddef>
 
+#include "battle/actions.h"
+#include "ostinato/attack_id.h"
 #include "ostinato/element_set.h"
+#include "ostinato/item_effects.h"
 
 namespace ostinato::battle {
 
@@ -355,6 +358,28 @@ void applyStatusChanges(BattleState& state) {
         const BattlerSlot slot = BattlerSlot::fromIndex(index);
         if (state.at(slot).present) {
             takeEffect(state, slot);
+        }
+    }
+}
+
+void nearFatalRelicSpells(BattleState& state, BattlerSlot slot) {
+    Battler& battler = state.at(slot);
+    if (battler.heldByStatus || !battler.status.has(StatusId::NEAR_FATAL) || !battler.nearFatalSpellAvailable) {
+        return;
+    }
+    battler.nearFatalSpellAvailable = false;
+    struct RelicSpell {
+        RelicEffect5 effect;
+        AttackId spell;
+    };
+    constexpr std::array<RelicSpell, 3> kRelicSpells{{
+        {RelicEffect5::SHELL_WHEN_HP_LOW, AttackId::SHELL},
+        {RelicEffect5::SAFE_WHEN_HP_LOW, AttackId::SAFE},
+        {RelicEffect5::WALL_WHEN_HP_LOW, AttackId::RFLECT},
+    }};
+    for (const RelicSpell& relic : kRelicSpells) {
+        if (battler.relicEffects5.has(relic.effect)) {
+            addImmediateAction(state, SpellWithoutCaster{.spell = relic.spell, .target = slot});
         }
     }
 }

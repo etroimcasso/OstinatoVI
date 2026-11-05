@@ -526,7 +526,7 @@ void loadPartyMember(BattleState& state, BattlerSlot slot, const DerivedStats& s
     if (battler.equipmentStatuses.has(StatusId::CONDEMNED)) {
         battler.pendingUpdates.stopCondemned = false;
     }
-    battler.innateStatuses = unionOf(intersectionOf(record.status, kRecordStatuses), battler.equipmentStatuses);
+    battler.statusesToSet = unionOf(intersectionOf(record.status, kRecordStatuses), battler.equipmentStatuses);
     if (record.status.has(StatusId::MAGITEK)) {
         state.mimic.last.command = BattleCommandId::MAGITEK;
         state.mimic.last.attack = AttackId::FIRE_BEAM;
@@ -578,7 +578,7 @@ void buildCommandList(BattleState& state, BattlerSlot slot) {
                 if (!state.morphAvailable) {
                     command = BattleCommandId::NONE;
                 } else if (state.permanentMorph) {
-                    battler.innateStatuses.set(StatusId::MORPH);
+                    battler.statusesToSet.set(StatusId::MORPH);
                     state.party.morphSupply = kStatMax;
                     command = BattleCommandId::NONE;
                 }

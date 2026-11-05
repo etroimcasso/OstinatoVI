@@ -4,8 +4,10 @@ How statuses go on the battlers and come off. An attack never changes a battler'
 spot: for each target it hits, the attack's statuses are worked out and added to what is waiting on
 that target, and once the attack is over every battler's waiting statuses take effect together. Two
 free functions do the two halves, and `BattleHooks` calls them from the attack frame's status hooks
-([commands.md](commands.md#hooks)). Both are checked against the cartridge's own routines, run on the
-engine's SNES machine over the same inputs.
+([commands.md](commands.md#hooks)); the statuses a battle starts with wait the same way and go on
+through `CommandExecutor`. A third function casts the spells a battler's relics cast when it is near
+fatal. The first two are checked against the cartridge's own routines, run on the engine's SNES
+machine over the same inputs.
 
 The rules, and the line of the original each is read from, are in
 [`docs/contracts/battle_status.md`](../../contracts/battle_status.md).
@@ -14,11 +16,12 @@ The rules, and the line of the original each is read from, are in
 
 | File | Holds |
 |---|---|
-| `src/battle/status.h` | `statusModification()`, `calcStatus()`, `statusEffect()`, `applyStatusChanges()`, `StatusChange`, the four durations `kSleepDuration`, `kStopDuration`, `kReflectDuration`, `kFreezeDuration`, and the named sets `kStatusesAZombieCannotHave`, `kStatusesPetrifyTakesOff`, `kStatusesDeadTakesOff` |
-| `src/battle/status.cpp` | the two functions, and the two tables of what each status does going on and coming off |
+| `src/battle/status.h` | `statusModification()`, `calcStatus()`, `statusEffect()`, `applyStatusChanges()`, `nearFatalRelicSpells()`, `StatusChange`, the four durations `kSleepDuration`, `kStopDuration`, `kReflectDuration`, `kFreezeDuration`, and the named sets `kStatusesAZombieCannotHave`, `kStatusesPetrifyTakesOff`, `kStatusesDeadTakesOff` |
+| `src/battle/status.cpp` | the three functions, and the two tables of what each status does going on and coming off |
 | `src/battle/battle_hooks.h` | `BattleHooks`: `statusEffect` and `applyPendingStatuses` one call each into `status.h` |
-| `src/battle/battle_state.h` | `Battler::status`, `statusesToSet`, `statusesToClear`, `inflictableStatuses`, `statusForCounter` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::statusChanges()` and `statusEffect()`, the cartridge's routines over a `DamageScenario`; `portStatusChanges()`, `portStatusEffect()`, `differences()`; `drawStatusChangesScenario()`, `drawStatusEffectScenario()` |
+| `src/battle/command_executor.h` | `CommandExecutor`: `applyStatusChanges` and `checkNearFatal` one call each into `status.h` |
+| `src/battle/battle_state.h` | `Battler::status`, `statusesToSet`, `statusesToClear`, `inflictableStatuses`, `statusForCounter`, `nearFatalSpellAvailable`, `relicEffects5` |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::statusChanges()` and `statusEffect()`, the cartridge's routines over a `DamageScenario`; `portStatusChanges()`, `portStatusEffect()`, `differences()`; `drawStatusChangesScenario()`, `drawStatusEffectScenario()`; `DamageOracle::replay()` for a recorded call of either |
 
 ## Using the battle's statuses
 
@@ -37,6 +40,11 @@ During an attack, `statusEffect` adds to each target's `Battler::statusesToSet` 
 `statusesToClear`; the damage adds to them too (a battler brought to 0 HP is to be set Dead). After
 the attack, its bounce off Reflect and before a weapon's spell, `applyPendingStatuses` makes them
 take effect for every battler on the field and empties them.
+
+`CommandExecutor` runs the same pass at the battle's start and at a formation change, and has the
+near-fatal relics cast as the battle settles after every action. An executor that does not override
+`applyStatusChanges` and `checkNearFatal` — `NullExecutor` among them — leaves the start's statuses
+waiting in `statusesToSet` and casts no relic spell.
 
 ## An attack's statuses on one target
 
@@ -131,6 +139,52 @@ battle::applyStatusChanges(state);
 // slime.statusesToSet and statusesToClear are empty
 ```
 
+## The statuses a battle starts with
+
+The loaders write a battler's starting statuses into its `statusesToSet`, and the start's pass puts
+them on, through the same immunities as any other:
+
+- a party member's: the statuses its record keeps into battle and those its equipment keeps on it
+  (`loadPartyMember()`), and Morph where Terra stays morphed (`buildCommandList()`);
+- a monster's: its record's statuses, with the flying flag as Float (`loadMonster()`, through
+  `loadMonsterTraits()`);
+- a rager's: the monster's, the same way, as its Rage runs; they go on at the end of its attack.
+
+```cpp
+battle::BattleHooks hooks;
+battle::CommandExecutor executor(hooks, cartridge.text, cartridge.monsterSprites);
+const battle::BattleState state = battle::startBattle(start, party, switches, cartridge.text,
+                                                      cartridge.monsterSprites, executor);
+// a flying monster: state.at(slot).status has Float; its statusesToSet is empty
+```
+
+At the start the pass runs before the battle settles, so a party member who starts near fatal has
+its relics' spells waiting before the first frame.
+
+## The near-fatal relics
+
+`nearFatalRelicSpells(state, slot)` runs for each battler on the field as the battle settles after an
+action (`CommandExecutor::checkNearFatal`). For a battler that is near fatal, not held by a status
+(`heldByStatus` — dead, petrified or stopped) and still has `nearFatalSpellAvailable`, it spends that
+chance and casts, for each near-fatal effect in its `relicEffects5`, a spell on it with no caster,
+ahead of everything waiting:
+
+| `RelicEffect5` | Spell |
+|---|---|
+| `SHELL_WHEN_HP_LOW` | Shell |
+| `SAFE_WHEN_HP_LOW` | Safe |
+| `WALL_WHEN_HP_LOW` | Reflect |
+
+```cpp
+battle::Battler& terra = state.at(battle::BattlerSlot::character(0));
+terra.status = StatusSet::of(StatusId::NEAR_FATAL);
+terra.relicEffects5 = RelicEffect5Set::of(RelicEffect5::SHELL_WHEN_HP_LOW, RelicEffect5::SAFE_WHEN_HP_LOW);
+
+battle::nearFatalRelicSpells(state, battle::BattlerSlot::character(0));
+// state.immediateActions ends with SpellWithoutCaster{SHELL, Terra}, then {SAFE, Terra}
+// terra.nearFatalSpellAvailable is false
+```
+
 ## Checking a rule against the cartridge
 
 The damage oracle ([damage.md](damage.md#checking-a-formula-against-the-cartridge)) runs the
@@ -169,6 +223,14 @@ two miss sets. `drawStatusChangesScenario()` and `drawStatusEffectScenario()` dr
 bit of every status set at random from a seeded generator, so a sweep's draw can be run again alone by
 its index.
 
+The trace tool (`tools/damage-trace/`) follows both routines as the game plays: the statuses taking
+effect after an attack (`$C2:324D`), at the battle's start (`$C2:24A7`) and at a formation change
+(`$C2:50AA`), and an attack's statuses on each target from the attack and from a bounce
+(`$C2:345C`, `$C2:34F9`). `DamageOracle::replay()` rebuilds a recorded call from the cells it read and
+compares the port's answer with every cell it wrote; an attack's statuses on one target take the
+target from the battler cells the call touched. `ostinato-damage-trace <rom> <directory> --replay`
+replays a whole recording.
+
 ## Gotchas
 
 - **Immunity works both ways.** A status a battler cannot be given never comes off it either; that is
@@ -188,6 +250,13 @@ its index.
 - **HP is untouched.** A battler set Dead keeps its HP until the battle checks who has fallen.
 - **Both status modes together** are handled as a toggle. No attack in the game has them; the oracle's
   draws leave them out, because the cartridge runs unrelated code there.
+- **The near-fatal chance is spent first.** A battler that falls near fatal with no near-fatal relic
+  loses its chance all the same; the relics cannot change during a battle, so nothing shows it.
+- **The dead cast nothing.** A dead battler reads near fatal but is held by its status.
+- **No monster starts with Reraise.** The loader keeps Reraise of a monster's record, but no record
+  has it.
+- **The start needs the battle's executor.** On `NullExecutor` the start's statuses stay in
+  `statusesToSet`.
 
 ## Where to change
 
@@ -200,4 +269,7 @@ its index.
 | What a status does going on or coming off | its handler, and its row in `kGoingOn` / `kComingOff`, in `src/battle/status.cpp` |
 | How long Sleep, Stop, Reflect and Frozen last | `kSleepDuration`, `kStopDuration`, `kReflectDuration`, `kFreezeDuration` in `src/battle/status.h` |
 | What Petrify, Dead and a Zombie take off | `kStatusesPetrifyTakesOff`, `kStatusesDeadTakesOff`, `kStatusesAZombieCannotHave` in `src/battle/status.h` |
+| The statuses a party member or a monster starts with | `loadPartyMember()` and `buildCommandList()` in `src/battle/party_setup.cpp`; `loadMonsterTraits()` in `src/battle/battle_start.cpp` |
+| What the near-fatal relics cast, and when | `nearFatalRelicSpells()` in `src/battle/status.cpp` |
 | The cells the oracle writes for the status routines | `writeStatusCells()` in `tools/damage-trace/damage_oracle.cpp` |
+| How a recorded status call is rebuilt | `readStatusScenario()` and `replayStatusCall()` in `tools/damage-trace/damage_oracle.cpp` |
