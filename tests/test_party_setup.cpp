@@ -663,7 +663,7 @@ TEST(LoadPartyMember, TheRecordAndTheEquipmentGiveTheStatusesTheBattleStartsWith
     const DerivedStats stats = battle::deriveEquipment(record);
     battle::applyDerivedStats(state, kFirst, stats);
     battle::loadPartyMember(state, kFirst, stats, false);
-    const StatusSet& innate = state.at(kFirst).innateStatuses;
+    const StatusSet& innate = state.at(kFirst).statusesToSet;
     EXPECT_TRUE(innate.has(StatusId::POISON));
     EXPECT_TRUE(innate.has(StatusId::INTERCEPTOR));
     EXPECT_TRUE(innate.has(StatusId::FLOAT));
@@ -783,7 +783,7 @@ TEST(BuildCommandList, MorphNeedsTheStoryToAllowItAndAPermanentMorphTakesTheComm
     state.permanentMorph = true;
     battle::buildCommandList(state, kFirst);
     EXPECT_EQ(state.at(kFirst).commands[1].command, BattleCommandId::NONE);
-    EXPECT_TRUE(state.at(kFirst).innateStatuses.has(StatusId::MORPH));
+    EXPECT_TRUE(state.at(kFirst).statusesToSet.has(StatusId::MORPH));
     EXPECT_EQ(state.party.morphSupply, 255);
 }
 

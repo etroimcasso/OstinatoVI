@@ -46,7 +46,9 @@ berserk party member, say, gets one monster. `chooseAutomaticAction()` and `runA
 battlers no one chooses for ([below](#automatic-actions)), and `chooseDanceStep()`,
 `chooseRageAttack()` and `chooseRandomEsper()` settle the menu choices that come down to chance.
 `refreshCommandList()` decides which of a party member's commands can be chosen
-([below](#the-command-menu)).
+([below](#the-command-menu)). `applyStatusChanges()` puts on the statuses waiting at the battle's start
+and at a formation change, and `checkNearFatal()` has a near-fatal battler's relics cast their spells
+as the battle settles after an action ([status.md](status.md)).
 
 Without the executor, `runCommand()` runs one command into a script:
 
@@ -363,13 +365,16 @@ A spell that bounced off anyone's Reflect calls `statusEffect`, `targetEffect`, 
 
 The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`): `baseDamage`,
 `scaleDamage`, `targetDamage` and `applyDamage` are one call each into the formulas in
-[damage.md](damage.md), and the status and special-effect members are still `AttackHooks`' own. A
-class that needs one more part overrides it on top of `BattleHooks`:
+[damage.md](damage.md), `statusEffect` and `applyPendingStatuses` one call each into the status rules
+in [status.md](status.md), and the special-effect members are still `AttackHooks`' own. A class that
+needs one more part overrides it on top of `BattleHooks`:
 
 ```cpp
-struct StatusesTakeEffect : BattleHooks {
-    void applyPendingStatuses(BattleState& state) override {
-        for (Battler& battler : state.battlers) { /* put on statusesToSet, take off statusesToClear */ }
+struct WithTargetEffects : BattleHooks {
+    bool targetEffect(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
+                      BattlerSlot target) override {
+        // ... the attack's special effect on `target`; true when it missed
+        return false;
     }
 };
 ```

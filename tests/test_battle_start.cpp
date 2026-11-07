@@ -213,7 +213,7 @@ TEST(StartMonsters, EveryMonsterLoadsItsRecord) {
         const std::uint8_t flying = b[2] & 0x01;
         const StatusSet innate{{b[0], b[1], static_cast<std::uint8_t>(b[2] & 0xFE),
                                 static_cast<std::uint8_t>((b[3] | (flying << 7)) & 0x84)}};
-        EXPECT_EQ(monster.innateStatuses.bytes, innate.bytes);
+        EXPECT_EQ(monster.statusesToSet.bytes, innate.bytes);
         const StatusSet held{{0, b[1], static_cast<std::uint8_t>(b[2] & 0xFE), static_cast<std::uint8_t>(flying << 7)}};
         EXPECT_EQ(monster.equipmentStatuses.bytes, held.bytes);
         EXPECT_EQ(monster.triggers.monsterRunic, (b[3] & 0x02) != 0);

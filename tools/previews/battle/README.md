@@ -3,8 +3,8 @@
 Fights battles from the installed cartridge and shows the battle's picture: the background, the
 monsters and the party, the windows, the messages and the damage numerals. Nobody drives it. A
 scripted player answers every menu with Fight at the first monster still standing, and confirms each
-message that waits for a key. The damage is the battle's own; the statuses it sets — a battler
-brought to 0 HP set to die — take effect after each attack (`preview_hooks.h`).
+message that waits for a key. The damage and the statuses are the battle's own
+(`src/battle/battle_hooks.h`).
 
 ```sh
 cmake --build build --target ostinato-preview-battle
@@ -58,7 +58,6 @@ frames fails the run.
 | `main.cpp` | the command line, the cartridge read, the art decoded and uploaded once per background, monster and party member, and the two ways to run |
 | `battle_preview.{h,cpp}` | `BattleScreen(…)`, the screen's layers for one frame |
 | `scripted_player.h` | the player that answers the menus and confirms the messages |
-| `preview_hooks.h` | the battle's hooks, with the statuses the damage sets taking effect after each attack |
 
 The components it puts together are described in
 [`docs/engine/rendering/battle.md`](../../../docs/engine/rendering/battle.md).

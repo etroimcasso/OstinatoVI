@@ -537,3 +537,39 @@ cell further right than its offset. `tests/test_battle_presentation.cpp` and
 
 **If you want to change it.** Centering "Miss" means an offset of 8 and no
 extra cell in both cases.
+
+---
+
+## A counterattack is decided on statuses the battler never gets
+
+**What happens.** Whether a monster answers an attack is decided on the
+statuses it is about to have. If they include Sleep, Confuse, Berserk, Frozen or
+Stop, its counter script runs without doing any of its actions, so it does not
+answer. Those statuses are taken at the start of the statuses taking effect,
+which is too early. The statuses it is immune to are not yet held back from coming
+off, the statuses going on and coming off have not yet done what they do, and a
+Zombie's statuses have not yet been taken away. A monster that is already a
+Zombie and is hit by something that would confuse it therefore does not answer.
+A Zombie cannot be confused, and the confusion never shows.
+
+**Where the original does it.** `InitStatusVars`
+(`battle/battle_main.asm:11298-11312`) runs `CalcStatus` into `$3e60`/`$3e74`
+for a battler whose last attacker is marked waiting (`$32e0` bit 7). It does so
+before `UpdateStatus` masks the clears (`:11059-11061`, `:11070-11072`), before
+the status handlers run (`:11041-11080`), and before `_c24585` takes a Zombie's
+statuses off (`:11319-11328`). When those cells hold Sleep, Confuse, Berserk,
+Frozen or Stop, `ExecAIRetal` (`:12481-12493`) sets the counter script to run
+without its actions. The interpreter then treats every command below `$fc` as a
+failed condition (`:4370-4374`) and skips to the next "end if" or the script's
+end (`:4314-4325`).
+
+**Where the port keeps it.** `applyStatusChanges()` in `src/battle/status.cpp`
+sets `Battler::statusForCounter` at the same point, for a monster's answer to
+read. `tests/test_status_changes.cpp`
+(`StatusChangesTest.TheStatusesForACounterattackAreTakenBeforeTheMask`,
+`StatusChangesTest.TheStatusesForACounterattackAreTakenBeforeTheHandlers`) pins
+both against the cartridge's own routine.
+
+**If you want to change it.** Taking the statuses for a counterattack from the
+battler's statuses once the pass is over makes whether it answers follow what
+the player sees.

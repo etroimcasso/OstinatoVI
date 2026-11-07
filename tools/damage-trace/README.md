@@ -1,41 +1,56 @@
 # ostinato-damage-trace
 
-Runs the cartridge on the engine's SNES machine and watches its damage routines: what each one
-reads and writes while the game is played, whether every call so recorded comes out the same from
-the port, or whether the port's damage formulas give the same numbers the cartridge's own code does.
+Runs the cartridge on the engine's SNES machine and watches its damage and status routines: what
+each one reads and writes while the game is played, whether every call so recorded comes out the
+same from the port, or whether the port's rules give the same answers the cartridge's own code does.
 It is a developer tool and is not part of the game.
 
 ```sh
 cmake --build build --target ostinato-damage-trace
-./build/ostinato-damage-trace <rom> <directory> [--quit-after-frames <n>]
-./build/ostinato-damage-trace <rom> <directory> --replay
-./build/ostinato-damage-trace <rom> <directory> --check <draws>
+./build/ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
+./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]...
+./build/ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
+./build/ostinato-damage-trace <rom> <directory> --check-state <ticks>
+./build/ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>] [--replay-traced]
+./build/ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 ```
 
 `<rom>` is a US cartridge image (Final Fantasy III 1.0 or 1.1), with or without a copier header.
-`<directory>` is created if needed.
+`<directory>` is created if needed. A mode goes alone, with the options the lines above show it.
+
+| To check | Run |
+|---|---|
+| Every routine against the port over seeded scenarios | `--check 2000` |
+| One routine, another seed | `--check 2000 --only status-effect --seed 7` |
+| The replay itself, on the cartridge's own calls | `--check 200 --replay-traced` |
+| A recording against the port | `--replay --log tests/fixtures/damage-trace/first-fight.log` |
+| That the script reaches its fight, the same every run | `--to-battle tools/damage-trace/first-fight.inputs --twice` |
+| That a restored machine carries on where it stood | `--check-state 300` |
+| A fight with scripted buttons, with no window | `--headless --from <state> --inputs <script> --frames 3000`, then `--replay` |
+| A fight by hand | `--from <state>`, then `--replay` |
+| Where a script has got to | `--headless --inputs <script> --frames <n> --picture-at <frame>` |
 
 ## Tracing
 
-Without `--check` or `--replay`, the cartridge plays in a window at 3×, exactly as the console draws it, from the
-keyboard:
+With no mode named, the cartridge plays in a window at 3×, exactly as the console draws it, from the
+keyboard or a gamepad:
 
-| Key | Button |
-|---|---|
-| Arrows | D-pad |
-| X | A |
-| Z | B |
-| S | X |
-| A | Y |
-| Q / W | L / R |
-| Enter | Start |
-| Right Shift | Select |
+| Key | Pad | Button |
+|---|---|---|
+| Arrows | D-pad | D-pad |
+| X | A | A |
+| Z | B | B |
+| S | X | X |
+| A | Y | Y |
+| Q / W | L / R | L / R |
+| Enter | Start | Start |
+| Right Shift | Select | Select |
 
 Close the window to quit, or pass `--quit-after-frames <n>` to have it close itself after `n`
 frames. The machine keeps the cartridge's battery save between runs, so a game saved in the window is
 there to load the next time.
 
-Three routines are traced. An escape on each one's entry and on each instruction its callers return
+Five routines are traced. An escape on each one's entry and on each instruction its callers return
 to opens and closes a call; watches over every cell the routines read or write log each access made
 inside a call:
 
@@ -44,6 +59,8 @@ inside a call:
 | `CalcDmg` | `$C2:2B9D` | `$C2:322E` | an attack's base damage |
 | `CalcTargetDmg` | `$C2:0B83` | `$C2:346C` from the attack, `$C2:3509` from a spell's bounce | the damage to one target |
 | the apply-and-show routine | `$C2:62EF` | `$C2:3473` from the attack, `$C2:3528` from a bounce | taking the damage off and showing the numerals |
+| `UpdateStatus` | `$C2:4391` | `$C2:324D` from the attack, `$C2:24A7` from the battle's start, `$C2:50AA` from a formation change | every battler's waiting statuses taking effect |
+| `MagicStatusEffect` | `$C2:4406` | `$C2:345C` from the attack, `$C2:34F9` from a bounce | an attack's statuses on one target |
 
 Every call is logged to `damage-trace.log` under `<directory>`, nothing filtered, one line per event:
 
@@ -64,49 +81,128 @@ Launcher's or Super Ball's hits to come (`$7E:3405`), the aiming rules (`$7E:00B
 the params block before this one in the script's buffer (`--` when there is none). `r` and `w` are a
 read and a write of the cell named, with the byte read or written. The cells watched are the
 direct-page attack flags and multiplier, the attack's record and damage, each battler's bit, the
-numeral buffer, the script queue, what is to be worked out again for each battler, the links between
-battlers, the damage ledger, the per-command and per-battle cells, and each battler's flags, stats,
-monster flags, pending statuses, Forcefield elements and statuses (`kTracedRanges` in
-`damage_oracle.h`). The addresses are the US cartridges'.
+numeral buffer, the script queue, the monsters standing and the cells beside them, what is to be
+worked out again for each battler, the links between battlers, the statuses each battler can be
+given, the damage ledger, the per-command and per-battle cells, and each battler's flags, stats,
+monster flags, pending statuses, triggers, statuses for a counterattack, four status timers,
+Forcefield elements and statuses (`kTracedRanges` in `damage_oracle.h`). The addresses are the US
+cartridges'.
+
+## Starting at a battle
+
+`--to-battle <inputs>` makes a state to start from, and `--from <state>` starts the trace from it, so a
+fight is played without playing up to it:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --to-battle tools/damage-trace/first-fight.inputs
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --from ~/traces/opening/battle.state
+```
+
+With `--to-battle` nothing opens. The cartridge runs from power-on, with no battery save, holding the
+buttons the script names. The run writes `battle.state` under `<directory>`: the machine as it stood on
+the tick before the battle program's entry (`$C2:0000`), so a trace started from it sees the whole
+battle, the battle's start among it. It prints the frame the battle began on and exits 0. A run that
+goes 600 frames past the script's last line with no battle prints `no battle by frame <n>`, writes the
+picture the machine last finished to `to-battle-end.ppm` and exits 1; the picture shows where the script
+left the game.
+
+A script has one line per change, `<frame> <buttons>`. The buttons are `-` for none, or names from
+`A B X Y L R Start Select Up Down Left Right` joined by `+`, held from that frame until the next line's.
+`#` starts a comment, blank lines are passed over, and the frames strictly increase. Two runs of one
+script on one cartridge write the same state, byte for byte; `--twice` runs it a second time, compares
+the two states and exits 1 if they differ.
+`first-fight.inputs` plays from power-on to the first fight in Narshe on Final Fantasy III 1.1.
+
+With `--from` the trace starts at the state, logs `state restored from <file>` first, and counts frames
+from 0. The machine keeps no battery file, so a save made in that window is gone when it closes and the
+save of a plain trace is untouched.
+
+A state file names the cartridge revision it was taken on, and `--from` refuses a state from another
+revision, or a ROM that is none of the three revisions, before anything opens:
+
+```
+~/traces/opening/battle.state is a state of US_1_1; rom/other.sfc is US_1_0
+```
+
+The file is the cartridge's memory, so `*.state` is ignored by git.
+
+`--check-state <ticks>` checks the state itself, with nothing open. A machine runs `<ticks>` ticks from
+power-on, and its state goes through `check.state` under `<directory>` onto a second machine. Both run
+240 ticks on: one tick short their memory must differ, and at 240 their memory and picture must match.
+It prints all three and exits 1 if any fails.
+
+## Tracing with no window
+
+`--headless --frames <n>` runs the same trace with nothing open, for `<n>` frames, from power-on or
+`--from <state>`, on a machine with no battery file. `--inputs <script>` holds the script's buttons, its
+frames counted from the run's first frame, and the log goes to `damage-trace.log` under `<directory>`
+as in a window. Each `--picture-at <frame>` writes that frame's picture to `frame-<frame>.ppm`:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/scripted --headless --from ~/traces/opening/battle.state --inputs fight.inputs --frames 3000 --picture-at 1200
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/scripted --replay
+```
+
+The log is appended to, so a run that starts over wants a directory of its own.
 
 ## Replaying
 
-With `--replay` nothing opens. Every call in `<directory>/damage-trace.log` is rebuilt as a battle —
+With `--replay` nothing opens. Every call in `<directory>/damage-trace.log`, or the file `--log` names, is rebuilt as a battle —
 each cell the routine read as it read it, every other cell as a battle starts it — and worked out by
 the port: the attacker from the params block (for a bounce, the battler it bounced off — for a
 Launcher's or Super Ball's hits, the lowest battler in the bounces that hit — and for the damage
 shown after a bounce, the attacker of the block before), the target from the battler cells the
-routine touched (for a bounce, the battler its byte names). The port's answer is compared with every cell the routine wrote. Each
-call is logged to `replay.log` with its differences; any difference is printed and fails the run:
+routine touched (for a bounce, the battler its byte names). The statuses taking effect need neither,
+and replay from any of their three callers; an attack's statuses on one target take the target from
+the battler cells the call touched. The port's answer is compared with every cell the routine wrote.
+Each call is logged to `replay.log` with its differences; any difference is printed and fails the
+run:
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --replay
 ```
 
 A call the log opens and never closes — the routine left by some other way than its callers' return
-sites — is not replayed. Copy a recording into `tests/fixtures/damage-trace/` (any `.log` file name) and
-`tests/test_trace_replay.cpp` replays it with the rest of the damage tests.
+sites — is not replayed. A call that cannot be rebuilt counts as a difference, with the reason logged.
+Copy a recording into `tests/fixtures/damage-trace/` (any `.log` file name) and
+`tests/test_trace_replay.cpp` replays it with the rest of the damage tests. `first-fight.log` there is
+the first fight in Narshe, played from `first-fight.inputs`'s state, in which Terra's Bio Blast sets
+Poison and Sap on both guards; `tests/test_trace_state.cpp` checks that it holds a status being set. The cartridge's own calls
+of the two status routines, traced through the oracle, are replayed by `tests/test_status_oracle.cpp`.
 
 ## Checking
 
 With `--check <draws>` nothing opens. The cartridge is started as far as its reset code and parked
-there, in the processor mode the game's code is written for; its base damage, relic bonus and
-multiplier routines are bound where the cartridge holds them; and `<draws>` scenarios, drawn from a
-fixed seed, are written into the machine's work RAM and run through each routine and through the
-port's formula for it (`src/battle/damage.h`). Each scenario is logged to `check.log` with both
-answers; any disagreement is printed and fails the run:
+there, in the processor mode the game's code is written for; its routines are bound where the
+cartridge holds them; and `<draws>` scenarios, drawn from a fixed seed, are written into the machine's
+work RAM and run through each routine and through the port's rule for it. Each scenario is logged to
+`check.log`; any disagreement is printed and fails the run:
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc /tmp/damage --check 2000
 ```
 
-The same draws are what `tests/test_damage_formulas.cpp` sweeps; `tests/test_target_damage.cpp`,
-`tests/test_apply_damage.cpp` and `tests/test_reflected_attack.cpp` sweep the damage to one target,
-the damage taken and shown, and a spell bounced off Reflect the same way, each from its own draws.
+`--only` takes a comma-separated list of these names, and `--seed <n>` draws from another seed:
+
+| Name | The routine | The test that sweeps the same draws |
+|---|---|---|
+| `base-damage` | `CalcDmg` | `tests/test_damage_formulas.cpp` |
+| `relic-bonus` | `RelicDmgEffect` | `tests/test_damage_formulas.cpp` |
+| `multiplier` | `ApplyDmgMult` | `tests/test_damage_formulas.cpp` |
+| `target-damage` | `CalcTargetDmg` | `tests/test_target_damage.cpp` |
+| `apply-damage` | the apply-and-show routine | `tests/test_apply_damage.cpp` |
+| `reflected-attack` | `CalcReflectDmg` | `tests/test_reflected_attack.cpp` |
+| `status-changes` | `UpdateStatus` | `tests/test_status_changes.cpp` |
+| `status-effect` | `MagicStatusEffect` | `tests/test_status_effect.cpp` |
+
+`--replay-traced` also traces the traced routines' calls in each draw and replays them against the
+port, as `tests/test_trace_replay.cpp` and `tests/test_status_oracle.cpp` do.
 
 ## Files
 
 | File | What it holds |
 |---|---|
-| `main.cpp` | the command line, the window and the trace on it, the replay run and the check run |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, and a spell bounced off Reflect; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()` and `drawReflectScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |
+| `main.cpp` | the command line, the window and the trace on it, the trace with no window, the scripted run to a battle, the state check, the replay run and the check run |
+| `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script |
+| `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect and an attack's statuses on one target; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()` and `drawStatusEffectScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |

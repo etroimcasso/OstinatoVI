@@ -1,6 +1,7 @@
 #include "battle/battle_hooks.h"
 
 #include "battle/damage.h"
+#include "battle/status.h"
 
 namespace ostinato::battle {
 
@@ -20,6 +21,14 @@ void BattleHooks::targetDamage(BattleState& state, AttackInFlight& attack, Battl
 void BattleHooks::applyDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
                               BattleScriptBuilder& script) {
     battle::applyDamage(state, attack, attacker, script);
+}
+
+void BattleHooks::statusEffect(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattlerSlot target) {
+    battle::statusEffect(state, attack, attacker, target);
+}
+
+void BattleHooks::applyPendingStatuses(BattleState& state) {
+    battle::applyStatusChanges(state);
 }
 
 }  // namespace ostinato::battle

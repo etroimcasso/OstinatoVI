@@ -5,10 +5,10 @@
 //     CommandExecutor executor(hooks, text, sprites);   // every command's attacks do real damage
 //
 // Each damage member is one call into battle/damage.h: the base damage, the multiplier, the damage
-// to each target and the damage taken and shown. The statuses and the special effects are still
-// AttackHooks' own, which do nothing, so the statuses the damage sets and clears — a battler brought
-// to 0 HP set to die, a sleeping target woken by a blow — wait in Battler::statusesToSet and
-// statusesToClear without taking effect.
+// to each target and the damage taken and shown. The two status members are one call each into
+// battle/status.h: an attack's statuses on each target it hits, and every battler's waiting statuses
+// taking effect once the attack is over, so a battler brought to 0 HP is dead when the attack ends.
+// The special effects are still AttackHooks' own, which do nothing.
 #pragma once
 
 #include "battle/attack.h"
@@ -26,6 +26,8 @@ public:
                       BattleScriptBuilder& script) override;
     void applyDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
                      BattleScriptBuilder& script) override;
+    void statusEffect(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattlerSlot target) override;
+    void applyPendingStatuses(BattleState& state) override;
 };
 
 }  // namespace ostinato::battle

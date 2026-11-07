@@ -51,6 +51,12 @@ public:
 
     void refreshCommandList(BattleState& state, BattlerSlot slot) override;
 
+    // The statuses waiting on every battler take effect (applyStatusChanges() in battle/status.h).
+    void applyStatusChanges(BattleState& state) override;
+
+    // A near-fatal battler's relics cast their spells (nearFatalRelicSpells() in battle/status.h).
+    void checkNearFatal(BattleState& state, BattlerSlot slot) override;
+
     AttackId chooseDanceStep(BattleState& state, BattlerSlot dancer, AttackId chosen) override;
     AttackId chooseRageAttack(BattleState& state, BattlerSlot rager, AttackId chosen) override;
     AttackId chooseRandomEsper(BattleState& state, BattlerSlot caster, AttackId chosen) override;

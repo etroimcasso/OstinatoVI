@@ -29,7 +29,8 @@
 // routines are at the addresses both US cartridges hold them; the oracle checks each one's opening
 // bytes and refuses an image that does not have them. `ostinato-damage-trace --check` runs it from
 // the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
-// the port's formulas.
+// the port's formulas, and tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
+// status rules.
 #pragma once
 
 #include <array>
@@ -59,41 +60,52 @@ namespace ostinato::trace {
 
 // --- the trace ---------------------------------------------------------------------------------
 
-// A routine the trace follows: where it starts, where the attack frame's call to it returns, and
-// where the call to it from the reflected attack returns (0: it is not called from there).
+// A routine the trace follows: where it starts, where the attack frame's call to it returns, where
+// the call to it from the reflected attack returns (0: it is not called from there), and where the
+// calls from anywhere else return (0: no other).
 struct TracedRoutine {
     const char* name;
     std::uint32_t entry;
     std::uint32_t frameReturn;
     std::uint32_t bounceReturn;
+    std::array<std::uint32_t, 2> otherReturns{};
 };
 
-// The base damage, the damage to one target, and the damage taken and shown (battle/battle_main.asm:
-// 7217 and 8096; 1809, 8362 and 8440; 16193, 8365 and 8455 — the program sits at $C2:0000).
-inline constexpr std::array<TracedRoutine, 3> kTracedRoutines{{
+// The base damage, the damage to one target, the damage taken and shown, the statuses taking effect,
+// and an attack's statuses on one target (battle/battle_main.asm: 7217 and 8096; 1809, 8362 and 8440;
+// 16193, 8365 and 8455; 11032, 8109, and the battle's start 6128 and a formation change 13231; 11094,
+// 8356 and 8434 — the program sits at $C2:0000).
+inline constexpr std::array<TracedRoutine, 5> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
+    {"UpdateStatus", 0xC24391, 0xC2324D, 0, {0xC224A7, 0xC250AA}},
+    {"MagicStatusEffect", 0xC24406, 0xC2345C, 0xC234F9},
 }};
 
 // The cells the traced routines read and write, as ranges of work RAM: the direct-page attack flags
 // and multiplier; the attack's record copy and damage; each battler's bit; the numeral buffer; the
-// script queue; what is to be worked out again for each battler; the links between battlers; the
-// damage ledger; the per-command cells; the battle's own cells (the missed set, the blocks, the
-// Golem's HP, the script queue's place and end); each battler's flags, stats, monster flags, pending
-// statuses, Forcefield's elements and statuses.
+// script queue; the monsters standing, a party member's equipment to work out and the monsters'
+// drawing flags; what is to be worked out again for each battler; the links between battlers; the
+// statuses each battler can be given; the damage ledger; the per-command cells; the battle's own
+// cells (the missed sets, the blocks, the Golem's HP, the monsters fallen, the battlers that died this
+// action and whose statuses changed, the script queue's place and end); each battler's flags, stop
+// timer, stats, monster flags, sleep timer, pending statuses, triggers, statuses for a counterattack,
+// Forcefield's elements, statuses, and Reflect and freeze timers.
 struct TracedRange {
     const char* key;
     std::uint32_t at;
     std::uint32_t size;
 };
-inline constexpr std::array<TracedRange, 16> kTracedRanges{{
-    {"direct page", 0x7E00B0, 16},     {"attack record", 0x7E11A0, 18}, {"battler bits", 0x7E3018, 20},
-    {"numeral buffer", 0x7E2BCE, 160}, {"script queue", 0x7E2D6E, 256}, {"to work out", 0x7E3204, 20},
-    {"links", 0x7E327C, 120},          {"ledger", 0x7E33D0, 40},        {"command cells", 0x7E3400, 32},
-    {"battle cells", 0x7E3A30, 96},    {"flags", 0x7E3AA0, 20},         {"stats", 0x7E3B18, 340},
-    {"monster flags", 0x7E3C95, 20},   {"pending statuses", 0x7E3DD4, 61}, {"forcefield", 0x7E3EC8, 1},
-    {"statuses", 0x7E3EE4, 40},
+inline constexpr std::array<TracedRange, 23> kTracedRanges{{
+    {"direct page", 0x7E00B0, 16},      {"attack record", 0x7E11A0, 18},     {"battler bits", 0x7E3018, 20},
+    {"numeral buffer", 0x7E2BCE, 160},  {"script queue", 0x7E2D6E, 256},     {"monster cells", 0x7E2F2F, 38},
+    {"to work out", 0x7E3204, 20},      {"links", 0x7E327C, 120},            {"immunities", 0x7E331C, 40},
+    {"ledger", 0x7E33D0, 40},           {"command cells", 0x7E3400, 32},     {"battle cells", 0x7E3A30, 96},
+    {"flags", 0x7E3AA0, 20},            {"stop timers", 0x7E3AF0, 20},       {"stats", 0x7E3B18, 340},
+    {"monster flags", 0x7E3C95, 20},    {"sleep timers", 0x7E3CF8, 20},      {"pending statuses", 0x7E3DD4, 80},
+    {"triggers", 0x7E3E4C, 20},         {"statuses for a counter", 0x7E3E60, 40}, {"forcefield", 0x7E3EC8, 1},
+    {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},
 }};
 
 // The trace on one machine: escapes on each traced routine's entry and return sites and watches over
@@ -108,9 +120,11 @@ inline constexpr std::array<TracedRange, 16> kTracedRanges{{
 //   f<frame> w $7E:<cell> <byte>              a write it made
 //   f<frame> return <routine> $<bank>:<address>
 //
-// Declares on the machine when constructed: host the cartridge first, and construct it before the
-// machine runs. `access`, when given, sees every access to a watched cell whether a call is open or
-// not.
+// The context is what the cells hold at the routine's entry, on a running machine as on a parked one:
+// the trace keeps the last byte the guest wrote to each of them and lays those over what the machine
+// answers. Declares on the machine when constructed: host the cartridge first, and construct it before
+// the machine runs. `access`, when given, sees every access to a watched cell whether a call is open
+// or not.
 class DamageTrace {
 public:
     using Line = std::function<void(const std::string&)>;
@@ -125,6 +139,10 @@ public:
     // Close the open call of `routine` as the attack frame's: for a caller that called the routine
     // itself rather than through the frame.
     void returnToFrame(const TracedRoutine& routine);
+
+    // Drop the context bytes kept from the guest's writes: for a caller that writes those cells itself
+    // through the machine's own write verb, which the watches do not see, on a parked machine.
+    void forgetContextWrites();
 
 private:
     struct Places;
@@ -150,7 +168,7 @@ struct TracedCall {
 };
 
 // Every call in a trace, in order. A call that never returns to one of its routine's return sites —
-// one neither the frame nor the reflected attack made — is left out, and a return with no call open
+// one none of the callers kTracedRoutines names made — is left out, and a return with no call open
 // is skipped. Throws std::runtime_error naming the line for a line that starts like an event and is
 // not one.
 [[nodiscard]] std::vector<TracedCall> parseTrace(std::istream& log);
@@ -243,6 +261,54 @@ struct ReflectedAttackResult {
 
 [[nodiscard]] std::string differences(const ReflectedAttackResult& port, const ReflectedAttackResult& guest);
 
+// What every battler's waiting statuses taking effect leaves, as the same fields on both sides:
+// each battler's statuses, its statuses to set and to clear, the statuses it is to have for a
+// counterattack, what is to be worked out again for it (as the cartridge's byte holds it: bit 7
+// castable spells, 6 drop its actions, 5 start a condemned count, 4 stop it, 3 its commands, 2 its
+// speed, 1 its menu after Morph, 0 Palidor), whether its menu may open, whether its gauge empties
+// after the action, Phantasm's drain, whether a party member's equipment is to be worked out again,
+// its four status timers; and the battlers that died this action, the party members whose statuses
+// changed, and the monsters standing and fallen.
+struct StatusChangesResult {
+    std::array<StatusSet, battle::kBattlerSlots> status{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToSet{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToClear{};
+    std::array<StatusSet, battle::kBattlerSlots> statusForCounter{};
+    std::array<std::uint8_t, battle::kBattlerSlots> pendingUpdates{};
+    std::array<bool, battle::kBattlerSlots> menuMayOpen{};
+    std::array<bool, battle::kBattlerSlots> emptyGaugeAfterAction{};
+    std::array<bool, battle::kBattlerSlots> phantasm{};
+    std::array<bool, battle::kBattlerSlots> equipmentChanged{};
+    std::array<std::uint8_t, battle::kBattlerSlots> sleepTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> stopTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> reflectTimer{};
+    std::array<std::uint8_t, battle::kBattlerSlots> freezeTimer{};
+    battle::BattlerSet diedAwaitingCounter;
+    battle::BattlerSet statusChanged;
+    battle::BattlerSet monstersStanding;
+    battle::BattlerSet monstersFallen;
+};
+
+// The port's statuses taking effect over `scenario`, read back as a StatusChangesResult.
+[[nodiscard]] StatusChangesResult portStatusChanges(DamageScenario scenario);
+
+[[nodiscard]] std::string differences(const StatusChangesResult& port, const StatusChangesResult& guest);
+
+// What an attack's statuses on one target leave, as the same fields on both sides: the target's
+// statuses to set and to clear, the battlers the effect missed and the battlers shown "Miss".
+struct StatusEffectResult {
+    StatusSet statusesToSet;
+    StatusSet statusesToClear;
+    battle::BattlerSet missedByEffect;
+    battle::BattlerSet missed;
+};
+
+// The port's statuses of the scenario's attack on `target`, read back as a StatusEffectResult. The
+// effect's misses start empty, as the attack frame leaves them for each target.
+[[nodiscard]] StatusEffectResult portStatusEffect(DamageScenario scenario, battle::BattlerSlot target);
+
+[[nodiscard]] std::string differences(const StatusEffectResult& port, const StatusEffectResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -303,10 +369,19 @@ public:
 
     // The spell in the scenario bounced off the battlers in its attack.params.reflectedOff, or a
     // Launcher's or Super Ball's hits made (CalcReflectDmg). The routine runs the cartridge's own
-    // status and special-effect passes, which the port's hooks leave out, so its scenarios are spells
-    // those passes change nothing for: no statuses or special effect, no element that melts Frozen on
-    // a Frozen target, no Vanished target, no miss for a status the target is immune to.
+    // status and special-effect passes for each bounce that hits; the port's hooks run the status
+    // pass and leave the special effects out, and this comparison is written for spells neither pass
+    // changes anything for: no statuses or special effect, no element that melts Frozen on a Frozen
+    // target, no Vanished target, no miss for a status the target is immune to.
     [[nodiscard]] ReflectedAttackResult reflectedAttack(const DamageScenario& scenario);
+
+    // Every present battler's waiting statuses taking effect over the scenario (UpdateStatus): every
+    // battler's cells the pass reads written from the scenario, then read back.
+    [[nodiscard]] StatusChangesResult statusChanges(const DamageScenario& scenario);
+
+    // The statuses of the scenario's attack on `target`, one of the targets it hits
+    // (MagicStatusEffect), with the scenario's attacker as the one who made it.
+    [[nodiscard]] StatusEffectResult statusEffect(const DamageScenario& scenario, battle::BattlerSlot target);
 
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
@@ -315,8 +390,10 @@ public:
     // Replay one call the trace logged against the port: the battle is rebuilt from the cells the
     // routine read (every other cell as the oracle writes a default scenario), the attacker and target
     // from the attack's context and the cells the routine touched, and the port's answer is compared
-    // with the cells the routine wrote. Returns every cell where they part, one per line; empty when
-    // they agree. Throws std::runtime_error for a call it cannot rebuild, naming why.
+    // with the cells the routine wrote. The statuses taking effect replay from any of their callers;
+    // an attack's statuses on one target take the target from the battler cells they touched. Returns
+    // every cell where they part, one per line; empty when they agree. Throws std::runtime_error for a
+    // call it cannot rebuild, naming why.
     [[nodiscard]] std::string replay(const TracedCall& call);
 
     // Log every call the oracle's routines make to the traced routines in the trace's own lines; a
@@ -347,6 +424,7 @@ private:
     using Call = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
     using Multiply = std::uint16_t(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
     using TargetCall = void(std::uint16_t, std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    using PassCall = void(std::uint8_t, std::uint8_t, std::uint16_t);
 
     // Run `routine` with the watches recording.
     void call(const std::function<void()>& routine);
@@ -356,6 +434,11 @@ private:
     void writeApplyCells(const DamageScenario& scenario);
     void writeAimCells(const DamageScenario& scenario);
     void writeContext(const DamageScenario& scenario);
+    void writeStatusCells(const DamageScenario& scenario);
+    [[nodiscard]] StatusChangesResult readStatusChangesResult();
+    [[nodiscard]] StatusEffectResult readStatusEffectResult(battle::BattlerSlot target);
+    [[nodiscard]] DamageScenario readStatusScenario();
+    [[nodiscard]] std::string replayStatusCall(const TracedCall& call, const TracedRoutine& routine);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,
@@ -382,6 +465,8 @@ private:
     retropp::Routine<TargetCall> calcTargetDmg_;
     retropp::Routine<Call> applyAndShowDmg_;
     retropp::Routine<TargetCall> calcReflectDmg_;
+    retropp::Routine<PassCall> updateStatus_;
+    retropp::Routine<TargetCall> magicStatusEffect_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -432,5 +517,22 @@ struct TargetScenario {
 // graphics drawn; the battle type and pincer sides, the aiming rules, Charm and the party members
 // fighting against the party.
 [[nodiscard]] DamageScenario drawReflectScenario(std::mt19937& rng);
+
+// The scenarios the statuses-taking-effect sweep draws, from the same seed: for every battler,
+// whether it is on the field, its statuses, its statuses to set and to clear and the statuses it can
+// be given, every bit of each drawn; its HP and maximum HP (a party member's at most 9,999), often
+// near an eighth of the maximum; its Overcast and Phantasm triggers, whether it is waiting to
+// retaliate, what is to be worked out again for it, its menu and gauge flags, its timers and
+// whether its equipment is to be worked out again; and the battlers that died this action, the
+// party members whose statuses changed and the monsters standing and fallen.
+[[nodiscard]] DamageScenario drawStatusChangesScenario(std::mt19937& rng);
+
+// The scenarios the status-effect sweep draws, from the same seed: an attack with every bit of its
+// traits, element, second flags, misc flags and statuses drawn — except the two status modes
+// together, which no attack has and on which the cartridge runs unrelated code — whether Vanish
+// applies, and a target
+// with its statuses, statuses to set and to clear, the statuses it can be given and whether it is
+// undead drawn; and the battlers already shown "Miss".
+[[nodiscard]] TargetScenario drawStatusEffectScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace
