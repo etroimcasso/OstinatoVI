@@ -120,9 +120,11 @@ inline constexpr std::array<TracedRange, 23> kTracedRanges{{
 //   f<frame> w $7E:<cell> <byte>              a write it made
 //   f<frame> return <routine> $<bank>:<address>
 //
-// Declares on the machine when constructed: host the cartridge first, and construct it before the
-// machine runs. `access`, when given, sees every access to a watched cell whether a call is open or
-// not.
+// The context is what the cells hold at the routine's entry, on a running machine as on a parked one:
+// the trace keeps the last byte the guest wrote to each of them and lays those over what the machine
+// answers. Declares on the machine when constructed: host the cartridge first, and construct it before
+// the machine runs. `access`, when given, sees every access to a watched cell whether a call is open
+// or not.
 class DamageTrace {
 public:
     using Line = std::function<void(const std::string&)>;
@@ -137,6 +139,10 @@ public:
     // Close the open call of `routine` as the attack frame's: for a caller that called the routine
     // itself rather than through the frame.
     void returnToFrame(const TracedRoutine& routine);
+
+    // Drop the context bytes kept from the guest's writes: for a caller that writes those cells itself
+    // through the machine's own write verb, which the watches do not see, on a parked machine.
+    void forgetContextWrites();
 
 private:
     struct Places;

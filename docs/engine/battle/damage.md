@@ -222,11 +222,15 @@ bounced off — for a Launcher's or Super Ball's hits, the lowest battler in the
 and for the damage shown after a bounce, the attacker of the block before), and the target from the
 battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
-`tests/test_trace_replay.cpp`. `DamageOracle::trace(true)` logs the oracle's own calls in the same
-lines, which is how the replay itself is checked against the cartridge.
+`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe. `--to-battle
+<inputs>` runs the cartridge to a battle from a script of buttons and writes the machine's state, and
+`--from <state>` starts the windowed trace from it
+([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)). `DamageOracle::trace(true)`
+logs the oracle's own calls in the same lines, which is how the replay itself is checked against the
+cartridge.
 
-From the command line, `ostinato-damage-trace <rom> <dir> --check 2000` runs the base damage, relic
-bonus and multiplier sweep and writes every scenario with both answers to `check.log`
+From the command line, `ostinato-damage-trace <rom> <dir> --check 2000` runs the sweep of every routine
+and writes every scenario to `check.log`; `--only` and `--seed` narrow it
 ([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)).
 
 ## Gotchas

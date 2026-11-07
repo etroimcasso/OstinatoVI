@@ -229,7 +229,9 @@ effect after an attack (`$C2:324D`), at the battle's start (`$C2:24A7`) and at a
 (`$C2:345C`, `$C2:34F9`). `DamageOracle::replay()` rebuilds a recorded call from the cells it read and
 compares the port's answer with every cell it wrote; an attack's statuses on one target take the
 target from the battler cells the call touched. `ostinato-damage-trace <rom> <directory> --replay`
-replays a whole recording.
+replays a whole recording. `tests/fixtures/damage-trace/first-fight.log` is the first fight in Narshe,
+started at the battle with `--to-battle` and `--from`, in which Terra's Bio Blast sets Poison and Sap
+on both guards ([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)).
 
 ## Gotchas
 

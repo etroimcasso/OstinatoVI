@@ -1,0 +1,32 @@
+# From power-on to the first fight in Narshe, on Final Fantasy III 1.1 with no battery save:
+#
+#     ostinato-damage-trace <rom> <directory> --to-battle first-fight.inputs
+#
+# The format is in machine_state.h.
+
+# The title sequence: A starts the game.
+780 A
+788 -
+
+# The opening runs by itself as far as the soldiers on the cliff. A moves their talk on.
+6300 A
+6308 -
+7260 A
+7268 -
+
+# Up is held from here on. It walks the party on when the talk ends.
+7900 Up
+7980 Up+A
+7988 Up
+
+# The soldiers move on and the scene changes to the town.
+9180 Up+A
+9188 Up
+
+# In Narshe: A moves Wedge's order on, and the party walks north.
+9660 Up+A
+9668 Up
+
+# The guards in the road: A closes what they say, and the fight begins.
+10140 Up+A
+10148 Up

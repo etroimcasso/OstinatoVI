@@ -357,6 +357,7 @@ void DamageOracle::call(const std::function<void()>& routine) {
         throw std::logic_error("the oracle's cartridge has not been started (DamageOracle::start)");
     }
     writes_.clear();
+    trace_->forgetContextWrites();
     recording_ = true;
     routine();
     recording_ = false;
@@ -1444,13 +1445,26 @@ std::string framePrefix(std::uint64_t frame) {
 
 }  // namespace
 
+// A running machine answers a read with what its last completed step published, which misses what the
+// step under way has written. `written` holds the last byte the guest wrote to each cell of the
+// context, and a read of the context lays those over the published bytes.
 struct DamageTrace::Places {
     retropp::RegionMapId<ContextCells> id;
+    std::map<std::uint32_t, std::uint8_t> written{};
+
+    std::vector<std::uint8_t> read(retropp::Vm& vm, retropp::MemoryRegion ContextCells::*key, std::uint32_t at) const {
+        std::vector<std::uint8_t> bytes = vm.read(id, key);
+        const std::uint32_t end = at + static_cast<std::uint32_t>(bytes.size());
+        for (auto cell = written.lower_bound(at); cell != written.end() && cell->first < end; ++cell) {
+            bytes[cell->first - at] = cell->second;
+        }
+        return bytes;
+    }
 };
 
 DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access access)
     : line_(std::move(line)), frame_(std::move(frame)) {
-    places_ = std::make_unique<Places>(Places{machine.registerRegions(retropp::regions(
+    places_ = std::make_unique<Places>(Places{.id = machine.registerRegions(retropp::regions(
         retropp::region(&ContextCells::params, retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize},
                         "params block"),
         retropp::region(&ContextCells::hits, retropp::MemoryRegion{.at = kExtraHits, .size = 1}, "hits to come"),
@@ -1469,17 +1483,17 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                 ++open_;
                 const std::string prefix = framePrefix(frame_());
                 line_(prefix + " enter " + routine.name + " " + busAddress(at));
-                const std::vector<std::uint8_t> params = vm.read(places_->id, &ContextCells::params);
-                const std::uint8_t hits = vm.read(places_->id, &ContextCells::hits)[0];
-                const std::uint8_t rules = vm.read(places_->id, &ContextCells::rules)[0];
-                const std::uint8_t next = vm.read(places_->id, &ContextCells::nextBlock)[0];
+                const std::vector<std::uint8_t> params = places_->read(vm, &ContextCells::params, kParamsCells);
+                const std::uint8_t hits = places_->read(vm, &ContextCells::hits, kExtraHits)[0];
+                const std::uint8_t rules = places_->read(vm, &ContextCells::rules, kAimingRules)[0];
+                const std::uint8_t next = places_->read(vm, &ContextCells::nextBlock, kNextParamsBlock)[0];
                 std::string context = prefix + " params";
                 for (const std::uint8_t byte : params) {
                     context += " " + hexByte(byte);
                 }
                 context += " hits " + hexByte(hits) + " rules " + hexByte(rules) + " previous ";
                 if (next >= kParamsBlockSize) {
-                    const std::vector<std::uint8_t> blocks = vm.read(places_->id, &ContextCells::blocks);
+                    const std::vector<std::uint8_t> blocks = places_->read(vm, &ContextCells::blocks, kParamsBlocks);
                     context += hexByte(blocks[next - kParamsBlockSize + kBlockAttacker]);
                 } else {
                     context += "--";
@@ -1513,6 +1527,9 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
     const auto watched = [this, access](char how) {
         return [this, access, how](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
             const std::uint32_t cell = kWorkRam | (at & 0xFFFF);
+            if (how == 'w' && (cell == kExtraHits || cell == kAimingRules || cell == kNextParamsBlock)) {
+                places_->written[cell] = value;
+            }
             if (access) {
                 access(cell, value, how == 'w');
             }
@@ -1531,10 +1548,27 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                                                            .onRead = watched('r'),
                                                            .onWrite = watched('w')});
     }
+    // The context's cells outside the traced ranges: their writes are kept, and none is logged.
+    const auto keepWrite = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+        places_->written[kWorkRam | (at & 0xFFFF)] = value;
+        return retropp::AccessVerdict::proceed();
+    };
+    watches.declarations.push_back(
+        retropp::GuestWatch{.key = "params block",
+                            .at = retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize},
+                            .onWrite = keepWrite});
+    watches.declarations.push_back(
+        retropp::GuestWatch{.key = "params blocks",
+                            .at = retropp::MemoryRegion{.at = kParamsBlocks, .size = kBlocksSize},
+                            .onWrite = keepWrite});
     machine.registerWatches(watches);
 }
 
 DamageTrace::~DamageTrace() = default;
+
+void DamageTrace::forgetContextWrites() {
+    places_->written.clear();
+}
 
 void DamageTrace::returnToFrame(const TracedRoutine& routine) {
     if (open_ > 0) {

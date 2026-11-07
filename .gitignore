@@ -6,6 +6,9 @@
 *.smc
 *.fig
 
+# A machine state holds the cartridge's RAM and video memory
+*.state
+
 # ROM-derived content is never committed; directory structure is preserved
 # via .gitkeep
 assets/*/default/*

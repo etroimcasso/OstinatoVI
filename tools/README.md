@@ -4,7 +4,7 @@ Developer tools for working on the port. None of them is part of the game, and n
 
 | Tool | What it does |
 |---|---|
-| [`damage-trace/`](damage-trace/README.md) | `ostinato-damage-trace`: runs the cartridge and logs every read and write its damage routines make as the game is played, or checks the port's damage formulas against those routines over seeded scenarios |
+| [`damage-trace/`](damage-trace/README.md) | `ostinato-damage-trace`: runs the cartridge and logs every read and write its damage and status routines make as the game is played, by hand or from a script, from power-on or from a state a scripted run made at a battle; replays any recording against the port; or checks the port against those routines over seeded scenarios |
 | [`frames/`](frames/README.md) | `ostinato-frames`: runs the cartridge on the engine's SNES machine and records the console's own frames, how long things take, or both, between the moments you name: battles, a loaded save, the field menu |
 | [`previews/battle/`](previews/battle/README.md) | `ostinato-preview-battle`: fights battles from the installed cartridge and shows, or captures, the battle's picture |
 | [`previews/dialog/`](previews/dialog/README.md) | `ostinato-preview-dialog`: plays field dialog messages from the installed cartridge, in a window or as captures |
