@@ -163,6 +163,17 @@ struct MenuCommand {
     Targeting targeting;
 };
 
+// One row of a party member's menu while it controls a monster: one of the monster's control
+// attacks (getMonsterControl()). A row with no attack holds NONE and cannot be chosen.
+struct ControlMenuEntry {
+    AttackId attack = AttackId::NONE;
+    bool castable = false;  // the monster has the MP the attack costs
+    Targeting targeting;    // the attack's own targeting
+};
+
+// The top bit of a battler's AI variable (Battler::aiVariable): set while it holds someone in Seize.
+inline constexpr std::uint8_t kAiVariableHoldingSeize = 0x80;
+
 // Every status, for a battler that can be given any of them.
 inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
@@ -333,13 +344,25 @@ struct Battler {
 
     // --- links to other battlers --------------------------------------------------------------
     std::optional<BattlerSlot> controlledBy;
+    std::optional<BattlerSlot> controlling;   // the monster it controls
+    // Its Control link is ending: it can no longer control or be controlled, and the link is let go
+    // once the action is over. A link that is ending does not stop a new Control from taking hold.
+    bool controlEnding = false;
     std::optional<BattlerSlot> charmedBy;
+    std::optional<BattlerSlot> charming;      // the battler it has charmed
     std::optional<BattlerSlot> seizing;   // the battler it holds in Seize
     std::optional<BattlerSlot> seizedBy;
     std::optional<BattlerSlot> lastAttacker;  // the last battler to target it
     bool retaliationPending = false;          // it was hit and may counter lastAttacker
     std::optional<BattlerSlot> lastDamagedBy; // whose attack last took HP or MP from it
     std::optional<BattlerSlot> bodyguard;     // Love Token: the battler who takes its hits
+    std::optional<BattlerSlot> guarding;      // Love Token: the battler whose hits it takes
+    // Targetting: the battler a monster's AI aims its next scripted attack at.
+    std::optional<BattlerSlot> targetingTarget;
+    // Its AI's own variable, which its script reads and sets; the top bit is kAiVariableHoldingSeize.
+    std::uint8_t aiVariable = 0;
+    // While it controls a monster, the four rows its menu offers.
+    std::array<ControlMenuEntry, 4> controlMenu{};
 
     // --- what the action being run does to it -------------------------------------------------
     StatusSet statusesToSet;    // put on it when the action's statuses take effect
@@ -478,6 +501,9 @@ struct BattleState {
 
     // --- the clocks --------------------------------------------------------------------------
     int framesSinceTimeUpdate = 0;  // frames since the ATB last advanced
+    // Frames shown since the battle started, counting on past 255 from 0. The Fixed Dice read their
+    // third die from it.
+    std::uint8_t frameCount = 0;
     bool timeStoppedByMenu = false; // a command's sub-menu is open (stops time in wait mode)
     std::uint16_t turnCounter = 0;  // time updates so far
     std::uint16_t battleCounter = 0;  // once every 16 time updates
@@ -506,6 +532,8 @@ struct BattleState {
     BattlerSet counterAiRanThisStep;
     std::array<BattleSlotMask, 2> pincerSides{};  // the monsters on each side of a pincer attack
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
+    std::optional<BattlerSlot> swallowedByZinger; // the party member that monster swallowed
+    BattlerSet flippedByControl;   // controlled monsters, drawn facing the other way
     BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
     BattlerSet invincible;         // monsters their AI has made invincible: damage to them is not taken
     // The elements Forcefield has nullified: an attack whose every element is here does no damage.
@@ -518,9 +546,15 @@ struct BattleState {
     // rather than toward its own targets.
     BattlerSet animationTargets;
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
+    // Morph's meter (battle/morph.h): full at 65,535, and run down by morphCounterSpeed on every time
+    // update. Its high byte is the meter shown.
+    std::uint16_t morphCounter = 0;
+    std::uint16_t morphCounterSpeed = 0;
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
-    BattlerSet possessed;          // characters Possess has taken: they leave the party
+    // Party members taken from the party by Possess or blown away by Bababreath: they leave it
+    // when the battle ends.
+    BattlerSet takenFromTheParty;
 
     // --- the battle's flags ------------------------------------------------------------------
     bool runActionQueued = false;   // the party-escape action is already waiting
@@ -571,6 +605,7 @@ struct BattleState {
     bool magicOnly = false;         // only magic works here (Fanatics' Tower)
     bool morphAvailable = false;    // Terra can Morph
     bool permanentMorph = false;    // Terra stays morphed for the whole battle
+    bool morphLastsTwiceAsLong = false;  // Morph's meter runs down at half the speed
     bool onTheVeldt = false;
 
     // The party's items and what it knows.

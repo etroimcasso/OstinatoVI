@@ -1,7 +1,9 @@
 #include "machine_state.h"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
+#include <concepts>
 #include <fstream>
 #include <iterator>
 #include <optional>
@@ -53,6 +55,23 @@ constexpr ButtonName kButtonNames[] = {
 
 [[noreturn]] void refuseLine(int line, const std::string& reason) {
     throw std::runtime_error("line " + std::to_string(line) + ": " + reason);
+}
+
+[[noreturn]] void refuseWord(std::string_view word, const std::string& reason) {
+    throw std::runtime_error(std::string{word} + " " + reason);
+}
+
+// Work RAM, banks $7E and $7F, one byte to an entry.
+constexpr retropp::MemoryRegion kWorkRam{.at = 0x7E0000, .size = 1, .count = 0x20000};
+constexpr std::uint32_t kFirstWorkRamBank = 0x7E;
+constexpr std::uint32_t kLastWorkRamBank = 0x7F;
+constexpr std::size_t kBankDigits = 2;
+constexpr std::size_t kAddressDigits = 7;  // BB:AAAA
+
+// The whole word as a number in `base`.
+bool parseNumber(std::string_view word, int base, std::integral auto& value) {
+    const auto [end, error] = std::from_chars(word.data(), word.data() + word.size(), value, base);
+    return !word.empty() && error == std::errc{} && end == word.data() + word.size();
 }
 
 std::optional<retropp::snes::Buttons> parseButtons(std::string_view names) {
@@ -166,6 +185,61 @@ retropp::snes::Buttons buttonsAt(std::span<const InputStep> script, std::uint64_
     const auto past = std::upper_bound(script.begin(), script.end(), frame,
                                        [](std::uint64_t at, const InputStep& step) { return at < step.frame; });
     return past == script.begin() ? retropp::snes::Buttons{} : std::prev(past)->buttons;
+}
+
+CellWrite readCellWrite(std::string_view frame, std::string_view address, std::string_view bytes) {
+    CellWrite write;
+    if (!parseNumber(frame, 10, write.frame)) {
+        refuseWord(frame, "is not a frame");
+    }
+
+    // `$BB:AAAA`, the bank one of work RAM's two.
+    std::string_view rest = address;
+    if (rest.starts_with('$')) {
+        rest.remove_prefix(1);
+    }
+    std::uint32_t bank = 0;
+    std::uint32_t offset = 0;
+    if (rest.size() != kAddressDigits || rest[kBankDigits] != ':' || !parseNumber(rest.substr(0, kBankDigits), 16, bank) ||
+        !parseNumber(rest.substr(kBankDigits + 1), 16, offset)) {
+        refuseWord(address, "is not an address $BB:AAAA");
+    }
+    if (bank < kFirstWorkRamBank || bank > kLastWorkRamBank) {
+        refuseWord(address, "is not in work RAM, $7E:0000-$7F:FFFF");
+    }
+    write.at = bank << 16 | offset;
+
+    if (bytes.empty() || bytes.size() % 2 != 0) {
+        refuseWord(bytes, "is not bytes: an even number of hex digits");
+    }
+    for (std::size_t digit = 0; digit < bytes.size(); digit += 2) {
+        std::uint32_t value = 0;
+        if (!parseNumber(bytes.substr(digit, 2), 16, value)) {
+            refuseWord(bytes, "is not bytes: an even number of hex digits");
+        }
+        write.bytes.push_back(static_cast<std::uint8_t>(value));
+    }
+    if (write.at - kWorkRam.at + write.bytes.size() > kWorkRam.count) {
+        refuseWord(bytes, "runs past $7F:FFFF");
+    }
+    return write;
+}
+
+WorkRamBytes::Map declareWorkRamBytes(retropp::Vm& machine) {
+    return machine.registerRegions(retropp::regions(retropp::region(&WorkRamBytes::bytes, kWorkRam, "work RAM bytes")));
+}
+
+void writeCells(retropp::Vm& machine, const WorkRamBytes::Map& ram, std::span<const CellWrite> writes,
+                std::uint64_t frame) {
+    for (const CellWrite& write : writes) {
+        if (write.frame != frame) {
+            continue;
+        }
+        for (std::size_t i = 0; i < write.bytes.size(); ++i) {
+            const std::array<std::uint8_t, 1> one{write.bytes[i]};
+            machine.write(ram, &WorkRamBytes::bytes, one, static_cast<std::uint32_t>(write.at - kWorkRam.at + i));
+        }
+    }
 }
 
 }  // namespace ostinato::trace

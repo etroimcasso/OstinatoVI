@@ -130,6 +130,11 @@ struct Party {
     std::bitset<8> dancesKnown;       // bit n: DanceId n
     std::bitset<256> ragesKnown;      // bit n: the rage of MonsterId n
 
+    // The party's gil and the steps it has walked, at most kMaxGil and kMaxSteps
+    // (ostinato/game_limits.h).
+    std::uint32_t gil = 0;
+    std::uint32_t steps = 0;
+
     // How much longer Terra can stay morphed, as the Morph meter shows it.
     std::uint8_t morphSupply = 0;
 

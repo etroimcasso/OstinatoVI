@@ -90,7 +90,9 @@ no name.
 The commands that only act on a target or the user start from `plainCommandAttack()`: the plain hit
 aimed by the command's own rules, impossible to dodge, with no level, no attack stat and no effect of
 its own. The special effects (`CommandEffect::Steal`, `Control`, `Leap`, `Sketch`, `Possess`,
-`GpRain`) are worked out by `AttackHooks::targetEffect`.
+`GpRain`) are worked out by `AttackHooks::attackerEffect` — Possess's draw and GP Rain's gil — and
+`AttackHooks::targetEffect` — the steal, the control, the leap, the sketch and the possession
+([effects.md](effects.md)).
 
 ### Fight and desperation attacks
 
@@ -351,11 +353,11 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | Member | Called |
 |---|---|
 | `baseDamage` | before the attack is aimed; set `attack.damage` |
-| `attackerEffect` | after the damage is split, before the hit check |
+| `attackerEffect` | after the damage is split, before the hit check. Given the script, for an effect shown before the attack (Exploder) |
 | `scaleDamage` | after the critical hit is decided; multiply by `attack.multiplier` |
 | `controlMenu` | after a controlled monster attacks, for its controller |
 | `statusEffect` | for each target hit |
-| `targetEffect` | for each target hit, after `statusEffect`; return `true` if the effect missed it. Sketch's effect sets `attack.scratch.sketch` when it catches |
+| `targetEffect` | for each target hit, after `statusEffect`; return `true` if the effect missed it. Given the script, for an animation the effect adds or rewrites. Sketch's effect sets `attack.scratch.sketch` when it catches |
 | `targetDamage` | for each target hit that the effect did not miss; add to `attack.scratch.ledger`. Given the script, for an animation the damage rewrites |
 | `applyDamage` | once, after every target; take the ledger from the battlers and write the damage numbers into the script. Given the battler who made the attack |
 | `applyPendingStatuses` | after each attack |
@@ -363,21 +365,11 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 A spell that bounced off anyone's Reflect calls `statusEffect`, `targetEffect`, `targetDamage` and
 `applyDamage` again for its new targets, from `resolveReflectedAttack()`.
 
-The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`): `baseDamage`,
-`scaleDamage`, `targetDamage` and `applyDamage` are one call each into the formulas in
+The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`), which fills every member:
+`baseDamage`, `scaleDamage`, `targetDamage` and `applyDamage` are one call each into the formulas in
 [damage.md](damage.md), `statusEffect` and `applyPendingStatuses` one call each into the status rules
-in [status.md](status.md), and the special-effect members are still `AttackHooks`' own. A class that
-needs one more part overrides it on top of `BattleHooks`:
-
-```cpp
-struct WithTargetEffects : BattleHooks {
-    bool targetEffect(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
-                      BattlerSlot target) override {
-        // ... the attack's special effect on `target`; true when it missed
-        return false;
-    }
-};
-```
+in [status.md](status.md), and `attackerEffect`, `targetEffect` and `controlMenu` one call each into
+the special effects and the control menu in [effects.md](effects.md).
 
 ## The battle script
 

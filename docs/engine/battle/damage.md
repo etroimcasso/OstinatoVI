@@ -38,8 +38,9 @@ battle::CommandExecutor executor(hooks, text, sprites);
 `BattleHooks` overrides `baseDamage`, `scaleDamage`, `targetDamage` and `applyDamage`, each with one
 call into `damage.h`. The statuses the damage sets and clears — a battler brought to 0 HP is set to
 die — wait in `Battler::statusesToSet` and `statusesToClear` until the end of the attack, when
-`BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its special-effect hooks
-are `AttackHooks`' own, which do nothing.
+`BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its `attackerEffect` hook
+works out each attack's special effect on its attacker, and its `targetEffect` hook the effect on
+each target ([effects.md](effects.md)).
 
 ## The formulas
 
@@ -222,7 +223,10 @@ bounced off — for a Launcher's or Super Ball's hits, the lowest battler in the
 and for the damage shown after a bounce, the attacker of the block before), and the target from the
 battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
-`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe. `--to-battle
+`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe, and
+`failed-metamorph.log` the same fight with a failed Metamorph written in. The trace also follows the
+statuses and the special effects; their calls replay the same way ([status.md](status.md),
+[effects.md](effects.md)). `--to-battle
 <inputs>` runs the cartridge to a battle from a script of buttons and writes the machine's state, and
 `--from <state>` starts the windowed trace from it
 ([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)). `DamageOracle::trace(true)`
@@ -274,10 +278,10 @@ and writes every scenario to `check.log`; `--only` and `--seed` narrow it
   Glove apply to party slots only; a monster with those bits set in its battler is unaffected.
 - **The oracle needs a started machine.** Calling a routine before `start()` throws; `start()` runs
   from a loop's tick.
-- **The oracle's bounce leaves out what the hooks leave out.** The cartridge's bounce runs its own
-  status and special-effect passes, and `BattleHooks` the status pass only; `reflectedAttack()` is
-  only comparable for a spell those passes change nothing for, which is what `drawReflectScenario()`
-  draws.
+- **The oracle's bounce is compared for spells the passes leave alone.** The cartridge's bounce runs
+  its own status and special-effect passes for each bounce that hits, as `BattleHooks` does;
+  `reflectedAttack()` is written for a spell those passes change nothing for, which is what
+  `drawReflectScenario()` draws.
 
 ## Where to change
 

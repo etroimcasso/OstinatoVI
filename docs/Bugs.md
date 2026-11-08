@@ -573,3 +573,82 @@ both against the cartridge's own routine.
 **If you want to change it.** Taking the statuses for a counterattack from the
 battler's statuses once the pass is over makes whether it answers follow what
 the player sees.
+
+---
+
+## A failed Steal is remembered as a Fight
+
+**What happens.** A battler records the command it was last hit with, and a
+monster's script can answer a command used against it ("if hit by Steal").
+When Steal fails — the target has nothing, the chance or the draw is against
+the thief, the slot drawn is empty, or a monster's steal finds no gil — the
+target's record is written over with Fight. A monster scripted to answer Steal
+therefore answers only the steals that succeed, and one scripted to answer a
+Fight answers a failed Steal as well.
+
+**Where the original does it.** `TargetEffect_52`
+(`battle/battle_main.asm:9307-9379`) writes 0 into `$3d48,y` on every failure
+(`:9353-9356`), after `_c235e3` (`:8586-8588`) has recorded the command used.
+`AICond_01` (`:4667-4682`) compares `$3d48` with the script's commands.
+
+**Where the port keeps it.** `steal`'s failures in
+`src/battle/target_effects.cpp` set `Battler::lastHit.command` to Fight.
+`tests/test_target_effects.cpp`
+(`TargetEffectTest.StealingFromATargetWithNothingSaysSoAndIsRememberedAsAFight`,
+`TargetEffectTest.AMonstersStealFailsOnADrawOf192OrMore`) pins it, against the
+cartridge's routine as well.
+
+**If you want to change it.** Leaving the record alone on a failure lets a
+monster answer every Steal used against it.
+
+---
+
+## A monster's Steal takes its level times 256 gil
+
+**What happens.** A monster that steals takes gil from the party: its level
+times 256, plus 20. A level-12 monster takes 3,092; a level-40 one 10,260. GP
+Rain, worked out right beside it, takes the level times 30 — 360 and 1,200 for
+the same two — which is the scale the steal looks meant to have.
+
+**Where the original does it.** `TargetEffect_52`
+(`battle/battle_main.asm:9363-9367`) builds the amount as `lda $3b18,x; xba;
+lda #$14` — the level as the high byte, 20 as the low — and hands it to
+`TakeGil`. `AttackerEffect_51` (`:10362-10366`) multiplies the level by 30 with
+`MultAB`.
+
+**Where the port keeps it.** `monsterSteals()` in
+`src/battle/target_effects.cpp`. `tests/test_target_effects.cpp`
+(`TargetEffectTest.AMonsterStealsItsLevelTimes256Plus20Gil`) pins the amount,
+against the cartridge's routine as well.
+
+**If you want to change it.** Multiplying the level by 30, as GP Rain does,
+gives an amount on GP Rain's scale; whatever the party loses still goes to the
+monster's gold.
+
+---
+
+## A failed Metamorph says the monster became an item
+
+**What happens.** Metamorph draws an item from the monster's pack, then draws
+against the monster's odds. The message "Better off {item}!" naming the drawn
+item is put in the place of the attack's animation before the odds are drawn,
+so it shows whether the monster turns or not. On a failure the monster stays
+in the fight and the party gets nothing, under a message saying it became the
+item. In the first fight, a guard given odds that never succeed shows "Better
+off Green Cherry!" for 65 frames and stays standing.
+
+**Where the original does it.** `TargetEffect_12`
+(`battle/battle_main.asm:9385-9418`) stores the item in `$2f35` and writes
+animation command `$02` with message `$1d` into `$3a28`/`$3a29`, adding it to
+the script (`:9396-9403`), and only then compares a draw with
+`MetamorphRateTbl` (`:9407-9409`), branching past the item and the monster's
+death on a failure.
+
+**Where the port keeps it.** `metamorph()` in
+`src/battle/target_effects.cpp`. `tests/test_target_effects.cpp`
+(`TargetEffectTest.AFailedMetamorphStillWritesBetterOffInPlaceOfTheAnimation`)
+pins it, against the cartridge's routine as well; `tools/damage-trace/README.md`
+shows the failed Metamorph set up on the running cartridge.
+
+**If you want to change it.** Writing the message after a successful draw only
+leaves a failed Metamorph with the attack's own animation.

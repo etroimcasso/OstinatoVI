@@ -849,7 +849,7 @@ TEST(WriteBack, AFallenGhostAndAPossessedCharacterLeaveTheParty) {
             battler.actor = CharacterPropId::GHOST_1;
             battler.status.set(StatusId::PETRIFY);
         } else {
-            state.possessed.add(slot);
+            state.takenFromTheParty.add(slot);
         }
         const battle::BattleResult result = battle::writeBack(state);
         EXPECT_EQ(result.party.membership[*battler.record].party, 0);

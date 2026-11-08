@@ -318,7 +318,8 @@ struct EffectLog : battle::AttackHooks {
     std::vector<BattlerSlot> effects;
     battle::BattlerSet misses;
     std::vector<BattlerSlot> damaged;
-    bool targetEffect(battle::BattleState&, battle::AttackInFlight&, BattlerSlot, BattlerSlot target) override {
+    bool targetEffect(battle::BattleState&, battle::AttackInFlight&, BattlerSlot, BattlerSlot target,
+                      battle::BattleScriptBuilder&) override {
         effects.push_back(target);
         return misses.has(target);
     }

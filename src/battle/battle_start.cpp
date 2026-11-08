@@ -485,7 +485,8 @@ std::optional<std::uint8_t> openingMessage(const BattleState& state, const Forma
 }
 
 // What a final-battle stage carries into the next: the statuses and timers that last the whole
-// final battle, Mimic's memory, who is in the air, and who has summoned.
+// final battle, Mimic's memory, who is in the air, who has summoned, and who is morphed with how much
+// of the meter is left.
 struct StageCarry {
     std::array<StatusSet, kBattlerSlots> status{};
     std::array<std::uint8_t, kBattlerSlots> reflectTimer{};
@@ -494,6 +495,8 @@ struct StageCarry {
     BattlerSet awayFromTheField;
     BattlerSet espersSummoned;
     std::optional<BattlerSlot> morphedBattler;
+    std::uint16_t morphCounter = 0;
+    std::uint16_t morphCounterSpeed = 0;
     FormationId startingFormation{};
     std::deque<std::size_t> finalBattleReserve;
     std::uint8_t scroll = 0;
@@ -536,6 +539,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.awayFromTheField = carry->awayFromTheField;
         state.espersSummoned = carry->espersSummoned;
         state.morphedBattler = carry->morphedBattler;
+        state.morphCounter = carry->morphCounter;
+        state.morphCounterSpeed = carry->morphCounterSpeed;
         state.finalBattleReserve = carry->finalBattleReserve;
     } else {
         state.finalBattleChain = start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
@@ -558,6 +563,7 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     state.switches.clear(game::kEatenByZoneEaterSwitch);
     state.magicOnly = state.switches.isSet(game::kMagicOnlySwitch);
     state.permanentMorph = state.switches.isSet(game::kPermanentMorphSwitch);
+    state.morphLastsTwiceAsLong = state.switches.isSet(game::kMorphLastsTwiceAsLongSwitch);
     state.morphAvailable = state.switches.isSet(game::kMorphAvailableSwitch);
     state.gauObtained = state.switches.isSet(game::kGauObtainedSwitch);
     state.shadowStays = state.switches.isSet(game::kShadowStaysSwitch);
@@ -646,7 +652,7 @@ BattleResult writeBack(const BattleState& state) {
             continue;
         }
         const bool ghost = *battler.actor == CharacterPropId::GHOST_1 || *battler.actor == CharacterPropId::GHOST_2;
-        if ((ghost && battler.status.hasAny(kFallen)) || state.possessed.has(slot)) {
+        if ((ghost && battler.status.hasAny(kFallen)) || state.takenFromTheParty.has(slot)) {
             party.membership[*battler.record].party = 0;
         }
         game::CharacterRecord& record = party.characters[*battler.record];
@@ -741,6 +747,8 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     carry.awayFromTheField = finished.awayFromTheField;
     carry.espersSummoned = finished.espersSummoned;
     carry.morphedBattler = finished.morphedBattler;
+    carry.morphCounter = finished.morphCounter;
+    carry.morphCounterSpeed = finished.morphCounterSpeed;
     carry.startingFormation = finished.startingFormation;
     carry.finalBattleReserve = finished.finalBattleReserve;
     carry.partyFacingRight = finished.facingRight.charactersOnly();

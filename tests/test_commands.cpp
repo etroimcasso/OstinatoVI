@@ -52,7 +52,8 @@ struct AttackLog : battle::AttackHooks {
     std::function<void(AttackInFlight&, BattlerSlot)> onTargetEffect;
 
     void baseDamage(BattleState&, AttackInFlight& attack, BattlerSlot) override { made.push_back(attack); }
-    bool targetEffect(BattleState&, AttackInFlight& attack, BattlerSlot, BattlerSlot target) override {
+    bool targetEffect(BattleState&, AttackInFlight& attack, BattlerSlot, BattlerSlot target,
+                      BattleScriptBuilder&) override {
         if (onTargetEffect) {
             onTargetEffect(attack, target);
         }

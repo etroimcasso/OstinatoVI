@@ -398,5 +398,39 @@ TEST(TraceRecording, TheFirstFightSetsAStatus) {
     RecordProperty("calls setting a status", settingCalls);
 }
 
+// The first fight with a failed Metamorph written in: every attack runs both special-effect routines,
+// and Terra's Ragnarok runs Metamorph's (effect $12, doubled $24 in $7E:11A9) on the guard in battler
+// slot 6, the target the statuses just before it were worked out for.
+TEST(TraceRecording, TheFailedMetamorphFightRunsBothEffectRoutines) {
+    const fs::path file = fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "failed-metamorph.log";
+    std::ifstream log{file};
+    ASSERT_TRUE(log) << file.string() << " could not be read";
+    constexpr std::uint32_t kEffectCell = 0x7E11A9;
+    constexpr std::uint8_t kMetamorphDoubled = 0x24;
+    int attackerCalls = 0;
+    int targetCalls = 0;
+    int metamorphs = 0;
+    for (const trace::TracedCall& call : trace::parseTrace(log)) {
+        if (call.routine == "DoAttackerEffect") {
+            ++attackerCalls;
+        }
+        if (call.routine != "DoTargetEffect") {
+            continue;
+        }
+        ++targetCalls;
+        EXPECT_TRUE(call.target.has_value()) << "frame " << call.frame;
+        const auto effect = call.inputs.find(kEffectCell);
+        if (effect != call.inputs.end() && effect->second == kMetamorphDoubled) {
+            ++metamorphs;
+            EXPECT_EQ(call.target, battle::BattlerSlot::fromIndex(6));
+        }
+    }
+    EXPECT_GT(attackerCalls, 0);
+    EXPECT_GT(targetCalls, 0);
+    EXPECT_EQ(metamorphs, 1);
+    RecordProperty("attacker-effect calls", attackerCalls);
+    RecordProperty("target-effect calls", targetCalls);
+}
+
 }  // namespace
 }  // namespace ostinato::test

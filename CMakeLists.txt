@@ -65,6 +65,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/action_queue.cpp
     src/battle/actions.cpp
     src/battle/attack.cpp
+    src/battle/attacker_effects.cpp
     src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
     src/battle/battle_hooks.cpp
@@ -80,12 +81,15 @@ add_library(ostinato-vi-lib STATIC
     src/battle/commands.cpp
     src/battle/damage.cpp
     src/battle/item_attack.cpp
+    src/battle/links.cpp
+    src/battle/morph.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/presentation.cpp
     src/battle/spell_lists.cpp
     src/battle/status.cpp
     src/battle/system_commands.cpp
+    src/battle/target_effects.cpp
     src/battle/targeting.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
@@ -652,6 +656,7 @@ gtest_discover_tests(ostinato-vi-battle-damage-tests)
 # cartridge's own routines, run on the hosted cartridge over the same battle
 # (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-status-tests
+    tests/test_cell_writes.cpp
     tests/test_near_fatal.cpp
     tests/test_status_changes.cpp
     tests/test_status_effect.cpp
@@ -669,3 +674,25 @@ target_compile_definitions(ostinato-vi-battle-status-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-status-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-status-tests)
+
+# The special effects: what an attack's effect does to the attack and its attacker before the hit
+# check and to each target it hits, and a controller's menu of its monster's attacks, each worked out
+# by hand from the original and checked against the cartridge's own routine, run on the hosted
+# cartridge over the same battle (tools/damage-trace/damage_oracle); the links between battlers let
+# go, and Morph's meter, each worked out by hand from the original. Own binary so the other
+# baselines stay frozen.
+add_executable(ostinato-vi-battle-effects-tests
+    tests/test_attacker_effects.cpp
+    tests/test_control_menu.cpp
+    tests/test_effects_oracle.cpp
+    tests/test_links.cpp
+    tests/test_morph.cpp
+    tests/test_target_effects.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-effects-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-effects-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-effects-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_link_libraries(ostinato-vi-battle-effects-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-effects-tests)

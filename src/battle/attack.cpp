@@ -1,6 +1,7 @@
 #include "battle/attack.h"
 
 #include <cstddef>
+#include <optional>
 #include <utility>
 
 #include "battle/commands.h"
@@ -254,8 +255,8 @@ void learnLore(BattleState& state, const AttackInFlight& attack) {
     }
 }
 
-// Mark the target to answer the attacker: always if it was not already waiting to answer
-// someone, on a coin flip if it was.
+}  // namespace
+
 void markToRetaliate(BattleState& state, BattlerSlot attacker, BattlerSlot target) {
     Battler& battler = state.at(target);
     if (!battler.retaliationPending || state.rng.coin()) {
@@ -264,7 +265,6 @@ void markToRetaliate(BattleState& state, BattlerSlot attacker, BattlerSlot targe
     }
 }
 
-// What the attack's params say about who made it and whom it was aimed at.
 void initParams(AttackInFlight& attack, BattlerSlot attacker) {
     AttackAnimationParams& params = attack.params;
     params.attackerIsMonster = attacker.isMonster();
@@ -286,6 +286,8 @@ void initParams(AttackInFlight& attack, BattlerSlot attacker) {
         attack.rules.fallBackToEarlierTargets = true;
     }
 }
+
+namespace {
 
 // A monster's special attack takes its special-attack byte: no damage, no dodging, a drain, Reflect
 // removed, extra damage or a status.
@@ -593,7 +595,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
         attack.damage /= 2;
     }
     attack.scratch.hitInTheBack = hitInTheBack(state, attack, attacker);
-    hooks.attackerEffect(state, attack, attacker);
+    hooks.attackerEffect(state, attack, attacker, script);
     if (state.extraHits) {
         return;
     }
@@ -658,7 +660,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
         }
         attack.scratch.missedByEffect = {};
         hooks.statusEffect(state, attack, attacker, target);
-        if (hooks.targetEffect(state, attack, attacker, target)) {
+        if (hooks.targetEffect(state, attack, attacker, target, script)) {
             attack.scratch.missedByEffect.add(target);
         }
         if (!attack.scratch.missedByEffect.empty()) {
@@ -736,7 +738,7 @@ void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScript
             recordLastHit(state, attack, from, *target);
             attack.scratch.missedByEffect = {};
             hooks.statusEffect(state, attack, from, *target);
-            if (hooks.targetEffect(state, attack, from, *target)) {
+            if (hooks.targetEffect(state, attack, from, *target, script)) {
                 attack.scratch.missedByEffect.add(*target);
             }
             if (!attack.scratch.missedByEffect.empty()) {
@@ -830,7 +832,11 @@ void attackOnce(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scr
             hooks.applyPendingStatuses(state);
             weaponSpellcast(state, attack);
             if (attack.scratch.message) {
-                script.add(BattleMessage{.message = *attack.scratch.message});
+                const std::optional<ItemId> item = std::exchange(attack.scratch.messageItem, std::nullopt);
+                script.add(BattleMessage{.message = *attack.scratch.message,
+                                         .firstNumber = item ? std::optional<std::uint32_t>{static_cast<std::uint8_t>(*item)}
+                                                             : std::nullopt,
+                                         .secondNumber = std::exchange(attack.scratch.messageAmount, std::nullopt)});
                 attack.scratch.message.reset();
             }
             if (attack.record.misc.has(AttackMiscFlag::SHOW_ATTACK_MESSAGE) && maker.isMonster()) {

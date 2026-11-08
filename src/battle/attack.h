@@ -135,6 +135,9 @@ struct DamageLedger {
 struct AttackScratch {
     std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
     std::optional<std::uint8_t> message;       // a battle message shown after the attack
+    // What the message names: an item ("Stole {item}") and an amount ("{amount} GP was stolen!!").
+    std::optional<ItemId> messageItem;
+    std::optional<std::uint32_t> messageAmount;
     std::optional<AttackId> lastSpell;         // the spell this command casts
     std::optional<ItemId> lastItem;            // the item this command uses
     bool itemKept = false;                     // the item used is not used up
@@ -165,6 +168,8 @@ struct AttackScratch {
     ItemSpellCast weaponSpellcast;             // the hand's spell, cast one time in four
     bool dragonHorn = false;                   // Dragon Horn: the jump comes down more than once
     DamageLedger ledger;                       // the damage the attack being worked out does
+    // Mind Blast: for each party position, the battler it picked to give one of its statuses.
+    std::array<std::optional<BattlerSlot>, kPartySlots> mindBlastPicks{};
 };
 
 // One battle command's attack as it is carried out.
@@ -241,11 +246,12 @@ public:
     virtual ~AttackHooks() = default;
 
     virtual void baseDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/) {}
-    virtual void attackerEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/) {}
+    virtual void attackerEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattleScriptBuilder&) {}
     virtual void scaleDamage(BattleState&, AttackInFlight&) {}
     virtual void controlMenu(BattleState&, BattlerSlot /*controller*/, BattlerSlot /*monster*/) {}
     virtual void statusEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {}
-    virtual bool targetEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/) {
+    virtual bool targetEffect(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/,
+                              BattleScriptBuilder&) {
         return false;
     }
     virtual void targetDamage(BattleState&, AttackInFlight&, BattlerSlot /*attacker*/, BattlerSlot /*target*/,
@@ -260,6 +266,11 @@ AttackInFlight startAttack(const CommandAction& command);
 // The animation the attack in flight is shown with, as its fields stand now: the command or the
 // special animation it plays, the attack, the hand and the animation's second value.
 AttackAnimation animationOf(const AttackInFlight& attack);
+
+// Aim the attack's params at attack.targets: who makes it, whom it is aimed at and who it hits,
+// whether it is aimed at the other side only, the swirl before a spell (on unless
+// AttackInFlight::castingSwirlSuppressed, which this turns off), and a Dragon Horn's landing.
+void initParams(AttackInFlight& attack, BattlerSlot attacker);
 
 // Copy the attack's record into the attack in flight and take its special effect.
 void loadAttackRecord(AttackInFlight& attack, AttackId id);
@@ -317,5 +328,9 @@ BattlerSet hitInTheBack(const BattleState& state, const AttackInFlight& attack, 
 
 // Record on `target` who hit it and with what, and mark it to answer the attacker.
 void recordLastHit(BattleState& state, const AttackInFlight& attack, BattlerSlot attacker, BattlerSlot target);
+
+// Mark `target` to answer `attacker`: always if it was not already waiting to answer someone, on a
+// coin flip if it was.
+void markToRetaliate(BattleState& state, BattlerSlot attacker, BattlerSlot target);
 
 }  // namespace ostinato::battle

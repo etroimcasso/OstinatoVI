@@ -57,6 +57,18 @@ public:
     // A near-fatal battler's relics cast their spells (nearFatalRelicSpells() in battle/status.h).
     void checkNearFatal(BattleState& state, BattlerSlot slot) override;
 
+    // The links between battlers after each action (battle/links.h): a Control link is marked as
+    // ending (endControlIfUnable()), a battler that fell or left lets go of its links
+    // (releaseLinks()), and the Control links marked as ending are let go (releaseEndedControl()).
+    void checkControl(BattleState& state, BattlerSlot slot) override;
+    void releaseLinks(BattleState& state, BattlerSlot slot) override;
+    void clearControl(BattleState& state, BattlerSlot slot) override;
+
+    // Morph's meter (battle/morph.h): its menu after Morph or Revert (morphMenuChanged()), and the
+    // meter running down on each time update (runDownMorph()).
+    void refreshMorph(BattleState& state, BattlerSlot slot) override;
+    void tickMorph(BattleState& state, BattlerSlot slot) override;
+
     AttackId chooseDanceStep(BattleState& state, BattlerSlot dancer, AttackId chosen) override;
     AttackId chooseRageAttack(BattleState& state, BattlerSlot rager, AttackId chosen) override;
     AttackId chooseRandomEsper(BattleState& state, BattlerSlot caster, AttackId chosen) override;
