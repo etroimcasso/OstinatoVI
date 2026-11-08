@@ -8,7 +8,7 @@ It is a developer tool and is not part of the game.
 ```sh
 cmake --build build --target ostinato-damage-trace
 ./build/ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
-./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]...
+./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...
 ./build/ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 ./build/ostinato-damage-trace <rom> <directory> --check-state <ticks>
 ./build/ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>] [--replay-traced]
@@ -29,6 +29,7 @@ cmake --build build --target ostinato-damage-trace
 | A fight with scripted buttons, with no window | `--headless --from <state> --inputs <script> --frames 3000`, then `--replay` |
 | A fight by hand | `--from <state>`, then `--replay` |
 | Where a script has got to | `--headless --inputs <script> --frames <n> --picture-at <frame>` |
+| A fight set up by hand | `--headless --from <state> --frames <n> --write-at <frame> <address> <bytes>` |
 
 ## Tracing
 
@@ -145,6 +146,28 @@ as in a window. Each `--picture-at <frame>` writes that frame's picture to `fram
 
 The log is appended to, so a run that starts over wants a directory of its own.
 
+Each `--write-at <frame> <address> <bytes>` writes bytes into work RAM before that frame runs, so the
+game sees them from that frame on. The address is `$BB:AAAA` in `$7E:0000-$7F:FFFF` (the `$` may be
+left off; a shell wants it quoted), and the bytes are an even number of hex digits, written from the
+address on in the order given. Writes on one frame land in the order given, so a later one to the same
+cell wins. A frame that is not a number, an address outside work RAM, digits that are not whole bytes,
+and bytes running past `$7F:FFFF` are refused before anything runs.
+
+This sets up a failed Metamorph in the first fight, from `first-fight.inputs`'s state: the metamorph byte of
+the guard in battler slot 6 (`$7E:3CA0`) gets rate 7, which never succeeds, and Terra's waiting action —
+list slot `$50` — is Summon (`$19`) with Ragnarok (`$46`) at that guard, put at the head of the action
+queue:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/metamorph --headless --from ~/traces/opening/battle.state \
+    --frames 361 --picture-at 268 \
+    --write-at 160 '$7E:3CA0' E0 --write-at 160 '$7E:31D0' 50 --write-at 160 '$7E:34C0' 1946 \
+    --write-at 160 '$7E:35C0' 0004 --write-at 160 '$7E:36C0' 00 --write-at 160 '$7E:32CC' 50 \
+    --write-at 160 '$7E:3820' 00 --write-at 160 '$7E:3A66' 0001
+```
+
+Frame 268 shows "Better off Green Cherry!" over both guards, still standing.
+
 ## Replaying
 
 With `--replay` nothing opens. Every call in `<directory>/damage-trace.log`, or the file `--log` names, is rebuilt as a battle —
@@ -203,6 +226,6 @@ port, as `tests/test_trace_replay.cpp` and `tests/test_status_oracle.cpp` do.
 | File | What it holds |
 |---|---|
 | `main.cpp` | the command line, the window and the trace on it, the trace with no window, the scripted run to a battle, the state check, the replay run and the check run |
-| `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script |
+| `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
 | `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect and an attack's statuses on one target; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()` and `drawStatusEffectScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |

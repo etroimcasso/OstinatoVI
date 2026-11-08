@@ -4,7 +4,7 @@
 //
 //     ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
 //     ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]
-//                                             [--picture-at <frame>]...
+//                                             [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...
 //     ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 //     ostinato-damage-trace <rom> <directory> --check-state <ticks>
 //     ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]
@@ -39,7 +39,8 @@
 //
 // With --headless nothing opens. The trace runs for --frames frames from power-on or --from, holding
 // the buttons --inputs names, on a machine with no battery file, and writes the picture of each
-// --picture-at frame to `frame-<n>.ppm`.
+// --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before its frame
+// runs (machine_state.h has the form).
 //
 // With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its state
 // is written, read back and restored on a second machine; both run on, and their memory and pictures
@@ -328,7 +329,7 @@ RegionMapId<WorkRam> declareWorkRam(Vm& machine) {
 
 int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path& directory, std::uint64_t frames,
                 const std::optional<StartingState>& from, std::span<const trace::InputStep> script,
-                std::span<const std::uint64_t> pictureFrames) {
+                std::span<const std::uint64_t> pictureFrames, std::span<const trace::CellWrite> writes) {
     std::ofstream log{directory / "damage-trace.log", std::ios::app};
     int result = 0;
     trace::runOnLoop([&] {
@@ -351,8 +352,10 @@ int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path
             }
             log << "state restored from " << from->file.string() << '\n';
         }
+        const trace::WorkRamBytes::Map ram = trace::declareWorkRamBytes(machine);
         machine.run(Vm::Advance::OnTick);
         for (; frame < frames; ++frame) {
+            trace::writeCells(machine, ram, writes, frame);
             machine.buttons(snes::Ports{.one = trace::buttonsAt(script, frame), .two = std::nullopt});
             machine.advanceTick();
             if (std::find(pictureFrames.begin(), pictureFrames.end(), frame) != pictureFrames.end()) {
@@ -631,6 +634,7 @@ struct Options {
     std::optional<std::uint64_t> frames;                 // --headless
     std::optional<std::filesystem::path> inputs;         // --headless
     std::vector<std::uint64_t> pictureFrames;            // --headless
+    std::vector<trace::CellWrite> writes;                // --headless
     std::optional<std::filesystem::path> recording;      // --replay
     bool twice = false;                                  // --to-battle
     std::uint32_t seed = trace::kSweepSeed;              // --check
@@ -642,7 +646,7 @@ struct Options {
 constexpr const char* kUsage =
     "usage: ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]\n"
     "       ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]\n"
-    "                                               [--picture-at <frame>]...\n"
+    "                                               [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...\n"
     "       ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]\n"
     "       ostinato-damage-trace <rom> <directory> --check-state <ticks>\n"
     "       ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]\n"
@@ -665,8 +669,8 @@ std::optional<std::string> refusal(const Options& o) {
     if (o.headless != o.frames.has_value()) {
         return "--headless and --frames go together";
     }
-    if (!o.headless && (o.inputs || !o.pictureFrames.empty())) {
-        return "--inputs and --picture-at go with --headless";
+    if (!o.headless && (o.inputs || !o.pictureFrames.empty() || !o.writes.empty())) {
+        return "--inputs, --picture-at and --write-at go with --headless";
     }
     if (o.recording && !o.replay) {
         return "--log goes with --replay";
@@ -758,7 +762,7 @@ int runMode(const Options& options, std::span<const std::uint8_t> image, const s
         }
         script = std::move(*read);
     }
-    return runHeadless(image, directory, *options.frames, from, script, options.pictureFrames);
+    return runHeadless(image, directory, *options.frames, from, script, options.pictureFrames, options.writes);
 }
 
 }  // namespace
@@ -809,6 +813,14 @@ int main(int argc, char** argv) {
                 return 2;
             }
             options.pictureFrames.push_back(*frame);
+        } else if (flag == "--write-at" && i + 3 < argc) {
+            try {
+                options.writes.push_back(trace::readCellWrite(argv[i + 1], argv[i + 2], argv[i + 3]));
+            } catch (const std::runtime_error& error) {
+                std::fprintf(stderr, "--write-at: %s\n%s", error.what(), kUsage);
+                return 2;
+            }
+            i += 3;
         } else if (flag == "--seed") {
             const std::optional<std::uint64_t> seed = count(i, argv[i]);
             if (!seed) {

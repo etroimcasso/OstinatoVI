@@ -624,3 +624,31 @@ against the cartridge's routine as well.
 **If you want to change it.** Multiplying the level by 30, as GP Rain does,
 gives an amount on GP Rain's scale; whatever the party loses still goes to the
 monster's gold.
+
+---
+
+## A failed Metamorph says the monster became an item
+
+**What happens.** Metamorph draws an item from the monster's pack, then draws
+against the monster's odds. The message "Better off {item}!" naming the drawn
+item is put in the place of the attack's animation before the odds are drawn,
+so it shows whether the monster turns or not. On a failure the monster stays
+in the fight and the party gets nothing, under a message saying it became the
+item. In the first fight, a guard given odds that never succeed shows "Better
+off Green Cherry!" for 65 frames and stays standing.
+
+**Where the original does it.** `TargetEffect_12`
+(`battle/battle_main.asm:9385-9418`) stores the item in `$2f35` and writes
+animation command `$02` with message `$1d` into `$3a28`/`$3a29`, adding it to
+the script (`:9396-9403`), and only then compares a draw with
+`MetamorphRateTbl` (`:9407-9409`), branching past the item and the monster's
+death on a failure.
+
+**Where the port keeps it.** `metamorph()` in
+`src/battle/target_effects.cpp`. `tests/test_target_effects.cpp`
+(`TargetEffectTest.AFailedMetamorphStillWritesBetterOffInPlaceOfTheAnimation`)
+pins it, against the cartridge's routine as well; `tools/damage-trace/README.md`
+shows the failed Metamorph set up on the running cartridge.
+
+**If you want to change it.** Writing the message after a successful draw only
+leaves a failed Metamorph with the attack's own animation.

@@ -655,6 +655,7 @@ gtest_discover_tests(ostinato-vi-battle-damage-tests)
 # cartridge's own routines, run on the hosted cartridge over the same battle
 # (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-status-tests
+    tests/test_cell_writes.cpp
     tests/test_near_fatal.cpp
     tests/test_status_changes.cpp
     tests/test_status_effect.cpp

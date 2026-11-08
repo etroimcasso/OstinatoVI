@@ -1,5 +1,6 @@
-// The trace tool's two file formats: a machine's state with the name of the cartridge it belongs to,
-// and a script of the buttons held over a run with no window.
+// The trace tool's two file formats — a machine's state with the name of the cartridge it belongs to,
+// and a script of the buttons held over a run with no window — and the cells a run with no window
+// writes into work RAM as it goes.
 //
 // A state file opens with two lines of text and carries the engine's bytes to its end:
 //
@@ -25,6 +26,18 @@
 //     120 Start
 //     130 -
 //     400 Up+A
+//
+// A cell write names a frame, an address in work RAM ($7E:0000-$7F:FFFF, the `$` optional) and the
+// bytes, as an even number of hex digits, written from that address on. They are written before that
+// frame runs, so the game sees them from that frame on:
+//
+//     const trace::CellWrite write = trace::readCellWrite("300", "$7E:3C9C", "E0");
+//     const trace::WorkRamBytes::Map ram = trace::declareWorkRamBytes(machine);   // before run()
+//     machine.run(retropp::Vm::Advance::OnTick);
+//     for (std::uint64_t frame = 0; frame < frames; ++frame) {
+//         trace::writeCells(machine, ram, writes, frame);
+//         machine.advanceTick();
+//     }
 #pragma once
 
 #include <cstdint>
@@ -35,7 +48,9 @@
 #include <vector>
 
 #include "ostinato/game_version.h"
+#include "retropp/memory_region.h"
 #include "retropp/snes.h"
+#include "retropp/vm.h"
 
 namespace ostinato::trace {
 
@@ -72,5 +87,32 @@ struct InputStep {
 
 // What the script holds on a frame: the last line at or before it, and nothing before the first line.
 [[nodiscard]] retropp::snes::Buttons buttonsAt(std::span<const InputStep> script, std::uint64_t frame);
+
+// Bytes written into work RAM before a frame runs.
+struct CellWrite {
+    std::uint64_t frame = 0;
+    std::uint32_t at = 0;  // the first byte's address, $7E:0000-$7F:FFFF
+    std::vector<std::uint8_t> bytes;
+};
+
+// The three words of a write: `<frame> <$BB:AAAA> <bytes>`. Throws std::runtime_error naming the word
+// for a frame that is not a number, an address outside work RAM or of any other shape, no bytes or an
+// odd number of hex digits, and bytes running past $7F:FFFF.
+[[nodiscard]] CellWrite readCellWrite(std::string_view frame, std::string_view address, std::string_view bytes);
+
+// Work RAM declared one byte to an entry, so a write of any length lands at its own address on a
+// running machine. Declare it before run().
+struct WorkRamBytes {
+    retropp::MemoryRegion bytes;
+
+    using Map = retropp::RegionMapId<WorkRamBytes>;
+};
+
+[[nodiscard]] WorkRamBytes::Map declareWorkRamBytes(retropp::Vm& machine);
+
+// Writes every write that names `frame`, in the order given. On a running machine the bytes land at
+// the next step boundary, before the tick that follows; a later write to the same cell wins.
+void writeCells(retropp::Vm& machine, const WorkRamBytes::Map& ram, std::span<const CellWrite> writes,
+                std::uint64_t frame);
 
 }  // namespace ostinato::trace
