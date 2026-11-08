@@ -81,12 +81,14 @@ add_library(ostinato-vi-lib STATIC
     src/battle/commands.cpp
     src/battle/damage.cpp
     src/battle/item_attack.cpp
+    src/battle/links.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/presentation.cpp
     src/battle/spell_lists.cpp
     src/battle/status.cpp
     src/battle/system_commands.cpp
+    src/battle/target_effects.cpp
     src/battle/targeting.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
@@ -672,12 +674,15 @@ target_link_libraries(ostinato-vi-battle-status-tests PRIVATE ostinato-vi-lib GT
 gtest_discover_tests(ostinato-vi-battle-status-tests)
 
 # The special effects: what an attack's effect does to the attack and its attacker before the hit
-# check, each worked out by hand from the original and checked against the cartridge's own routine,
-# run on the hosted cartridge over the same battle (tools/damage-trace/damage_oracle). Own binary so
-# the other baselines stay frozen.
+# check and to each target it hits, and a controller's menu of its monster's attacks, each worked out
+# by hand from the original and checked against the cartridge's own routine, run on the hosted
+# cartridge over the same battle (tools/damage-trace/damage_oracle). Own binary so the other
+# baselines stay frozen.
 add_executable(ostinato-vi-battle-effects-tests
     tests/test_attacker_effects.cpp
+    tests/test_control_menu.cpp
     tests/test_effects_oracle.cpp
+    tests/test_target_effects.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-effects-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-effects-tests PRIVATE ${_ostinato_warn})

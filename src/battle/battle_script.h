@@ -330,6 +330,9 @@ public:
 
     const std::vector<BattleScriptCommand>& commands() const { return commands_; }
 
+    // The params added so far, in order, that take() has not yet given to an animation.
+    const std::deque<AttackAnimationParams>& params() const { return params_; }
+
     // The finished script: each animation carries the params added for it, in order.
     std::vector<BattleScriptCommand> take();
 

@@ -169,7 +169,7 @@ struct RecordingHooks : battle::AttackHooks {
         damageAtScale.push_back(attack.damage);
     }
     bool targetEffect(battle::BattleState&, battle::AttackInFlight&, battle::BattlerSlot,
-                      battle::BattlerSlot target) override {
+                      battle::BattlerSlot target, battle::BattleScriptBuilder&) override {
         effects.push_back(target);
         return missesEffect && missesEffect(target);
     }

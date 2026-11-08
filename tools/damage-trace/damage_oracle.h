@@ -29,8 +29,9 @@
 // routines are at the addresses both US cartridges hold them; the oracle checks each one's opening
 // bytes and refuses an image that does not have them. `ostinato-damage-trace --check` runs it from
 // the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
-// the port's formulas, and tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
-// status rules.
+// the port's formulas, tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
+// status rules, and tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
+// tests/test_control_menu.cpp against its special effects.
 #pragma once
 
 #include <array>
@@ -332,6 +333,40 @@ struct AttackerEffectRun {
 
 [[nodiscard]] std::string differences(const AttackerEffectResult& port, const AttackerEffectResult& guest);
 
+// What an attack's special effect on one target leaves, as the same cells on both sides, each named
+// and given as text: whether the effect missed the target; the attack's record, damage, multiplier,
+// animation values, params and aim; the command's message and what it names, its spell or sketch to
+// make next, its earlier targets, the battlers shown "Miss", whether counterattacks are on and whether
+// an attack with no one left is hidden; the battle's battlers leaving, gone, fallen, swallowed, taken
+// from the party and holding an item, the monsters drawn flipped, Zinger's two, the end-of-battle
+// event and the party's gil; for every battler its HP, MP, level, statuses and statuses waiting, what
+// is to be worked out again, Air Anchor, its row, gauge and menu flags, Overcast, Phantasm and the
+// control menu flag, its elements, every link, its item in hand, AI variable, items to steal, gold,
+// the command it was last hit with, its last-attacker mark, its actions waiting and, for a party
+// member, its control menu; the commands, params blocks and interrupting actions the effect added;
+// and the random-number position.
+struct TargetEffectResult {
+    std::map<std::string, std::string> cells;
+};
+
+// The scenario after the port's target effect has run over it: the target, whether the effect missed
+// it, and the script it wrote. The script starts with the attack's own animation, put there by the
+// attack frame before any target's effect.
+struct TargetEffectRun {
+    DamageScenario after;
+    battle::BattlerSlot target = battle::BattlerSlot::monster(0);
+    bool missed = false;
+    battle::BattleScriptBuilder script;
+};
+
+// The port's special effect of the scenario's attack on `target`.
+[[nodiscard]] TargetEffectRun runTargetEffect(DamageScenario scenario, battle::BattlerSlot target);
+
+// A port run read back as a TargetEffectResult.
+[[nodiscard]] TargetEffectResult targetEffectResult(const TargetEffectRun& run);
+
+[[nodiscard]] std::string differences(const TargetEffectResult& port, const TargetEffectResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -392,10 +427,10 @@ public:
 
     // The spell in the scenario bounced off the battlers in its attack.params.reflectedOff, or a
     // Launcher's or Super Ball's hits made (CalcReflectDmg). The routine runs the cartridge's own
-    // status and special-effect passes for each bounce that hits; the port's hooks run the status
-    // pass and leave the special effects out, and this comparison is written for spells neither pass
-    // changes anything for: no statuses or special effect, no element that melts Frozen on a Frozen
-    // target, no Vanished target, no miss for a status the target is immune to.
+    // status and special-effect passes for each bounce that hits, as the port's hooks do; this
+    // comparison is written for spells neither pass changes anything for: no statuses or special
+    // effect, no element that melts Frozen on a Frozen target, no Vanished target, no miss for a
+    // status the target is immune to.
     [[nodiscard]] ReflectedAttackResult reflectedAttack(const DamageScenario& scenario);
 
     // Every present battler's waiting statuses taking effect over the scenario (UpdateStatus): every
@@ -409,6 +444,13 @@ public:
     // The special effect of the scenario's attack on the scenario's attacker (DoAttackerEffect), called
     // as the attack frame calls it, before the hit check.
     [[nodiscard]] AttackerEffectResult attackerEffect(const DamageScenario& scenario);
+
+    // The special effect of the scenario's attack on `target`, one of the targets it hits
+    // (DoTargetEffect), with the scenario's attacker as the one who made it — called as the attack
+    // frame calls it, after the attack's statuses on the target and with the frame's animation
+    // already in the script. The scenario holds what the frame leaves there: the target out of the
+    // targets hit, already marked to answer the attacker, and its last command hit recorded.
+    [[nodiscard]] TargetEffectResult targetEffect(const DamageScenario& scenario, battle::BattlerSlot target);
 
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
@@ -463,7 +505,9 @@ private:
     void writeContext(const DamageScenario& scenario);
     void writeStatusCells(const DamageScenario& scenario);
     void writeEffectCells(const DamageScenario& scenario);
+    void writeTargetEffectCells(const DamageScenario& scenario);
     [[nodiscard]] AttackerEffectResult readAttackerEffectResult();
+    [[nodiscard]] TargetEffectResult readTargetEffectResult();
     [[nodiscard]] StatusChangesResult readStatusChangesResult();
     [[nodiscard]] StatusEffectResult readStatusEffectResult(battle::BattlerSlot target);
     [[nodiscard]] DamageScenario readStatusScenario();
@@ -497,6 +541,7 @@ private:
     retropp::Routine<PassCall> updateStatus_;
     retropp::Routine<TargetCall> magicStatusEffect_;
     retropp::Routine<Call> doAttackerEffect_;
+    retropp::Routine<TargetCall> doTargetEffect_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -573,5 +618,15 @@ struct TargetScenario {
 // Forcefield, Quick, the Golem, the allies standing, whether the party can run, whether a counterattack
 // is running, and the random-number position.
 [[nodiscard]] DamageScenario drawAttackerEffectScenario(std::mt19937& rng);
+
+// The scenarios the target-effect sweep draws, from the same seed: every cell the attacker-effect
+// sweep draws, then an effect that acts on the target three times in four, a target and, for the
+// command effects that open a party member's menu, a party member attacking; for every battler its
+// level, stamina and statuses, whether instant death can reach it, its metamorph byte, items to steal
+// and monster, every link (a Control link sometimes ending), its AI variable, item in hand and the
+// action it has waiting; the formation, the attack's statuses and hit rate, Mind Blast's picks, the
+// battlers gone, fallen, swallowed and taken from the party, Zinger's two and the monsters drawn
+// flipped. The target is left as the attack frame leaves it for the effect.
+[[nodiscard]] TargetScenario drawTargetEffectScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

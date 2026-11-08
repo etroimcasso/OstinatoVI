@@ -2,20 +2,23 @@
 
 Behavioral specification for what an attack's special effect does. An attack carries at most one
 special effect; the battle works it out twice — once on the attack and its attacker before any target
-is checked, and once on each target the attack hits. This contract specifies the first: every effect
-that acts on the attack and its attacker. All citations point into the pinned reference tree
-`original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm`
-unless another file is named, and `ram:` names a line of `notes/battle-ram.txt`. This document is the
-test authority for `tests/test_attacker_effects.cpp` and `tests/test_effects_oracle.cpp`.
+is checked, and once on each target the attack hits. This contract specifies both, and the control
+menu a party member is given when Control takes hold. All citations point into the pinned reference
+tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
+`src/battle/battle_main.asm` unless another file is named, and `ram:` names a line of
+`notes/battle-ram.txt`. This document is the test authority for `tests/test_attacker_effects.cpp`,
+`tests/test_effects_oracle.cpp`, `tests/test_target_effects.cpp` and `tests/test_control_menu.cpp`.
 
-The attack frame (`docs/contracts/battle_commands.md`) calls the effect at its `AttackHooks` point;
-this contract starts at that call. The battle's own hooks are `BattleHooks`
-(`src/battle/battle_hooks.h`), one call into `src/battle/attacker_effects.h`. The effect on each
-target is still the default hook's, which changes nothing.
+The attack frame (`docs/contracts/battle_commands.md`) calls the effects at its `AttackHooks`
+points; this contract starts at those calls. The battle's own hooks are `BattleHooks`
+(`src/battle/battle_hooks.h`): one call into `src/battle/attacker_effects.h` for the effect on the
+attacker, one into `src/battle/target_effects.h` for the effect on each target, and one into
+`src/battle/links.h` for the control menu.
 
-Every claim about `DoAttackerEffect` is also checked against the cartridge itself: the routine is run
-on the cartridge, hosted on the engine's SNES machine, over the same inputs the port is given
-(`tools/damage-trace/damage_oracle.h`).
+Every claim about `DoAttackerEffect` and `DoTargetEffect` is also checked against the cartridge
+itself: the routine is run on the cartridge, hosted on the engine's SNES machine, over the same inputs
+the port is given (`tools/damage-trace/damage_oracle.h`). `CheckSketchHit`, `TakeGil` and
+`SetControlCmd` are checked through the effects that call them.
 
 ## Sources
 
@@ -28,6 +31,14 @@ on the cartridge, hosted on the engine's SNES machine, over the same inputs the 
 | Gil taken from the party | `TakeGil` `:8944-8962` | `takeGil()` |
 | A random esper | `RandGenju` `:8968-8975` | `chooseRandomEsper()` (`src/battle/automatic_actions.h`) |
 | The params aimed again | `InitGfxParams` `:14428-14466` | `initParams()` (`src/battle/attack.h`) |
+| The dispatch on each target | `DoTargetEffect` `:9087-9099`, `TargetEffectTbl` `:10014-10112` | `targetEffect()` and its table in `target_effects.cpp` |
+| The forty-six effects on a target | `TargetEffect_03` … `_57` `:9103-10003` | one function each in `target_effects.cpp` |
+| The effect missed the target | `_c23b1b` `:9512-9518` | `misses()` |
+| The instant kill | `ScimitarEffect` `:9109-9154`, `_c223b2` `:6009-6015` | `instantKill()` |
+| One status of the attack's | `_c23bd0` `:9634-9657` | `giveOneStatus()` |
+| The level check of Sketch and Control | `CheckSketchHit` `:8914-8936` | `levelCheck()` |
+| The control menu | `SetControlCmd` `:8855-8905` | `controlMenu()` (`src/battle/links.h`) |
+| The possessor's mark | `_c2361b` `:8619-8631` | `markToRetaliate()` (`src/battle/attack.h`) |
 
 ## Where the battle calls it
 
@@ -40,6 +51,20 @@ frame's X, moved into Y (`:10123`). `DoAttackerEffect` has no other caller. The 
 Right after it the frame reads the Launcher's or Super Ball's hits to come (`$3405`, `:8276-8279`):
 with any to come, the attack stops there and the hits are made by the bounce
 (`docs/contracts/battle_damage.md`, § The reflected attack).
+
+`DoTargetEffect` is called for each target hit, highest slot first: by the frame at `:8357`, after the
+target's statuses (`MagicStatusEffect`), and by the bounce at `:8435` for each battler a spell bounces
+to. Y is the target; the attacker is the frame's X, which the dispatch pushes and the effects read
+back from the stack (`$05,s`) — in the bounce, the battler the spell bounced off. Before the call the
+frame has taken the target out of the targets hit (`:8347`), marked it to answer the attacker and
+recorded what hit it (`_c235e3 :8578-8613`), and cleared `$3a48`. After it, `$3a48` still clear puts
+the target back among the targets hit and works out its damage (`:8358-8362`); set, the target takes
+nothing more from the attack. The port's seam is `AttackHooks::targetEffect`, which `BattleHooks`
+fills with `targetEffect(state, attack, attacker, target, script)`; its `true` is `$3a48` set.
+
+When the attacker is controlled (`$32b9,x` holds a live link), the frame fills its controller's menu
+again with `SetControlCmd` before the targets (`:8337-8343`): `AttackHooks::controlMenu`, filled by
+`controlMenu(state, controller, monster)`.
 
 ## A. The dispatch
 
@@ -94,6 +119,31 @@ the effect space ends at `$57`.
 | `$3bf4`, `$3c1c`, `$3c08` HP, maximum HP, MP; `$3b18` level | `Battler::hp`, `maxHp`, `mp`, `level` |
 | `$1860-$1862` the party's gil, `$1866-$1868` its steps (`field-ram:934-936`) | `state.party.gil`, `state.party.steps` |
 | `$021e` the console's frame count, low byte | `state.frameCount` |
+| `$11aa-$11ad` the attack's statuses | `attack.record.statuses` |
+| `$3a48` the effect missed the target; `$3a4e` the command's earlier targets | `targetEffect()`'s result; `scratch.earlierTargets` |
+| `$341a` negative: counterattacks on; `$341d` negative: an attack with no one left is shown | `state.scratch.countersEnabled`; `scratch.hideWithoutTargets` false |
+| `$2f35` the message's item, `$2f38-$2f3a` its amount | `scratch.messageItem`, `scratch.messageAmount` |
+| `$3417` the monster a sketch caught; the sketched attack in `$3400` | `scratch.sketch` |
+| `$3a39-$3a3a` the party members gone from the battle, then the monsters fallen | `state.partyLeft`, `state.monstersFallen` |
+| `$3a88` taken from the party, `$3a8a` engulfed, `$3a8c` holding an item | `state.takenFromTheParty`, `state.engulfed`, `state.holdingItem` |
+| `$2f54` the monsters drawn flipped | `state.flippedByControl` |
+| `$33f8`, `$33f9` Zinger's monster and the party member it swallowed | `state.heldByZinger`, `state.swallowedByZinger` |
+| `$3403` clear: the party member is held in Seize | `Battler::seizedBy` |
+| `$2f49.3` the formation forbids Leap | `getFormationAux(state.formation).leapDisabled()` |
+| `$3184`, `$3420`, `$3520`, `$3620` the battle's list of actions; `$32cc` each battler's first; `$340a` the first interrupting one | `Battler::actions`, `state.immediateActions` |
+| `$32b8`, `$32b9` Control's two links, the top bit set while ending | `Battler::controlling`, `controlledBy`, `controlEnding` |
+| `$3359` held in Seize by; `$3394`, `$3395` Charm's two links; `$336c`, `$336d` Love Token's | `Battler::seizedBy`, `charming`, `charmedBy`, `bodyguard`, `guarding` |
+| `$32f4` the item it holds, `$32f5` Targetting's target, `$3dac` its AI variable | `Battler::itemInHand`, `targetingTarget`, `aiVariable` |
+| `$3308`, `$3309` the rare and common items to steal; `$3c94` the metamorph byte | `Battler::rareSteal`, `commonSteal`, `metamorph` |
+| `$1ff9` the monster, a word | `Battler::monster` |
+| `$3204` what is to be worked out again; `$3205.2` clear: Air Anchor is on it | `Battler::pendingUpdates`, `airAnchored` |
+| `$3aa0.7` its menu may open; `$3aa1.2` instant death cannot reach it, `.5` the back row, `.6` its gauge empties after the action | `Battler::menuMayOpen`, `instantDeathProtected`, `backRow`, `emptyGaugeAfterAction` |
+| `$3e4d.0` the control menu is used, `.1` Overcast, `.6` Phantasm | `Battler::triggers` |
+| `$3b40` stamina; `$3c95.4` human, `.7` undead | `Battler::stamina`, `human`, `undead` |
+| `$3bcc`, `$3bcd`, `$3be0`, `$3be1` absorbed, nullified, weak and halved elements | `Battler::elementsAbsorbed`, `elementsNullified`, `elementsWeak`, `elementsHalved` |
+| `$3dd4`, `$3de8`, `$3dfc`, `$3e10` the statuses waiting to go on and come off | `Battler::statusesToSet`, `statusesToClear` |
+| `$3d48` the command it was last hit with; `$32e0` its last-attacker mark | `Battler::lastHit.command`, `lastAttacker` and `retaliationPending` |
+| `$202e + 12 × position + $30`: a party member's control menu, three bytes a row | `Battler::controlMenu` |
 
 The console's divide (`Div :11818-11839`) gives 65,535 for a divisor of 0; every effect below that
 divides says so where it can happen. Every draw is the battle's random number (`Rand`, `RandA`,
@@ -181,6 +231,121 @@ amount is taken. With one, the party had less than the amount: the old low word 
 `stz $1860; stz $1861`, both two bytes wide, clear all three bytes — the party is left with nothing.
 The amount is at most 65,535.
 
+## D. The effects on each target
+
+Y is the target and X the attacker throughout. Rows of `TargetEffectTbl` the tables below do not name
+are `TargetEffectNone`, a bare `rts`. "Misses" is § D.1; "hides and dies" puts Hide and Dead on to go
+on.
+
+### D.1 The miss
+
+`_c23b1b`: the target into `$3a48` (the effect missed it), into `$3a5a` (shown "Miss") and out of the
+targets hit. In the port the effect returns `true` and the target is added to `scratch.missed`; the
+frame adds it to `scratch.missedByEffect`. Steal never misses: a failed steal shows its message.
+
+### D.2 The weapons
+
+| Index | Effect | Lines | Rule |
+|---|---|---|---|
+| `$03` | Striker, Wing Edge, Trump | `:9903-9906` | The instant kill (§ D.6) with the X animation (`$7e`) and the undead killed without a draw; then Doom's rule (`$35`), whether or not the kill came. |
+| `$04` | Man Eater | `:9160-9166` | A human target (`$3c95.4`): two more steps of the multiplier. |
+| `$08` | Sniper, Hawkeye | `:9174-9191` | On a draw with its low bit set: one more step. Then, at a floating target with an attack shown as Fight: three more steps, shown as Throw with the weapon thrown — the attack is the second value less one (a Fight's second value is the weapon plus one) — and the attack's animation is rewritten with it (`_c235bb`). |
+| `$0d` | Scimitar, Zantetsuken | `:9105-9154` | The instant kill (§ D.6) with the Scimitar animation (`$ee`), always drawn for. |
+
+### D.3 The attacks
+
+| Index | Effect | Lines | Rule |
+|---|---|---|---|
+| `$10` | Scan | `:9712-9721` | A monster that cannot be scanned (`$3c80.4`): message 44, "Can't probe target!". Otherwise an interrupting Scan of the target (command `$27`, the target as its attack). |
+| `$12` | Metamorph | `:9385-9418` | A party member: misses. Otherwise two draws' low bits pick one of four items in the pack the metamorph byte's low five bits name (the first draw the high bit); the item is the message's item, and message 29, "Better off {item}!", is written in place of the attack's animation (`_c235be`), which is then added again (`_c235ad`) — before the odds are drawn. A draw below the threshold the byte's top three bits name (`MetamorphRateTbl :10008-10009`): the attacker holds the item, a party member joins those holding one, and the target dies. Otherwise: misses. |
+| `$13` | Palidor | `:9212-9232` | The target leaves the field once the action is over (`$3204.0`); a Jump with no targets and no MP is put in front of its actions, the first it had after it. |
+| `$17` | Tapir | `:9782-9791` | A target that is not asleep: misses. Otherwise its HP and MP are its maximum. |
+| `$19` | Exploder | `:9697-9706` | The attacker as its own target is taken out of the targets hit — by a byte-wide read, so a monster's own bit is not there. The frame puts back every target the effect did not miss (§ Where the battle calls it), so the user takes its own damage. |
+| `$1c` | Reflect??? | `:9760-9761` | A row of its own that does nothing; the Lore acts on its attacker. |
+| `$1f` | Dischord | `:9270-9274` | The level is one more, halved: (level + 1) / 2 in a byte, so 255 gives 0. |
+| `$20` | Pep Up | `:9797-9806` | The caster hides and dies, is gone once the action is over (`$2f4c`, a party member or a monster), and its HP and MP are 0; the target's MP is its maximum. |
+| `$21` | Rippler | `:9663-9691` | For the statuses only one of the two has: the caster's go onto the target's to-set and the caster's to-clear, the target's onto the caster's to-set and the target's to-clear. The four waiting words are written over, not added to. |
+| `$22` | Stone | `:9197-9206` | The attacker's level equal to the target's: 13 plus the compare's carry, fourteen more steps. |
+| `$23` | turns counterattacks off | `:9752-9754` | Counterattacks are off for this action (`$341a`). |
+| `$25` | misses floating targets | `:9561-9564` | A floating target: misses. |
+| `$26` | Wallchange | `:9291-9301` | One element drawn from all eight is the only one the target is weak to; every other is nullified; one of those others, drawn, is absorbed too. Halved elements are left. |
+| `$27`, `$38` | Escape, Sneeze | `:9257-9264` | The target is gone once the action is over, and has left the battle: a word-wide write, so a party member joins those gone from the battle (`$3a39`) and a monster those fallen (`$3a3a`). |
+| `$28` | Mind Blast | `:9610-9624` | The target's four waiting status words are emptied; then, for each party position 3 to 0 whose pick (§ C `$28`) is the target, one of the attack's statuses (§ D.5). |
+| `$2b` | R. Polarity | `:9280-9285` | The target's row turns over. |
+| `$2d` | Love Token | `:9888-9895` | `$336c[attacker]` = the target, `$336d[target]` = the attacker. The cover reads `$336c` by the battler being covered (`CoverEffect :2853`), so the target takes the hits aimed at the caster. |
+| `$2e` | Seize | `:9812-9833` | The attacker already holds someone, or the target is a monster: misses. Otherwise the two links; the attacker's AI variable gains its top bit; the target is held (`$3403`), its menu may not open, and its actions are dropped (`$3204.6`). |
+| `$2f` | Targetting | `:9973-9979` | `$32f5[attacker]` = the target: the monster's script aims its next attack there. |
+| `$30` | Suplex | `:9727-9731` | A monster that cannot be suplexed (`$3c80.2`): misses. |
+| `$33` | Bababreath | `:9248-9250` | A party member is taken from the party (a byte-wide write); then Escape's rule. |
+| `$34` | Charm | `:9767-9776` | The attacker already charms someone: misses. Otherwise `$3394[attacker]` = the target, `$3395[target]` = the attacker. |
+| `$35` | Doom | `:9913-9937` | A target that is not undead: nothing. An undead party member: Dead no longer goes on, and its HP is its maximum. An undead monster: Hide goes on, the attack's targets are the monster (`$b8`), and an interrupting exit and entrance (command `$24`) brings it back at full HP (mode 0, from the targets' low byte) faded in checkered (`$0a`). |
+| `$37` | Overcast | `:9865-9869` | `$3e4d.1`. |
+| `$39` | Engulf | `:9238-9242` | A party member is engulfed (a byte-wide write); then Escape's rule. |
+| `$3a` | Zinger | `:9875-9882` | `$33f8` = the attacker, `$33f9` = the target; a monster attacker is gone once the action is over (a byte-wide read of its bit in the monsters' half). |
+| `$3b` | Evil Toot | `:9630-9657` | The target's four waiting status words are emptied; one of the attack's statuses (§ D.5). |
+| `$3e` | Phantasm | `:9943-9948` | `$3e4d.6`. |
+| `$3f` | Stunner | `:9954-9967` | A draw below the hit rate: nothing. Otherwise the attack's statuses are taken out of the target's to-set words. |
+| `$40` | Fallen One | `:9985-9990` | HP 1. |
+| `$44` | Discard | `:9839-9850` | The attacker's AI variable loses its top bit; both Seize links are cleared, and the target is no longer held. |
+
+### D.4 The items and the commands
+
+| Index | Effect | Lines | Rule |
+|---|---|---|---|
+| `$4a` | Super Ball | `:9996-10003` | The damage is a draw's low three bits plus one, times 256 — drawn for each target. |
+| `$4b` | Smoke Bomb | `:9257-9264` | Escape's rule. |
+| `$4c` | Elixir, Megalixir | `:9856-9859` | The target's castable spells are worked out again (`$3204.7`); its MP is its maximum. |
+| `$50` | Possess | `:9593-9604` | A party member attacker is gone once the action is over and taken from the party (byte-wide writes). The attacker hides and dies, then the target does. Then `_c2361b` marks the attacker to answer the target — always if it is not waiting to answer someone, on a draw's low bit if it is. |
+| `$52` | Steal | `:9307-9379` | Message 1, "Doesn't have anything!", to start. **A party member:** nothing in either slot fails; otherwise message 2, "Couldn't steal!!". The chance is 50 plus the attacker's level less the target's: a thief whose level and the 50 pass a byte, or a chance of 128 or more, steals for certain; below 0 fails without a draw; a Sneak Ring (`$3c45.0`) doubles it, and `RandA(100)` at or above it fails. A draw below 32 takes the rare slot, any other the common one; an empty slot fails. Success: the item is the message's item, the attacker holds it and joins those holding one, both slots are emptied, message 3, "Stole {item}". **A monster:** message 2; a draw of 192 or more fails; message 1; the amount is the monster's level times 256 plus 20 (`lda $3b18,x; xba; lda #$14`), taken from the party's gil (§ C.2); nothing taken fails; otherwise it is the message's amount, the monster's gold gains it (stopping at 65,535), message 63, "{amount} GP was stolen!!". **Every failure** writes Fight over the command the target was last hit with (`$3d48`, `:9353-9356`). |
+| `$53` | Control | `:9470-9506` | A party member, a monster that cannot be controlled (`$3c80.7`), one that is Dead, Petrified, Invisible, a Zombie, asleep, confused, berserk, raging, hidden or morphed, or one held by a live link (`$32b9` with its top bit clear): message 4, "Can't control!!", and misses. A link that is ending does not refuse it. Then the level check (§ E.1) with the Coronet (`$3c45.3`); failing it misses with no message. Success: the two links (both live); the target is drawn flipped (`$2f54`); a US cartridge marks the attacker as using the control menu (`$3e4d.0`); the attacker is put in Chant **on its status word itself** (`$3ef9,x`), not through the statuses waiting to go on; the target's gauge empties after the action; the control menu is filled (§ E.2). |
+| `$54` | Leap | `:9570-9587` | The formation forbids Leap (`$2f49.3`), or fewer than two party members fight: message 5, "Can't dive!!", and misses. Otherwise the attacker hides, and the battle ends with Gau leaping (`$3a6e` = 4). No formation in the game forbids it (§ K). |
+| `$55` | Sketch | `:9524-9555` | A party member: misses, no message. A monster that cannot be sketched (`$3c80.5`): message 31, "Can't sketch!!", and misses. The level check (§ E.1) with the Beret (`$3c45.2`); failing it misses. Success: the monster is the one sketched (`$3417`); the animation's second value is its position, and the attack's animation is rewritten (`_c235bb`); a draw of 64 or more picks its second sketch attack, any other its first, into `$3400`. |
+| `$56` | Debilitator | `:9433-9464` | The elements the target is not weak to and Forcefield has not nullified; none: misses. One drawn: message 11 plus its bit, "Now weak against fire!" first; the target is weak to it and no longer halves, absorbs or nullifies it. |
+| `$57` | Air Anchor | `:9737-9746` | A target instant death cannot reach: misses, no message. Otherwise message 19, "Move, and you're dust!", Air Anchor is on it, and counterattacks are off for this action. |
+
+### D.5 One of the attack's statuses
+
+`_c23bd0`: the attack's statuses 1-2 and 3-4 are counted; `RandA` of the total at or above the count
+of 1-2 picks the 3-4 word, otherwise the 1-2 word; `RandBit` picks one status of that word, which goes
+on the target's to-set word. An attack with no statuses draws once and gives none.
+
+### D.6 The instant kill
+
+`ScimitarEffect`, with a carry and an animation: a target instant death cannot reach (`$3aa1.2`) —
+nothing, and nothing is drawn. The X weapons (carry clear) kill the undead without a draw. Otherwise a
+draw below 64 is needed, and the stamina save (`_c223b2`: a draw's low seven bits at or below the
+target's stamina) saves it. A US cartridge then refuses during a Dragon Horn's later landings (attacks
+still to make while shown as Jump, `:9123-9129`); a Japanese cartridge has no such check. The kill:
+the target back among the targets hit and out of the command's earlier targets; the swirl before a
+spell turned **on** (`$a0.4` set); Dead goes on; the attack is hidden when it has no one left
+(`stz $341d`, read by the frame for the attacks after this one, `:8297-8303`); power 0; shown as Magic
+casting the animation's attack; a monster struck by the Scimitar animation hides as well; the
+animation is added to the script and the params copied after it.
+
+### D.7 The deaths the effects set
+
+Pep Up's and Possess's dying battlers are set to hide and die with `_c2384a`, which also marks Y — the
+target — to answer the dying one unless it already waits to answer someone. Every target hit was
+marked by the frame before its effect (`_c235e3`), so it always waits, and that mark is left as it is.
+
+## E. The helpers
+
+### E.1 The level check
+
+`CheckSketchHit`: the target's level, times 170 / 256 with the relic; the attacker's level times 256
+divided by that (the console's divide: 65,535 for 0). A quotient of 256 or more succeeds without a
+draw; below, a draw under the quotient succeeds.
+
+### E.2 The control menu
+
+`SetControlCmd`, into the controller's menu (`CmdPropPtrs :13873-13874` + `$30`: four rows of three
+bytes), from the monster's four control attacks (`MonsterControl`): an empty slot (`$ff`) is a row
+that cannot be chosen, with no targeting. Otherwise the attack, a byte whose top bit is set when it
+cannot be cast, and the attack's targeting byte (`MagicProp + 0`). The comparison adds one to the
+monster's MP first: an attack is castable when its MP cost (`MagicProp + 5`) is at most the MP, except
+that a monster with 65,535 MP wraps to 0 and can cast nothing. No monster starts with 65,535 MP
+(§ K). The byte's low bits are not read by the menu.
+
 ## K. Who carries each effect
 
 Every attack's own effect, every weapon's, every consumable's use effect and every command's, read
@@ -192,3 +357,11 @@ all the same.
 
 A weapon's effect comes from a party member's hand, so a weapon row's attacker is always a party
 member.
+
+Every row of the table on each target has a carrier: `$03`, `$04`, `$08`, `$0d`, `$10`, `$12`, `$13`,
+`$17`, `$19`, `$1c`, `$1f`, `$20`, `$21`, `$22`, `$23`, `$25`, `$26`, `$27`, `$28`, `$2b`, `$2d`, `$2e`,
+`$2f`, `$30`, `$33`, `$34`, `$35`, `$37`, `$38`, `$39`, `$3a`, `$3b`, `$3e`, `$3f`, `$40`, `$44`, `$4a`,
+`$4b`, `$4c`, `$50`, `$52`, `$53`, `$54`, `$55`, `$56`, `$57`. Two branches are never reached with the
+game's own data: no formation of the 576 forbids Leap, and none of the 384 monsters starts with
+65,535 MP. Control is a party member's command, so its attacker is always a party member — the menu
+it fills is a party member's.

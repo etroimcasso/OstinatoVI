@@ -39,8 +39,8 @@ battle::CommandExecutor executor(hooks, text, sprites);
 call into `damage.h`. The statuses the damage sets and clears — a battler brought to 0 HP is set to
 die — wait in `Battler::statusesToSet` and `statusesToClear` until the end of the attack, when
 `BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its `attackerEffect` hook
-works out each attack's special effect on its attacker ([effects.md](effects.md)); its `targetEffect`
-hook is `AttackHooks`' own, which does nothing.
+works out each attack's special effect on its attacker, and its `targetEffect` hook the effect on
+each target ([effects.md](effects.md)).
 
 ## The formulas
 
@@ -275,10 +275,10 @@ and writes every scenario to `check.log`; `--only` and `--seed` narrow it
   Glove apply to party slots only; a monster with those bits set in its battler is unaffected.
 - **The oracle needs a started machine.** Calling a routine before `start()` throws; `start()` runs
   from a loop's tick.
-- **The oracle's bounce leaves out what the hooks leave out.** The cartridge's bounce runs its own
-  status and special-effect passes, and `BattleHooks` the status pass only; `reflectedAttack()` is
-  only comparable for a spell those passes change nothing for, which is what `drawReflectScenario()`
-  draws.
+- **The oracle's bounce is compared for spells the passes leave alone.** The cartridge's bounce runs
+  its own status and special-effect passes for each bounce that hits, as `BattleHooks` does;
+  `reflectedAttack()` is written for a spell those passes change nothing for, which is what
+  `drawReflectScenario()` draws.
 
 ## Where to change
 
