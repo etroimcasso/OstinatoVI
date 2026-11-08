@@ -25,6 +25,7 @@ inline constexpr std::size_t kBattleVariables = 20;
 // The switches the battle reads or writes.
 inline constexpr int kConditionalBattleSwitches = 48;  // 48-55: one per conditional battle, in order
 inline constexpr int kMagicOnlySwitch = 56;            // only magic works here
+inline constexpr int kMorphLastsTwiceAsLongSwitch = 57; // Morph lasts twice as long
 inline constexpr int kPermanentMorphSwitch = 58;       // Terra stays morphed for the whole battle
 inline constexpr int kClearedAtBattleStartSwitch = 63; // every battle clears it as it starts
 inline constexpr int kPartyDefeatedSwitch = 64;        // the battle just fought was lost

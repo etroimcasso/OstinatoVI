@@ -2,6 +2,9 @@
 // where it is not, the attack frame calls it where the oracle's call returns, a scenario's cells read
 // back as they were written, a machine without a cartridge fails naming what it lacks, and over 500
 // drawn scenarios the port's attacker effects leave every cell as the cartridge's own routine does.
+// The trace's replay of both effect routines: the cartridge's own calls, traced, rebuilt from the cells
+// each read and worked out by the port with no difference; a target-effect call without its target
+// is refused.
 
 #include <gtest/gtest.h>
 
@@ -11,6 +14,7 @@
 #include <optional>
 #include <random>
 #include <span>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -125,6 +129,95 @@ TEST_F(EffectsOracleTest, EveryDrawnScenarioLeavesTheCellsAsTheCartridgeDoes) {
             const std::string differ = trace::differences(port, guest);
             EXPECT_EQ(differ, "") << "draw " << draw << ", effect " << int{scenario.attack.effect.index()}
                                   << ", attacker " << scenario.attacker.index();
+        }
+    });
+}
+
+// --- the trace's replay --------------------------------------------------------------------------
+
+constexpr int kReplayDraws = 200;
+
+// The cartridge's own calls of both effect routines, traced as the oracle makes them, replay against
+// the port with no difference: the battle rebuilt from the cells each call read.
+TEST_F(EffectsOracleTest, TheAttackerEffectsTracedCallsReplayAsTheCartridgeWorkedThemOut) {
+    std::mt19937 rng{trace::kSweepSeed};
+    int calls = 0;
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        for (int draw = 0; draw < kReplayDraws; ++draw) {
+            const DamageScenario scenario = trace::drawAttackerEffectScenario(rng);
+            oracle.trace(true);
+            (void)oracle.attackerEffect(scenario);
+            oracle.trace(false);
+            std::string text;
+            for (const std::string& line : oracle.takeTrace()) {
+                text += line + "\n";
+            }
+            std::istringstream in{text};
+            for (const trace::TracedCall& call : trace::parseTrace(in)) {
+                EXPECT_EQ(call.routine, "DoAttackerEffect");
+                EXPECT_EQ(oracle.replay(call), "") << "draw " << draw << ", effect " << int{scenario.attack.effect.index()};
+                ++calls;
+            }
+        }
+    });
+    EXPECT_EQ(calls, kReplayDraws);
+}
+
+// The oracle calls the target effect with no statuses worked out before it, so its trace does not show
+// the target: each call is given the one it was made for.
+TEST_F(EffectsOracleTest, TheTargetEffectsTracedCallsReplayAsTheCartridgeWorkedThemOut) {
+    std::mt19937 rng{trace::kSweepSeed};
+    int calls = 0;
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        for (int draw = 0; draw < kReplayDraws; ++draw) {
+            const trace::TargetScenario drawn = trace::drawTargetEffectScenario(rng);
+            oracle.trace(true);
+            (void)oracle.targetEffect(drawn.scenario, drawn.target);
+            oracle.trace(false);
+            std::string text;
+            for (const std::string& line : oracle.takeTrace()) {
+                text += line + "\n";
+            }
+            std::istringstream in{text};
+            for (trace::TracedCall call : trace::parseTrace(in)) {
+                EXPECT_EQ(call.routine, "DoTargetEffect");
+                EXPECT_FALSE(call.target.has_value());
+                call.target = drawn.target;
+                EXPECT_EQ(oracle.replay(call), "")
+                    << "draw " << draw << ", effect " << int{drawn.scenario.attack.effect.index()};
+                ++calls;
+            }
+        }
+    });
+    EXPECT_EQ(calls, kReplayDraws);
+}
+
+// A target-effect call with no target in the trace cannot be rebuilt, and says why.
+TEST_F(EffectsOracleTest, ATargetEffectCallWithNoTargetIsNotRebuilt) {
+    std::mt19937 rng{trace::kSweepSeed};
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        const trace::TargetScenario drawn = trace::drawTargetEffectScenario(rng);
+        oracle.trace(true);
+        (void)oracle.targetEffect(drawn.scenario, drawn.target);
+        oracle.trace(false);
+        std::string text;
+        for (const std::string& line : oracle.takeTrace()) {
+            text += line + "\n";
+        }
+        std::istringstream in{text};
+        const std::vector<trace::TracedCall> calls = trace::parseTrace(in);
+        ASSERT_EQ(calls.size(), 1u);
+        try {
+            (void)oracle.replay(calls.front());
+            ADD_FAILURE() << "a call with no target was rebuilt";
+        } catch (const std::runtime_error& error) {
+            EXPECT_NE(std::string{error.what()}.find("target"), std::string::npos) << error.what();
         }
     });
 }

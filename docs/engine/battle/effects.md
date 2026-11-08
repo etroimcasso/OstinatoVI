@@ -8,6 +8,12 @@ them from the attack frame's `attackerEffect` and `targetEffect` hooks
 ([commands.md](commands.md#hooks)). A party member that takes control of a monster is given the
 monster's attacks as its menu, filled by a third function the same hooks call.
 
+Some effects link two battlers — Control, Zinger, Love Token, Charm — and after every action the battle
+lets go of the links that should end: a controller or monster that can no longer take part, a battler
+that fell or left. Morph runs a meter down from the party's Morph supply until the morphed party member
+reverts. `CommandExecutor` calls both from the battle core's seams
+([core.md](core.md#the-executor)).
+
 Every effect is checked against the cartridge's own routine, run on the engine's SNES machine over the
 same inputs.
 
@@ -22,13 +28,16 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/attacker_effects.cpp` | one function per effect on the attacker, and the table that picks one by the effect's index |
 | `src/battle/target_effects.h` | `targetEffect()` |
 | `src/battle/target_effects.cpp` | one function per effect on a target, the table that picks one, the instant kill, the level check of Sketch and Control |
-| `src/battle/links.h` | `controlMenu()` |
+| `src/battle/links.h` | `controlMenu()`; `endControlIfUnable()`, `releaseEndedControl()`, `releaseControl()` and `kStatusesThatEndControl`; `releaseLinks()` |
+| `src/battle/morph.h` | `morphMenuChanged()`, `runDownMorph()`, `saveMorphSupply()` |
 | `src/battle/battle_hooks.h` | `BattleHooks`: `attackerEffect`, `targetEffect` and `controlMenu`, one call each |
+| `src/battle/command_executor.h` | `CommandExecutor::checkControl`, `releaseLinks`, `clearControl`, `refreshMorph` and `tickMorph`, one call each |
 | `src/battle/attack.h` | `AttackInFlight`, `AttackScratch` (`mindBlastPicks`, `messageItem`, `messageAmount`, `sketch`), `initParams()`, `markToRetaliate()` |
 | `src/battle/battle_script.h` | the battle messages the effects show, `kMessageDoesntHaveAnything` to `kMessageOgreNixBroken`; `BattleScriptBuilder::params()` |
-| `src/battle/battle_state.h` | the links (`Battler::controlling`, `controlEnding`, `charming`, `guarding`, `targetingTarget`), `Battler::aiVariable` and `controlMenu`, `ControlMenuEntry`, `BattleState::swallowedByZinger`, `flippedByControl`, `frameCount`, `takenFromTheParty`, and the cells the effects write |
-| `src/game/character_record.h` | `Party::gil`, `Party::steps` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attackerEffect()` and `targetEffect()`, the cartridge's routines over a `DamageScenario`; `runAttackerEffect()`, `runTargetEffect()`, the two result readers and `differences()`; `drawAttackerEffectScenario()`, `drawTargetEffectScenario()` |
+| `src/battle/battle_state.h` | the links (`Battler::controlling`, `controlEnding`, `charming`, `guarding`, `targetingTarget`), `Battler::aiVariable` and `controlMenu`, `ControlMenuEntry`, `BattleState::swallowedByZinger`, `flippedByControl`, `frameCount`, `takenFromTheParty`, Morph's `morphCounter`, `morphCounterSpeed`, `morphLastsTwiceAsLong`, and the cells the effects write |
+| `src/game/character_record.h` | `Party::gil`, `Party::steps`, `Party::morphSupply` |
+| `src/game/battle_switches.h` | `kMorphLastsTwiceAsLongSwitch`, `kPermanentMorphSwitch` |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attackerEffect()` and `targetEffect()`, the cartridge's routines over a `DamageScenario`; `runAttackerEffect()`, `runTargetEffect()`, the two result readers and `differences()`; `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`; `DamageOracle::replay()` for a traced call of either routine |
 
 ## Using the effects
 
@@ -167,6 +176,60 @@ for (const battle::ControlMenuEntry& row : state.at(controller).controlMenu) {
 }
 ```
 
+## Letting go of the links
+
+After every action the battle runs three passes over the battlers, through `CommandExecutor`:
+
+```cpp
+#include "battle/links.h"
+
+battle::endControlIfUnable(state, slot);   // each battler on the field
+battle::releaseLinks(state, slot);         // a battler that died, was petrified or became a zombie, left or ran
+battle::releaseEndedControl(state, slot);  // every battler, slot 9 first
+```
+
+A controller or a controlled monster with any of `kStatusesThatEndControl` — Dead, Petrify, Zombie,
+Berserk, Confuse, Sleep, Dance, Stop, Rage, Frozen — has its link marked as ending
+(`Battler::controlEnding`), and the last pass lets every marked link go with `releaseControl()`. Letting
+go puts the controller's menu back to its own commands, takes Chant off it, stops drawing the monster
+flipped, and stops both: each one's gauge empties once the action is over, it drops every action it had
+waiting, and its menu does not open.
+
+```cpp
+state.at(controller).status.set(StatusId::SLEEP);
+battle::endControlIfUnable(state, controller);
+battle::releaseEndedControl(state, controller);
+// state.at(controller).controlling and state.at(monster).controlledBy are empty
+```
+
+`releaseLinks()` lets go of the rest. The party member a Zinger swallowed brings the monster back: two
+actions jump the line (`BattleState::immediateActions`), one keeping the monster off the field without
+letting the battle end, one bringing it back with the HP it had. A Love Token or a Charm is let go at
+both ends, whichever end the battler held.
+
+## Morph's meter
+
+Morph or Revert leaves the battler's menu after Morph to be worked out again
+(`PendingUpdates::morph`); `morphMenuChanged()` does it once the action is over. Morph and Revert trade
+places in the menu, and a battler now morphed starts the meter full at 65,535. Its speed comes from the
+party's supply: 65,535 over the supply, over 8 — over 16 when Morph lasts twice as long — plus 1.
+`runDownMorph()` takes the speed off on every time update and shows the high byte as the meter
+(`Battler::morphGauge`):
+
+```cpp
+#include "battle/morph.h"
+
+state.party.morphSupply = 16;
+state.at(terra).status.set(StatusId::MORPH);
+battle::morphMenuChanged(state, terra);   // morphCounter 65,535, morphCounterSpeed 512
+battle::runDownMorph(state, terra);       // morphCounter 65,023, morphGauge 253
+```
+
+When the meter runs out the supply is used up, no one is morphed and a Revert is added as the battler's
+counterattack. A Revert before then keeps the part of the supply the meter had left:
+`saveMorphSupply()` multiplies the supply by the meter's high byte, over 256. The battle's end calls it
+too.
+
 ## Checking an effect against the cartridge
 
 `DamageOracle::attackerEffect()` and `DamageOracle::targetEffect()` run the cartridge's own effect
@@ -208,6 +271,22 @@ interrupting actions the effect added; and the random-number position.
 `drawAttackerEffectScenario()` and `drawTargetEffectScenario()` draw scenarios from a seeded
 generator, so a sweep's draw can be run again alone by its index.
 
+A battle played on the cartridge can be checked the same way, call by call. The damage trace
+(`tools/damage-trace`) records every call of both effect routines with the cells each one read and
+wrote, and `DamageOracle::replay()` rebuilds the battle from what a call read, works the effect out with
+the port and names each cell where the port's answer parts from the cartridge's:
+
+```cpp
+std::ifstream log{"tests/fixtures/damage-trace/failed-metamorph.log"};
+for (const trace::TracedCall& call : trace::parseTrace(log)) {
+    const std::string apart = oracle.replay(call);   // "" when the port agrees
+}
+```
+
+The effect on a target takes its target from the call just before it in the trace — the attack's
+statuses on that target, worked out first. The oracle's own calls of the target effect have no such
+call before them; a caller replaying them sets `TracedCall::target` itself.
+
 ## Gotchas
 
 - **The Fixed Dice read a clock.** The third die is `BattleState::frameCount`, which counts every
@@ -247,6 +326,16 @@ generator, so a sweep's draw can be run again alone by its index.
 - **Doom on an undead monster changes the attack's targets** to that monster.
 - **A monster with 65,535 MP could cast none of its control attacks**, though none starts with that
   much; no formation forbids Leap either, so it is refused only when Gau fights alone.
+- **Letting go of Love Token clears the far end whoever it names now.** A bodyguard that has since taken
+  another Love Token stops guarding that one too.
+- **A Control link ends after the action, not when the status goes on.** The mark is set and acted on in
+  the passes after each action; a monster put to sleep stays controlled until then.
+- **Morph lasting twice as long halves the speed.** Battle switch 57 does it; the speed is read when
+  Morph goes on.
+- **The meter starts only from a supply of 16 or more.** The Morph command is offered only then, and no
+  attack puts Morph on; a battle that keeps Terra morphed fills the supply and runs no meter.
+- **The Revert at the meter's end is a counterattack.** It goes on the battler's counterattack list
+  (`Battler::counterActions`), behind a counterattack it already has.
 
 ## Where to change
 
@@ -258,6 +347,10 @@ generator, so a sweep's draw can be run again alone by its index.
 | The instant kill's odds, Steal's chance, a monster's steal, the level check | the named constants beside each function in `src/battle/target_effects.cpp` |
 | How gil is taken from the party | `takeGil()` in `src/battle/attacker_effects.cpp` |
 | The control menu's rows | `controlMenu()` in `src/battle/links.cpp` |
+| Which statuses end a Control link, and what letting go does | `kStatusesThatEndControl` and `releaseControl()` in `src/battle/links.cpp` |
+| What a battler that falls or leaves lets go of | `releaseLinks()` in `src/battle/links.cpp` |
+| The meter's speed, what a revert keeps | `morphMenuChanged()`, `runDownMorph()` and `saveMorphSupply()` in `src/battle/morph.cpp` |
 | The messages the effects show | the `kMessage…` constants in `src/battle/battle_script.h` |
 | How the frame counts frames | `tickBattleTime()` in `src/battle/battle_clock.cpp` |
 | The cells the oracle writes and reads for the effects | `writeEffectCells()`, `writeTargetEffectCells()`, `readAttackerEffectResult()` and `readTargetEffectResult()` in `tools/damage-trace/damage_oracle.cpp` |
+| How a traced effect call is rebuilt | `readEffectScenario()` and `replayEffectCall()` in `tools/damage-trace/damage_oracle.cpp` |

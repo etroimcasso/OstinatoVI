@@ -304,8 +304,9 @@ struct Swing : ActionExecutor {
 `NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
 ([commands.md](commands.md)) is the battle's own: it carries out every action, aims commands,
 chooses for the battlers no one chooses for, settles the menu choices left to chance, puts on the
-statuses waiting at the start and at a formation change, and casts the near-fatal relics' spells
-([status.md](status.md)).
+statuses waiting at the start and at a formation change, casts the near-fatal relics' spells
+([status.md](status.md)), lets go of the links between battlers after each action and runs Morph's
+meter ([effects.md](effects.md)).
 
 ## Requests
 

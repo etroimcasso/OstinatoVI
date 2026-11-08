@@ -108,6 +108,25 @@ TEST(TraceParse, ACallThatNeverReturnsIsLeftOutAndAStrayReturnIsSkipped) {
     EXPECT_EQ(calls[0].previousAttacker, std::optional<std::uint8_t>{0x04});
 }
 
+// The frame works out an attack's statuses on a target and then its special effect on the same one:
+// the effect's call takes the target whose cells the status call touched, and only straight after one.
+TEST(TraceParse, ATargetEffectAfterTheStatusesTakesTheirTarget) {
+    const std::vector<TracedCall> calls = parse(
+        "f5 enter MagicStatusEffect $C2:4406\n"
+        "f5 r $7E:3EEE 00\n"
+        "f5 w $7E:3DDE 04\n"
+        "f5 return MagicStatusEffect $C2:345C\n"
+        "f5 enter DoTargetEffect $C2:387E\n"
+        "f5 return DoTargetEffect $C2:345F\n"
+        "f6 enter DoTargetEffect $C2:387E\n"
+        "f6 return DoTargetEffect $C2:345F\n");
+    ASSERT_EQ(calls.size(), 3u);
+    EXPECT_FALSE(calls[0].target.has_value());
+    // $3EEE and $3DDE are battler 5's statuses and statuses to set.
+    EXPECT_EQ(calls[1].target, battle::BattlerSlot::fromIndex(5));
+    EXPECT_FALSE(calls[2].target.has_value());
+}
+
 TEST(TraceParse, ALineThatIsNotAnEventFailsNamingIt) {
     EXPECT_THROW(parse("f1 enter CalcDmg C22B9D\n"), std::runtime_error);
     EXPECT_THROW(parse("f1 r $7E:11A2 1G\n"), std::runtime_error);

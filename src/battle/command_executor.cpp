@@ -6,6 +6,8 @@
 #include "battle/automatic_actions.h"
 #include "battle/command_menu.h"
 #include "battle/commands.h"
+#include "battle/links.h"
+#include "battle/morph.h"
 #include "battle/status.h"
 #include "battle/system_commands.h"
 #include "battle/targeting.h"
@@ -111,6 +113,26 @@ void CommandExecutor::applyStatusChanges(BattleState& state) {
 
 void CommandExecutor::checkNearFatal(BattleState& state, BattlerSlot slot) {
     nearFatalRelicSpells(state, slot);
+}
+
+void CommandExecutor::checkControl(BattleState& state, BattlerSlot slot) {
+    endControlIfUnable(state, slot);
+}
+
+void CommandExecutor::releaseLinks(BattleState& state, BattlerSlot slot) {
+    battle::releaseLinks(state, slot);
+}
+
+void CommandExecutor::clearControl(BattleState& state, BattlerSlot slot) {
+    releaseEndedControl(state, slot);
+}
+
+void CommandExecutor::refreshMorph(BattleState& state, BattlerSlot slot) {
+    morphMenuChanged(state, slot);
+}
+
+void CommandExecutor::tickMorph(BattleState& state, BattlerSlot slot) {
+    runDownMorph(state, slot);
 }
 
 AttackId CommandExecutor::chooseDanceStep(BattleState& state, BattlerSlot dancer, AttackId) {

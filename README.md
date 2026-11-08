@@ -31,7 +31,7 @@ What the checks cover so far, as each part of the game is built:
   - [x] **Every command** — Fight and the desperation attacks, Item, Throw and Tools, Magic, Steal, Leap, Control, Sketch, Rage, Dance, Blitz, Bushido, Jump, Slot, GP Rain, Morph, Runic and the rest, with who each one can reach and whether it hits
   - [x] **Damage** — every damage and healing formula, each target's elements, row, defense and multipliers, the damage taken and shown, and spells bounced off Reflect, each checked against the cartridge
   - [x] **Statuses** — every status put on and taken off, the statuses a battle starts with, and the relics that act near death, each checked against the cartridge
-  - [ ] **Special effects** *(in progress)* — what each attack does beyond its damage: Steal, Metamorph, Control, Sketch, instant kills and the rest, each checked against the cartridge; the links between battlers and Morph's timer are still to come
+  - [x] **Special effects** — what each attack does beyond its damage: Steal, Metamorph, Control, Sketch, instant kills and the rest, each checked against the cartridge; the links between battlers let go when they should end, and Morph's timer
   - [ ] **Espers**
   - [ ] **Monster AI**
   - [ ] **Rewards and experience**

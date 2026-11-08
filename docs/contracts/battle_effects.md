@@ -2,12 +2,14 @@
 
 Behavioral specification for what an attack's special effect does. An attack carries at most one
 special effect; the battle works it out twice — once on the attack and its attacker before any target
-is checked, and once on each target the attack hits. This contract specifies both, and the control
-menu a party member is given when Control takes hold. All citations point into the pinned reference
+is checked, and once on each target the attack hits. This contract specifies both; the control menu a
+party member is given when Control takes hold; how the battle lets go of the links the effects make —
+Control, Zinger, Love Token and Charm; and Morph's meter. All citations point into the pinned reference
 tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
 `src/battle/battle_main.asm` unless another file is named, and `ram:` names a line of
 `notes/battle-ram.txt`. This document is the test authority for `tests/test_attacker_effects.cpp`,
-`tests/test_effects_oracle.cpp`, `tests/test_target_effects.cpp` and `tests/test_control_menu.cpp`.
+`tests/test_effects_oracle.cpp`, `tests/test_target_effects.cpp`, `tests/test_control_menu.cpp`,
+`tests/test_links.cpp` and `tests/test_morph.cpp`.
 
 The attack frame (`docs/contracts/battle_commands.md`) calls the effects at its `AttackHooks`
 points; this contract starts at those calls. The battle's own hooks are `BattleHooks`
@@ -39,6 +41,13 @@ the port is given (`tools/damage-trace/damage_oracle.h`). `CheckSketchHit`, `Tak
 | The level check of Sketch and Control | `CheckSketchHit` `:8914-8936` | `levelCheck()` |
 | The control menu | `SetControlCmd` `:8855-8905` | `controlMenu()` (`src/battle/links.h`) |
 | The possessor's mark | `_c2361b` `:8619-8631` | `markToRetaliate()` (`src/battle/attack.h`) |
+| A Control link marked as ending | `ValidateControl` `:1231-1243` | `endControlIfUnable()` (`src/battle/links.h`) |
+| The ending links let go | `RemoveControlTarget` `:1151-1169` | `releaseEndedControl()` |
+| One Control link let go | `RemoveControlAttacker` `:1175-1194`, `UpdateSeize` `:1200-1211` | `releaseControl()` |
+| Zinger, Love Token and Charm let go | `_c207c8` `:1249-1298`, `RemoveLoveToken` `:1304-1308`, `RemoveCharm` `:1314-1318` | `releaseLinks()` |
+| The menu after Morph or Revert | `UpdateMorph` `:1679-1756` | `morphMenuChanged()` (`src/battle/morph.h`) |
+| The meter running down | `DecMorphCounter` `:2815-2832` | `runDownMorph()` |
+| The supply kept | `SaveMorphCounter` `:1762-1771` | `saveMorphSupply()` |
 
 ## Where the battle calls it
 
@@ -65,6 +74,17 @@ fills with `targetEffect(state, attack, attacker, target, script)`; its `true` i
 When the attacker is controlled (`$32b9,x` holds a live link), the frame fills its controller's menu
 again with `SetControlCmd` before the targets (`:8337-8343`): `AttackHooks::controlMenu`, filled by
 `controlMenu(state, controller, monster)`.
+
+After every action the battle checks the links and the meter (`docs/contracts/battle_core.md`), through
+the `ActionExecutor` members `CommandExecutor` fills:
+
+| Original | Where it runs | Seam | Filled with |
+|---|---|---|---|
+| `ValidateControl` | `AfterAction1 :1078`, for each battler on the field that can be targeted | `checkControl` | `endControlIfUnable()` |
+| `_c207c8` | `AfterAction1 :1089` for a battler Dead, Petrified or a Zombie; `_c2144f :3175` for one leaving the field; `Cmd_2a :5681` for one who ran | `releaseLinks` | `releaseLinks()` |
+| `RemoveControlTarget` | `AfterAction1 :1113`, for every battler, the last first | `clearControl` | `releaseEndedControl()` |
+| `UpdateMorph` | `AfterAction2 :1366`, for a battler whose menu after Morph or Revert is to be worked out again (`$3204` bit 1) | `refreshMorph` | `morphMenuChanged()` |
+| `DecMorphCounter` | every time update, for the morphed battler (`:2687-2689`) | `tickMorph` | `runDownMorph()` |
 
 ## A. The dispatch
 
@@ -345,6 +365,148 @@ cannot be cast, and the attack's targeting byte (`MagicProp + 0`). The compariso
 monster's MP first: an attack is castable when its MP cost (`MagicProp + 5`) is at most the MP, except
 that a monster with 65,535 MP wraps to 0 and can cast nothing. No monster starts with 65,535 MP
 (§ K). The byte's low bits are not read by the menu.
+
+## F. Control's release
+
+A Control link is held in two cells per battler: `$32b8` names the monster a party member controls and
+`$32b9` the party member controlling a monster, `$ff` for none. The top bit of either marks the link as
+ending. The port holds the link as `Battler::controlling` and `Battler::controlledBy` and the mark as
+`Battler::controlEnding`; the mark is set and acted on within one pass after an action, so one flag
+stands for both of a battler's cells.
+
+### F.1 A link marked as ending
+
+`ValidateControl`, for each battler on the field that can be targeted, after an action: a battler with
+any of Dead, Petrify, Zombie, Berserk, Confuse, Sleep (statuses 1-2), Dance, Stop, Rage or Frozen
+(statuses 3-4) has the top bit set in both its cells (`asl / sec / ror`, `:1237-1242`). `CheckStatus
+:14523-14537` sets the carry when none of the statuses is set, and the routine returns on it. A cell
+holding `$ff` stays `$ff`, so a battler with no link is left as it is. Any other status leaves the link
+live.
+
+### F.2 The ending links let go
+
+`RemoveControlTarget`, for every battler from slot 9 down to slot 0, after the pass above: a cell that is
+not `$ff` and has its top bit set names a link to let go — `$32b9` (the battler is the monster) with the
+controller it names, then `$32b8` (the battler is the controller) with the monster it names. The test is
+`cmp #$ff; beq; bpl` (`:1153-1155`, `:1160-1162`): after the compare the sign is that of the cell less
+`$ff`, which for a slot index is negative exactly when the top bit is set — the listing's comment
+"branch if msb set" has it the wrong way round. A live link is left alone.
+
+### F.3 One link let go
+
+`RemoveControlAttacker`, with Y the controller and X the monster:
+
+1. A US cartridge takes the controller off the control menu (`$3e4d.0`, `:1176-1180`); its menu offers
+   its own commands again. A Japanese cartridge has no such flag: its menu tests Chant instead
+   (`:2795-2801`).
+2. The controller stops chanting, straight off its status word (`$3ef9,y`, `:1181-1183`), not through
+   the statuses waiting to come off.
+3. Both cells of the link are `$ff` (`:1184-1186`); the monster is no longer drawn flipped (`$2f54`).
+4. `UpdateSeize` for the monster and then the controller (`:1200-1211`): each one's gauge empties once
+   the action is over (`$3aa1.6`), every action it had waiting is dropped (`$3204.6`), and its menu may
+   not open (`$3aa0.7`). The routine is named for Seize, but Control's release is its only caller.
+
+## G. The links let go
+
+`_c207c8`, for a battler that died, was petrified or turned into a zombie (`AfterAction1 :1084-1089`),
+left the field (`:3175`) or ran (`:5681`):
+
+- **Zinger.** When the battler is the party member Zinger swallowed (`$33f9`, `:1251-1252`), two actions
+  that interrupt the line are added for the monster that swallowed it (`$33f8`), both command `$24`: the
+  monster leaves the field without letting the battle end (mode `$04`, entrance `$00`, at once), then comes
+  back with the HP it had (mode `$02`, entrance `$08`, fading in from the top). Both cells are `$ff`.
+- **Love Token.** `$336c` names the battler the battler's hits go to and `$336d` the battler whose hits
+  it takes. `RemoveLoveToken` with X the battler and Y its `$336c`: X's `$336c` and Y's `$336d` are `$ff`
+  (`:1271-1274`, `:1304-1308`); then with X its `$336d` and Y the battler (`:1275-1281`). The far end's
+  cell is cleared whoever it names now: a bodyguard that has since taken another Love Token stops
+  guarding that one too.
+- **Charm.** The same for `$3394` (the battler it charms) and `$3395` (the battler charming it), through
+  `RemoveCharm` (`:1282-1292`, `:1314-1318`).
+- **Quick** is let go here as well (`:1293-1297`); the battle core does that (`docs/contracts/battle_core.md`).
+
+## H. Morph
+
+The meter is `$3f30`, a 16-bit counter, full at 65,535; `$3f32` is the speed it runs down by; `$3ee2` is
+the morphed battler (`$ff`: none); `$3b04` is the meter shown, its high byte; `$1cf6` is the party's
+Morph supply, kept between battles. The port holds them as `BattleState::morphCounter`,
+`morphCounterSpeed` and `morphedBattler`, `Battler::morphGauge` and `game::Party::morphSupply`.
+
+### H.1 The menu after Morph or Revert
+
+`UpdateMorph`, for a battler whose menu after Morph or Revert is to be worked out again:
+
+1. Unless a counterattack is running (`$b1.0`), a battler whose gauge is full (`$3219` = 0) stops its gauge
+   and may open its menu (`$3aa0.3` and `.7`, `:1680-1686`).
+2. Morph and Revert trade places in its four menu rows (`$202e`, three bytes a row, `:1688-1708`):
+   now morphed (status 4, `$08`), a Morph row becomes Revert; otherwise a Revert row becomes Morph.
+3. **Now reverted** (`:1714-1726`): the supply is kept (H.3), no one is morphed, the meter shown is 0, a
+   party member's commands are worked out again (`UpdateCmdList`), and the meter is 0.
+4. **Now morphed** (`:1729-1756`): nothing more when someone is morphed already (`$3ee2` valid) or the
+   battle keeps Terra morphed throughout (`$3ebb.2`, battle switch 58). Otherwise the battler is the
+   morphed one; the meter is full; and its speed is 65,535 divided by the supply (`Div`), shifted right 3
+   bits — 4 when Morph lasts twice as long (`$3ebb.1`, battle switch 57) — at most `$7ff`, plus 1.
+   `Div` saves and restores the flags around the divide, so the carry it is tested on (`:1745`) is
+   still `$3ebb.1`, moved there by the `ror`/`asl` before it (`:1733-1737`): set gives the fourth shift
+   and the slower meter. The listing's comment on the branch has it the wrong way round.
+
+The supply is at least 16 whenever the meter starts: the Morph command is offered only then (§ "The
+command menu" of `docs/contracts/battle_commands.md`), no attack puts Morph on, and a battle that keeps
+Terra morphed fills the supply and starts no meter. The fastest meter, at a supply of 16, runs down by
+512, so the `$7ff` cap is never reached.
+
+Neither switch changes during a battle: no monster script sets or clears battle switches 56-63, so the
+port reads them as the battle starts (`BattleState::permanentMorph`, `morphLastsTwiceAsLong`).
+
+### H.2 The meter running down
+
+`DecMorphCounter`, on every time update, for the morphed battler: the meter less the speed, 16 bits
+(`:2816-2820`). With no borrow, the meter shown is its high byte. A borrow runs it out (`:2823-2829`): its
+high byte is cleared; the supply is kept (H.3) — reading that cleared byte, so the supply is 0; no one is
+morphed; and a Revert (command `$04`) is added as the battler's counterattack (`CreateRetalAction`). The
+meter shown is then 0. The meter's low byte keeps its wrap, but nothing reads the meter again before
+Morph sets it full or a revert clears it, so the port leaves it 0. The counterattack's attack and targets
+are whatever an earlier action left in `$3a7b` and `$b8`; Revert reads neither and acts on its user, so
+the port gives it the battler as its target.
+
+### H.3 The supply kept
+
+`SaveMorphCounter`: with someone morphed, the supply becomes the supply times the meter's high byte, over
+256 (`MultAB`, the product's high byte, `:1763-1770`). With no one morphed, nothing changes. The battle's
+end calls it too (`:12064`).
+
+### H.4 The final battle's stages
+
+A stage of the final battle starts without clearing the battle's cells, so the morphed battler, the meter
+and its speed carry into the next stage, as the statuses do (`:6097-6106` asks for the morphed battler's
+menu to be worked out again, which finds it morphed already and changes nothing).
+
+## I. Shipped with the commands
+
+Umaro's three attacks, a desperation attack and the cover were ported with the commands
+(`docs/contracts/battle_commands.md`); read again here against `src/battle/commands.cpp` and
+`src/battle/targeting.cpp`:
+
+- **`UmaroAttack_02 :3503-3512`**, the tackle (`umaroTackle()`): `InitUmaroAttack :3829-3841` loads the
+  plain hit with the power of both hands, at most 255, Umaro's level and his vigor (the doubled value);
+  ignores defense; may be critical; shown as animation `$23`. Matches.
+- **`UmaroAttack_00 :3518-3575`**, the throw (`umaroThrow()`): the living party members but Umaro; a
+  hidden one is dropped; the highest slot asleep or confused becomes the only one (the loop runs from slot
+  3 down and skips slots no longer in the set); none left: the tackle. Mog (actor `$0a`) is thrown for an
+  automatic critical; the thrown member's hands' power plus the compare's carry — one more for Mog and
+  every actor after him (`:3550-3556`) — at most 255, plus Umaro's, at most 255 (an overflow of the first
+  sum gives `$fe` with the carry set, which the second add carries to 255); shown as animation `$24`;
+  ignores defense; may be critical; never aimed at Umaro (`$ba.0`); the member's Sleep and Confuse are to
+  come off (`:3571-3574`). Matches.
+- **`UmaroAttack_01 :3581-3584`** and **`DesperationAttack :3591-3594`**: Storm (`$54`) with its targets
+  drawn at random (`$3415` = 0), and a desperation attack, each cast as Magic (`$b5` = 2) under the
+  attack's own name: `castAsSpell()`. Matches.
+- **`CoverEffect :2838-2888`** and **`CheckCoverTarget :2914-2939`** (`coverTarget()`): the cover's
+  checks read `$32b8,x` and `$3358,x` (`:2920-2923`), and the covered target's `$3358,y` (`:2863-2864`),
+  with the accumulator 16 bits wide (`longa :2916`; `CoverEffect` is entered wide), so each `bpl` tests the
+  byte after: `$32b9` (the battler is controlled) and `$3359` (the battler is held in Seize). A battler
+  steps in only when no one controls it and no one holds it; the target is covered only when no one holds
+  it. `coverTarget()` reads the other cell of each pair — whether the battler controls a monster, and
+  whether it holds someone in Seize. This part does not match, and is recorded here for its own change.
 
 ## K. Who carries each effect
 

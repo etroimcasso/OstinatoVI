@@ -223,7 +223,10 @@ bounced off — for a Launcher's or Super Ball's hits, the lowest battler in the
 and for the damage shown after a bounce, the attacker of the block before), and the target from the
 battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
-`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe. `--to-battle
+`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe, and
+`failed-metamorph.log` the same fight with a failed Metamorph written in. The trace also follows the
+statuses and the special effects; their calls replay the same way ([status.md](status.md),
+[effects.md](effects.md)). `--to-battle
 <inputs>` runs the cartridge to a battle from a script of buttons and writes the machine's state, and
 `--from <state>` starts the windowed trace from it
 ([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)). `DamageOracle::trace(true)`

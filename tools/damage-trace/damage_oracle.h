@@ -73,40 +73,51 @@ struct TracedRoutine {
 };
 
 // The base damage, the damage to one target, the damage taken and shown, the statuses taking effect,
-// and an attack's statuses on one target (battle/battle_main.asm: 7217 and 8096; 1809, 8362 and 8440;
-// 16193, 8365 and 8455; 11032, 8109, and the battle's start 6128 and a formation change 13231; 11094,
-// 8356 and 8434 — the program sits at $C2:0000).
-inline constexpr std::array<TracedRoutine, 5> kTracedRoutines{{
+// an attack's statuses on one target, and its special effect on its attacker and on one target
+// (battle/battle_main.asm: 7217 and 8096; 1809, 8362 and 8440; 16193, 8365 and 8455; 11032, 8109, and
+// the battle's start 6128 and a formation change 13231; 11094, 8356 and 8434; 10118 and 8275; 9087,
+// 8357 and 8435 — the program sits at $C2:0000).
+inline constexpr std::array<TracedRoutine, 7> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
     {"UpdateStatus", 0xC24391, 0xC2324D, 0, {0xC224A7, 0xC250AA}},
     {"MagicStatusEffect", 0xC24406, 0xC2345C, 0xC234F9},
+    {"DoAttackerEffect", 0xC23E7D, 0xC233A9, 0},
+    {"DoTargetEffect", 0xC2387E, 0xC2345F, 0xC234FC},
 }};
 
-// The cells the traced routines read and write, as ranges of work RAM: the direct-page attack flags
-// and multiplier; the attack's record copy and damage; each battler's bit; the numeral buffer; the
-// script queue; the monsters standing, a party member's equipment to work out and the monsters'
-// drawing flags; what is to be worked out again for each battler; the links between battlers; the
-// statuses each battler can be given; the damage ledger; the per-command cells; the battle's own
-// cells (the missed sets, the blocks, the Golem's HP, the monsters fallen, the battlers that died this
-// action and whose statuses changed, the script queue's place and end); each battler's flags, stop
-// timer, stats, monster flags, sleep timer, pending statuses, triggers, statuses for a counterattack,
-// Forcefield's elements, statuses, and Reflect and freeze timers.
+// The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
+// direct-page params block, attack flags and multiplier; the party's gil and steps; the attack's record copy and
+// damage; the party members' control menus; the battle's copy of the party's hands; the numeral
+// buffer; the script queue; the monsters standing, the message's item and amount, the formation's
+// flags, the battlers leaving, a party member's equipment to work out and the monsters drawn flipped;
+// each battler's bit and its actions waiting; what is to be worked out again for each battler; the
+// links between battlers, Seize, Love Token, Charm and Zinger, and the items to steal; the statuses
+// each battler can be given; the damage ledger; the per-command cells; the battle's list of actions;
+// the battle's own cells (the missed sets, the blocks, the Golem's HP, the monsters fallen, the
+// battlers that died this action and whose statuses changed, the script queue's place and end); each
+// battler's flags, stop timer, stats, monster battle flags, metamorph byte, monster flags, sleep timer,
+// the commands it was last hit with, gold, AI variable, pending statuses, triggers, statuses for a
+// counterattack, Forcefield's elements and the target count, statuses, Reflect and freeze timers, and
+// who is away from the field.
 struct TracedRange {
     const char* key;
     std::uint32_t at;
     std::uint32_t size;
 };
-inline constexpr std::array<TracedRange, 23> kTracedRanges{{
-    {"direct page", 0x7E00B0, 16},      {"attack record", 0x7E11A0, 18},     {"battler bits", 0x7E3018, 20},
-    {"numeral buffer", 0x7E2BCE, 160},  {"script queue", 0x7E2D6E, 256},     {"monster cells", 0x7E2F2F, 38},
-    {"to work out", 0x7E3204, 20},      {"links", 0x7E327C, 120},            {"immunities", 0x7E331C, 40},
-    {"ledger", 0x7E33D0, 40},           {"command cells", 0x7E3400, 32},     {"battle cells", 0x7E3A30, 96},
-    {"flags", 0x7E3AA0, 20},            {"stop timers", 0x7E3AF0, 20},       {"stats", 0x7E3B18, 340},
-    {"monster flags", 0x7E3C95, 20},    {"sleep timers", 0x7E3CF8, 20},      {"pending statuses", 0x7E3DD4, 80},
-    {"triggers", 0x7E3E4C, 20},         {"statuses for a counter", 0x7E3E60, 40}, {"forcefield", 0x7E3EC8, 1},
-    {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},
+inline constexpr std::array<TracedRange, 33> kTracedRanges{{
+    {"frame count", 0x7E021E, 1},       {"direct page", 0x7E00A0, 32},       {"gil and steps", 0x7E1860, 9},
+    {"attack record", 0x7E11A0, 18},    {"monster indexes", 0x7E1FF9, 20},   {"control menus", 0x7E205E, 48},
+    {"party's hands", 0x7E2B86, 40},    {"numeral buffer", 0x7E2BCE, 160},   {"script queue", 0x7E2D6E, 256},
+    {"monster cells", 0x7E2F2F, 38},    {"battler bits", 0x7E3018, 20},      {"action list", 0x7E3184, 128},
+    {"to work out", 0x7E3204, 20},      {"links", 0x7E327C, 388},            {"command cells", 0x7E3400, 32},
+    {"actions", 0x7E3420, 768},         {"battle cells", 0x7E3A30, 96},      {"flags", 0x7E3AA0, 20},
+    {"stop timers", 0x7E3AF0, 20},      {"stats", 0x7E3B18, 340},            {"monster battle flags", 0x7E3C80, 21},
+    {"monster flags", 0x7E3C95, 20},    {"sleep timers", 0x7E3CF8, 20},      {"last hits", 0x7E3D48, 40},
+    {"gold", 0x7E3D98, 20},             {"AI variables", 0x7E3DAC, 20},      {"pending statuses", 0x7E3DD4, 80},
+    {"triggers", 0x7E3E4C, 20},         {"statuses for a counter", 0x7E3E60, 40}, {"forcefield", 0x7E3EC8, 2},
+    {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},            {"away from the field", 0x7E3F2C, 2},
 }};
 
 // The trace on one machine: escapes on each traced routine's entry and return sites and watches over
@@ -155,7 +166,8 @@ private:
 
 // One routine call as the trace logged it: the routine, the frame it ran on and the address it
 // returned to; each cell's value when the routine first read it, for every cell it read before it
-// wrote it; each cell's last value written; and the attack's context at its entry.
+// wrote it; each cell's last value written; the attack's context at its entry; and, for an attack's
+// special effect on one target, the target, where the trace shows it.
 struct TracedCall {
     std::string routine;
     std::uint64_t frame = 0;
@@ -166,12 +178,15 @@ struct TracedCall {
     std::uint8_t hitsToCome = 0xFF;
     std::uint8_t aimingRules = 0;
     std::optional<std::uint8_t> previousAttacker;
+    std::optional<battle::BattlerSlot> target;
 };
 
 // Every call in a trace, in order. A call that never returns to one of its routine's return sites —
 // one none of the callers kTracedRoutines names made — is left out, and a return with no call open
-// is skipped. Throws std::runtime_error naming the line for a line that starts like an event and is
-// not one.
+// is skipped. The attack frame and the bounce work out an attack's statuses on a target and then its
+// special effect on the same target, so a DoTargetEffect call that follows a MagicStatusEffect call
+// takes that call's target: the one battler whose cells the status call touched. Throws
+// std::runtime_error naming the line for a line that starts like an event and is not one.
 [[nodiscard]] std::vector<TracedCall> parseTrace(std::istream& log);
 
 // One battle as far as the damage routines read it: the state, the attack being worked out, and
@@ -460,9 +475,12 @@ public:
     // routine read (every other cell as the oracle writes a default scenario), the attacker and target
     // from the attack's context and the cells the routine touched, and the port's answer is compared
     // with the cells the routine wrote. The statuses taking effect replay from any of their callers;
-    // an attack's statuses on one target take the target from the battler cells they touched. Returns
-    // every cell where they part, one per line; empty when they agree. Throws std::runtime_error for a
-    // call it cannot rebuild, naming why.
+    // an attack's statuses on one target take the target from the battler cells they touched. An
+    // attack's special effect takes its attacker from the params block (for a bounce, the battler it
+    // bounced off, or for a Launcher's or Super Ball's hits the lowest battler in the bounces that hit)
+    // and its effect on one target takes the call's target (TracedCall::target). Returns every cell
+    // where they part, one per line; empty when they agree. Throws std::runtime_error for a call it
+    // cannot rebuild, naming why.
     [[nodiscard]] std::string replay(const TracedCall& call);
 
     // Log every call the oracle's routines make to the traced routines in the trace's own lines; a
@@ -512,6 +530,8 @@ private:
     [[nodiscard]] StatusEffectResult readStatusEffectResult(battle::BattlerSlot target);
     [[nodiscard]] DamageScenario readStatusScenario();
     [[nodiscard]] std::string replayStatusCall(const TracedCall& call, const TracedRoutine& routine);
+    [[nodiscard]] DamageScenario readEffectScenario();
+    [[nodiscard]] std::string replayEffectCall(const TracedCall& call, const TracedRoutine& routine, bool bounce);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,

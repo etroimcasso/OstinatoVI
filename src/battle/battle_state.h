@@ -546,6 +546,10 @@ struct BattleState {
     // rather than toward its own targets.
     BattlerSet animationTargets;
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
+    // Morph's meter (battle/morph.h): full at 65,535, and run down by morphCounterSpeed on every time
+    // update. Its high byte is the meter shown.
+    std::uint16_t morphCounter = 0;
+    std::uint16_t morphCounterSpeed = 0;
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
     // Party members taken from the party by Possess or blown away by Bababreath: they leave it
@@ -601,6 +605,7 @@ struct BattleState {
     bool magicOnly = false;         // only magic works here (Fanatics' Tower)
     bool morphAvailable = false;    // Terra can Morph
     bool permanentMorph = false;    // Terra stays morphed for the whole battle
+    bool morphLastsTwiceAsLong = false;  // Morph's meter runs down at half the speed
     bool onTheVeldt = false;
 
     // The party's items and what it knows.

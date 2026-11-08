@@ -12,7 +12,7 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and five of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and seven of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
 // access made inside a call, in order, with its address and byte. Every call is logged — nothing is
@@ -23,8 +23,10 @@
 // bounce), taking and showing it (`_c262ef`, $C2:62EF, returning to $C2:3473 and $C2:3528), the
 // statuses taking effect (`UpdateStatus`, $C2:4391, returning to $C2:324D from the attack, $C2:24A7
 // from the battle's start and $C2:50AA from a formation change) and an attack's statuses on one
-// target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9). The addresses are the
-// US cartridges'. --quit-after-frames closes the window after that many frames;
+// target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9), and an attack's special
+// effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one target
+// (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC). The addresses are the US
+// cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
 // With --from the trace starts at a state written by --to-battle instead of at power-on, on a machine
@@ -429,12 +431,15 @@ int runStateCheck(std::span<const std::uint8_t> image, GameVersion cartridge, co
 
 // --- the check, with no window ---------------------------------------------------------------
 
-// One draw of one sweep: what was drawn, both answers where they are one number, and every cell where
-// the port's answer parts from the cartridge's.
+// One draw of one sweep: what was drawn, both answers where they are one number, every cell where
+// the port's answer parts from the cartridge's, and for an attack's special effect on one target, the
+// target it was worked out for (the oracle calls the routine with no statuses worked out before it, so
+// its trace does not show the target).
 struct DrawResult {
     std::string described;
     std::string answers;
     std::string differences;
+    std::optional<battle::BattlerSlot> target{};
 };
 
 using SweepDraw = DrawResult (*)(trace::DamageOracle&, std::mt19937&);
@@ -453,7 +458,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 8> kSweeps{{
+constexpr std::array<Sweep, 10> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -511,6 +516,21 @@ constexpr std::array<Sweep, 8> kSweeps{{
                            trace::differences(trace::portStatusEffect(d.scenario, d.target),
                                               oracle.statusEffect(d.scenario, d.target))};
      }},
+    {.name = "attacker-effect",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawAttackerEffectScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::attackerEffectResult(trace::runAttackerEffect(s)),
+                                              oracle.attackerEffect(s))};
+     }},
+    {.name = "target-effect",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::TargetScenario d = trace::drawTargetEffectScenario(rng);
+         return DrawResult{trace::describe(d), "",
+                           trace::differences(trace::targetEffectResult(trace::runTargetEffect(d.scenario, d.target)),
+                                              oracle.targetEffect(d.scenario, d.target)),
+                           d.target};
+     }},
 }};
 
 struct CheckOptions {
@@ -541,7 +561,10 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                     for (const std::string& line : oracle.takeTrace()) {
                         traced << line << '\n';
                     }
-                    for (const trace::TracedCall& call : trace::parseTrace(traced)) {
+                    for (trace::TracedCall call : trace::parseTrace(traced)) {
+                        if (!call.target) {
+                            call.target = result.target;
+                        }
                         const std::string parted = oracle.replay(call);
                         if (!parted.empty()) {
                             result.differences += "replayed " + call.routine + ":\n" + parted;
