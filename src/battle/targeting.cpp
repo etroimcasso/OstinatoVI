@@ -217,15 +217,6 @@ std::optional<BattlerSlot> lastIn(BattlerSet set) {
     return std::nullopt;
 }
 
-bool controlsAnother(const BattleState& state, BattlerSlot slot) {
-    for (const Battler& other : state.battlers) {
-        if (other.controlledBy == slot) {
-            return true;
-        }
-    }
-    return false;
-}
-
 }  // namespace
 
 bool initTargeting(AttackInFlight& attack, BattleCommandId command, AttackId attackOrItem) {
@@ -342,10 +333,13 @@ void coverTarget(const BattleState& state, AttackInFlight& attack, BattlerSlot a
     int bodyguardHp = 0;
     bool coveredAlready = false;
 
+    // A bodyguard must be free to move: on the field, not controlled through a live link, not held
+    // in Seize, and in none of the statuses that keep it still. Controlling a monster or holding
+    // someone does not keep it out.
     const auto consider = [&](BattlerSlot candidate) {
         const Battler& battler = state.at(candidate);
-        if (!battler.present || controlsAnother(state, candidate) || battler.seizing ||
-            battler.status.hasAny(kCannotCover)) {
+        const bool controlled = battler.controlledBy && !battler.controlEnding;
+        if (!battler.present || controlled || battler.seizedBy || battler.status.hasAny(kCannotCover)) {
             return;
         }
         attack.params.steppingIn.add(candidate);
@@ -368,7 +362,7 @@ void coverTarget(const BattleState& state, AttackInFlight& attack, BattlerSlot a
         consider(*target.bodyguard);
         stepIn();
     }
-    if (!target.status.has(StatusId::NEAR_FATAL) || target.status.has(StatusId::INVISIBLE) || target.seizing) {
+    if (!target.status.has(StatusId::NEAR_FATAL) || target.status.has(StatusId::INVISIBLE) || target.seizedBy) {
         return;
     }
     BattlerSet allies = covered.isCharacter() ? BattlerSet::allCharacters() : BattlerSet::allMonsters();

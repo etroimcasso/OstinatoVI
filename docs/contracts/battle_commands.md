@@ -104,7 +104,7 @@ branch is taken when `$b2.6` was already set, and only `RunicEffect :8513` clear
 | `$a0.6` | `:14444-14446` | | `noCharacterTargets` |
 | `$a0.5` | `CalcAttackEffect :8324-8325` | `btlgfx:28311-28313` | `criticalFlash` |
 | `$a0.4` | `:14454-14457` | | `castingSwirl`. The command starts with the swirl suppressed; the first attack's setup turns the suppression off, so a later attack of the same command has the swirl on. |
-| `$a0.1` | `:14458-14465` | | `dragonHorn`: the last landing of a continuous jump |
+| `$a0.1` | `:14458-14465` | `btlgfx:27537-27539` | `dragonHorn`: a landing of a continuous jump with another to come; the jump's animation branches on it |
 | `$a0.0` | `CalcAttackEffect :8189-8192` | `btlgfx:28304-28306` "monster weapon attack" | `monsterAttack`: set only for a monster's special attack |
 | `$a1` | `:14432-14434` | | `attacker` |
 | `$a2-a3` | `:14438-14443` | | `targets` |
@@ -238,14 +238,20 @@ target. The covered target is the highest-numbered target (`BitToTargetID :13438
 the last monster down).
 
 1. The battler the target's Love Token gives it as a bodyguard steps in if it is free to.
-2. Then, if the covered target is Near Fatal, not vanished (status-1 bit 4, `:2861`) and not holding
-   anyone in Seize, every True Knight wearer on its side other than the target and the attacker who
+2. Then, if the covered target is Near Fatal, not vanished (status-1 bit 4, `:2861`) and not held in
+   Seize (`:2863-2864`), every True Knight wearer on its side other than the target and the attacker who
    is free to is a candidate; the one with the most HP steps in, and among equal HP the lowest slot
    (`cmp; bcc` keeps the later, lower one). A Love Token bodyguard already in place is not replaced.
 
-Free to cover (`CheckCoverTarget :2914-2939`): on the field, not controlling a monster, not holding
-anyone in Seize, and none of Dead, Petrify, Vanish, Zombie, Sleep, Confuse, Stop, Frozen, Chant or
-Hide. Every battler found free to cover is marked as stepping in, and the one chosen becomes the only
+Free to cover (`CheckCoverTarget :2914-2939`): on the field, not controlled (a Control link that is
+ending does not count), not held in Seize, and none of Dead, Petrify, Vanish, Zombie, Sleep, Confuse,
+Stop, Frozen, Chant or Hide. Controlling a monster or holding someone does not keep a battler out.
+`CoverEffect` runs with the accumulator 16 bits wide and `CheckCoverTarget` widens it itself, so each
+`lda` of a link cell loads two bytes and its `bpl` tests the cell after the one named: `lda $32b8,x`
+tests `$32b9`, the battler's controller (top bit set while the link is ending), and `lda $3358,x` /
+`lda $3358,y` test `$3359`, the battler holding it. The upstream comments at `:2921` and `:2864` read
+the named byte. The Love Token cell is read with `ldx $336c,y`, an 8-bit index load, so it is that
+cell alone. Every battler found free to cover is marked as stepping in, and the one chosen becomes the only
 target, with the covered ally recorded.
 
 ## The attack frame
@@ -315,8 +321,11 @@ answer itself, ready only when the attack affects MP — the carry from the reco
 
 1. Misses and hits in the back cleared; fresh params; the targets chosen and counted; cover; the
    params filled in. The attack is aimed at the other side only when a party member has no party
-   targets or a monster has some (`:14447-14453`). The targets are remembered as the current ones
-   and added to the command's earlier targets — or, while the attack is aimed at random, the
+   targets or a monster has some (`:14447-14453`). On a Dragon Horn landing with another to come —
+   the attacks left (`$3a70`) not 0 and the continuous jump (`$3a8e`) on, `:14458-14465` — the params
+   mark the landing and the next landing is aimed at random, falling back to the command's earlier
+   targets (aiming-rule bits 6 and 5). The last landing sets none of the three. The targets are
+   remembered as the current ones and added to the command's earlier targets — or, while the attack is aimed at random, the
    current ones are taken back. `_c23865 :9068-9081` loads `$3414` with a 16-bit accumulator, so its
    `bmi` tests the high byte, `$3415` (randomize targets, cleared by a random weapon spell
    `:9001`, a sketched attack `:3314`, Umaro's Storm `:3582` and Runic `:8494`), not damage

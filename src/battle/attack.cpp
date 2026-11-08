@@ -280,7 +280,7 @@ void initParams(AttackInFlight& attack, BattlerSlot attacker) {
     }
     params.castingSwirl = !attack.castingSwirlSuppressed;
     attack.castingSwirlSuppressed = false;
-    if (attack.scratch.attacksLeft == 0 && attack.scratch.dragonHorn) {
+    if (attack.scratch.attacksLeft != 0 && attack.scratch.dragonHorn) {
         params.dragonHorn = true;
         attack.rules.randomTarget = true;
         attack.rules.fallBackToEarlierTargets = true;

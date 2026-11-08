@@ -4,6 +4,9 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
+#include <vector>
+
 #include "battle/attack.h"
 #include "battle/targeting.h"
 #include "battle_test_support.h"
@@ -624,11 +627,47 @@ TEST(CoverTarget, ABodyguardMustBeFreeToMove) {
         battle::coverTarget(state, attack, kGuard);
         EXPECT_EQ(attack.targets, BattlerSet::of(kTerra)) << static_cast<int>(status);
     }
-    state.at(kLocke).status = {};
-    state.at(kGuard).controlledBy = kLocke;
-    AttackInFlight controlling = blowAt(kTerra);
-    battle::coverTarget(state, controlling, kSoldier);
-    EXPECT_EQ(controlling.targets, BattlerSet::of(kTerra));
+}
+
+// The cover reads each link from the bodyguard's own end: being controlled or held keeps a
+// bodyguard out, while controlling a monster or holding someone does not.
+TEST(CoverTarget, AControlledOrHeldBodyguardStaysOut) {
+    struct Case {
+        const char* name;
+        std::function<void(BattleState&)> link;
+        bool stepsIn;
+    };
+    const std::vector<Case> cases = {
+        {"controlled", [](BattleState& s) { s.at(kLocke).controlledBy = kGuard; }, false},
+        {"controlling", [](BattleState& s) { s.at(kGuard).controlledBy = kLocke; s.at(kLocke).controlling = kGuard; },
+         true},
+        {"controlled, the link ending",
+         [](BattleState& s) {
+             s.at(kLocke).controlledBy = kGuard;
+             s.at(kLocke).controlEnding = true;
+         },
+         true},
+        {"held", [](BattleState& s) { s.at(kLocke).seizedBy = kGuard; }, false},
+        {"holding", [](BattleState& s) { s.at(kLocke).seizing = BattlerSlot::character(3); }, true},
+    };
+    for (const Case& c : cases) {
+        BattleState state = coverBattle();
+        state.at(kLocke).relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
+        c.link(state);
+        AttackInFlight attack = blowAt(kTerra);
+        battle::coverTarget(state, attack, kSoldier);
+        EXPECT_EQ(attack.targets, BattlerSet::of(c.stepsIn ? kLocke : kTerra)) << c.name;
+    }
+}
+
+TEST(CoverTarget, NoCoverForAnAllyHeldInSeize) {
+    BattleState state = coverBattle();
+    state.at(kLocke).relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
+    state.at(kTerra).seizedBy = kGuard;
+    AttackInFlight attack = blowAt(kTerra);
+    battle::coverTarget(state, attack, kSoldier);
+    EXPECT_EQ(attack.targets, BattlerSet::of(kTerra));
+    EXPECT_FALSE(attack.params.coveredAlly);
 }
 
 TEST(CoverTarget, ALoveTokenBodyguardCoversFirstWhateverTheAllysHp) {

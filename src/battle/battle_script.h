@@ -88,7 +88,7 @@ struct AttackAnimationParams {
     bool noCharacterTargets = false;  // no party member was aimed at
     bool criticalFlash = false;       // a critical hit: the screen flashes
     bool castingSwirl = false;        // the swirl that comes before a spell plays
-    bool dragonHorn = false;          // the last landing of a Dragon Horn jump
+    bool dragonHorn = false;          // a Dragon Horn landing with another to come; the jump's animation branches on it
     bool monsterAttack = false;       // a monster's special attack, shown as its attack swing
     BattlerSlot attacker = BattlerSlot::character(0);
     BattlerSet targets;               // aimed at

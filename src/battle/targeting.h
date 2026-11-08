@@ -48,7 +48,8 @@ void chooseTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attac
 BattlerSet removeAbsentTargets(const BattleState& state, BattlerSet targets);
 
 // A True Knight or a Love Token: a battler steps in front of the target of a blow and is hit in
-// its place.
+// its place. A bodyguard who is controlled or held in Seize does not step in, and a target held in
+// Seize is not covered.
 void coverTarget(const BattleState& state, AttackInFlight& attack, BattlerSlot attacker);
 
 }  // namespace ostinato::battle
