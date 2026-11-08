@@ -258,6 +258,7 @@ void updateBattleTime(BattleState& state, ActionExecutor& executor) {
 }  // namespace
 
 void tickBattleTime(BattleState& state, bool timeRunning, ActionExecutor& executor) {
+    ++state.frameCount;
     ++state.framesSinceTimeUpdate;
     if (!timeRunning) {
         return;

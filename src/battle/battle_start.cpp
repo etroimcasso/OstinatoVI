@@ -646,7 +646,7 @@ BattleResult writeBack(const BattleState& state) {
             continue;
         }
         const bool ghost = *battler.actor == CharacterPropId::GHOST_1 || *battler.actor == CharacterPropId::GHOST_2;
-        if ((ghost && battler.status.hasAny(kFallen)) || state.possessed.has(slot)) {
+        if ((ghost && battler.status.hasAny(kFallen)) || state.takenFromTheParty.has(slot)) {
             party.membership[*battler.record].party = 0;
         }
         game::CharacterRecord& record = party.characters[*battler.record];

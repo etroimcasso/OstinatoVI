@@ -90,7 +90,8 @@ no name.
 The commands that only act on a target or the user start from `plainCommandAttack()`: the plain hit
 aimed by the command's own rules, impossible to dodge, with no level, no attack stat and no effect of
 its own. The special effects (`CommandEffect::Steal`, `Control`, `Leap`, `Sketch`, `Possess`,
-`GpRain`) are worked out by `AttackHooks::targetEffect`.
+`GpRain`) are worked out by `AttackHooks::attackerEffect` — Possess's draw and GP Rain's gil
+([effects.md](effects.md)) — and `AttackHooks::targetEffect`.
 
 ### Fight and desperation attacks
 
@@ -351,7 +352,7 @@ reaches, hits and misses its targets and is shown, but changes no HP or status.
 | Member | Called |
 |---|---|
 | `baseDamage` | before the attack is aimed; set `attack.damage` |
-| `attackerEffect` | after the damage is split, before the hit check |
+| `attackerEffect` | after the damage is split, before the hit check. Given the script, for an effect shown before the attack (Exploder) |
 | `scaleDamage` | after the critical hit is decided; multiply by `attack.multiplier` |
 | `controlMenu` | after a controlled monster attacks, for its controller |
 | `statusEffect` | for each target hit |
@@ -366,7 +367,8 @@ A spell that bounced off anyone's Reflect calls `statusEffect`, `targetEffect`, 
 The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`): `baseDamage`,
 `scaleDamage`, `targetDamage` and `applyDamage` are one call each into the formulas in
 [damage.md](damage.md), `statusEffect` and `applyPendingStatuses` one call each into the status rules
-in [status.md](status.md), and the special-effect members are still `AttackHooks`' own. A class that
+in [status.md](status.md), and `attackerEffect` one call into the effects on the attacker in
+[effects.md](effects.md). `targetEffect` and `controlMenu` are still `AttackHooks`' own. A class that
 needs one more part overrides it on top of `BattleHooks`:
 
 ```cpp

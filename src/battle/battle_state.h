@@ -478,6 +478,9 @@ struct BattleState {
 
     // --- the clocks --------------------------------------------------------------------------
     int framesSinceTimeUpdate = 0;  // frames since the ATB last advanced
+    // Frames shown since the battle started, counting on past 255 from 0. The Fixed Dice read their
+    // third die from it.
+    std::uint8_t frameCount = 0;
     bool timeStoppedByMenu = false; // a command's sub-menu is open (stops time in wait mode)
     std::uint16_t turnCounter = 0;  // time updates so far
     std::uint16_t battleCounter = 0;  // once every 16 time updates
@@ -520,7 +523,9 @@ struct BattleState {
     std::optional<BattlerSlot> morphedBattler;    // the character in Morph
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
-    BattlerSet possessed;          // characters Possess has taken: they leave the party
+    // Party members taken from the party by Possess or blown away by Bababreath: they leave it
+    // when the battle ends.
+    BattlerSet takenFromTheParty;
 
     // --- the battle's flags ------------------------------------------------------------------
     bool runActionQueued = false;   // the party-escape action is already waiting

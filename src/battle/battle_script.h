@@ -177,6 +177,25 @@ struct BattleMessage {
 inline constexpr std::uint8_t kMessageStumbled = 6;
 inline constexpr std::uint8_t kMessageMuguMugu = 7;
 inline constexpr std::uint8_t kMessageCantRunAway = 9;
+
+// The battle messages the special effects show. A message with an item in it shows the item as its
+// first number; one with an amount, the amount as its second. The eight "Now weak against …!" and
+// "…-element ineffectual" messages run in the order of the element bits, Fire's first.
+inline constexpr std::uint8_t kMessageDoesntHaveAnything = 1;   // "Doesn't have anything!"
+inline constexpr std::uint8_t kMessageCouldntSteal = 2;         // "Couldn't steal!!"
+inline constexpr std::uint8_t kMessageStole = 3;                // "Stole {item}"
+inline constexpr std::uint8_t kMessageCantControl = 4;          // "Can't control!!"
+inline constexpr std::uint8_t kMessageCantDive = 5;             // "Can't dive!!"
+inline constexpr std::uint8_t kMessageNoMoney = 8;              // "No money!!"
+inline constexpr std::uint8_t kMessageCantEscape = 10;          // "Can't escape!!"
+inline constexpr std::uint8_t kMessageNowWeakAgainst = 11;      // "Now weak against fire!"
+inline constexpr std::uint8_t kMessageMoveAndYoureDust = 19;    // "Move, and you're dust!"
+inline constexpr std::uint8_t kMessageBetterOff = 29;           // "Better off {item}!"
+inline constexpr std::uint8_t kMessageCantSketch = 31;          // "Can't sketch!!"
+inline constexpr std::uint8_t kMessageCantProbe = 44;           // "Can't probe target!"
+inline constexpr std::uint8_t kMessageElementIneffectual = 55;  // "Fire-element ineffectual"
+inline constexpr std::uint8_t kMessageGpStolen = 63;            // "{amount} GP was stolen!!"
+inline constexpr std::uint8_t kMessageOgreNixBroken = 68;       // "Ogre Nix was broken!"
 inline constexpr std::uint8_t kMessageNotEnoughMp = 40;
 inline constexpr std::uint8_t kMessageBlitzFailed = 67;
 

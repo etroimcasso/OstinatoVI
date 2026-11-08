@@ -38,8 +38,9 @@ battle::CommandExecutor executor(hooks, text, sprites);
 `BattleHooks` overrides `baseDamage`, `scaleDamage`, `targetDamage` and `applyDamage`, each with one
 call into `damage.h`. The statuses the damage sets and clears — a battler brought to 0 HP is set to
 die — wait in `Battler::statusesToSet` and `statusesToClear` until the end of the attack, when
-`BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its special-effect hooks
-are `AttackHooks`' own, which do nothing.
+`BattleHooks`' status hooks make them take effect ([status.md](status.md)). Its `attackerEffect` hook
+works out each attack's special effect on its attacker ([effects.md](effects.md)); its `targetEffect`
+hook is `AttackHooks`' own, which does nothing.
 
 ## The formulas
 

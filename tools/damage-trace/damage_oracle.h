@@ -309,6 +309,29 @@ struct StatusEffectResult {
 
 [[nodiscard]] std::string differences(const StatusEffectResult& port, const StatusEffectResult& guest);
 
+// What an attack's special effect on its attacker leaves, as the same cells on both sides, each named
+// and given as text: the attack's record, damage and animation values, its flags, params and aim,
+// what the command carries to its next attack, the battle's cells the effects write, the attacker's
+// own cells and the party's gil, the params blocks and animations added to the script, and the
+// random-number position.
+struct AttackerEffectResult {
+    std::map<std::string, std::string> cells;
+};
+
+// The scenario after the port's attacker effect has run over it, and the script it wrote.
+struct AttackerEffectRun {
+    DamageScenario after;
+    battle::BattleScriptBuilder script;
+};
+
+// The port's special effect of the scenario's attack on the scenario's attacker.
+[[nodiscard]] AttackerEffectRun runAttackerEffect(DamageScenario scenario);
+
+// A port run read back as an AttackerEffectResult.
+[[nodiscard]] AttackerEffectResult attackerEffectResult(const AttackerEffectRun& run);
+
+[[nodiscard]] std::string differences(const AttackerEffectResult& port, const AttackerEffectResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -383,6 +406,10 @@ public:
     // (MagicStatusEffect), with the scenario's attacker as the one who made it.
     [[nodiscard]] StatusEffectResult statusEffect(const DamageScenario& scenario, battle::BattlerSlot target);
 
+    // The special effect of the scenario's attack on the scenario's attacker (DoAttackerEffect), called
+    // as the attack frame calls it, before the hit check.
+    [[nodiscard]] AttackerEffectResult attackerEffect(const DamageScenario& scenario);
+
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
     [[nodiscard]] const std::vector<WatchedWrite>& writes() const { return writes_; }
@@ -435,6 +462,8 @@ private:
     void writeAimCells(const DamageScenario& scenario);
     void writeContext(const DamageScenario& scenario);
     void writeStatusCells(const DamageScenario& scenario);
+    void writeEffectCells(const DamageScenario& scenario);
+    [[nodiscard]] AttackerEffectResult readAttackerEffectResult();
     [[nodiscard]] StatusChangesResult readStatusChangesResult();
     [[nodiscard]] StatusEffectResult readStatusEffectResult(battle::BattlerSlot target);
     [[nodiscard]] DamageScenario readStatusScenario();
@@ -467,6 +496,7 @@ private:
     retropp::Routine<TargetCall> calcReflectDmg_;
     retropp::Routine<PassCall> updateStatus_;
     retropp::Routine<TargetCall> magicStatusEffect_;
+    retropp::Routine<Call> doAttackerEffect_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -534,5 +564,14 @@ struct TargetScenario {
 // with its statuses, statuses to set and to clear, the statuses it can be given and whether it is
 // undead drawn; and the battlers already shown "Miss".
 [[nodiscard]] TargetScenario drawStatusEffectScenario(std::mt19937& rng);
+
+// The scenarios the attacker-effect sweep draws, from the same seed: an effect anywhere in the effect
+// space, half the time one of the effects that act on the attacker; the attack's record, damage,
+// multiplier, command and animation values, its flags, aim and params; the command's attacks to come,
+// target count and message; for every battler its level, HP and MP, statuses, flags, hands, gold, Seize
+// and whether it is on the field or in its menu; the party's gil and steps, the battle's frame count,
+// Forcefield, Quick, the Golem, the allies standing, whether the party can run, whether a counterattack
+// is running, and the random-number position.
+[[nodiscard]] DamageScenario drawAttackerEffectScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

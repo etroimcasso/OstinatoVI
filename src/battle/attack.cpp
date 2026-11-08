@@ -264,7 +264,8 @@ void markToRetaliate(BattleState& state, BattlerSlot attacker, BattlerSlot targe
     }
 }
 
-// What the attack's params say about who made it and whom it was aimed at.
+}  // namespace
+
 void initParams(AttackInFlight& attack, BattlerSlot attacker) {
     AttackAnimationParams& params = attack.params;
     params.attackerIsMonster = attacker.isMonster();
@@ -286,6 +287,8 @@ void initParams(AttackInFlight& attack, BattlerSlot attacker) {
         attack.rules.fallBackToEarlierTargets = true;
     }
 }
+
+namespace {
 
 // A monster's special attack takes its special-attack byte: no damage, no dodging, a drain, Reflect
 // removed, extra damage or a status.
@@ -593,7 +596,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
         attack.damage /= 2;
     }
     attack.scratch.hitInTheBack = hitInTheBack(state, attack, attacker);
-    hooks.attackerEffect(state, attack, attacker);
+    hooks.attackerEffect(state, attack, attacker, script);
     if (state.extraHits) {
         return;
     }
