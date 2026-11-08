@@ -684,6 +684,7 @@ gtest_discover_tests(ostinato-vi-battle-status-tests)
 add_executable(ostinato-vi-battle-effects-tests
     tests/test_attacker_effects.cpp
     tests/test_control_menu.cpp
+    tests/test_cover_and_params.cpp
     tests/test_effects_oracle.cpp
     tests/test_links.cpp
     tests/test_morph.cpp

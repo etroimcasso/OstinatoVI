@@ -30,8 +30,9 @@
 // bytes and refuses an image that does not have them. `ostinato-damage-trace --check` runs it from
 // the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
 // the port's formulas, tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
-// status rules, and tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
-// tests/test_control_menu.cpp against its special effects.
+// status rules, tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
+// tests/test_control_menu.cpp against its special effects, and tests/test_cover_and_params.cpp
+// against its cover and its setting up of the attack's animation.
 #pragma once
 
 #include <array>
@@ -382,6 +383,30 @@ struct TargetEffectRun {
 
 [[nodiscard]] std::string differences(const TargetEffectResult& port, const TargetEffectResult& guest);
 
+// What setting up the attack's animation leaves (InitGfxParams), as the same cells on both sides,
+// each named and given as text: the params block, the three aiming rules it can add, and whether the
+// casting swirl is still suppressed.
+struct ParamsInitResult {
+    std::map<std::string, std::string> cells;
+};
+
+// The port's setting up of the scenario's animation (battle::initParams), read back as a
+// ParamsInitResult.
+[[nodiscard]] ParamsInitResult portInitParams(DamageScenario scenario);
+
+[[nodiscard]] std::string differences(const ParamsInitResult& port, const ParamsInitResult& guest);
+
+// What a True Knight's or a Love Token's cover leaves (CoverEffect), as the same cells on both sides,
+// each named and given as text: the targets, the ally covered and the battlers stepping in.
+struct CoverResult {
+    std::map<std::string, std::string> cells;
+};
+
+// The port's cover over the scenario (battle::coverTarget), read back as a CoverResult.
+[[nodiscard]] CoverResult portCoverTarget(DamageScenario scenario);
+
+[[nodiscard]] std::string differences(const CoverResult& port, const CoverResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -466,6 +491,15 @@ public:
     // already in the script. The scenario holds what the frame leaves there: the target out of the
     // targets hit, already marked to answer the attacker, and its last command hit recorded.
     [[nodiscard]] TargetEffectResult targetEffect(const DamageScenario& scenario, battle::BattlerSlot target);
+
+    // The attack's animation set up over the scenario (InitGfxParams), called as the attack frame
+    // calls it: after the aim and the cover, with the attacks still to come and the Dragon Horn as
+    // the scenario holds them.
+    [[nodiscard]] ParamsInitResult initParams(const DamageScenario& scenario);
+
+    // The cover over the scenario (CoverEffect), called as the attack frame calls it: after the aim,
+    // with the accumulator wide and the index registers narrow. The scenario's targets are the aim's.
+    [[nodiscard]] CoverResult coverEffect(const DamageScenario& scenario);
 
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
@@ -562,6 +596,8 @@ private:
     retropp::Routine<TargetCall> magicStatusEffect_;
     retropp::Routine<Call> doAttackerEffect_;
     retropp::Routine<TargetCall> doTargetEffect_;
+    retropp::Routine<Call> initGfxParams_;
+    retropp::Routine<Call> coverEffect_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -648,5 +684,12 @@ struct TargetScenario {
 // battlers gone, fallen, swallowed and taken from the party, Zinger's two and the monsters drawn
 // flipped. The target is left as the attack frame leaves it for the effect.
 [[nodiscard]] TargetScenario drawTargetEffectScenario(std::mt19937& rng);
+
+// The scenarios the cover sweep draws, from the same seed: every cell the target-effect sweep draws,
+// then for every battler its statuses cleared one time in two, Near Fatal and the True Knight's relic
+// each one time in two, and one time in six a Control link on it (ending one time in two) or else one
+// time in six a Seize hold on it; and targets for the blow three times in four. Nothing has been
+// bounced off anyone, no one has stepped in yet and no ally is covered.
+[[nodiscard]] DamageScenario drawCoverScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

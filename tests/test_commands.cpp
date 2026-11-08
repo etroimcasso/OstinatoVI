@@ -1000,10 +1000,37 @@ TEST(Commands, ADragonHornComesDownTwoToFourTimes) {
         rngWhere(state, {c.draw});
         AttackLog log;
         const auto shown = animations(run(state, log, kTerra, kJump));
-        EXPECT_EQ(log.made.size(), c.landings);
-        ASSERT_FALSE(shown.empty());
-        EXPECT_TRUE(shown.back().params.dragonHorn);
+        ASSERT_EQ(log.made.size(), c.landings);
+        std::vector<AttackAnimation> jumps;
+        for (const AttackAnimation& animation : shown) {
+            if (animation.what == Shown{BattleCommandId::JUMP}) {
+                jumps.push_back(animation);
+            }
+        }
+        ASSERT_EQ(jumps.size(), c.landings);
+        // Every landing with another to come tells the jump's animation so; the last does not.
+        for (std::size_t landing = 0; landing + 1 < c.landings; ++landing) {
+            EXPECT_TRUE(jumps[landing].params.dragonHorn) << landing;
+        }
+        EXPECT_FALSE(jumps.back().params.dragonHorn);
+        // The log records each landing before it is aimed: the first is aimed as the command
+        // aims it, every later one at random, falling back to the jump's earlier targets.
+        EXPECT_FALSE(log.made[0].rules.randomTarget);
+        for (std::size_t landing = 1; landing < c.landings; ++landing) {
+            EXPECT_TRUE(log.made[landing].rules.randomTarget) << landing;
+            EXPECT_TRUE(log.made[landing].rules.fallBackToEarlierTargets) << landing;
+        }
     }
+}
+
+TEST(Commands, AJumpWithoutTheDragonHornLandsOnceWhereItWasAimed) {
+    BattleState state = commandBattle();
+    state.at(kTerra).shieldHand.battlePower = 0;
+    AttackLog log;
+    const auto shown = animations(run(state, log, kTerra, kJump));
+    ASSERT_EQ(log.made.size(), 1u);
+    EXPECT_FALSE(shown[0].params.dragonHorn);
+    EXPECT_FALSE(log.made[0].rules.randomTarget);
 }
 
 // --- the Roulette command, and no command at all ---------------------------------------------

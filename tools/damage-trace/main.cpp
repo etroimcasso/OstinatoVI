@@ -458,7 +458,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 10> kSweeps{{
+constexpr std::array<Sweep, 12> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -530,6 +530,18 @@ constexpr std::array<Sweep, 10> kSweeps{{
                            trace::differences(trace::targetEffectResult(trace::runTargetEffect(d.scenario, d.target)),
                                               oracle.targetEffect(d.scenario, d.target)),
                            d.target};
+     }},
+    {.name = "params",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawAttackerEffectScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portInitParams(s), oracle.initParams(s))};
+     }},
+    {.name = "cover",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawCoverScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portCoverTarget(s), oracle.coverEffect(s))};
      }},
 }};
 

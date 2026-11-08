@@ -31,6 +31,7 @@
 #include "battle/damage.h"
 #include "battle/status.h"
 #include "battle/target_effects.h"
+#include "battle/targeting.h"
 #include "data/attack_properties.h"
 #include "data/formations.h"
 #include "data/monster_attacks.h"
@@ -61,6 +62,8 @@ constexpr std::uint32_t kUpdateStatus = 0xC24391;
 constexpr std::uint32_t kMagicStatusEffect = 0xC24406;
 constexpr std::uint32_t kDoAttackerEffect = 0xC23E7D;
 constexpr std::uint32_t kDoTargetEffect = 0xC2387E;
+constexpr std::uint32_t kInitGfxParams = 0xC257C2;
+constexpr std::uint32_t kCoverEffect = 0xC2123B;
 
 // `Reset` (field/reset.asm), where the reset vector's `jml` lands after `clc; xce`
 // (field/header.asm): the first instruction the game runs in native mode.
@@ -81,7 +84,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 11> kOpenings{{
+constexpr std::array<RoutineOpening, 13> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -93,12 +96,14 @@ constexpr std::array<RoutineOpening, 11> kOpenings{{
     {"MagicStatusEffect", kMagicStatusEffect, {0x08, 0xC2, 0x20, 0xB9}, 4},          // php; rep #$20; lda $3ee4,y
     {"DoAttackerEffect", kDoAttackerEffect, {0xDA, 0x08, 0xE2, 0x30}, 4},            // phx; php; sep #$30
     {"DoTargetEffect", kDoTargetEffect, {0xDA, 0x5A, 0x08, 0xE2}, 4},                // phx; phy; php; sep
+    {"InitGfxParams", kInitGfxParams, {0x08, 0xE2, 0x30, 0x64}, 4},                  // php; sep #$30; stz $a0
+    {"CoverEffect", kCoverEffect, {0xDA, 0x08, 0xA5, 0xB2}, 4},                      // phx; php; lda $b2
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
 // a work-RAM address. CalcDmg and RelicDmgEffect are entered with both register widths narrow,
-// ApplyDmgMult and CalcTargetDmg with the accumulator wide and the index registers narrow;
-// interrupts are off throughout.
+// ApplyDmgMult, CalcTargetDmg and CoverEffect with the accumulator wide and the index registers
+// narrow; interrupts are off throughout.
 constexpr std::uint8_t kBattleDataBank = 0x7E;
 constexpr std::uint16_t kBattleDirectPage = 0x0000;
 constexpr std::uint8_t kByteWideStatus = 0x34;
@@ -357,6 +362,8 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
         kDoTargetEffect,
         {.inputs = {retropp::snes::X, retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
          .isa = retropp::Isa::Wdc65816});
+    initGfxParams_ = machine_.bindRoutine<Call>(kInitGfxParams, byteWide);
+    coverEffect_ = machine_.bindRoutine<Call>(kCoverEffect, byteWide);
 }
 
 DamageOracle::~DamageOracle() = default;
@@ -2579,12 +2586,14 @@ constexpr std::uint32_t kFrameCount = kWorkRam + 0x021E;
 constexpr std::uint8_t kParamsMonsterBit = 0x80;
 constexpr std::uint8_t kParamsNoCharacterTargetsBit = 0x40;
 constexpr std::uint8_t kParamsSwirlBit = 0x10;
+constexpr std::uint8_t kParamsDragonHornBit = 0x02;
 constexpr std::uint8_t kSwirlSuppressedBit = 0x10;
 constexpr std::uint8_t kCounterattackBit = 0x01;
 constexpr std::uint8_t kCannotRunBit = 0x04;
 constexpr std::uint8_t kInBattleMenuBit = 0x04;
 constexpr std::uint8_t kAutomaticCriticalClearBit = 0x02;  // $B3 bit 1: clear for an automatic critical
 constexpr std::uint8_t kRandomTargetBit = 0x40;
+constexpr std::uint8_t kFallBackToEarlierTargetsBit = 0x20;
 constexpr std::uint8_t kOpposingSideBit = 0x02;
 constexpr std::uint8_t kEndTurnBit = 0x10;                  // $3A46 bit 4
 constexpr std::uint8_t kDragonHornOn = 0xFF;
@@ -2607,7 +2616,8 @@ std::string paramsText(const battle::AttackAnimationParams& params) {
     return "attacker " + std::to_string(params.attacker.index()) + " targets " + setText(params.targets) + " hit " +
            setText(params.targetsHit) + " reflected off " + setText(params.reflectedOff) + " swirl " +
            std::to_string(params.castingSwirl) + " monster " + std::to_string(params.attackerIsMonster) +
-           " no party targets " + std::to_string(params.noCharacterTargets);
+           " no party targets " + std::to_string(params.noCharacterTargets) + " dragon horn " +
+           std::to_string(params.dragonHorn);
 }
 
 battle::AttackAnimationParams paramsFromBytes(std::span<const std::uint8_t> block) {
@@ -2615,6 +2625,7 @@ battle::AttackAnimationParams paramsFromBytes(std::span<const std::uint8_t> bloc
     params.attackerIsMonster = (block[0] & kParamsMonsterBit) != 0;
     params.noCharacterTargets = (block[0] & kParamsNoCharacterTargetsBit) != 0;
     params.castingSwirl = (block[0] & kParamsSwirlBit) != 0;
+    params.dragonHorn = (block[0] & kParamsDragonHornBit) != 0;
     params.attacker = battle::BattlerSlot::fromIndex(block[1] % battle::kBattlerSlots);
     params.targets = setOf(static_cast<std::uint16_t>(block[2] | block[3] << 8));
     params.targetsHit = setOf(static_cast<std::uint16_t>(block[4] | block[5] << 8));
@@ -2632,6 +2643,7 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
     paramsFlags |= params.attackerIsMonster ? kParamsMonsterBit : 0;
     paramsFlags |= params.noCharacterTargets ? kParamsNoCharacterTargetsBit : 0;
     paramsFlags |= params.castingSwirl ? kParamsSwirlBit : 0;
+    paramsFlags |= params.dragonHorn ? kParamsDragonHornBit : 0;
     writeByte(kParamsFlags, paramsFlags);
     writeByte(kParamsAttacker, static_cast<std::uint8_t>(params.attacker.index()));
     writeWord(kParamsTargets, maskOf(params.targets));
@@ -2758,6 +2770,7 @@ AttackerEffectResult DamageOracle::readAttackerEffectResult() {
     out.put("params", paramsText(paramsFromBytes(params)));
     out.put("targets", std::to_string(readWord(kTargets)));
     out.put("random target", (readByte(kAimingRules) & kRandomTargetBit) != 0);
+    out.put("fall back to earlier targets", (readByte(kAimingRules) & kFallBackToEarlierTargetsBit) != 0);
     out.put("other side only", (readByte(kAimingRules) & kOpposingSideBit) != 0);
     const std::uint8_t spell = readByte(kFollowUpSpell);
     out.put("spell next", spell == kNoOne ? std::string{"none"} : std::to_string(spell));
@@ -2842,6 +2855,7 @@ AttackerEffectResult attackerEffectResult(const AttackerEffectRun& run) {
     out.put("params", paramsText(attack.params));
     out.put("targets", std::to_string(maskOf(attack.targets)));
     out.put("random target", attack.rules.randomTarget);
+    out.put("fall back to earlier targets", attack.rules.fallBackToEarlierTargets);
     out.put("other side only", attack.rules.opposingSideOnly);
     out.put("spell next", attack.scratch.followUpSpell ? std::to_string(static_cast<int>(*attack.scratch.followUpSpell))
                                                        : std::string{"none"});
@@ -4053,6 +4067,147 @@ std::string DamageOracle::replayEffectCall(const TracedCall& call, const TracedR
     const TargetEffectResult port = targetEffectResult(runTargetEffect(s, *target));
     guestCells();
     return differences(port, readTargetEffectResult());
+}
+
+
+// --- the cover and the attack's animation set up -------------------------------------------------
+
+namespace {
+
+// The ally a cover stepped in front of, by its slot index, and the byte after it. The cover shifts
+// the two as one word, so the byte after is written as every attack starts it (ClearGfxParams): 0.
+constexpr std::uint32_t kCoveredAlly = kWorkRam + 0x00A8;
+constexpr std::uint32_t kAfterCoveredAlly = kWorkRam + 0x00A9;
+
+std::string cellDifferences(const std::map<std::string, std::string>& port,
+                            const std::map<std::string, std::string>& guest) {
+    std::string out;
+    for (const auto& [cell, theirs] : guest) {
+        const auto ours = port.find(cell);
+        const std::string value = ours == port.end() ? std::string{"(not read)"} : ours->second;
+        if (value != theirs) {
+            out += cell + ": port " + value + ", cartridge " + theirs + "\n";
+        }
+    }
+    return out;
+}
+
+}  // namespace
+
+ParamsInitResult DamageOracle::initParams(const DamageScenario& scenario) {
+    writeScenario(scenario);
+    writeTargetCells(scenario);
+    writeApplyCells(scenario);
+    writeStatusCells(scenario);
+    writeAimCells(scenario);
+    writeEffectCells(scenario);
+    call([&] { initGfxParams_(slotIndex(scenario.attacker), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    EffectCells out;
+    const std::vector<std::uint8_t> params = machine_.read(retropp::MemoryRegion{.at = kParamsFlags, .size = 8});
+    out.put("params", paramsText(paramsFromBytes(params)));
+    const std::uint8_t rules = readByte(kAimingRules);
+    out.put("random target", (rules & kRandomTargetBit) != 0);
+    out.put("fall back to earlier targets", (rules & kFallBackToEarlierTargetsBit) != 0);
+    out.put("other side only", (rules & kOpposingSideBit) != 0);
+    out.put("swirl suppressed", (readByte(kSwirlCell) & kSwirlSuppressedBit) != 0);
+    return ParamsInitResult{.cells = std::move(out.cells)};
+}
+
+ParamsInitResult portInitParams(DamageScenario scenario) {
+    battle::AttackInFlight& attack = scenario.attack;
+    battle::initParams(attack, scenario.attacker);
+    EffectCells out;
+    out.put("params", paramsText(attack.params));
+    out.put("random target", attack.rules.randomTarget);
+    out.put("fall back to earlier targets", attack.rules.fallBackToEarlierTargets);
+    out.put("other side only", attack.rules.opposingSideOnly);
+    out.put("swirl suppressed", attack.castingSwirlSuppressed);
+    return ParamsInitResult{.cells = std::move(out.cells)};
+}
+
+std::string differences(const ParamsInitResult& port, const ParamsInitResult& guest) {
+    return cellDifferences(port.cells, guest.cells);
+}
+
+CoverResult DamageOracle::coverEffect(const DamageScenario& scenario) {
+    writeScenario(scenario);
+    writeTargetCells(scenario);
+    writeApplyCells(scenario);
+    writeStatusCells(scenario);
+    writeAimCells(scenario);
+    writeEffectCells(scenario);
+    writeTargetEffectCells(scenario);
+    // The battlers stepping in are marked in the same word as the battlers a spell bounced off.
+    const battle::AttackAnimationParams& params = scenario.attack.params;
+    writeWord(kParamsReflectedOff, maskOf(params.reflectedOff | params.steppingIn));
+    writeByte(kCoveredAlly,
+              params.coveredAlly ? static_cast<std::uint8_t>(params.coveredAlly->index()) : kNoOne);
+    writeByte(kAfterCoveredAlly, 0);
+    call([&] {
+        coverEffect_(slotIndex(scenario.attacker), kWideAccumulatorStatus, kBattleDataBank, kBattleDirectPage);
+    });
+    EffectCells out;
+    out.put("targets", std::to_string(readWord(kTargets)));
+    const std::uint8_t covered = readByte(kCoveredAlly);
+    out.put("covered ally", covered == kNoOne ? std::string{"none"} : std::to_string(covered));
+    out.put("stepping in", std::to_string(readWord(kParamsReflectedOff)));
+    return CoverResult{.cells = std::move(out.cells)};
+}
+
+CoverResult portCoverTarget(DamageScenario scenario) {
+    const battle::AttackInFlight& attack = scenario.attack;
+    battle::coverTarget(scenario.state, scenario.attack, scenario.attacker);
+    EffectCells out;
+    out.put("targets", std::to_string(maskOf(attack.targets)));
+    out.put("covered ally", slotText(attack.params.coveredAlly));
+    out.put("stepping in", std::to_string(maskOf(attack.params.reflectedOff | attack.params.steppingIn)));
+    return CoverResult{.cells = std::move(out.cells)};
+}
+
+std::string differences(const CoverResult& port, const CoverResult& guest) {
+    return cellDifferences(port.cells, guest.cells);
+}
+
+DamageScenario drawCoverScenario(std::mt19937& rng) {
+    DamageScenario s = drawTargetEffectScenario(rng).scenario;
+    battle::BattleState& state = s.state;
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        battle::Battler& battler = state.at(slot);
+        if (oneIn(rng, 2)) {
+            battler.status = {};
+        }
+        if (oneIn(rng, 2)) {
+            battler.status.set(StatusId::NEAR_FATAL);
+        }
+        if (oneIn(rng, 2)) {
+            battler.relicEffects4.set(RelicEffect4::PROTECT_WEAK_ALLIES);
+        }
+        // A Control link or a Seize hold on this battler, its other end on the battler holding it.
+        const battle::BattlerSlot other = anySlot(rng);
+        if (other != slot && oneIn(rng, 6)) {
+            const bool ending = oneIn(rng, 2);
+            battler.controlledBy = other;
+            battler.controlEnding = ending;
+            state.at(other).controlling = slot;
+            state.at(other).controlEnding = ending;
+        } else if (other != slot && oneIn(rng, 6)) {
+            battler.seizedBy = other;
+            state.at(other).seizing = slot;
+        }
+    }
+    battle::BattlerSet targets;
+    if (!oneIn(rng, 4)) {
+        targets = anyBattlers(rng);
+        if (targets.empty()) {
+            targets.add(anySlot(rng));
+        }
+    }
+    s.attack.targets = targets;
+    s.attack.params.reflectedOff = {};
+    s.attack.params.steppingIn = {};
+    s.attack.params.coveredAlly.reset();
+    return s;
 }
 
 }  // namespace ostinato::trace

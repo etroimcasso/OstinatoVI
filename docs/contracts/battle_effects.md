@@ -503,10 +503,9 @@ Umaro's three attacks, a desperation attack and the cover were ported with the c
 - **`CoverEffect :2838-2888`** and **`CheckCoverTarget :2914-2939`** (`coverTarget()`): the cover's
   checks read `$32b8,x` and `$3358,x` (`:2920-2923`), and the covered target's `$3358,y` (`:2863-2864`),
   with the accumulator 16 bits wide (`longa :2916`; `CoverEffect` is entered wide), so each `bpl` tests the
-  byte after: `$32b9` (the battler is controlled) and `$3359` (the battler is held in Seize). A battler
-  steps in only when no one controls it and no one holds it; the target is covered only when no one holds
-  it. `coverTarget()` reads the other cell of each pair — whether the battler controls a monster, and
-  whether it holds someone in Seize. This part does not match, and is recorded here for its own change.
+  byte after: `$32b9` (the battler is controlled; its top bit set while the link is ending) and `$3359`
+  (the battler is held in Seize). A battler steps in only when no live link controls it and no one holds
+  it; the target is covered only when no one holds it. Matches.
 
 ## K. Who carries each effect
 

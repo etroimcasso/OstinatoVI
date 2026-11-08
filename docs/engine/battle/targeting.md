@@ -15,6 +15,7 @@ The rules, and the line of the original each is read from, are in
 | `include/ostinato/command_targeting_init.h` | `CommandTargetingInit`, `CommandAttackLoad`: a command's aiming byte |
 | `src/battle/attack.h` | `AimingRules`, and the attack in flight that carries them |
 | `src/battle/targeting.h` | `initTargeting()`, `chooseTargets()`, `removeAbsentTargets()`, `coverTarget()`, `kFirstItemUsedAsItself` |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::coverEffect()` and `initParams()`, the cartridge's cover and its setting up of the attack's animation over a `DamageScenario`; `portCoverTarget()`, `portInitParams()` and `differences()`; `drawCoverScenario()` |
 
 ## The two bytes
 
@@ -78,7 +79,9 @@ otherwise the item's spell or the thrown edge's spell is loaded.
 
 `coverTarget()` runs after it, inside the attack frame: on a blow that can be critical, a Love
 Token's bodyguard or the True Knight wearer with the most HP steps in front of a Near Fatal ally and
-becomes the only target. The params record the ally and every battler who stepped in.
+becomes the only target. The params record the ally and every battler who stepped in. A bodyguard
+who is Controlled or held in Seize does not step in, and an ally held in Seize is not covered;
+controlling a monster or holding someone does not keep a bodyguard out.
 
 ## The aiming rules
 
@@ -88,8 +91,8 @@ traits, the command body and the attack frame add the rest.
 | Rule | Set by |
 |---|---|
 | `noCharacterTargets` | the aiming byte, an attack that cannot target the party |
-| `randomTarget` | the aiming byte, a random-target attack, an Offering, the randomize cell |
-| `fallBackToEarlierTargets` | the aiming byte, the last landing of a continuous jump |
+| `randomTarget` | the aiming byte, a random-target attack, an Offering, the randomize cell, a Dragon Horn landing with another to come |
+| `fallBackToEarlierTargets` | the aiming byte, a Dragon Horn landing with another to come |
 | `reflected` | a spell bounced off Reflect |
 | `mayTargetTheFallen` | the aiming byte, a resurrection attack, a reviving item |
 | `keepTargetsThatAreGone` | the aiming byte, every attack after a command's first |
@@ -112,6 +115,9 @@ traits, the command body and the attack frame add the rest.
   `AttackScratch::awayFromTheFieldUnreachable`, and every later aim in the same command can reach
   them. Turning counterattacks off (`ActionScratch::countersEnabled`) does not change who can be
   reached.
+- **A Dragon Horn aims the landings after the first.** `initParams()` sets `randomTarget` and
+  `fallBackToEarlierTargets` on every landing with another to come, so each later landing is aimed
+  at random. The first landing is aimed as the command aims it.
 - **A target off the field is kept only by the rules.** With `mayTargetTheFallen` set, the dead and
   the absent stay targets; otherwise a dead party member, a dead, petrified or zombie monster, and
   anyone hidden or absent is dropped.
