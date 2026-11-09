@@ -40,6 +40,10 @@ inline constexpr std::size_t kLearnableSpells = 54;
 // Strago's lores, Condemned to Exploder.
 inline constexpr std::size_t kLores = 24;
 
+// A character's maximum HP and MP never pass these, with or without equipment that raises them.
+inline constexpr int kMaxHp = 9999;
+inline constexpr int kMaxMp = 999;
+
 // One character the party can field: who they are, their progress and what they wear.
 //
 // `maxHp` and `maxMp` are the character's own maximums; equipment that raises them (a Muscle Belt,
@@ -92,9 +96,15 @@ struct PartyMembership {
     bool backRow = false;
 };
 
-// How far a character has learned each spell from its espers: a percentage, or kSpellLearned.
+// How far a character has learned each spell: a percentage (0-99), kSpellJustLearned, or
+// kSpellLearned.
+//
+// A spell reaches 100 % at the end of a won battle and is then kSpellJustLearned: learned, with the
+// battle's "learned" message for it still to show. Showing the message makes it kSpellLearned.
+// knows() is true for kSpellLearned only.
 struct SpellProgress {
     static constexpr std::uint8_t kSpellLearned = 255;
+    static constexpr std::uint8_t kSpellJustLearned = 128;
 
     std::array<std::uint8_t, kLearnableSpells> progress{};
 

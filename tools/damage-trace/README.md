@@ -1,7 +1,8 @@
 # ostinato-damage-trace
 
-Runs the cartridge on the engine's SNES machine and watches its damage, status and special-effect routines: what
-each one reads and writes while the game is played, whether every call so recorded comes out the
+Runs the cartridge on the engine's SNES machine and watches its damage, status and special-effect routines, and
+the esper's spells learned and the level-up at a won battle's end: what each one reads and writes while the game
+is played, whether every call so recorded comes out the
 same from the port, or whether the port's rules give the same answers the cartridge's own code does.
 It is a developer tool and is not part of the game.
 
@@ -51,7 +52,7 @@ Close the window to quit, or pass `--quit-after-frames <n>` to have it close its
 frames. The machine keeps the cartridge's battery save between runs, so a game saved in the window is
 there to load the next time.
 
-Seven routines are traced. An escape on each one's entry and on each instruction its callers return
+Nine routines are traced. An escape on each one's entry and on each instruction its callers return
 to opens and closes a call; watches over every cell the routines read or write log each access made
 inside a call:
 
@@ -64,6 +65,8 @@ inside a call:
 | `MagicStatusEffect` | `$C2:4406` | `$C2:345C` from the attack, `$C2:34F9` from a bounce | an attack's statuses on one target |
 | `DoAttackerEffect` | `$C2:3E7D` | `$C2:33A9` | an attack's special effect on the attack and its attacker |
 | `DoTargetEffect` | `$C2:387E` | `$C2:345F` from the attack, `$C2:34FC` from a bounce | an attack's special effect on one target |
+| `LearnGenjuMagic` | `$C2:602A` | `$C2:5E72` | at a won battle's end, the spells a party member's esper teaches learned further |
+| `DoLevelUp` | `$C2:60C2` | `$C2:60B4` | at a won battle's end, one level-up of a party member with its esper's bonus |
 
 Every call is logged to `damage-trace.log` under `<directory>`, nothing filtered, one line per event:
 
@@ -90,8 +93,11 @@ the battle's list of actions, what is to be worked out again for each battler, t
 battlers, the statuses each battler can be given, the damage ledger, the per-command and per-battle
 cells, and each battler's flags, stats, monster flags, the commands it was last hit with, gold, AI
 variable, pending statuses, triggers, statuses for a counterattack, four status timers, Forcefield
-elements, statuses and whether it is away from the field (`kTracedRanges` in `damage_oracle.h`). The
-addresses are the US cartridges'.
+elements, statuses and whether it is away from the field (`kTracedRanges` in `damage_oracle.h`). Inside a
+call of the last two routines the sixteen character records, the spells each character knows and the
+battle's-end cells in direct page (`$7E:00EE-00FF`: the win's flags, Morph available, the place of the
+spells being learned, the magic points and the level-up's gains) are logged as well
+(`kPartyRecordRanges`); inside any other call they are not. The addresses are the US cartridges'.
 
 ## Starting at a battle
 
@@ -173,7 +179,22 @@ queue:
 Frame 268 shows "Better off Green Cherry!" over both guards, still standing.
 `tests/fixtures/damage-trace/failed-metamorph.log` is this fight run for 2,400 frames, from
 `build/first-fight/battle.state`: Terra's Ragnarok and the guards' attacks after it, every call of
-the seven routines among them.
+the damage, status and special-effect routines among them.
+
+This fights the same battle to a win with Terra holding an esper and one level-up away: Terrato
+(`04`, the fifth esper) in her record's esper byte (`$7E:161E`), her level (`$7E:1608`) set to 3 and her
+experience (`$7E:1611`, three bytes) set to the 208 level 4 needs. `press-a.inputs` presses A for 4
+frames in every 16, which fights with each party member's first command at its first target:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/esper-win --headless --from build/first-fight/battle.state \
+    --inputs tools/damage-trace/press-a.inputs --frames 1500 \
+    --write-at 10 '$7E:161E' 04 --write-at 10 '$7E:1608' 03 --write-at 10 '$7E:1611' D00000
+```
+
+Frame 1400 shows "Got 96 GP" with both guards gone. `tests/fixtures/damage-trace/esper-win.log` is this
+run: the fight, Terrato's three spells learned with the battle's 0 magic points, Terra's level-up from 3
+to 4 and Wedge's and Vicks's from 1 to 2.
 
 ## Replaying
 
@@ -190,6 +211,10 @@ attacker of the block before — and its effect on one target takes the target t
 it were worked out for. The script's queue and params blocks stood elsewhere in the game than in the
 rebuilt battle, so what the call read and wrote of them is moved to the rebuilt battle's places. A party
 member's last hit and a hold in Seize that the call did not read stand as the attack frame left them.
+A level-up takes its record from the record cells the call touched. The esper's spells take the
+character from the spell cells read and the esper from which spells those are: each spell the esper
+teaches is read once, and no two espers teach the same spells. The magic points are the cell the call
+read, and a spell counts as stored when the call wrote the win's flags.
 The port's answer is compared with every cell the routine wrote.
 Each call is logged to `replay.log` with its differences; any difference is printed and fails the
 run:
@@ -205,9 +230,12 @@ Copy a recording into `tests/fixtures/damage-trace/` (any `.log` file name) and
 the first fight in Narshe, played from `first-fight.inputs`'s state, in which Terra's Bio Blast sets
 Poison and Sap on both guards; `tests/test_trace_state.cpp` checks that it holds a status being set.
 `failed-metamorph.log` is the same fight with the failed Metamorph written in (above), and
-`tests/test_trace_state.cpp` checks that it runs both effect routines, Metamorph's among them. The
-cartridge's own calls of the two status routines, traced through the oracle, are replayed by
-`tests/test_status_oracle.cpp`, and of the two effect routines by `tests/test_effects_oracle.cpp`.
+`tests/test_trace_state.cpp` checks that it runs both effect routines, Metamorph's among them.
+`esper-win.log` is the same fight won with Terrato written in (above), and `tests/test_espers_oracle.cpp`
+checks what its four record calls read and wrote. The cartridge's own calls of the two status routines,
+traced through the oracle, are replayed by `tests/test_status_oracle.cpp`, of the two effect routines by
+`tests/test_effects_oracle.cpp`, and of the two routines on the party's records by
+`tests/test_espers_oracle.cpp`.
 
 ## Checking
 
@@ -237,10 +265,12 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `target-effect` | `DoTargetEffect` | `tests/test_target_effects.cpp` |
 | `params` | `InitGfxParams` | `tests/test_cover_and_params.cpp` |
 | `cover` | `CoverEffect` | `tests/test_cover_and_params.cpp` |
+| `esper-learning` | `LearnGenjuMagic` | `tests/test_espers_oracle.cpp` |
+| `level-up` | `DoLevelUp` | `tests/test_espers_oracle.cpp` |
 
 `--replay-traced` also traces the traced routines' calls in each draw and replays them against the
-port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp` and
-`tests/test_effects_oracle.cpp` do; a target-effect draw's calls are given the draw's target.
+port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`, `tests/test_effects_oracle.cpp`
+and `tests/test_espers_oracle.cpp` do; a target-effect draw's calls are given the draw's target.
 
 ## Files
 
@@ -249,4 +279,5 @@ port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp` and
 | `main.cpp` | the command line, the window and the trace on it, the trace with no window, the scripted run to a battle, the state check, the replay run and the check run |
 | `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()` and `drawCoverScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |
+| `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; and over a `RecordScenario`: the esper's spells learned and the level-up; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()` and `drawLevelUpScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |

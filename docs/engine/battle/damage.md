@@ -157,7 +157,7 @@ hit's target in order, missed hits included.
 ## Checking a formula against the cartridge
 
 `DamageOracle` hosts a cartridge image, starts it as far as the game's reset code and parks it in
-native mode, binds seven routines where the cartridge holds them, and calls them over a
+native mode, binds its routines where the cartridge holds them, and calls the damage routines over a
 `DamageScenario` — the port's `BattleState`, `AttackInFlight` and attacker — written into the cells
 the routines read. It runs from a tick of a run loop; `runOnLoop()` is one with no window that steps
 as fast as the host allows:
@@ -224,9 +224,10 @@ and for the damage shown after a bounce, the attacker of the block before), and 
 battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
 `tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe, and
-`failed-metamorph.log` the same fight with a failed Metamorph written in. The trace also follows the
-statuses and the special effects; their calls replay the same way ([status.md](status.md),
-[effects.md](effects.md)). `--to-battle
+`failed-metamorph.log` the same fight with a failed Metamorph written in, and `esper-win.log` the same
+fight won with Terra holding an esper. The trace also follows the statuses, the special effects and,
+at a won battle's end, the esper's spells learned and the level-up; their calls replay the same way
+([status.md](status.md), [effects.md](effects.md), [espers.md](espers.md)). `--to-battle
 <inputs>` runs the cartridge to a battle from a script of buttons and writes the machine's state, and
 `--from <state>` starts the windowed trace from it
 ([tools/damage-trace/README.md](../../../tools/damage-trace/README.md)). `DamageOracle::trace(true)`

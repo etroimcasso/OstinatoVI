@@ -81,11 +81,13 @@ add_library(ostinato-vi-lib STATIC
     src/battle/commands.cpp
     src/battle/damage.cpp
     src/battle/item_attack.cpp
+    src/battle/leveling.cpp
     src/battle/links.cpp
     src/battle/morph.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/presentation.cpp
+    src/battle/spell_learning.cpp
     src/battle/spell_lists.cpp
     src/battle/status.cpp
     src/battle/system_commands.cpp
@@ -697,3 +699,22 @@ target_include_directories(ostinato-vi-battle-effects-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
 target_link_libraries(ostinato-vi-battle-effects-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-effects-tests)
+
+# The espers at a battle's end: the spells an equipped esper teaches learned further, and a
+# character's level-up with the esper's bonus, each worked out by hand from the original and checked
+# against the cartridge's own routines, run on the hosted cartridge over the same records
+# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-espers-tests
+    tests/test_espers_oracle.cpp
+    tests/test_leveling.cpp
+    tests/test_spell_learning.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-espers-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-espers-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-espers-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-espers-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
+target_link_libraries(ostinato-vi-battle-espers-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-espers-tests)
