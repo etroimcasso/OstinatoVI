@@ -17,7 +17,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/command_executor.h` | `CommandExecutor` |
 | `src/battle/system_commands.h` | the battle's own actions: `damageOverTime()`, `spellWithoutCaster()`, `statusTimersExpire()`, `partyEscapes()`, `seizeDrain()`, `formationChange()`, `setMonsterVisibility()`, `scan()` |
 | `src/battle/automatic_actions.h` | `chooseAutomaticAction()`, `chooseOwnCommand()`, `choosesItsOwnAttack()`, `chooseMonsterAction()`, `chooseDanceStep()`, `chooseRageAttack()`, `chooseRandomEsper()` |
-| `src/battle/action_queue.h` | the `Action` kinds, among them `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction` with `MonsterVisibilityMode`, `ScanAction` and `MonsterAnimationAction` |
+| `src/battle/action_queue.h` | the `Action` kinds, among them `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction` with `MonsterVisibilityMode`, `ScanAction`, `MonsterAnimationAction`, `BattleVariableAction`, `BattleSwitchAction` and `AiEffectAction` |
 | `src/battle/commands.h` | `runCommand()`, the bodies' loaders — `initAttacker()`, `attackerLevel()`, `loadWeaponAttack()`, `plainCommandAttack()`, `fightAttack()`, `setRage()` — and `commandForAttack()`, `isSpear()`, `itemStatuses()`, `kBattleEventTerraMagicScene`, `kTimeUpdatesBeforeDesperation` |
 | `src/battle/item_attack.h` | `itemAttack()`, `ItemUse` |
 | `src/battle/command_menu.h` | `refreshCommandMenu()`, `kMorphSupplyToMorph`, `kOfferingTargeting` |
@@ -197,6 +197,8 @@ hooks work out their damage and statuses like any other attack's.
 | `MonsterVisibilityAction` | `setMonsterVisibility()`: monsters leave or come back by `MonsterVisibilityMode` — revived at full or current HP, hidden as a target or not, hidden while the battle may not end, hidden and killed |
 | `ScanAction` | `scan()`: the level, HP, MP (unless the target has none) and each weakness nothing cancels, one message each, every message its own `RunBattleScript` played before the action's own, which is empty |
 | `MonsterDialogAction`, `BattleMessageAction`, `BattleEventAction`, `ResetBattlePose`, `MonsterAnimationAction` | only their command: `MonsterDialogShown`, `BattleMessage`, `BattleEventPlays`, `PoseReset`, `MonsterAnimationPlays` |
+| `BattleVariableAction`, `BattleSwitchAction` | `changeBattleVariable()`, `changeBattleSwitch()`: a monster's script sets, raises or lowers a variable, or toggles, sets or clears a switch ([ai.md](ai.md#the-three-commands-a-script-queues)); nothing is shown |
+| `AiEffectAction` | `runAiEffect()`: one of a monster's script's effects ([ai.md](ai.md#the-three-commands-a-script-queues)); `SetStatus` and `ClearStatus` make an attack on the battler itself, shown as `kNothingShown` |
 
 ```cpp
 AttackInFlight attack;

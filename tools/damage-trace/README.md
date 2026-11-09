@@ -269,6 +269,10 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `level-up` | `DoLevelUp` | `tests/test_espers_oracle.cpp` |
 | `ai-targets` | `CheckAITarget`, the battlers a monster's script names | `tests/test_ai_oracle.cpp` |
 | `ai-conditions` | the condition routines a monster's script tests, through the cartridge's table of them | `tests/test_ai_oracle.cpp` |
+| `ai-setup` | `InitAI`, a script readied into a slot that held another | `tests/test_ai_run_oracle.cpp` |
+| `ai-turns` | `ExecMonsterAction`, one turn of a script | `tests/test_ai_run_oracle.cpp` |
+| `ai-counters` | `ExecAIRetal`, a counterattack part on one of the eight paths through its guard | `tests/test_ai_run_oracle.cpp` |
+| `ai-commands` | `Cmd_2e`, `Cmd_2f` and `Cmd_30`, the three commands only a script queues, all but the two effects that make an attack | `tests/test_ai_run_oracle.cpp` |
 
 `--replay-traced` also traces the traced routines' calls in each draw and replays them against the
 port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`, `tests/test_effects_oracle.cpp`

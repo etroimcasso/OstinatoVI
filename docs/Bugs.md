@@ -652,3 +652,85 @@ shows the failed Metamorph set up on the running cartridge.
 
 **If you want to change it.** Writing the message after a successful draw only
 leaves a failed Metamorph with the attack's own animation.
+
+---
+
+## One Mag Roader answers attacks with Wild Cat's turn script
+
+**What happens.** The fourth Mag Roader's script ends its turn part and is
+missing the marker that ends its counterattack part. The game therefore reads
+the next script in the table — Wild Cat's turn part — as the Mag Roader's
+counterattacks. When it is attacked and is the only monster left, it may answer
+with Fire Ball (one time in three, nothing otherwise); with others still
+standing it answers with Wild Cat's blows, alternating between its two turns.
+
+**Where the original does it.** `battle/ai_script.asm:2530-2537` (script 243)
+has no `end_retal`. `InitAI` (`battle/battle_main.asm:7442-7466`) takes the byte
+after the turn part's end as the counterattack part's start unless it is
+`$ff`: that byte is the first of script 119 (`:2542`), 3410 bytes into the
+script block.
+
+**Where the port keeps it.** `src/data/generated/ai_scripts_data.inc` gives
+script 243 the counterattack part `kWildCatTurn`, and `readyAi()`
+(`src/battle/ai.cpp`) sets it as the slot's. `tests/test_ai_run.cpp`
+(`AiReadyTest.TheMagRoaderAnswersWithWildCatsTurnPart`) and
+`tests/test_ai_run_oracle.cpp`
+(`AiRunOracleTest.TheMagRoadersCounterattackPartIsWildCatsTurnPart`) pin it,
+against the cartridge's routine as well.
+
+**If you want to change it.** Giving the row an empty counterattack part makes
+the Mag Roader answer nothing, as its own script reads.
+
+---
+
+## A condition on the monster itself leaves the monster as the target
+
+**What happens.** A script condition that names a target also makes it the
+target of the attacks that follow it in the block. For a condition on the
+monster itself the game means to clear that target afterward, and clears only
+the party's half of it: the monster's own place stays. A monster's next attack
+in such a block is aimed at itself unless the script sets a target first. A
+party member a scripted battle gives a script is left with no target.
+
+**Where the original does it.** `AICond_17`
+(`battle/battle_main.asm:4920-4939`), the target test six other conditions also
+use, ends with `stz $fc; stz $fc` (`:4936-4937`) when the operand is `SELF`: the
+same byte twice, the party's half of the targets word, with the accumulator one
+byte wide.
+
+**Where the port keeps it.** `ConditionRules::testTarget()` in
+`src/battle/ai_conditions.cpp` keeps the targets' monsters only.
+`tests/test_ai_conditions.cpp` pins it for a monster and for a party member,
+against the cartridge's routine as well.
+
+**If you want to change it.** Clearing the whole targets word leaves the attacks
+after the condition aimed as the run started.
+
+---
+
+## A new monster keeps the script memory of the one before it in its slot
+
+**What happens.** When a battle changes formation, each monster slot keeps
+what its last monster's script had: its own variable and timer, where each part
+of its script had stopped at a wait and how many blocks it had skipped then,
+and — if the new monster's script has no counterattack part — the old
+monster's counterattack part. The new monster's first turn can therefore go on
+from the middle of the old monster's script, and a new monster can answer
+attacks as the old one did.
+
+**Where the original does it.** `Cmd_20` (`battle/battle_main.asm:13219-13230`)
+clears only `$3aa8`, `$3e54`, `$2001` and `$320c` before loading the new
+monsters; `InitAI` (`:7442-7466`) writes the turn part's start and, only for a
+script with one, the counterattack part's.
+
+**Where the port keeps it.** `readyAi()` in `src/battle/ai.cpp` sets the turn
+part and, only when the script has one, the counterattack part, and nothing
+else; `changeFormation()` leaves the slot's fields alone. `tests/test_ai_run.cpp`
+(`AiReadyTest.ANewMonsterWithNoCounterattackPartKeepsTheSlotsAndAllItsScriptMemory`)
+and `tests/test_ai_run_oracle.cpp`
+(`AiRunOracleTest.ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCartridgeKeeps`)
+pin it, against the cartridge's routine as well.
+
+**If you want to change it.** Clearing `Battler::turnResume`, `counterResume`,
+`counterScript`, `aiVariable` and `turnTimer` when a monster is loaded starts
+each new monster's script afresh.

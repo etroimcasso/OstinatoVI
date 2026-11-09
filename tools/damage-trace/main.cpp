@@ -103,7 +103,9 @@
 #include "retropp/windowed_host.h"
 
 #include "assets/cartridge.h"
+#include "battle/ai.h"
 #include "battle/damage.h"
+#include "data/ai_scripts.h"
 #include "damage_oracle.h"
 #include "machine_state.h"
 #include "ostinato/attack_flags.h"
@@ -460,7 +462,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 16> kSweeps{{
+constexpr std::array<Sweep, 20> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -569,6 +571,42 @@ constexpr std::array<Sweep, 16> kSweeps{{
          return DrawResult{trace::describe(c.scenario), "",
                            trace::differences(trace::portAiCondition(c.scenario, c.condition),
                                               oracle.aiCondition(c.scenario, c.condition))};
+     }},
+    {.name = "ai-setup",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         // A script readied into a slot that already held one, both drawn.
+         const auto slot = battle::BattlerSlot::monster(static_cast<int>(rng() % battle::kMonsterSlots));
+         trace::AiScenario s =
+             trace::drawAiRunScenario(rng, static_cast<std::uint16_t>(rng() % kAiScriptCount), slot);
+         s.state.at(slot).aiScript = static_cast<std::uint16_t>(rng() % kAiScriptCount);
+         const trace::AiScriptPlaces guest = oracle.readyAi(s, slot);
+         battle::readyAi(s.state, slot);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portScriptPlaces(s.state, slot), guest)};
+     }},
+    {.name = "ai-turns",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const auto actor = battle::BattlerSlot::fromIndex(static_cast<int>(rng() % battle::kBattlerSlots));
+         const trace::AiScenario s =
+             trace::drawAiRunScenario(rng, static_cast<std::uint16_t>(rng() % kAiScriptCount), actor);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portAiTurn(s), oracle.aiTurn(s))};
+     }},
+    {.name = "ai-counters",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         std::uint16_t script = 0;
+         do {
+             script = static_cast<std::uint16_t>(rng() % kAiScriptCount);
+         } while (!aiScript(script).hasCounter());
+         const auto guard = static_cast<trace::CounterGuard>(rng() % trace::kCounterGuards);
+         const trace::AiScenario s = trace::drawAiRunScenario(
+             rng, script, battle::BattlerSlot::monster(static_cast<int>(rng() % battle::kMonsterSlots)), guard);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portAiCounter(s), oracle.aiCounter(s))};
+     }},
+    {.name = "ai-commands",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiCommandCase c = trace::drawAiCommandCase(rng);
+         return DrawResult{trace::describe(c.scenario) + " " + trace::listedActionText(c.action), "",
+                           trace::differences(trace::portAiCommand(c.scenario, c.action),
+                                              oracle.aiCommand(c.scenario, c.action))};
      }},
 }};
 

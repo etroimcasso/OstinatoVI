@@ -1,21 +1,33 @@
 # Battle AI
 
-How a monster's AI script reads the battle: who a script names as its targets, and what its
-conditions test before a block of the script acts. The scripts themselves — one per monster, a turn
-part and a counterattack part, each a list of typed steps — are data, described in
-[the AI scripts page](../data-layer/monster-ai-scripts.md).
+How a monster's AI script runs in a battle: how a script is readied when its monster takes a slot,
+how a turn and a counterattack read it and queue what it reaches, who a script names as its targets,
+what its conditions test before a block of the script acts, and the three commands only a script
+queues. The scripts themselves — one per monster, a turn part and a counterattack part, each a list of
+typed steps — are data, described in [the AI scripts page](../data-layer/monster-ai-scripts.md).
 
-Two free functions hold the rules. `aiTargets()` turns a script's target into the battlers it names;
-`aiCondition()` tests one condition and aims the run as the condition does. Both read and change a
-`BattleState` and nothing else, and both draw from the battle's random numbers where the game does.
-`AiRun` carries what a run of a script keeps from one step to the next.
+Free functions hold the rules:
 
-The battle does not run monster scripts: `CommandExecutor::runAi()` and `runCounterAi()` take no action
-from them. A monster that is charmed, berserk, confused or fighting in the colosseum chooses its own
-attack (`chooseMonsterAction()`, [commands.md](commands.md)), as in the game.
+| Function | What it does |
+|---|---|
+| `readyAi()` | sets where a battler's two parts start, from `Battler::aiScript` |
+| `runAiTurn()` | reads the turn part and queues what it reaches |
+| `runAiCounter()` | reads the counterattack part, under the counterattack's guard |
+| `aiTargets()` | turns a script's target into the battlers it names |
+| `aiCondition()` | tests one condition and aims the run as the condition does |
+| `changeBattleVariable()`, `changeBattleSwitch()`, `runAiEffect()` | the three commands a script queues, run when the battle reaches them |
 
-Both are checked against the cartridge's own routines, run on the engine's SNES machine over the same
-battle.
+They read and change a `BattleState` and nothing else, and draw from the battle's random numbers where
+the game does. `AiRun` carries what a run of a script keeps from one step to the next.
+
+The battle's own AI seams do not call the first three: `CommandExecutor::initAi()`, `runAi()` and
+`runCounterAi()` take no action from a script, so a battle fought through `CommandExecutor` has its
+monsters act only when they choose their own attack. A monster that is charmed, berserk, confused or
+fighting in the colosseum chooses its own attack (`chooseMonsterAction()`, [commands.md](commands.md)),
+as in the game.
+
+All of it is checked against the cartridge's own routines, run on the engine's SNES machine over the
+same battle — every one but the two effects that make an attack, `SetStatus` and `ClearStatus`.
 
 The rules, and the line of the original each is read from, are in
 [`docs/contracts/battle_ai.md`](../../contracts/battle_ai.md).
@@ -24,15 +36,131 @@ The rules, and the line of the original each is read from, are in
 
 | File | Holds |
 |---|---|
+| `src/battle/ai.h` | `readyAi()`, `runAiTurn()`, `runAiCounter()` |
+| `src/battle/ai.cpp` | a part's run, step by step (`PartRun`), and the counterattack's guard |
+| `src/battle/action_queue.h` | the three actions only a script queues: `BattleVariableAction`, `BattleSwitchAction`, `AiEffectAction` |
+| `src/battle/system_commands.h` | `changeBattleVariable()`, `changeBattleSwitch()`, `runAiEffect()` |
+| `src/battle/system_commands.cpp` | the commands' bodies and `kAiEffectRules`, one row per effect |
 | `src/battle/ai_targets.h` | `AiRun`, `aiTargets()` |
 | `src/battle/ai_targets.cpp` | the battlers in the battle, one rule per selector from `SELF` on and the table that picks one |
 | `src/battle/ai_conditions.h` | `aiCondition()` |
 | `src/battle/ai_conditions.cpp` | the target test, one rule per condition |
 | `src/battle/targeting.h` | `removeAbsentTargets()` and `reachableTargets()`, the cut to the battlers an attack can reach |
-| `src/battle/battle_state.h` | `BattleState::battleVariables`, `monsterNamesListed`, `awayFromTheFieldUnreachable`; `Battler::aiVariable`, `turnTimer`, `targetingTarget`, `lastHit`, `lastAttacker`, `lastDamagedBy` |
+| `src/battle/battle_state.h` | `AiResume`, `kNoResume`; `BattleState::battleVariables`, `monsterNamesListed`, `awayFromTheFieldUnreachable`; `Battler::turnScript`, `counterScript`, `turnResume`, `counterResume`, `aiVariable`, `turnTimer`, `targetingTarget`, `lastHit`, `lastAttacker`, `lastDamagedBy` |
 | `src/data/ai_scripts.h` | `AiTarget`, `AiMonsters`, `AiVariable`, `AiSwitch`, `AiCondition` and the `ai::` condition types |
 | `include/ostinato/ai_target_selector.h` | `AiTargetSelector`, the thirty selectors |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::aiTargets()` and `aiCondition()`, the cartridge's routines over an `AiScenario`; `portAiTargets()`, `portAiCondition()` and `differences()`; `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()` |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::aiTargets()`, `aiCondition()`, `readyAi()`, `aiTurn()`, `nextAiTurn()`, `aiCounter()` and `aiCommand()`, the cartridge's routines over an `AiScenario`; the `port…` functions and `differences()`; `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAiRunScenario()`, `drawAiCommandCase()` |
+
+## Readying a script
+
+`readyAi()` reads `Battler::aiScript` — a monster's own script, or the one a scripted battle gives a
+party member — and sets where its two parts start:
+
+```cpp
+#include "battle/ai.h"
+
+const battle::BattlerSlot monster = battle::BattlerSlot::monster(0);
+state.at(monster).aiScript = static_cast<std::uint16_t>(MonsterId::LOBO);
+battle::readyAi(state, monster);
+// state.at(monster).turnScript is Lobo's turn part; Lobo has no counterattack part
+```
+
+A script with no counterattack part leaves the one the slot already holds, and nothing else is reset:
+where each part stopped at a wait, the battler's own variable and its timer stay as the slot had them.
+A monster that takes a slot in a formation change therefore keeps the old monster's script memory.
+
+## A turn and a counterattack
+
+`runAiTurn()` reads the battler's turn part with no targets. `runAiCounter()` reads its counterattack
+part with the battler it answers as its targets — none for a battler answering its own death:
+
+```cpp
+battle::runAiTurn(state, executor, monster);
+// what the turn part reached is on state.at(monster).actions
+
+state.counterattackRunning = true;
+battle::runAiCounter(state, executor, monster, battle::BattlerSet::of(battle::BattlerSlot::character(0)));
+// while a counterattack runs, what it reaches goes on state.at(monster).counterActions
+```
+
+`executor` aims the battle commands a run queues (`ActionExecutor::aim()`); a `CommandExecutor` aims
+them as the battle does.
+
+How a part is read:
+
+- **Every run starts at the top of the part.** A block's conditions are tested in order. A block whose
+  condition fails is skipped to its `endIf()`, the run counts it as skipped and goes on after it; the
+  part's `end()` after a failed block ends the run.
+- **A block that acts goes on to its `endIf()`, which ends the run.** The next run starts again from the
+  top. A condition after acting steps in the same block tests the battle as it is then — the actions
+  queued before it have not happened yet.
+- **`wait()` ends the run** and remembers the step after it and how many blocks the run had skipped
+  (`Battler::turnResume`, `counterResume`). The next run reads from the top as always; when it comes to
+  a step that acts having skipped that same number of blocks, it goes on from the remembered step
+  instead, once.
+- **The targets are the run's.** `setTarget()` and a condition that names a target change them; they
+  stay for every later action of the run, and a skipped block puts back the ones the run started with.
+- **An action is queued, not run.** An attack goes as the battle command it belongs to
+  (`commandForAttack()`); one of three attacks, commands or items is drawn, and a choice of nothing
+  queues nothing and the run goes on. A confused battler's commands go with no targets. Every battle
+  command takes its advance wait and its aim as it is queued — given targets stand, none are chosen —
+  except Lore's Roulette, which goes as the AI's Roulette with neither. The other steps queue their own
+  actions with no wait: a formation change, a dialog, monsters shown or hidden, a battle event, a
+  variable or switch changed, a monster animation, an effect.
+- **While a counterattack runs**, everything a run queues is a counterattack (`addActionOrCounter()`).
+
+### The counterattack's guard
+
+A battler's counterattack part runs once a battle step (`BattleState::counterAiRanThisStep`). Its run
+is **restricted** — only a block that `ai::MonstersDead` or `ai::Always` opens may act, and every other
+block is skipped — when:
+
+- it died this step (`BattleState::diedAwaitingCounter`) and no other battler attacked it this step
+  (`attackedThisStep`);
+- Quick is running for another battler;
+- the statuses it answers with (`Battler::statusForCounter`) hold Sleep, Confuse, Berserk, Stop or
+  Frozen;
+- it is charmed.
+
+A block that is skipped restricts the run again, even after one of the two conditions lifted it. This
+is how a monster asleep, confused or charmed still makes the attack its script gives it as it dies. A
+monster that chooses its own attack on its turn still runs its counterattack part.
+
+## The three commands a script queues
+
+A script's variable, switch and effect steps queue `BattleVariableAction`, `BattleSwitchAction` and
+`AiEffectAction`. `CommandExecutor::execute()` runs each for the battler that queued it:
+
+```cpp
+#include "battle/system_commands.h"
+
+state.battleVariables[0] = 255;
+battle::changeBattleVariable(state, monster,
+                             battle::BattleVariableAction{.variable = AiVariable::battle(0),
+                                                          .change = AiVariableChange::Add,
+                                                          .amount = 1});
+// state.battleVariables[0] == 0: the sum stays within the variable's byte
+
+battle::changeBattleSwitch(state, monster,
+                           battle::BattleSwitchAction{.which = AiSwitch::battleSwitch(73),
+                                                      .change = AiSwitchChange::Set});
+// state.switches.isSet(73)
+```
+
+| Effect | What it does |
+|---|---|
+| `ResetOwnTimer`, `ResetBattleTimer` | `Battler::turnTimer` or `BattleState::battleCounter` back to 0 |
+| `MakeInvincible`, `EndInvincible` | the target joins or leaves `BattleState::invincible` |
+| `MakeUntargetable`, `MakeTargetable` | the target's monsters join or leave `BattleState::aiUntargetable` |
+| `EndBattle`, `EndBattleLearningRages` | `BattleState::endOfBattleEvent` becomes `EndNow` or `RagesLearned` |
+| `RecruitGau` | Gau is recruited (`gauRecruited`), and the battler's character record joins the party being played at the battler's slot, its row kept |
+| `FillGauge` | if the target names anyone, the battler's own gauge fills at the next time update |
+| `SetStatus`, `ClearStatus` | an attack by the battler on itself that puts the status on or takes it off, showing nothing |
+| `HideSelf` | Hide goes straight onto the battler's statuses |
+| `Nothing` | nothing; no script holds it |
+
+An effect's target is found as a condition finds one: every battler in the battle, with no cut to
+those in reach.
 
 ## Who a script names
 
@@ -174,9 +302,31 @@ trace::runOnLoop([&] {
 ```
 
 The condition is written into the cells the cartridge's script reader leaves a step in, and its
-routine is found through the cartridge's own table of conditions. `drawAiTargetsCase()` and
-`drawAiConditionCase()` draw battles from a seeded generator, and `ostinato-damage-trace --check` runs
-them as `ai-targets` and `ai-conditions`.
+routine is found through the cartridge's own table of conditions.
+
+A script's run is checked the same way. `DamageOracle::aiTurn()` and `aiCounter()` run the cartridge's
+turn and counterattack over a scenario whose battlers' scripts are readied, and `portAiTurn()` and
+`portAiCounter()` run the port's; the result holds the actions queued as the cartridge's lists hold
+them, the advance wait, the script's places and the counterattack's sets. `nextAiTurn()` runs the
+cartridge's next turn on its own state, so a turn after a turn is compared without the port's state
+written back:
+
+```cpp
+trace::AiScenario s = trace::drawAiRunScenario(rng, static_cast<std::uint16_t>(MonsterId::LOBO),
+                                               battle::BattlerSlot::monster(0));
+battle::BattleState port = s.state;
+const std::string first = trace::differences(trace::portAiTurn(port, s.actor), oracle.aiTurn(s));
+const std::string second = trace::differences(trace::portAiTurn(port, s.actor), oracle.nextAiTurn(s.actor));
+```
+
+A place in a script is compared as the cartridge keeps it, a byte offset into its script block. A
+script's readying is `DamageOracle::readyAi()` against `portScriptPlaces()`; the three commands are
+`DamageOracle::aiCommand()` against `portAiCommand()`, except `SetStatus` and `ClearStatus`, whose
+attack the oracle does not set up.
+
+`drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAiRunScenario()` and `drawAiCommandCase()` draw
+battles from a seeded generator, and `ostinato-damage-trace --check` runs them as `ai-targets`,
+`ai-conditions`, `ai-setup`, `ai-turns`, `ai-counters` and `ai-commands`.
 
 ## Gotchas
 
@@ -195,15 +345,41 @@ them as `ai-targets` and `ai-conditions`.
 - **`AiMonsters::all()` names the two slots past the sixth.** No monster is alive in them, so
   `ai::MonstersAlive{AiMonsters::all()}` never holds.
 - **`PREV_ATTACKER` names no one while the monster is still to answer it.**
+- **The fourth Mag Roader answers attacks with Wild Cat's turn part.** Its script has no end to its
+  counterattack part, so the game reads on into the next script; `readyAi()` gives it the same part.
+- **A run goes on from a wait only when it has skipped the same number of blocks.** A run that skips
+  more or fewer acts from wherever it is.
+- **A formation change keeps the slot's script memory**, including a counterattack part the new
+  monster's script does not have, and where the old monster's parts stopped at a wait.
+- **`FillGauge` fills the gauge of the monster that asks**, not the target's; the target only decides
+  whether.
+- **A one-of-three step draws a random number even when it draws nothing.** A single attack draws none.
+- **Show-or-hide with `AiMonsters::self()` names the monster itself**; for a party member it names no
+  monster.
+
+## The battle's script state
+
+| Field | What it is |
+|---|---|
+| `Battler::turnScript`, `counterScript` | the two parts `readyAi()` set; `counterScript` empty for a battler that answers nothing |
+| `Battler::hasCounterScript` | whether a counterattack part is set; the battle queues a counterattack for a battler with one |
+| `Battler::turnResume`, `counterResume` | where each part stopped at a wait (`AiResume::at`) and the blocks it had skipped (`blocksSkipped`, `kNoResume` when it did not stop at one) |
+| `BattleState::counterAiRanThisStep` | the battlers whose counterattack part ran this battle step |
 
 ## Where to change
 
 | To change | Edit |
 |---|---|
+| How a part is read, step by step | `PartRun::read()` in `src/battle/ai.cpp` |
+| What a step queues | its `PartRun::act()` overload in `src/battle/ai.cpp` |
+| When a counterattack is restricted | `runAiCounter()` and `answersRestricted()` in `src/battle/ai.cpp` |
+| Where a script's parts are set | `readyAi()` in `src/battle/ai.cpp` |
+| What a variable or switch change does | `changeBattleVariable()`, `changeBattleSwitch()` in `src/battle/system_commands.cpp` |
+| What an effect does | its rule in `kAiEffectRules` in `src/battle/system_commands.cpp` |
 | Who a selector names | its rule in `kSelectorRules` in `src/battle/ai_targets.cpp` |
 | What the sides are | `battlersInTheBattle()` in `src/battle/ai_targets.cpp` |
 | The cut to the reachable | `reachableTargets()` and `removeAbsentTargets()` in `src/battle/targeting.cpp` |
 | What a condition tests | its `operator()` in `ConditionRules` in `src/battle/ai_conditions.cpp` |
 | The target test | `ConditionRules::testTarget()` in `src/battle/ai_conditions.cpp` |
 | The names counted | `refreshRunDifficulty()` in `src/battle/battle_loop.cpp` |
-| The cells the oracle writes and reads for a script | `writeAiCells()`, `DamageOracle::aiTargets()` and `DamageOracle::aiCondition()` in `tools/damage-trace/damage_oracle.cpp` |
+| The cells the oracle writes and reads for a script | `writeAiCells()`, `writeAiRunCells()`, `readAiRunResult()` and `DamageOracle::aiCommand()` in `tools/damage-trace/damage_oracle.cpp` |

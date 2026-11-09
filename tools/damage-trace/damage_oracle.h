@@ -481,10 +481,15 @@ struct SpellLearningResult {
 // One battle as a monster's AI script reads it: the state, the battler whose script it is, and what
 // the script's run holds so far — its targets, the targets it started with, and whether it is
 // restricted.
+//
+// A scenario run as a turn or a counterattack reads every battler's script as the state holds it
+// (Battler::turnScript, counterScript and the two resumes, readied with battle::readyAi()), and a
+// counterattack answers `answering`.
 struct AiScenario {
     battle::BattleState state;
     battle::BattlerSlot actor = battle::BattlerSlot::monster(0);
     battle::AiRun run;
+    battle::BattlerSet answering;
 };
 
 // What finding a script's targets leaves, as the same fields on both sides: the battlers found,
@@ -518,6 +523,89 @@ struct AiConditionResult {
 [[nodiscard]] AiConditionResult portAiCondition(AiScenario scenario, const AiCondition& condition);
 
 [[nodiscard]] std::string differences(const AiConditionResult& port, const AiConditionResult& guest);
+
+// One battler's script as the cartridge keeps it: where its turn part and its counterattack part
+// start, each counted in bytes from the start of the cartridge's script block ($FFFF for none), and
+// for each part the blocks skipped and the place to go on from when it last stopped at a wait (the
+// place 0 when it has never stopped at one).
+struct AiScriptPlaces {
+    std::uint16_t turn = 0;
+    std::uint16_t counter = 0;
+    std::uint8_t turnSkipped = 0;
+    std::uint16_t turnWaitPlace = 0;
+    std::uint8_t counterSkipped = 0;
+    std::uint16_t counterWaitPlace = 0;
+};
+
+// The port's script for `slot` over the scenario, as the cartridge keeps it.
+[[nodiscard]] AiScriptPlaces portScriptPlaces(const battle::BattleState& state, battle::BattlerSlot slot);
+
+[[nodiscard]] std::string differences(const AiScriptPlaces& port, const AiScriptPlaces& guest);
+
+// What a turn or a counterattack's run of a script leaves, as the same fields on both sides: the
+// battler's actions and counterattacks as the cartridge's lists hold them (each "command attack
+// targets MP", with "--" for the bytes the command never reads), its advance wait, its script's
+// places, its Targetting mark, the three sets a counterattack's guard reads and changes, the
+// counterattack line by battler and the random-number position.
+struct AiRunResult {
+    std::vector<std::string> actions;
+    std::vector<std::string> counterActions;
+    std::optional<std::uint8_t> advanceWait;
+    AiScriptPlaces script;
+    std::optional<battle::BattlerSlot> targetingTarget;
+    battle::BattlerSet counterAiRanThisStep;
+    battle::BattlerSet diedAwaitingCounter;
+    battle::BattlerSet attackedThisStep;
+    std::vector<int> counterQueue;
+    std::uint8_t rngPosition = 0;
+};
+
+// One action as the cartridge's lists hold it, with "--" for the bytes its command never reads.
+[[nodiscard]] std::string listedActionText(const battle::Action& action);
+
+// The port's turn (battle::runAiTurn) and counterattack (battle::runAiCounter, with a counterattack
+// running) over the scenario, read back as an AiRunResult. The commands are aimed by CommandExecutor.
+[[nodiscard]] AiRunResult portAiTurn(AiScenario scenario);
+[[nodiscard]] AiRunResult portAiCounter(AiScenario scenario);
+
+// The port's turn for `actor` on `state`, which keeps what the run leaves — for turns run one after
+// another.
+[[nodiscard]] AiRunResult portAiTurn(battle::BattleState& state, battle::BattlerSlot actor);
+
+[[nodiscard]] std::string differences(const AiRunResult& port, const AiRunResult& guest);
+
+// What one of the three commands only a script queues leaves, as the same fields on both sides: the
+// four battle variables, the twenty switch bytes, every battler's own variable, timer, ATB rate,
+// statuses and statuses to set and to clear; the invincible and AI-untargetable sets, the battle's
+// timer, the end-of-battle event, Gau recruited and the party membership of every character record;
+// and the random-number position.
+struct AiCommandResult {
+    std::array<std::uint8_t, kAiBattleVariables> battleVariables{};
+    std::array<std::uint8_t, game::kBattleVariables> switches{};
+    std::array<std::uint8_t, battle::kBattlerSlots> ownVariables{};
+    std::array<std::uint16_t, battle::kBattlerSlots> ownTimers{};
+    std::array<std::uint16_t, battle::kBattlerSlots> atbRates{};
+    std::array<StatusSet, battle::kBattlerSlots> statuses{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToSet{};
+    std::array<StatusSet, battle::kBattlerSlots> statusesToClear{};
+    battle::BattlerSet invincible;
+    battle::BattlerSet aiUntargetable;
+    std::uint16_t battleCounter = 0;
+    std::optional<battle::EndOfBattleEvent> endOfBattleEvent;
+    bool gauRecruited = false;
+    std::array<game::PartyMembership, game::kCharacterRecords> membership{};
+    // Each record's enabled and shown bits, which the port does not keep: the commands' scenario
+    // writes them in a fixed pattern, and recruiting Gau sets the enabled bit of the record it
+    // recruits.
+    std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
+    std::uint8_t rngPosition = 0;
+};
+
+// The port's command `action` (a BattleVariableAction, BattleSwitchAction or AiEffectAction) run by
+// CommandExecutor::execute() for the scenario's actor, read back as an AiCommandResult.
+[[nodiscard]] AiCommandResult portAiCommand(AiScenario scenario, const battle::Action& action);
+
+[[nodiscard]] std::string differences(const AiCommandResult& port, const AiCommandResult& guest);
 
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
@@ -635,6 +723,31 @@ public:
     // script can hold.
     [[nodiscard]] AiConditionResult aiCondition(const AiScenario& scenario, const AiCondition& condition);
 
+    // `slot`'s script readied (InitAI), called as loading a monster calls it: the script's index in
+    // the accumulator and the slot in Y, both wide. The slot's script cells start as the scenario's
+    // state holds them, so what the routine leaves alone shows.
+    [[nodiscard]] AiScriptPlaces readyAi(const AiScenario& scenario, battle::BattlerSlot slot);
+
+    // The scenario's actor's turn (ExecMonsterAction), called as taking a turn calls it: the actor in
+    // X, no targets and no counterattack running.
+    [[nodiscard]] AiRunResult aiTurn(const AiScenario& scenario);
+
+    // The scenario's actor's counterattack (ExecAIRetal), called as making a counterattack calls it:
+    // the actor in X, the scenario's `answering` as the targets and a counterattack running.
+    [[nodiscard]] AiRunResult aiCounter(const AiScenario& scenario);
+
+    // A turn after the last aiTurn()/aiCounter(), on the cartridge's own state from then: only the
+    // actor's lists are emptied first, so what the runs carry from one to the next (the places,
+    // the counts, the marks, the random numbers) is the cartridge's alone.
+    [[nodiscard]] AiRunResult nextAiTurn(battle::BattlerSlot actor);
+
+    // The command `action` (a BattleVariableAction, BattleSwitchAction or AiEffectAction) for the
+    // scenario's actor (Cmd_2e, Cmd_2f or Cmd_30), called as running a command calls it: the cells a
+    // command starts with, the actor in Y and the action's three bytes where the command reads them.
+    // SetStatus and ClearStatus are not compared here: they run the cartridge's whole attack, whose
+    // cells this does not write.
+    [[nodiscard]] AiCommandResult aiCommand(const AiScenario& scenario, const battle::Action& action);
+
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
     [[nodiscard]] const std::vector<WatchedWrite>& writes() const { return writes_; }
@@ -705,6 +818,12 @@ private:
     [[nodiscard]] SpellLearningResult readSpellLearningResult(CharacterPropId actor);
     [[nodiscard]] std::string replayRecordCall(const TracedCall& call, const TracedRoutine& routine);
     void writeAiCells(const AiScenario& scenario);
+    void writeAiScriptCells(const battle::BattleState& state);
+    void writeAiRunCells(const AiScenario& scenario, bool counter);
+    void emptyActionLists(battle::BattlerSlot actor);
+    [[nodiscard]] AiScriptPlaces readScriptPlaces(battle::BattlerSlot slot);
+    [[nodiscard]] AiRunResult readAiRunResult(battle::BattlerSlot actor);
+    [[nodiscard]] AiCommandResult readAiCommandResult();
     [[nodiscard]] std::optional<battle::BattlerSlot> readTargetingTarget(battle::BattlerSlot actor);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
@@ -745,6 +864,12 @@ private:
     retropp::Routine<TargetsCall> checkAiTarget_;
     // The condition routines by the game's numbering, each where the cartridge's table points.
     std::vector<retropp::Routine<ConditionCall>> aiConditions_;
+    using SetupCall = void(std::uint16_t, std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    retropp::Routine<SetupCall> initAi_;
+    retropp::Routine<Call> execMonsterAction_;
+    retropp::Routine<Call> execAiRetal_;
+    // The three commands, by the command number less 0x2E.
+    std::array<retropp::Routine<Call>, 3> aiCommands_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -890,5 +1015,34 @@ struct AiConditionCase {
 
 // One line naming a drawn AI battle's inputs, for a report.
 [[nodiscard]] std::string describe(const AiScenario& scenario);
+
+// The ways a counterattack's guard can find the battler, each a different path through it.
+enum class CounterGuard : std::uint8_t {
+    AlreadyRan,           // its counterattack part has run this step
+    DiedAfterAnAttack,    // it died this action, and another attacked it this step
+    DiedUnattacked,       // it died this action with no one else attacking it
+    QuickForAnother,      // Quick is running for another battler
+    HeldByAStatus,        // it answers with Sleep, Confuse, Berserk, Stop or Frozen
+    Charmed,
+    Free,
+    QuickForItself,
+};
+inline constexpr int kCounterGuards = 8;
+
+// A drawn battle in which `actor` runs `script` (drawAiScenario()'s battle, the actor on the field,
+// the script readied, its advance wait unset or short, no one away from the field unless the last
+// command left them out of reach), for a counterattack with the guard on `guard`'s path and the
+// battler it answers drawn.
+[[nodiscard]] AiScenario drawAiRunScenario(std::mt19937& rng, std::uint16_t script, battle::BattlerSlot actor,
+                                           CounterGuard guard = CounterGuard::Free);
+
+// A drawn battle with one of the three commands only a script queues, every operation and every
+// effect but the two that make an attack (SetStatus, ClearStatus), its operands drawn within what a
+// script can hold.
+struct AiCommandCase {
+    AiScenario scenario;
+    battle::Action action;
+};
+[[nodiscard]] AiCommandCase drawAiCommandCase(std::mt19937& rng);
 
 }  // namespace ostinato::trace

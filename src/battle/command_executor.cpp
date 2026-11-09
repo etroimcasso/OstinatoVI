@@ -72,6 +72,18 @@ std::vector<BattleScriptCommand> CommandExecutor::execute(BattleState& state, st
                                          .monsters = animation->monsters,
                                          .soundEffect = animation->soundEffect,
                                          .pan = animation->pan});
+    } else if (const auto* variable = std::get_if<BattleVariableAction>(&action)) {
+        if (actor) {
+            changeBattleVariable(state, *actor, *variable);
+        }
+    } else if (const auto* change = std::get_if<BattleSwitchAction>(&action)) {
+        if (actor) {
+            changeBattleSwitch(state, *actor, *change);
+        }
+    } else if (const auto* effect = std::get_if<AiEffectAction>(&action)) {
+        if (actor) {
+            runAiEffect(state, hooks_, script, attack, *actor, *effect);
+        }
     }
     state.scratch.physical = attack.record.traits.has(AttackTrait::PHYSICAL);
     state.scratch.finalTargets = attack.targets;

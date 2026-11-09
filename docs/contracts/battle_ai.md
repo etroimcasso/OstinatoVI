@@ -1,28 +1,46 @@
 # Battle AI — behavioral contract
 
-Behavioral specification for a monster's AI script as the battle reads it: who a script names as its
-targets and what each of its conditions tests. All citations point into the pinned reference tree
-`original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into `src/battle/battle_main.asm`
-unless another file is named. This document is the test authority for `tests/test_ai_targets.cpp`,
-`tests/test_ai_conditions.cpp` and `tests/test_ai_oracle.cpp`.
+Behavioral specification for a monster's AI script as the battle reads it: how a script is readied
+when its monster takes a slot, how a turn and a counterattack read it, who it names as its targets,
+what each of its conditions tests, and the three commands only a script queues. All citations point
+into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
+`src/battle/battle_main.asm` unless another file is named. This document is the test authority for
+`tests/test_ai_targets.cpp`, `tests/test_ai_conditions.cpp`, `tests/test_ai_oracle.cpp`,
+`tests/test_ai_run.cpp`, `tests/test_ai_commands.cpp` and `tests/test_ai_run_oracle.cpp`.
 
 The scripts themselves are data: `src/data/ai_scripts.h`, described in
 [`docs/engine/data-layer/monster-ai-scripts.md`](../engine/data-layer/monster-ai-scripts.md). The rules
-here are `src/battle/ai_targets.h` and `src/battle/ai_conditions.h`. Every claim about `CheckAITarget`
-and the condition routines is also checked against the cartridge itself: each routine is run on the
-cartridge, hosted on the engine's SNES machine, over the same battle the port is given
-(`tools/damage-trace/damage_oracle.h`).
+here are `src/battle/ai.h`, `src/battle/ai_targets.h`, `src/battle/ai_conditions.h` and the three
+commands in `src/battle/system_commands.h`. Every claim about the routines named below is also checked
+against the cartridge itself: each routine is run on the cartridge, hosted on the engine's SNES
+machine, over the same battle the port is given (`tools/damage-trace/damage_oracle.h`) — every one but
+the two effects that make an attack (H).
 
-The cells the script reader keeps: `$f8` restricted (one byte, 0 when not), `$fc` the targets now,
-`$fe` the targets the run started with, `$3a2c`–`$3a2f` the four bytes of the step it is at (a
-condition's are `$fc`, its number, its two operands). A battler is named in the cartridge's cells by
-twice its slot index; a set of battlers is a word with the party's bits in its low byte and the
-monsters' in its high byte (`$3018`, a battler's bit).
+The cells the script reader keeps: `$f0` the place it is at, `$f2` the place to go on from after a
+wait, `$f4` the blocks skipped when the part last stopped at a wait, `$f5` the blocks skipped this
+run, `$f6` the battler, `$f8` restricted (one byte, 0 when not), `$fc` the targets now, `$fe` the
+targets the run started with, `$3a2c`–`$3a2f` the four bytes of the step it is at (a condition's are
+`$fc`, its number, its two operands). A place is a byte offset into the cartridge's script block
+(`AIScript`, `$CF8700`). A battler is named in the cartridge's cells by twice its slot index; a set of
+battlers is a word with the party's bits in its low byte and the monsters' in its high byte (`$3018`, a
+battler's bit).
 
 ## Sources
 
 | Behavior | Source | Port surface |
 |---|---|---|
+| A script readied | `InitAI :7442-7466`, `FindAIScriptEnd :4233-4249` | `readyAi()` in `ai.cpp` |
+| A turn's run | `ExecMonsterAction :447-463` | `runAiTurn()` |
+| A counterattack's run | `ExecAIRetal :12468-12508` | `runAiCounter()` |
+| One step | `ExecAI :4215-4227`, `NextAICmd :4341-4382`, `ExecAICmd :4332-4334`, `conditionmiss :4314-4325` | `PartRun::read()` in `ai.cpp` |
+| The steps that act | `AICmd_f0`–`ff :4271-4549`, `AIRand3 :4292-4301` | `PartRun::act()` |
+| An attack's command | `GetCmdForAI :5006-5032` | `commandForAttack()` (`battle/commands.h`) |
+| The AI's Roulette | `FixRoulette :574-582` | `kRouletteCommand` (`battle/attack.h`) |
+| A command's wait and aim | `CalcCmdDelay :614-647` | `addAdvanceWait()` (`battle/actions.h`) |
+| Where the action waits | `CreateDefaultAction :12900-12964` | `addActionOrCounter()` |
+| A variable changed | `Cmd_2e :5049-5065`, `_1e38 :5088-5093` | `changeBattleVariable()` (`battle/system_commands.h`) |
+| A switch changed | `Cmd_2f :5071-5085`, `_c21e57 :5119-5126` | `changeBattleSwitch()` |
+| An effect | `Cmd_30 :5132-5137`, `MiscAIEffect_00`–`_0d :5142-5309` | `runAiEffect()` and its table |
 | Who a script names | `CheckAITarget :5318-5366`, `AITargetTbl :5565-5589`, the handlers `:5372-5561` | `aiTargets()` and its table in `ai_targets.cpp` |
 | A pick of one | `RandBit :13495-13515`, `RandA :12390-12404` | `BattleRng::pickFrom()` |
 | A coin | `RandCarry :12367-12372` | `BattleRng::coin()` |
@@ -49,8 +67,128 @@ over (`ExecAI :4218-4223`), and restricted as its entry sets it (`ExecAICmd :433
 (`AICmd_fc :4307-4312`) runs its routine with the carry clear (`asl` of the number, `:4309`) and the
 battler in Y, and goes on to the next step when the routine returns with the carry set.
 
-The port's seams: `aiTargets(state, actor, target, reachableOnly)` and `aiCondition(state, actor,
-condition, run)`, with `AiRun` holding `$fc`, `$fe` and `$f8`.
+The port's seams: `readyAi(state, slot)`, `runAiTurn(state, executor, actor)`, `runAiCounter(state,
+executor, actor, answering)`, `aiTargets(state, actor, target, reachableOnly)` and `aiCondition(state,
+actor, condition, run)`, with `AiRun` holding `$fc`, `$fe` and `$f8`. The battle's own seams —
+`CommandExecutor::initAi()`, `runAi()` and `runCounterAi()` — do not call the first three; a battle
+fought through `CommandExecutor` runs no script.
+
+## B. A script readied — `InitAI`
+
+1. The turn part's place (`$3254,y`) ← `AIScriptPtrs[index]` (`:7447-7450`).
+2. `FindAIScriptEnd` is called until it returns the part's end (`:7453-7455`): past every end of a
+   block to the end of the part.
+3. The byte after that end: `$ff` → nothing more is written (`:7456-7458`); anything else → the
+   counterattack part's place (`$3268,y`) ← there (`:7459-7461`). Script 243 (the fourth Mag Roader,
+   `ai_script.asm:2530-2537`) has no end of its counterattack part: the byte after its end is the first
+   byte of script 119 (Wild Cat) at offset 3410 of the block, so **its counterattack part is Wild Cat's
+   turn part** and ends where that ends.
+4. **Nothing else is written.** A battle starts (`InitBattle :6056-6067`) with every place `$ffff` (no
+   script), both counts `$ff`, both places to go on from 0, the battler's own variable (`$3dac`) and
+   timer (`$3dc0`) 0. A formation change (`Cmd_20 :13219-13230`) clears only `$3aa8`, `$3e54`, `$2001`
+   and `$320c` before it loads the new monsters, so **a new monster in a slot keeps the old one's
+   counts and places to go on from, its own variable and timer, and — when the new script has no
+   counterattack part — the old one's counterattack part.**
+
+Port: `readyAi()` sets `Battler::turnScript` and, only when the script has one, `counterScript`, and
+`hasCounterScript` to whether a counterattack part is set; nothing else. `changeFormation()` leaves the
+fields alone. A battler with no script (`Battler::aiScript` empty) is left as it is.
+
+## C. A run — `ExecMonsterAction`, `ExecAIRetal`, `ExecAI`, `NextAICmd`
+
+**Entry.** A turn: `$3a98` ← 0 (not restricted); place ← the turn part, place to go on from ←
+`$3d0c,x`, saved count ← `$3240,x` (`:449-455`). A counterattack: G sets `$3a98`, then place ← the
+counterattack part, place to go on from ← `$3d20,x`, saved count ← `$3241,x` (`:12494-12499`). `ExecAI`:
+`$fc` and `$fe` ← `$b8` (a word: the targets handed over), `$f5` ← 0, `$f6` ← the battler
+(`:4218-4223`); `ExecAICmd` copies `$3a98` to `$f8`. **Exit:** the place to go on from and `$f5` are
+stored back (`:458-462`, `:12502-12506`). **Every run starts from the top of its part.**
+
+**One step** (`NextAICmd`):
+
+1. The four bytes at the place are loaded (`GetNextAICmd :4255-4265`).
+2. **The resume rule** (`:4345-4354`): if the step is not a condition, a wait, an end of a block or the
+   end (its byte below `$fc`) **and** `$f5` equals the saved count `$f4`: the saved count becomes `$ff`,
+   the place becomes the place to go on from, and the step there is loaded instead — whatever kind of
+   step it is. The rule is tested at every step that acts, not only the first: a run that skips a
+   block after acting (a condition after acting steps) can reach the saved count later. It fires once
+   a run at most.
+3. The place moves past the step (`:4355-4368`).
+4. **Restricted** (`:4370-4374`): if `$f8` is not 0 and the step acts (byte below `$fc`), the block is
+   skipped (step 6) as if a condition had failed.
+5. The step (`:4375-4382`):
+   - a condition (`AICmd_fc :4307-4312`): its routine (F); the carry set → the next step, with `$f8`
+     as the routine left it; clear → the block is skipped.
+   - a wait (`AICmd_fd :4271-4275`): the place to go on from ← the place (already past the wait);
+     **the run ends** with `$f5` as it stands.
+   - an end of a block or the end (`AICmd_fe :4282-4286`): `$f5` ← `$ff`; **the run ends**.
+   - anything else: D, then the next step.
+6. **The block is skipped** (`conditionmiss :4314-4325`): `$fc` ← `$fe`; from the place, the next end
+   of a block or end is found (`FindAIScriptEnd`); the end → `$f5` ← `$ff` and the run ends; an end of a
+   block → the place is past it, **`$f5` += 1**, `$f8` ← `$3a98` again, the next step.
+
+In the game's terms: each run reads the part from its top; a block whose condition fails is skipped and
+counted; the end of a block or the part's end ends the run, and the next starts fresh; a wait ends the
+run and remembers the step after it and how many blocks had been skipped; the next run goes on from
+that step once it reaches a step that acts having skipped the same number. A condition may stand after
+acting steps in a block (for example `ai_script.asm:4264-4266`, a variable added to and then tested):
+it tests the battle as it is then — an action queued earlier in the run has not happened yet, so the
+variable has not changed.
+
+Port: `PartRun::read()` in `ai.cpp`, over the part's `AiStep`s. The count is a `std::uint8_t`
+(`AiResume::blocksSkipped`, `kNoResume` = 255) and the place to go on from a pointer to a step
+(`AiResume::at`), into the script the part was read from — after a formation change, the old
+monster's (B.4). The cartridge's place 0 is `at == nullptr`; no run resumes to it, since a count other
+than `$ff` is stored only by a wait, which also stores the place.
+
+## D. The steps that act
+
+**D.1 — an attack** (a byte below `$f0`, `_1b25 :4428`): the command is `GetCmdForAI` of the attack. No
+random number is drawn. → D.5.
+
+**D.2 — one of three attacks** (`$f0`, `AICmd_f0 :4426-4427`, `AIRand3 :4292-4301`): `RandA(3)` picks one
+of the three operands; the value `$fe` is **nothing**: no action, and the run goes on to the next step.
+Otherwise as D.1. The source writes a lone attack numbered `$f0` or above as three equal operands
+(`ai_script.inc:83-91`), so that form draws where D.1 does not.
+
+**D.3 — one of three commands** (`$f4`, `AICmd_f4 :4413-4416`): the same draw and the same nothing; the
+action is that command with attack 0.
+
+**D.4 — an item used or thrown** (`$f6`, `AICmd_f6 :4392-4403`): Item for an operand of 0, Throw
+otherwise; the first item is copied over the operand byte, so the draw is among *first, first,
+second*: the first two times in three. The value `$fe` is nothing, as above.
+
+**D.5 — the action** (`_1b28 :4431-4444`): the targets are `$fc`; while the battler's status holds
+**Confuse** (`bit #STATUS12::CONFUSE` on the status now, `:4436-4439`) they are empty. Lore's Roulette
+becomes the AI's Roulette command (`FixRoulette`). `CalcCmdDelay`: a command below `$1e` adds its
+advance wait and is aimed — targets given stand, none are chosen (`ChooseTarget`); the AI's Roulette
+(`$1e`) takes neither. `CreateDefaultAction` puts it on the counterattack list while a counterattack
+runs (`$b1` bit 0), else on the battler's own list. **`$fc` is not cleared**: the targets stay for every
+later action of the run until a skipped block puts back `$fe` or a step changes them.
+
+**D.6 — targets set** (`$f1`, `AICmd_f1 :4450-4457`): `CheckAITarget` with the operand and the carry
+clear (E — the cut applies); `$fc` ← the set, empty included.
+
+**D.7 — the steps that queue an action of their own** (`_1b78 :4510-4519`, `AICmd_f7 :4526-4533`,
+`AICmd_fa :4539-4549`): the command with the step's first operand as its attack byte and the next two
+as its targets word; `CreateDefaultAction`; no wait and no aim. The targets word is whatever the step's
+next two bytes are: for a step three bytes long (a dialog, a variable change, an effect) its high byte
+is the first byte of the step after it, and the battle event step (`AICmd_f7`) writes no targets word
+at all — its action carries the targets the run last set. No command reads those bytes: a dialog and a
+battle event read only their attack byte, a variable change and an effect only the targets word's low
+byte.
+
+| Step | Action | What the command reads |
+|---|---|---|
+| `$f2` change battle | `FormationChange` | the exit and the scroll flag (attack byte), the formation and restore flag (targets word) |
+| `$f3` monster dialog | `MonsterDialogAction` | the dialog's low byte (attack byte); 117 uses, 89 dialogs, the highest 140 |
+| `$f5` show or hide monsters | `MonsterVisibilityAction` | the entrance (attack byte), the mode and the monsters (targets word); **a mask of 0 becomes the battler's own monster bit** (`AICmd_f5 :4464-4470`, `$3019,y`: none for a party member) |
+| `$f7` battle event | `BattleEventAction` | the event (attack byte) |
+| `$f8` change a variable | `BattleVariableAction` (H.1) | the variable (attack byte), the change and amount (targets word's low byte) |
+| `$f9` change a switch | `BattleSwitchAction` (H.2) | the change (attack byte), the variable and the bit (targets word) |
+| `$fa` monster animation | `MonsterAnimationAction` | the animation (attack byte), the monsters — or for the sound effect its pan and number (targets word) |
+| `$fb` an effect | `AiEffectAction` (H.3) | the effect (attack byte), its operand (targets word's low byte) |
+
+Port: `PartRun::act()` in `ai.cpp`, one overload per kind of step.
 
 ## E. Who a script names — `CheckAITarget`
 
@@ -153,6 +291,77 @@ whose name is not hidden (`$3c9d` bit 2), a name group (`$3388`) not yet among t
 (`:15192-15235`). `refreshRunDifficulty()` writes the same count beside the run difficulty, from the same
 loop.
 
+## G. A counterattack's guard — `ExecAIRetal`
+
+1. The battler's bit is taken out of `$33fc`; **it was already out → nothing runs** (`:12472-12474`):
+   one run a battle step. Port: `BattleState::counterAiRanThisStep` holds the battlers whose bit is
+   out.
+2. The battler's bit is taken out of `$3a56` (`diedAwaitingCounter`):
+   - **it was in** (`@4c28 :12490-12492`): its bit in `$33fe` is set. It was clear — another battler
+     attacked it this step (`CheckRetal :12544-12545` clears it; `attackedThisStep`) → step 3; it was
+     set → **restricted**. Port: `attackedThisStep.has()` is "the bit was clear", and setting it is
+     `remove()`.
+   - **it was not** (`:12477-12480`): Quick is running for another battler (`$3404` a battler and not
+     this one — the word at `$3403` read for its sign) → **restricted**; else step 3.
+3. The statuses it answers with (`$3e60`/`$3e74`, `Battler::statusForCounter`) hold Sleep, Confuse or
+   Berserk (`bit #$b000`) or Stop or Frozen (`bit #$0210`) → **restricted**; it is charmed (`$3395,x`
+   a battler — the word at `$3394` read for its sign) → **restricted**; else not.
+4. Restricted is `$3a98` = `$ffff`. The counterattack part runs (C) either way, with `$b8` — the
+   battler the counter action answers, or none for a battler answering its own death — as its targets.
+
+**What restricted does** (C step 4 with F): only a block that reaches `ifMonstersDead` or `always`
+before its first step that acts runs; every other block is skipped, one after another. A skipped
+block restricts the run again. It is how a monster asleep, confused, stopped or charmed still makes
+the attack its script gives it as it dies.
+
+A battler whose turn part does not run — charmed, berserk, confused, in the colosseum (`:214-222`) —
+still runs its counterattack part, restricted or not as above. A scripted party member's turn part
+runs whatever its status (A).
+
+## H. The three commands — the battler that queued them in Y
+
+**H.1 — `Cmd_2e :5049-5065`, a variable set, raised or lowered.** `$b6` the variable, `$b8` the amount
+with the change in its top two bits. Top bit clear → **set**: bit 6 is dropped and the variable
+becomes the low six bits. `$80` → **add**; `$c0` → **subtract** (`eor #$bf; inc` makes the six-bit
+amount's negative, `:5061-5062`). The sum is a byte: **it wraps** (`adc $ee`, `:5063`, the carry clear
+from `GetBattleVar`'s `clc` and the set path's `lsr` of `$80`). Stored by `_1e38 :5088-5093`. The
+scripts' amounts are 0, 1 and 4. Port: `changeBattleVariable()`, the sum in the variable's
+`std::uint8_t`.
+
+**H.2 — `Cmd_2f :5071-5085`, a switch toggled, set or cleared.** `$b9` the bit (a 1 rotated in through
+the carry: bit *n* for *n* up to 7), `$b8` the variable, `$b6` the change: 0 toggle (`eor`), 1 set
+(`ora`), 2 clear (`and` with the complement). Stored the same way. Port: `changeBattleSwitch()`; a
+variable index from 4 is a game battle switch (`AiSwitch::battleSwitch()`, `game::BattleSwitches`).
+
+**H.3 — `Cmd_30 :5132-5137` and `MiscAIEffectTbl :5295-5309`.** `$b6` the effect, the accumulator `$b8`
+its operand. A target is found by `CheckAITarget` with the carry set (no cut).
+
+| # | `AiEffect` | Line | What it does |
+|---|---|---|---|
+| 0 | `ResetOwnTimer` | `:5142-5146` | the battler's timer ← 0 |
+| 1 | `MakeInvincible` | `:5166-5174` | the target joins `$3a3c` (`BattleState::invincible`) |
+| 2 | `EndBattle` | `:5158-5161` | `$3a6e` ← 8 (`EndOfBattleEvent::EndNow`) |
+| 3 | `RecruitGau` | `:5213-5227` | `$1edf` bit 3 set (`gauRecruited`); the battler's character record (`$3ed9,y`) joins the party played (`$1a6d`) at the battler's slot, its row kept, its enabled bit set and its shown bit kept (`$1850`: `ora #$40; and #$e0`, then the party and the slot) |
+| 4 | `ResetBattleTimer` | `:5232-5235` | `$3a44` ← 0 |
+| 5 | `EndInvincible` | `:5179-5187` | the target leaves `$3a3c` |
+| 6 | `MakeTargetable` | `:5193-5198` | the target's monsters (`$b9`) join `$2f46` — they leave `aiUntargetable` |
+| 7 | `MakeUntargetable` | `:5203-5208` | the target's monsters leave `$2f46` — they join `aiUntargetable` |
+| 8 | `FillGauge` | `:5240-5246` | if the target names anyone, the high byte of **the battler's own** ATB rate (`$3ac9,y`) ← `$ff`: its gauge fills at the next time update; the target only decides whether |
+| 9 | `EndBattleLearningRages` | `:5151-5153` | `$3a6e` ← 10 (`EndOfBattleEvent::RagesLearned`) |
+| 10 | `Nothing` | `:5289-5290` | nothing; no script holds it |
+| 11 | `SetStatus` | `:5260-5262`, `_c21eeb :5268-5279` | an attack by the battler on itself: the plain attack set up again (`_c2298a :6892-6909` — the battle's own attack, undodgeable, no effect, level 0), the status's bit put in the attack's statuses (`GetBitPtr`), nothing shown (`$b5` ← `$12`), `ExecSelfAttack` |
+| 12 | `ClearStatus` | `:5251-5255` | the same with the attack's remove-status flag (`$11a4` bit 2) |
+| 13 | `HideSelf` | `:5284-5287` | Hide set on the battler's status **directly** (`$3ef9,y`), outside the statuses taking effect |
+
+Port: `runAiEffect()` behind `kAiEffectRules`, one row per effect in this order. `SetStatus` and
+`ClearStatus` are the attack `statusTimersExpire()` makes (`Cmd_29 :13335-13367`) less the casting
+swirl's reset: `Cmd_29` turns the swirl off (`trb $b0`), `Cmd_30` does not. They are checked against the
+listing, not against the cartridge: the oracle does not set up the cells the cartridge's whole attack
+reads. `RecruitGau` reads the battler's record index for any battler; the scripts that hold it are
+party members' (`$3ed9,y` of a monster is not a record), and the port changes a record only for a
+battler that has one. The port keeps no enabled or shown bit; the oracle writes both and checks that
+the enabled bit is set and the shown bit kept.
+
 ## I. Widths and carries
 
 - `AICond_06`: `lda $3a2f; xba; longa; lsr` — the operand becomes the high byte, then is halved: × 128.
@@ -169,10 +378,75 @@ loop.
 - `_c25917`: `lda $341a` with A a word wide tests `$341b`'s top bit.
 - `GetAITargetMask` and `AICond_19` read `$3019,y`: a monster's bit; 0 for a party slot.
 - The reader tests `$f8` one byte wide (`NextAICmd :4370`); `stz $f8` lifts the restriction.
+- `ExecMonsterAction` loads the saved count with A a word wide (`lda $3240,x`): `$f4` ← the turn's
+  count and `$f5` ← the counterattack's; `ExecAI` then clears `$f5`.
+- `ExecAIRetal`: `lda $3403; bmi` with A a word wide tests `$3404`; `lda $3394,x; bpl` tests `$3395,x`.
+- `Cmd_2e`: the `lsr` between the two `trb`s turns `$80` into `$40` for the second; its carry out is 0,
+  so the add that follows has no carry in on either path.
+- `Cmd_2f`'s `_c21e57` rotates a 1 in through the carry: bit *n* for *n* up to 7 with A a byte wide.
+- `AICmd_f5`'s own-bit rule reads `$3019,y`: a monster's bit; 0 for a party slot.
+- `_1b28`'s Confuse test is on the status now (`$3ee4`); G's are on the statuses it answers with.
+- The count `$f5` is a byte and is compared as one.
+
+## J. What the scripts hold
+
+Every step and every branch of every routine above is the port's. What the scripts do and do not
+hold is recorded here as fact; it changes no rule:
+
+- No script reaches the conditions `$00`/`$0a`, `$0e`, `$18`, `$1c`, `$11` with a mask of 0; the effects
+  5, 8, 10 and 12; the monster animations 5 and 8; the show-or-hide mode 5; a toggle of a monster's own
+  switch. Each is ported; the conditions, the toggle and the effects 5, 8 and 10 are checked on the
+  cartridge.
+- The typed steps have no form for an operand no script holds (`data/ai_scripts.h`): a byte-wise
+  variable from 4 to 35, a bit above 7, an amount above 63, a switch change above 2, an effect above
+  13, a condition above `$1c`, the value `$fe` as an attack, command or item, a dialog above 255.
+- A party member a scripted battle gives a script reads scripts 256 to 383 (`kCharacterAiScripts`).
+
+## K. State
+
+| Cell | Port |
+|---|---|
+| `$3254` / `$3268` the parts | `Battler::turnScript`, `counterScript` (spans into `kAiScripts`); `hasCounterScript` |
+| `$3240` / `$3d0c`, `$3241` / `$3d20` the counts and places to go on from | `Battler::turnResume`, `counterResume` (`AiResume`) |
+| `$3eb0`–`$3eb3` | `BattleState::battleVariables` |
+| `$3dac`, `$3dc0` | `Battler::aiVariable`, `turnTimer` |
+| `$3a3c`, `$2f46` | `BattleState::invincible`, `aiUntargetable` |
+| `$3a44`, `$3a6e` | `BattleState::battleCounter`, `endOfBattleEvent` |
+| `$33fc`, `$3a56`, `$33fe` | `BattleState::counterAiRanThisStep`, `diedAwaitingCounter`, `attackedThisStep` |
+| `$3e60`/`$3e74` | `Battler::statusForCounter` |
+| `$3ac8` | `Battler::atbRate` |
+| `$1edf` bit 3, `$1850` | `BattleState::gauRecruited`, `game::Party::membership` |
+
+## L. What the original never does
+
+- A script shows nothing itself: every picture is the queued actions' (`battle/battle_script.h`).
+- A script draws random numbers only through D.2–D.4's draw, E's picks and coin, and F's status pick;
+  a command's aim draws as the aim's own rules say.
+- `AICmdSizeTbl` and the step bytes are the cartridge's way of stepping through a script; the port reads
+  typed steps.
+- A charmed, berserk or confused monster, and one in the colosseum, chooses its own attack on its turn
+  (`chooseMonsterAction()`).
+
+## M. Behavior kept as the cartridge has it
+
+- **The fourth Mag Roader answers attacks with Wild Cat's turn part** (B.3).
+- **A condition on the monster itself leaves the monster as its target** (F, the target test).
+- **A formation change keeps the slot's script memory** (B.4).
+- "Less than" in the source's macro names is at most, "greater" at least, the timers are compared at
+  half their reading, and the source's `if_gau_present` holds when Gau is not recruited (F). The
+  port's names say what happens.
+- `ifStatus` and `ifNoStatus` draw a random number whenever a target has the status, holding or not.
+- `ifLevelBelow` holds when its target names no one.
+- Reading the Targetting mark uses it up, in a condition as in a target step.
+- `FillGauge` fills the gauge of the monster that asks, not the target's (H.3).
+- A lone attack numbered `$f0` or above still draws (D.2).
+- A set amount is six bits (H.1).
+- A monster's script reads the reach flag the last command left (E).
 
 ## Rules read through other surfaces
 
 - `RandBit`'s pick, `RandCarry`'s coin, `CheckTargetsPresent` and the reach check are the port's shipped
   `pickFrom()`, `coin()`, `removeAbsentTargets()` and `reachableTargets()`.
-- `AICmdSizeTbl` and the step bytes are the cartridge's way of stepping through a script; the port reads
-  typed steps.
+- `GetCmdForAI`, `CalcCmdDelay`, `ChooseTarget` and `CreateDefaultAction` are `commandForAttack()`,
+  `addAdvanceWait()`, `CommandExecutor::aim()` and `addActionOrCounter()`; the five shipped actions a
+  script queues are run by `CommandExecutor::execute()` ([`battle_commands.md`](battle_commands.md)).

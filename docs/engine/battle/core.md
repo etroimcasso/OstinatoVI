@@ -191,7 +191,8 @@ An `Action` is one of: `CommandAction` (a battle command with its attack, target
 `ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, `BattleMessageAction` (the battle's opening
 message), `NoAction` (handed to the executor when a battler's turn comes with nothing chosen), and the
 ones a monster's AI asks for: `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction`,
-`ScanAction` and `MonsterAnimationAction` ([commands.md](commands.md#the-battles-own-actions)).
+`ScanAction`, `MonsterAnimationAction`, `BattleVariableAction`, `BattleSwitchAction` and
+`AiEffectAction` ([commands.md](commands.md#the-battles-own-actions)).
 
 ```cpp
 #include "battle/actions.h"

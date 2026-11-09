@@ -27,11 +27,13 @@
 
 #include "battle/battle_script.h"
 #include "battle/battler_set.h"
+#include "data/ai_scripts.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/formation_id.h"
 #include "ostinato/monster_entrance_type.h"
 #include "ostinato/monster_visibility_mode.h"
+#include "ostinato/status_id.h"
 
 namespace ostinato::battle {
 
@@ -140,10 +142,33 @@ struct MonsterAnimationAction {
     std::uint8_t pan = 0;
 };
 
+// A monster's script sets one of its variables, or adds to it or subtracts from it
+// (data/ai_scripts.h). The sum stays within the variable's byte: 255 + 1 is 0, 0 - 1 is 255.
+struct BattleVariableAction {
+    AiVariable variable;
+    AiVariableChange change = AiVariableChange::Set;
+    std::uint8_t amount = 0;  // at most 63
+};
+
+// A monster's script toggles, sets or clears a switch: a bit of one of its variables, or one of
+// the game's battle switches.
+struct BattleSwitchAction {
+    AiSwitch which;
+    AiSwitchChange change = AiSwitchChange::Set;
+};
+
+// A monster's script asks for one of the effects that are not attacks (AiEffect). `target` is read
+// by the effects that name one, `status` by SetStatus and ClearStatus.
+struct AiEffectAction {
+    AiEffect effect = AiEffect::Nothing;
+    AiTarget target;
+    StatusId status{};
+};
+
 using Action = std::variant<CommandAction, AiTurn, DamageOverTime, SpellWithoutCaster, StatusTimersExpired,
                             PartyEscape, ResetBattlePose, SeizeDrain, BattleEventAction, BattleMessageAction,
                             NoAction, FormationChange, MonsterDialogAction, MonsterVisibilityAction, ScanAction,
-                            MonsterAnimationAction>;
+                            MonsterAnimationAction, BattleVariableAction, BattleSwitchAction, AiEffectAction>;
 
 // The battle events the battle's end starts: Shadow walking off, and Gau turning up on the Veldt.
 inline constexpr std::uint8_t kShadowLeavesEvent = 11;

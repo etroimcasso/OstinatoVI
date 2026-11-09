@@ -14,6 +14,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -26,8 +27,15 @@
 #include "retropp/timing.h"
 
 #include "ai_script_bytes.h"
+#include "battle/ai.h"
 #include "battle/ai_conditions.h"
 #include "battle/ai_targets.h"
+#include "battle/command_executor.h"
+#include "data/monster_sprites.h"
+#include "data/text_corpus.h"
+#include "fixtures/ai_scripts_expected.h"
+#include "ostinato/monster_animation.h"
+#include "ostinato/text_class.h"
 #include "battle/attacker_effects.h"
 #include "battle/battle_hooks.h"
 #include "battle/battle_script.h"
@@ -75,6 +83,18 @@ constexpr std::uint32_t kCoverEffect = 0xC2123B;
 constexpr std::uint32_t kLearnGenjuMagic = 0xC2602A;
 constexpr std::uint32_t kDoLevelUp = 0xC260C2;
 constexpr std::uint32_t kCheckAiTarget = 0xC21F25;
+constexpr std::uint32_t kInitAi = 0xC22D71;
+constexpr std::uint32_t kExecMonsterAction = 0xC202DC;
+constexpr std::uint32_t kExecAiRetal = 0xC24BF4;
+// The three commands only a script queues: a variable changed, a switch changed, an effect.
+constexpr std::array<std::uint32_t, 3> kAiCommands{0xC21DFA, 0xC21E1A, 0xC21E5E};
+// The calls each AI routine returns to as the battle program makes them: loading a monster's
+// properties calls InitAI, taking a turn calls ExecMonsterAction, making a counterattack calls
+// ExecAIRetal, and running a command calls the command's routine through its table.
+constexpr std::uint32_t kInitAiCall = 0xC22C3A;
+constexpr std::uint32_t kExecMonsterActionCall = 0xC20139;
+constexpr std::uint32_t kExecAiRetalCall = 0xC24B97;
+constexpr std::uint32_t kCommandCall = 0xC213FE;
 // A script's target test, the condition that names a target and the first step of six others.
 constexpr std::uint32_t kAiTargetTest = 0xC21D34;
 // The table of a script's condition routines (AICondTbl), a word per condition in the game's
@@ -107,7 +127,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 18> kOpenings{{
+constexpr std::array<RoutineOpening, 28> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -127,6 +147,17 @@ constexpr std::array<RoutineOpening, 18> kOpenings{{
     {"the AI's target test", kAiTargetTest, {0xAD, 0x2E, 0x3A, 0x48}, 4},            // lda $3a2e; pha
     // The test's clearing of its targets for the monster itself, the same byte twice.
     {"the AI's target test's clear", kAiTargetTest + 0x1B, {0x64, 0xFC, 0x64, 0xFC}, 4},  // stz $fc; stz $fc
+    {"InitAI", kInitAi, {0xDA, 0x48, 0x08, 0xC2}, 4},                                // phx; pha; php; rep
+    {"ExecMonsterAction", kExecMonsterAction, {0xC2, 0x20, 0x9C, 0x98}, 4},          // rep #$20; stz $3a98
+    {"ExecAIRetal", kExecAiRetal, {0x08, 0xC2, 0x20, 0x9C}, 4},                      // php; rep #$20; stz
+    {"Cmd_2e", kAiCommands[0], {0xA6, 0xB6, 0x20, 0x45}, 4},                         // ldx $b6; jsr GetBattleVar
+    {"Cmd_2f", kAiCommands[1], {0xA6, 0xB9, 0x20, 0x57}, 4},                         // ldx $b9; jsr _c21e57
+    {"Cmd_30", kAiCommands[2], {0xA5, 0xB6, 0x0A, 0xAA}, 4},                         // lda $b6; asl; tax
+    // The calls they return to.
+    {"the call to InitAI", kInitAiCall, {0x20, 0x71, 0x2D, 0x00}, 3},                // jsr InitAI
+    {"the call to ExecMonsterAction", kExecMonsterActionCall, {0x20, 0xDC, 0x02, 0x00}, 3},  // jsr
+    {"the call to ExecAIRetal", kExecAiRetalCall, {0x20, 0xF4, 0x4B, 0x00}, 3},      // jsr ExecAIRetal
+    {"the command call", kCommandCall, {0xFC, 0xC7, 0x19, 0x00}, 3},                  // jsr (CmdTbl,x)
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
@@ -420,6 +451,17 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
             {.inputs = {retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
              .output = retropp::snes::P,
              .isa = retropp::Isa::Wdc65816}));
+    }
+
+    initAi_ = machine_.bindRoutine<SetupCall>(
+        kInitAi, {.inputs = {retropp::snes::C, retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+                  .isa = retropp::Isa::Wdc65816});
+    execMonsterAction_ = machine_.bindRoutine<Call>(kExecMonsterAction, byteWide);
+    execAiRetal_ = machine_.bindRoutine<Call>(kExecAiRetal, byteWide);
+    for (std::size_t i = 0; i < kAiCommands.size(); ++i) {
+        aiCommands_[i] = machine_.bindRoutine<Call>(
+            kAiCommands[i], {.inputs = {retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+                             .isa = retropp::Isa::Wdc65816});
     }
 }
 
@@ -5159,6 +5201,785 @@ std::string describe(const AiScenario& s) {
     return "actor " + std::to_string(s.actor.index()) + " random-number position " +
            std::to_string(s.state.rng.position()) + " run targets " + setText(s.run.targets) + " starting " +
            setText(s.run.startingTargets) + (s.run.restricted ? " restricted" : "");
+}
+
+// --- a monster's AI script run -------------------------------------------------------------------
+
+namespace {
+
+// Per battler, at twice the battler's index: where its turn part and counterattack part start (a
+// word each, $FFFF for none), the blocks each part skipped when it last stopped at a wait (a byte
+// each, the turn part's first; $FF for none), and the place each goes on from (a word each).
+constexpr std::uint32_t kTurnPlace = kWorkRam + 0x3254;
+constexpr std::uint32_t kCounterPlace = kWorkRam + 0x3268;
+constexpr std::uint32_t kTurnSkipped = kWorkRam + 0x3240;
+constexpr std::uint32_t kCounterSkipped = kWorkRam + 0x3241;
+constexpr std::uint32_t kTurnWaitPlace = kWorkRam + 0x3D0C;
+constexpr std::uint32_t kCounterWaitPlace = kWorkRam + 0x3D20;
+constexpr std::uint16_t kNoPlace = 0xFFFF;
+// Per battler, at twice the battler's index: its advance wait ($FF unset), and the first entry of
+// its list of actions and of counterattacks ($FF for none).
+constexpr std::uint32_t kAdvanceWait = kWorkRam + 0x322C;
+constexpr std::uint32_t kActionList = kWorkRam + 0x32CC;
+constexpr std::uint32_t kCounterList = kWorkRam + 0x32CD;
+constexpr std::uint8_t kUnsetWait = 0xFF;
+// The actions waiting (kActionNext, kActionCommand, kActionTargets and kActionMp above): 128 entries.
+constexpr std::uint32_t kActionEntries = 128;
+constexpr std::uint8_t kNoEntry = 0xFF;
+// Where each spell sits in a party member's spell list, one byte per attack ($FF: not in it).
+constexpr std::uint32_t kSpellListPlaces = kWorkRam + 0x3084;
+constexpr std::uint32_t kSpellListPlaceCount = 256;
+// The counterattack line: the battlers in it, at twice their index, and where it starts and ends.
+constexpr std::uint32_t kCounterQueue = kWorkRam + 0x3920;
+constexpr std::uint32_t kCounterQueueStart = kWorkRam + 0x3A68;
+constexpr std::uint32_t kCounterQueueEnd = kWorkRam + 0x3A69;
+// The battle program's flags byte: bit 0, a counterattack is running.
+constexpr std::uint32_t kBattleFlags = kWorkRam + 0x00B1;
+constexpr std::uint8_t kCounterattackRunningBit = 0x01;
+// The battlers whose counterattack part has not run this step, the battlers that died this action
+// and may answer it, and the battlers not attacked by another this step (a word each).
+constexpr std::uint32_t kCounterAiNotRun = kWorkRam + 0x33FC;
+constexpr std::uint32_t kDiedAwaitingCounter = kWorkRam + 0x3A56;
+constexpr std::uint32_t kNotAttackedThisStep = kWorkRam + 0x33FE;
+// Quick's turns left (its battler is kQuickTarget above).
+constexpr std::uint32_t kQuickTurnsLeft = kWorkRam + 0x3402;
+// Per battler, at twice the battler's index: the statuses it answers an attack with (a word for
+// the first two bytes, a word for the last two), and a party member's record among the sixteen.
+constexpr std::uint32_t kCounterStatus12 = kWorkRam + 0x3E60;
+constexpr std::uint32_t kCounterStatus34 = kWorkRam + 0x3E74;
+constexpr std::uint32_t kRecordIndex = kWorkRam + 0x3ED9;
+// The commands' cells (and kEndOfBattleEvent above, twice the event's number): each battler's ATB
+// rate (a word at twice its index), each character record's party byte (the party in bits 0-2, the
+// slot in bits 3-4, the back row in bit 5, enabled in bit 6, shown in bit 7) and the party played.
+constexpr std::uint32_t kAtbRate = kWorkRam + 0x3AC8;
+constexpr std::uint32_t kPartyBytes = kWorkRam + 0x1850;
+constexpr std::uint32_t kPartyPlayed = kWorkRam + 0x1A6D;
+constexpr std::uint8_t kPartyNumberBits = 0x07;
+constexpr int kPartySlotShift = 3;
+constexpr std::uint8_t kPartySlotBits = 0x03;
+constexpr std::uint8_t kPartyRowBit = 0x20;
+constexpr std::uint8_t kRecordEnabledBit = 0x40;
+constexpr std::uint8_t kRecordShownBit = 0x80;
+// The monsters an attack may be aimed at as the AI leaves them (a bit set: it may be), and the
+// second reach cell, which the AI's effects leave alone.
+constexpr std::uint32_t kAiTargetable = kWorkRam + 0x2F46;
+constexpr std::uint32_t kReachSecondCell = kWorkRam + 0x3408;
+constexpr std::uint32_t kAiRestrictedOnEntry = kWorkRam + 0x3A98;
+// The cells a command reads its operands from: the attack byte, then the targets word.
+constexpr std::uint32_t kCommandAttack = kWorkRam + 0x00B6;
+constexpr std::uint32_t kCommandTargets = kWorkRam + 0x00B8;
+constexpr std::uint8_t kMonsterSlotBits = 0x3F;
+// A command's start sets the sixteen cells from kLastSpell.
+constexpr std::uint32_t kPerCommandCells = 16;
+
+// The command each AI-only action goes out as.
+constexpr std::uint8_t kFormationChangeCommand = 0x20;
+constexpr std::uint8_t kMonsterDialogCommand = 0x21;
+constexpr std::uint8_t kBattleEventCommand = 0x23;
+constexpr std::uint8_t kMonsterVisibilityCommand = 0x24;
+constexpr std::uint8_t kMonsterAnimationCommand = 0x2B;
+constexpr std::uint8_t kVariableCommand = 0x2E;
+constexpr std::uint8_t kSwitchCommand = 0x2F;
+constexpr std::uint8_t kEffectCommand = 0x30;
+// The steps that open with the three commands' own bytes.
+constexpr std::uint8_t kVariableStep = 0xF8;
+constexpr std::uint8_t kSwitchStep = 0xF9;
+
+// Every step's place in the cartridge's script block, from the fixture's parts and the steps' sizes.
+const std::map<const AiStep*, std::uint16_t>& stepPlaces() {
+    static const std::map<const AiStep*, std::uint16_t> places = [] {
+        std::map<const AiStep*, std::uint16_t> map;
+        for (const test::ExpectedAiScript& row : test::kExpectedAiScripts) {
+            const AiScript& script = aiScript(row.id);
+            const auto add = [&](std::span<const AiStep> part, std::uint16_t start) {
+                std::uint16_t at = start;
+                for (const AiStep& step : part) {
+                    map.emplace(&step, at);
+                    at = static_cast<std::uint16_t>(at + test::aiStepBytes(step).size());
+                }
+            };
+            add(script.turn, row.turnOffset);
+            if (row.counterOffset) {
+                add(script.counter, *row.counterOffset);
+            }
+        }
+        return map;
+    }();
+    return places;
+}
+
+std::uint16_t placeOf(const AiStep* step) {
+    if (step == nullptr) {
+        return 0;
+    }
+    const auto found = stepPlaces().find(step);
+    if (found == stepPlaces().end()) {
+        throw std::logic_error("a script place that is no step of the cartridge's scripts");
+    }
+    return found->second;
+}
+
+std::uint16_t partPlace(std::span<const AiStep> part) {
+    return part.empty() ? kNoPlace : placeOf(part.data());
+}
+
+// An action's four values as the cartridge's lists hold them, with none for the bytes its command
+// never reads.
+struct ActionCells {
+    std::uint8_t command = 0;
+    std::optional<std::uint8_t> attack;
+    std::optional<std::uint8_t> targetsLow;
+    std::optional<std::uint8_t> targetsHigh;
+    std::uint8_t mpCost = 0;
+};
+
+std::string cellsText(const ActionCells& cells) {
+    const auto byteText = [](const std::optional<std::uint8_t>& value) {
+        return value ? std::to_string(*value) : std::string{"--"};
+    };
+    return std::to_string(cells.command) + " " + byteText(cells.attack) + " " + byteText(cells.targetsLow) + "/" +
+           byteText(cells.targetsHigh) + " " + std::to_string(cells.mpCost);
+}
+
+// The cells a command reads, given everything the list holds for it: a dialog and a battle event
+// read only the attack byte, a variable change and an effect its low targets byte as well.
+ActionCells readCells(std::uint8_t command, std::uint8_t attack, std::uint16_t targets, std::uint8_t mpCost) {
+    ActionCells cells{.command = command, .attack = attack, .mpCost = mpCost};
+    if (command == kMonsterDialogCommand || command == kBattleEventCommand) {
+        return cells;
+    }
+    cells.targetsLow = static_cast<std::uint8_t>(targets & 0xFF);
+    if (command != kVariableCommand && command != kEffectCommand) {
+        cells.targetsHigh = static_cast<std::uint8_t>(targets >> 8);
+    }
+    return cells;
+}
+
+// The bytes of the step a script would hold for an action of its own.
+std::vector<std::uint8_t> stepBytesFor(const battle::BattleVariableAction& a) {
+    switch (a.change) {
+    case AiVariableChange::Set:
+        return test::aiStepBytes(AiStep::setVariable({.variable = a.variable, .value = a.amount}));
+    case AiVariableChange::Add:
+        return test::aiStepBytes(AiStep::addToVariable({.variable = a.variable, .amount = a.amount}));
+    default:
+        return test::aiStepBytes(AiStep::subtractFromVariable({.variable = a.variable, .amount = a.amount}));
+    }
+}
+
+std::vector<std::uint8_t> stepBytesFor(const battle::BattleSwitchAction& a) {
+    return test::aiStepBytes(AiStep{ai::ChangeSwitch{a.which, a.change}});
+}
+
+std::vector<std::uint8_t> stepBytesFor(const battle::AiEffectAction& a) {
+    return test::aiStepBytes(AiStep{ai::Effect{.effect = a.effect, .target = a.target, .status = a.status}});
+}
+
+// A step that queues an action of its own puts its first operand in the attack byte and the next
+// two in the targets word.
+ActionCells stepCells(std::uint8_t command, const std::vector<std::uint8_t>& bytes) {
+    const auto at = [&](std::size_t i) -> std::uint8_t { return i < bytes.size() ? bytes[i] : 0; };
+    return readCells(command, at(1), static_cast<std::uint16_t>(at(2) | at(3) << 8), 0);
+}
+
+const TextCorpus& noText() {
+    static const TextCorpus corpus{std::array<std::vector<std::uint8_t>, kTextClassCount>{}};
+    return corpus;
+}
+
+AiRunResult portRunResult(const battle::BattleState& state, battle::BattlerSlot actor) {
+    const battle::Battler& battler = state.at(actor);
+    AiRunResult result;
+    for (const battle::Action& action : battler.actions) {
+        result.actions.push_back(listedActionText(action));
+    }
+    for (const battle::Action& action : battler.counterActions) {
+        result.counterActions.push_back(listedActionText(action));
+    }
+    result.advanceWait = battler.advanceWait;
+    result.script = portScriptPlaces(state, actor);
+    result.targetingTarget = battler.targetingTarget;
+    result.counterAiRanThisStep = state.counterAiRanThisStep;
+    result.diedAwaitingCounter = state.diedAwaitingCounter;
+    result.attackedThisStep = state.attackedThisStep;
+    for (std::size_t i = 0; i < state.counterQueue.size(); ++i) {
+        result.counterQueue.push_back(state.counterQueue.at(i).index());
+    }
+    result.rngPosition = state.rng.position();
+    return result;
+}
+
+// Each character record's enabled and shown bits as the commands' scenario writes them: shown for
+// every odd record, enabled for none. The port keeps neither; recruiting Gau sets the enabled bit of
+// the record it recruits and leaves the shown bit as written.
+std::uint8_t recordFlagsWritten(std::size_t record) {
+    return record % 2 == 1 ? kRecordShownBit : 0;
+}
+
+}  // namespace
+
+std::string listedActionText(const battle::Action& action) {
+    return std::visit(
+        [](const auto& a) -> std::string {
+            using T = std::decay_t<decltype(a)>;
+            if constexpr (std::is_same_v<T, battle::CommandAction>) {
+                return cellsText(readCells(static_cast<std::uint8_t>(a.command), static_cast<std::uint8_t>(a.attack),
+                                           maskOf(a.targets), a.mpCost));
+            } else if constexpr (std::is_same_v<T, battle::FormationChange>) {
+                return cellsText(stepCells(kFormationChangeCommand,
+                                           test::aiStepBytes(AiStep::changeBattle({.formation = a.formation,
+                                                                                    .exit = a.exit,
+                                                                                    .restoreMonsters = a.restoreMonsters,
+                                                                                    .scrollBackground = a.scrollBackground}))));
+            } else if constexpr (std::is_same_v<T, battle::MonsterDialogAction>) {
+                return cellsText(stepCells(kMonsterDialogCommand, test::aiStepBytes(AiStep::dialog(a.dialog))));
+            } else if constexpr (std::is_same_v<T, battle::BattleEventAction>) {
+                return cellsText(stepCells(kBattleEventCommand, test::aiStepBytes(AiStep::battleEvent(a.event))));
+            } else if constexpr (std::is_same_v<T, battle::MonsterVisibilityAction>) {
+                return cellsText(readCells(kMonsterVisibilityCommand, static_cast<std::uint8_t>(a.type),
+                                           static_cast<std::uint16_t>(static_cast<std::uint8_t>(a.mode) |
+                                                                      a.monsters.monsters.bits << 8),
+                                           0));
+            } else if constexpr (std::is_same_v<T, battle::MonsterAnimationAction>) {
+                const bool sound = a.animation == MonsterAnimation::SoundEffect;
+                const std::uint16_t targets =
+                    sound ? static_cast<std::uint16_t>(a.pan | a.soundEffect << 8) : a.monsters.monsters.bits;
+                return cellsText(readCells(kMonsterAnimationCommand, static_cast<std::uint8_t>(a.animation), targets, 0));
+            } else if constexpr (std::is_same_v<T, battle::BattleVariableAction>) {
+                return cellsText(stepCells(kVariableCommand, stepBytesFor(a)));
+            } else if constexpr (std::is_same_v<T, battle::BattleSwitchAction>) {
+                return cellsText(stepCells(kSwitchCommand, stepBytesFor(a)));
+            } else if constexpr (std::is_same_v<T, battle::AiEffectAction>) {
+                return cellsText(stepCells(kEffectCommand, stepBytesFor(a)));
+            } else {
+                return "an action no script queues";
+            }
+        },
+        action);
+}
+
+AiScriptPlaces portScriptPlaces(const battle::BattleState& state, battle::BattlerSlot slot) {
+    const battle::Battler& battler = state.at(slot);
+    return AiScriptPlaces{.turn = partPlace(battler.turnScript),
+                          .counter = partPlace(battler.counterScript),
+                          .turnSkipped = battler.turnResume.blocksSkipped,
+                          .turnWaitPlace = placeOf(battler.turnResume.at),
+                          .counterSkipped = battler.counterResume.blocksSkipped,
+                          .counterWaitPlace = placeOf(battler.counterResume.at)};
+}
+
+std::string differences(const AiScriptPlaces& port, const AiScriptPlaces& guest) {
+    EffectCells ours;
+    EffectCells theirs;
+    const auto put = [](EffectCells& out, const AiScriptPlaces& places) {
+        out.put("turn part", places.turn);
+        out.put("counterattack part", places.counter);
+        out.put("turn's blocks skipped", places.turnSkipped);
+        out.put("turn's wait place", places.turnWaitPlace);
+        out.put("counterattack's blocks skipped", places.counterSkipped);
+        out.put("counterattack's wait place", places.counterWaitPlace);
+    };
+    put(ours, port);
+    put(theirs, guest);
+    return cellDifferences(ours.cells, theirs.cells);
+}
+
+AiRunResult portAiTurn(battle::BattleState& state, battle::BattlerSlot actor) {
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor{hooks, noText(), MonsterSprites{}};
+    state.counterattackRunning = false;
+    battle::runAiTurn(state, executor, actor);
+    return portRunResult(state, actor);
+}
+
+AiRunResult portAiTurn(AiScenario scenario) {
+    return portAiTurn(scenario.state, scenario.actor);
+}
+
+AiRunResult portAiCounter(AiScenario scenario) {
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor{hooks, noText(), MonsterSprites{}};
+    scenario.state.counterattackRunning = true;
+    battle::runAiCounter(scenario.state, executor, scenario.actor, scenario.answering);
+    return portRunResult(scenario.state, scenario.actor);
+}
+
+std::string differences(const AiRunResult& port, const AiRunResult& guest) {
+    EffectCells ours;
+    EffectCells theirs;
+    const auto put = [](EffectCells& out, const AiRunResult& result) {
+        const auto list = [](const std::vector<std::string>& actions) {
+            std::string text;
+            for (const std::string& action : actions) {
+                text += "[" + action + "]";
+            }
+            return text;
+        };
+        out.put("actions", list(result.actions));
+        out.put("counterattacks", list(result.counterActions));
+        out.put("advance wait", result.advanceWait ? std::to_string(*result.advanceWait) : std::string{"unset"});
+        out.put("turn part", result.script.turn);
+        out.put("counterattack part", result.script.counter);
+        out.put("turn's blocks skipped", result.script.turnSkipped);
+        out.put("turn's wait place", result.script.turnWaitPlace);
+        out.put("counterattack's blocks skipped", result.script.counterSkipped);
+        out.put("counterattack's wait place", result.script.counterWaitPlace);
+        out.put("Targetting", markText(result.targetingTarget));
+        out.put("counterattack parts run", setText(result.counterAiRanThisStep));
+        out.put("died awaiting a counterattack", setText(result.diedAwaitingCounter));
+        out.put("attacked this step", setText(result.attackedThisStep));
+        std::string line;
+        for (const int index : result.counterQueue) {
+            line += std::to_string(index) + " ";
+        }
+        out.put("counterattack line", line);
+        out.put("random-number position", result.rngPosition);
+    };
+    put(ours, port);
+    put(theirs, guest);
+    return cellDifferences(ours.cells, theirs.cells);
+}
+
+void DamageOracle::writeAiScriptCells(const battle::BattleState& state) {
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        const auto at = static_cast<std::uint32_t>(index * 2);
+        const AiScriptPlaces places = portScriptPlaces(state, slot);
+        writeWord(kTurnPlace + at, places.turn);
+        writeWord(kCounterPlace + at, places.counter);
+        writeByte(kTurnSkipped + at, places.turnSkipped);
+        writeByte(kCounterSkipped + at, places.counterSkipped);
+        writeWord(kTurnWaitPlace + at, places.turnWaitPlace);
+        writeWord(kCounterWaitPlace + at, places.counterWaitPlace);
+    }
+}
+
+void DamageOracle::emptyActionLists(battle::BattlerSlot actor) {
+    const std::vector<std::uint8_t> free(kActionEntries, kNoEntry);
+    machine_.write(retropp::MemoryRegion{.at = kActionNext, .size = kActionEntries}, free);
+    const auto at = static_cast<std::uint32_t>(actor.index() * 2);
+    writeByte(kActionList + at, kNoEntry);
+    writeByte(kCounterList + at, kNoEntry);
+    writeByte(kCounterQueueStart, 0);
+    writeByte(kCounterQueueEnd, 0);
+}
+
+void DamageOracle::writeAiRunCells(const AiScenario& scenario, bool counter) {
+    const battle::BattleState& state = scenario.state;
+    // The aim's cells first, so the AI's own reach flag and battler cells are the ones that stand.
+    writeAimCells(DamageScenario{.state = state, .attacker = scenario.actor});
+    writeAiCells(scenario);
+    writeAiScriptCells(state);
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::Battler& battler = state.at(battle::BattlerSlot::fromIndex(index));
+        const auto at = static_cast<std::uint32_t>(index * 2);
+        writeByte(kAdvanceWait + at, battler.advanceWait.value_or(kUnsetWait));
+        writeByte(kActionList + at, kNoEntry);
+        writeByte(kCounterList + at, kNoEntry);
+        writeWord(kCounterStatus12 + at,
+                  static_cast<std::uint16_t>(battler.statusForCounter.bytes[0] | battler.statusForCounter.bytes[1] << 8));
+        writeWord(kCounterStatus34 + at,
+                  static_cast<std::uint16_t>(battler.statusForCounter.bytes[2] | battler.statusForCounter.bytes[3] << 8));
+    }
+    emptyActionLists(scenario.actor);
+    // No party member's spell list holds a spell: a party member's spell costs nothing.
+    const std::vector<std::uint8_t> noSpells(kSpellListPlaceCount, kNoEntry);
+    machine_.write(retropp::MemoryRegion{.at = kSpellListPlaces, .size = kSpellListPlaceCount}, noSpells);
+    writeByte(kBattleFlags, counter ? kCounterattackRunningBit : 0);
+    writeWord(kCounterAiNotRun, static_cast<std::uint16_t>(~maskOf(state.counterAiRanThisStep)));
+    writeWord(kDiedAwaitingCounter, maskOf(state.diedAwaitingCounter));
+    writeWord(kNotAttackedThisStep, static_cast<std::uint16_t>(~maskOf(state.attackedThisStep)));
+    writeByte(kQuickTarget, state.quickTarget ? static_cast<std::uint8_t>(slotIndex(*state.quickTarget)) : kNoOne);
+    writeByte(kQuickTurnsLeft, state.quickTurnsLeft.value_or(0));
+    writeWord(kAiRestrictedOnEntry, 0);
+    writeWord(kTargets, counter ? maskOf(scenario.answering) : 0);
+}
+
+AiScriptPlaces DamageOracle::readScriptPlaces(battle::BattlerSlot slot) {
+    const auto at = static_cast<std::uint32_t>(slot.index() * 2);
+    return AiScriptPlaces{.turn = readWord(kTurnPlace + at),
+                          .counter = readWord(kCounterPlace + at),
+                          .turnSkipped = readByte(kTurnSkipped + at),
+                          .turnWaitPlace = readWord(kTurnWaitPlace + at),
+                          .counterSkipped = readByte(kCounterSkipped + at),
+                          .counterWaitPlace = readWord(kCounterWaitPlace + at)};
+}
+
+AiRunResult DamageOracle::readAiRunResult(battle::BattlerSlot actor) {
+    const auto at = static_cast<std::uint32_t>(actor.index() * 2);
+    const auto list = [&](std::uint32_t first) {
+        std::vector<std::string> actions;
+        std::uint8_t entry = readByte(first);
+        for (std::uint32_t guard = 0; entry != kNoEntry && guard < kActionEntries; ++guard) {
+            const std::uint32_t place = static_cast<std::uint32_t>(entry) * 2;
+            actions.push_back(cellsText(readCells(readByte(kActionCommand + place), readByte(kActionCommand + place + 1),
+                                                  readWord(kActionTargets + place), readByte(kActionMp + place))));
+            const std::uint8_t next = readByte(kActionNext + entry);
+            if (next == entry) {
+                break;
+            }
+            entry = next;
+        }
+        return actions;
+    };
+    AiRunResult result;
+    result.actions = list(kActionList + at);
+    result.counterActions = list(kCounterList + at);
+    const std::uint8_t wait = readByte(kAdvanceWait + at);
+    if (wait != kUnsetWait) {
+        result.advanceWait = wait;
+    }
+    result.script = readScriptPlaces(actor);
+    result.targetingTarget = readTargetingTarget(actor);
+    result.counterAiRanThisStep = setOf(static_cast<std::uint16_t>(~readWord(kCounterAiNotRun)));
+    result.diedAwaitingCounter = setOf(readWord(kDiedAwaitingCounter));
+    result.attackedThisStep = setOf(static_cast<std::uint16_t>(~readWord(kNotAttackedThisStep)));
+    const std::uint8_t end = readByte(kCounterQueueEnd);
+    for (std::uint8_t i = readByte(kCounterQueueStart); i < end; ++i) {
+        result.counterQueue.push_back(readByte(kCounterQueue + i) / 2);
+    }
+    result.rngPosition = readByte(kRngPosition);
+    return result;
+}
+
+AiScriptPlaces DamageOracle::readyAi(const AiScenario& scenario, battle::BattlerSlot slot) {
+    writeAiScriptCells(scenario.state);
+    const std::uint16_t script = scenario.state.at(slot).aiScript.value_or(0);
+    call([&] { initAi_(script, slotIndex(slot), kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+    return readScriptPlaces(slot);
+}
+
+AiRunResult DamageOracle::aiTurn(const AiScenario& scenario) {
+    writeAiRunCells(scenario, false);
+    call([&] { execMonsterAction_(slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readAiRunResult(scenario.actor);
+}
+
+AiRunResult DamageOracle::nextAiTurn(battle::BattlerSlot actor) {
+    emptyActionLists(actor);
+    writeWord(kTargets, 0);
+    writeByte(kBattleFlags, 0);
+    call([&] { execMonsterAction_(slotIndex(actor), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readAiRunResult(actor);
+}
+
+AiRunResult DamageOracle::aiCounter(const AiScenario& scenario) {
+    writeAiRunCells(scenario, true);
+    call([&] { execAiRetal_(slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readAiRunResult(scenario.actor);
+}
+
+AiCommandResult portAiCommand(AiScenario scenario, const battle::Action& action) {
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor{hooks, noText(), MonsterSprites{}};
+    executor.execute(scenario.state, scenario.actor, action);
+    const battle::BattleState& state = scenario.state;
+    AiCommandResult result;
+    result.battleVariables = state.battleVariables;
+    result.switches = state.switches.variables;
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        result.ownVariables[i] = battler.aiVariable;
+        result.ownTimers[i] = battler.turnTimer;
+        result.atbRates[i] = battler.atbRate;
+        result.statuses[i] = battler.status;
+        result.statusesToSet[i] = battler.statusesToSet;
+        result.statusesToClear[i] = battler.statusesToClear;
+    }
+    result.invincible = state.invincible;
+    result.aiUntargetable = state.aiUntargetable;
+    result.battleCounter = state.battleCounter;
+    result.endOfBattleEvent = state.endOfBattleEvent;
+    result.gauRecruited = state.gauRecruited;
+    result.membership = state.party.membership;
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        result.recordFlags[record] = recordFlagsWritten(record);
+    }
+    const auto* effect = std::get_if<battle::AiEffectAction>(&action);
+    if (effect != nullptr && effect->effect == AiEffect::RecruitGau && state.at(scenario.actor).record) {
+        result.recordFlags[*state.at(scenario.actor).record] |= kRecordEnabledBit;
+    }
+    result.rngPosition = state.rng.position();
+    return result;
+}
+
+std::string differences(const AiCommandResult& port, const AiCommandResult& guest) {
+    EffectCells ours;
+    EffectCells theirs;
+    const auto statuses = [](const StatusSet& set) {
+        return std::to_string(set.bytes[0]) + "/" + std::to_string(set.bytes[1]) + "/" + std::to_string(set.bytes[2]) +
+               "/" + std::to_string(set.bytes[3]);
+    };
+    const auto put = [&](EffectCells& out, const AiCommandResult& result) {
+        for (std::size_t i = 0; i < result.battleVariables.size(); ++i) {
+            out.put("battle variable " + std::to_string(i), result.battleVariables[i]);
+        }
+        for (std::size_t i = 0; i < result.switches.size(); ++i) {
+            out.put("switch byte " + std::to_string(i), result.switches[i]);
+        }
+        for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+            const std::string of = " of battler " + std::to_string(i);
+            out.put("own variable" + of, result.ownVariables[i]);
+            out.put("own timer" + of, result.ownTimers[i]);
+            out.put("ATB rate" + of, result.atbRates[i]);
+            out.put("statuses" + of, statuses(result.statuses[i]));
+            out.put("statuses to set" + of, statuses(result.statusesToSet[i]));
+            out.put("statuses to clear" + of, statuses(result.statusesToClear[i]));
+        }
+        out.put("invincible", setText(result.invincible));
+        out.put("AI-untargetable", setText(result.aiUntargetable));
+        out.put("battle timer", result.battleCounter);
+        out.put("end-of-battle event", result.endOfBattleEvent ? static_cast<int>(*result.endOfBattleEvent) : 0);
+        out.put("Gau recruited", result.gauRecruited);
+        for (std::size_t i = 0; i < result.membership.size(); ++i) {
+            const game::PartyMembership& m = result.membership[i];
+            out.put("party of record " + std::to_string(i), std::to_string(m.party) + " slot " + std::to_string(m.slot) +
+                                                                (m.backRow ? " back" : " front") + " flags " +
+                                                                std::to_string(result.recordFlags[i]));
+        }
+        out.put("random-number position", result.rngPosition);
+    };
+    put(ours, port);
+    put(theirs, guest);
+    return cellDifferences(ours.cells, theirs.cells);
+}
+
+AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle::Action& action) {
+    const battle::BattleState& state = scenario.state;
+    writeAiCells(scenario);
+    // The AI's untargetable monsters as their own cell holds them, which the effects change; the
+    // other reach cell that writeAiCells() folds them into is opened.
+    writeByte(kAiTargetable, static_cast<std::uint8_t>(~state.aiUntargetable.monsters.bits));
+    writeWord(kReachSecondCell, 0xFFFF);
+    writeWord(kInvincible, maskOf(state.invincible));
+    writeByte(kEndOfBattleEvent,
+              state.endOfBattleEvent ? static_cast<std::uint8_t>(static_cast<int>(*state.endOfBattleEvent) * 2) : 0);
+    writeByte(kPartyPlayed, state.party.currentParty);
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const game::PartyMembership& m = state.party.membership[record];
+        writeByte(kPartyBytes + static_cast<std::uint32_t>(record),
+                  static_cast<std::uint8_t>((m.party & kPartyNumberBits) | (m.slot & kPartySlotBits) << kPartySlotShift |
+                                            (m.backRow ? kPartyRowBit : 0) | recordFlagsWritten(record)));
+    }
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::Battler& battler = state.at(battle::BattlerSlot::fromIndex(index));
+        const auto at = static_cast<std::uint32_t>(index * 2);
+        writeWord(kAtbRate + at, battler.atbRate);
+        if (index < battle::kPartySlots) {
+            writeByte(kRecordIndex + at, battler.record ? static_cast<std::uint8_t>(*battler.record) : kNoOne);
+        }
+        writeByte(kToSet12 + at, battler.statusesToSet.bytes[0]);
+        writeByte(kToSet12 + at + 1, battler.statusesToSet.bytes[1]);
+        writeByte(kToSet34 + at, battler.statusesToSet.bytes[2]);
+        writeByte(kToSet34 + at + 1, battler.statusesToSet.bytes[3]);
+        writeByte(kToClear12 + at, battler.statusesToClear.bytes[0]);
+        writeByte(kToClear12 + at + 1, battler.statusesToClear.bytes[1]);
+        writeByte(kToClear34 + at, battler.statusesToClear.bytes[2]);
+        writeByte(kToClear34 + at + 1, battler.statusesToClear.bytes[3]);
+    }
+    // The action's three bytes where its command reads them.
+    const std::vector<std::uint8_t> bytes = std::visit(
+        [](const auto& a) -> std::vector<std::uint8_t> {
+            using T = std::decay_t<decltype(a)>;
+            if constexpr (std::is_same_v<T, battle::BattleVariableAction> ||
+                          std::is_same_v<T, battle::BattleSwitchAction> || std::is_same_v<T, battle::AiEffectAction>) {
+                return stepBytesFor(a);
+            } else {
+                throw std::logic_error("aiCommand() runs the three commands only a script queues");
+            }
+        },
+        action);
+    // A command starts as running one starts it (ExecCmd :3093-3109): a fresh battle script, one
+    // attack and no targets remembered, the casting swirl suppressed, the animation going out as a
+    // show-animation command, no extra multiplier, weapon spellcast, target count or Dragon Horn,
+    // every flag of the two attack-flags bytes set, and the sixteen per-command cells at $FF.
+    writeByte(kQueueEnd, 0);
+    writeByte(kWorkRam + 0x3A70, 0);
+    writeWord(kNextParamsBlock, 0);
+    writeWord(kNumeralBufferCount, 0);
+    writeWord(kWorkRam + 0x3A30, 0);
+    writeWord(kEarlierTargets, 0);
+    writeByte(kWorkRam + 0x00B0, static_cast<std::uint8_t>(readByte(kWorkRam + 0x00B0) | kSwirlSuppressedBit));
+    writeByte(kAnimationCommand, kShowAnimationCommand);
+    writeByte(kWorkRam + 0x00BD, 0);
+    writeByte(kWeaponSpellcast, 0);
+    writeByte(kTargetCount, 0);
+    writeByte(kWorkRam + 0x3A8E, 0);
+    writeByte(kFirstAttackFlags, 0xFF);
+    writeByte(kAttackFlags, kAttackFlagsAtStart);
+    const std::vector<std::uint8_t> perCommand(kPerCommandCells, 0xFF);
+    machine_.write(retropp::MemoryRegion{.at = kLastSpell, .size = kPerCommandCells}, perCommand);
+
+    const auto at = [&](std::size_t i) -> std::uint8_t { return i < bytes.size() ? bytes[i] : 0; };
+    writeByte(kCommandAttack, at(1));
+    writeWord(kCommandTargets, static_cast<std::uint16_t>(at(2) | at(3) << 8));
+    const std::size_t command = bytes[0] == kVariableStep ? 0 : bytes[0] == kSwitchStep ? 1 : 2;
+    call([&] {
+        aiCommands_[command](slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+    });
+    return readAiCommandResult();
+}
+
+AiScenario drawAiRunScenario(std::mt19937& rng, std::uint16_t script, battle::BattlerSlot actor, CounterGuard guard) {
+    AiScenario s = drawAiScenario(rng);
+    s.actor = actor;
+    s.run = {};
+    battle::BattleState& state = s.state;
+    // The battler's aim reads the reach flag the way the shipped aim does only while no one is
+    // away from the field.
+    if (!state.awayFromTheFieldUnreachable) {
+        state.awayFromTheField = {};
+    }
+    battle::Battler& battler = state.at(actor);
+    battler.present = true;
+    if (actor.isMonster() && !battler.monster) {
+        battler.monster = static_cast<MonsterId>(rng() % kMonsterCount);
+    }
+    if (oneIn(rng, 2)) {
+        battler.advanceWait = static_cast<std::uint8_t>(upTo(rng, 20));
+    }
+    battler.aiScript = script;
+    battle::readyAi(state, actor);
+
+    // The other battlers' marks in the three sets, and the actor's on the guard's path.
+    state.counterAiRanThisStep = anyBattlers(rng).without(battle::BattlerSet::of(actor));
+    state.diedAwaitingCounter = anyBattlers(rng).without(battle::BattlerSet::of(actor));
+    state.attackedThisStep = anyBattlers(rng).without(battle::BattlerSet::of(actor));
+    battle::BattlerSlot other = anySlot(rng);
+    while (other == actor) {
+        other = anySlot(rng);
+    }
+    switch (guard) {
+    case CounterGuard::AlreadyRan:
+        state.counterAiRanThisStep.add(actor);
+        break;
+    case CounterGuard::DiedAfterAnAttack:
+        state.diedAwaitingCounter.add(actor);
+        state.attackedThisStep.add(actor);
+        break;
+    case CounterGuard::DiedUnattacked:
+        state.diedAwaitingCounter.add(actor);
+        break;
+    case CounterGuard::QuickForAnother:
+        state.quickTarget = other;
+        state.quickTurnsLeft = static_cast<std::uint8_t>(1 + upTo(rng, 2));
+        break;
+    case CounterGuard::HeldByAStatus: {
+        constexpr std::array<StatusId, 5> held{StatusId::SLEEP, StatusId::CONFUSE, StatusId::BERSERK, StatusId::STOP,
+                                              StatusId::FROZEN};
+        battler.statusForCounter.set(held[rng() % held.size()]);
+        break;
+    }
+    case CounterGuard::Charmed:
+        battler.charmedBy = other;
+        break;
+    case CounterGuard::Free:
+        break;
+    case CounterGuard::QuickForItself:
+        state.quickTarget = actor;
+        state.quickTurnsLeft = static_cast<std::uint8_t>(1 + upTo(rng, 2));
+        break;
+    }
+    if (oneIn(rng, 4)) {
+        s.answering = {};
+    } else {
+        s.answering = battle::BattlerSet::of(other);
+    }
+    return s;
+}
+
+AiCommandCase drawAiCommandCase(std::mt19937& rng) {
+    AiCommandCase c{.scenario = drawAiScenario(rng), .action = battle::NoAction{}};
+    battle::BattleState& state = c.scenario.state;
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        state.party.membership[record] = game::PartyMembership{.party = static_cast<std::uint8_t>(upTo(rng, 3)),
+                                                               .slot = static_cast<std::uint8_t>(upTo(rng, 3)),
+                                                               .backRow = oneIn(rng, 2)};
+    }
+    state.party.currentParty = static_cast<std::uint8_t>(1 + upTo(rng, 2));
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        battle::Battler& battler = state.at(battle::BattlerSlot::fromIndex(index));
+        battler.atbRate = static_cast<std::uint16_t>(rng() & 0xFFFF);
+        if (index < battle::kPartySlots && battler.actor) {
+            battler.record = rng() % game::kCharacterRecords;
+        }
+    }
+    state.invincible = anyBattlers(rng);
+    state.aiUntargetable = anyBattlers(rng).monstersOnly();
+    if (oneIn(rng, 3)) {
+        state.endOfBattleEvent = static_cast<battle::EndOfBattleEvent>(1 + upTo(rng, 5));
+    }
+    const auto amount = [&] {
+        return oneIn(rng, 4) ? static_cast<std::uint8_t>(upTo(rng, 1)) : static_cast<std::uint8_t>(upTo(rng, 63));
+    };
+    switch (rng() % 3) {
+    case 0:
+        c.action = battle::BattleVariableAction{.variable = anyAiVariable(rng),
+                                                .change = static_cast<AiVariableChange>(rng() % 3),
+                                                .amount = amount()};
+        break;
+    case 1:
+        c.action = battle::BattleSwitchAction{.which = anyAiSwitch(rng), .change = static_cast<AiSwitchChange>(rng() % 3)};
+        break;
+    default: {
+        constexpr std::array<AiEffect, 12> effects{
+            AiEffect::ResetOwnTimer,  AiEffect::MakeInvincible, AiEffect::EndBattle,       AiEffect::RecruitGau,
+            AiEffect::ResetBattleTimer, AiEffect::EndInvincible, AiEffect::MakeTargetable, AiEffect::MakeUntargetable,
+            AiEffect::FillGauge,      AiEffect::EndBattleLearningRages, AiEffect::Nothing, AiEffect::HideSelf};
+        const AiEffect effect = effects[rng() % effects.size()];
+        c.action = battle::AiEffectAction{.effect = effect, .target = anyAiTarget(rng)};
+        // Gau is recruited by a party member's script: the record it joins is the party member's.
+        if (effect == AiEffect::RecruitGau) {
+            c.scenario.actor = battle::BattlerSlot::character(upTo(rng, battle::kPartySlots - 1));
+            battle::Battler& gau = state.at(c.scenario.actor);
+            gau.actor = gau.actor.value_or(CharacterPropId::GAU);
+            gau.record = rng() % game::kCharacterRecords;
+        }
+        break;
+    }
+    }
+    return c;
+}
+
+AiCommandResult DamageOracle::readAiCommandResult() {
+    AiCommandResult result;
+    for (std::size_t i = 0; i < result.battleVariables.size(); ++i) {
+        result.battleVariables[i] = readByte(kBattleVariables + static_cast<std::uint32_t>(i));
+    }
+    for (std::size_t i = 0; i < result.switches.size(); ++i) {
+        result.switches[i] = readByte(kBattleSwitches + static_cast<std::uint32_t>(i));
+    }
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        result.ownVariables[i] = readByte(kAiVariable + at);
+        result.ownTimers[i] = readWord(kOwnTimer + at);
+        result.atbRates[i] = readWord(kAtbRate + at);
+        result.statuses[i] = StatusSet{{readByte(kStatus12 + at), readByte(kStatus12 + at + 1),
+                                        readByte(kStatus34 + at), readByte(kStatus34 + at + 1)}};
+        result.statusesToSet[i] = StatusSet{{readByte(kToSet12 + at), readByte(kToSet12 + at + 1),
+                                             readByte(kToSet34 + at), readByte(kToSet34 + at + 1)}};
+        result.statusesToClear[i] = StatusSet{{readByte(kToClear12 + at), readByte(kToClear12 + at + 1),
+                                               readByte(kToClear34 + at), readByte(kToClear34 + at + 1)}};
+    }
+    result.invincible = setOf(readWord(kInvincible));
+    result.aiUntargetable = battle::BattlerSet{
+        BattleSlotMask{}, BattleSlotMask(static_cast<std::uint8_t>(~readByte(kAiTargetable) & kMonsterSlotBits))};
+    result.battleCounter = readWord(kBattleTimer);
+    const std::uint8_t event = readByte(kEndOfBattleEvent);
+    if (event != 0) {
+        result.endOfBattleEvent = static_cast<battle::EndOfBattleEvent>(event / 2);
+    }
+    result.gauRecruited = (readByte(kStoryFlags) & kGauRecruitedBit) != 0;
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const std::uint8_t value = readByte(kPartyBytes + static_cast<std::uint32_t>(record));
+        result.membership[record] =
+            game::PartyMembership{.party = static_cast<std::uint8_t>(value & kPartyNumberBits),
+                                  .slot = static_cast<std::uint8_t>(value >> kPartySlotShift & kPartySlotBits),
+                                  .backRow = (value & kPartyRowBit) != 0};
+        result.recordFlags[record] = static_cast<std::uint8_t>(value & (kRecordEnabledBit | kRecordShownBit));
+    }
+    result.rngPosition = readByte(kRngPosition);
+    return result;
 }
 
 }  // namespace ostinato::trace

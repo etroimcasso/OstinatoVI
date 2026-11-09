@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -176,6 +177,17 @@ struct ControlMenuEntry {
 // The top bit of a battler's AI variable (Battler::aiVariable): set while it holds someone in Seize.
 inline constexpr std::uint8_t kAiVariableHoldingSeize = 0x80;
 
+// Where a script part stopped at a wait, and how many blocks it had skipped on the way there. The
+// next run of the part reads from the part's top as always; when it reaches a step that acts having
+// skipped the same number of blocks, it goes on from `at` instead. kNoResume: the part did not stop
+// at a wait the last time it ran.
+inline constexpr std::uint8_t kNoResume = 255;
+
+struct AiResume {
+    std::uint8_t blocksSkipped = kNoResume;
+    const AiStep* at = nullptr;  // the step after the wait, in the script the part was read from
+};
+
 // Every status, for a battler that can be given any of them.
 inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
@@ -286,6 +298,14 @@ struct Battler {
     // The AI script it follows: a monster's own (by MonsterId), or the one a scripted battle gives
     // a party member.
     std::optional<std::uint16_t> aiScript;
+    // The two parts of the script it reads (battle/ai.h), set when its script is readied: the part
+    // read on its turn, and the part read when it is attacked — empty when it answers nothing. A new
+    // monster in the slot whose script has no counterattack part keeps the one before it.
+    std::span<const AiStep> turnScript;
+    std::span<const AiStep> counterScript;
+    // Where each part stopped at a wait. Neither is reset when a new monster takes the slot.
+    AiResume turnResume;
+    AiResume counterResume;
 
     // --- a monster's record -------------------------------------------------------------------
     std::optional<MonsterId> monster;     // which monster it is
