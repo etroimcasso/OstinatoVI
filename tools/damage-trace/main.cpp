@@ -460,7 +460,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 14> kSweeps{{
+constexpr std::array<Sweep, 16> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -555,6 +555,20 @@ constexpr std::array<Sweep, 14> kSweeps{{
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::RecordScenario s = trace::drawLevelUpScenario(rng);
          return DrawResult{trace::describe(s), "", trace::differences(trace::portLevelUp(s), oracle.levelUp(s))};
+     }},
+    {.name = "ai-targets",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiTargetsCase c = trace::drawAiTargetsCase(rng);
+         return DrawResult{trace::describe(c.scenario), "",
+                           trace::differences(trace::portAiTargets(c.scenario, c.target, c.reachableOnly),
+                                              oracle.aiTargets(c.scenario, c.target, c.reachableOnly))};
+     }},
+    {.name = "ai-conditions",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiConditionCase c = trace::drawAiConditionCase(rng);
+         return DrawResult{trace::describe(c.scenario), "",
+                           trace::differences(trace::portAiCondition(c.scenario, c.condition),
+                                              oracle.aiCondition(c.scenario, c.condition))};
      }},
 }};
 

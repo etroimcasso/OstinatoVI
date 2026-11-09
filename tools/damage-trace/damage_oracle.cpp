@@ -25,6 +25,9 @@
 #include "retropp/snes.h"
 #include "retropp/timing.h"
 
+#include "ai_script_bytes.h"
+#include "battle/ai_conditions.h"
+#include "battle/ai_targets.h"
 #include "battle/attacker_effects.h"
 #include "battle/battle_hooks.h"
 #include "battle/battle_script.h"
@@ -71,6 +74,19 @@ constexpr std::uint32_t kInitGfxParams = 0xC257C2;
 constexpr std::uint32_t kCoverEffect = 0xC2123B;
 constexpr std::uint32_t kLearnGenjuMagic = 0xC2602A;
 constexpr std::uint32_t kDoLevelUp = 0xC260C2;
+constexpr std::uint32_t kCheckAiTarget = 0xC21F25;
+// A script's target test, the condition that names a target and the first step of six others.
+constexpr std::uint32_t kAiTargetTest = 0xC21D34;
+// The table of a script's condition routines (AICondTbl), a word per condition in the game's
+// numbering, each the routine's address in the battle program's bank.
+constexpr std::uint32_t kAiConditionTable = 0xC21D55;
+constexpr std::uint32_t kBattleProgramBank = 0xC20000;
+// Where each condition's routine sits (AICond_00 to AICond_1c); the table must point at them.
+constexpr std::array<std::uint16_t, 29> kAiConditionRoutines{{
+    0x1D2C, 0x1C40, 0x1C3F, 0x1C3B, 0x1C5E, 0x1C70, 0x1BB7, 0x1BC8, 0x1BD7, 0x1C26,
+    0x1D2C, 0x1C86, 0x1C9C, 0x1C90, 0x1CC6, 0x1CBA, 0x1CCC, 0x1CDC, 0x1CE4, 0x1CFA,
+    0x1CA2, 0x1CB4, 0x1C7F, 0x1D34, 0x1D0D, 0x1CD2, 0x1C2C, 0x1D16, 0x1D22,
+}};
 
 // `Reset` (field/reset.asm), where the reset vector's `jml` lands after `clc; xce`
 // (field/header.asm): the first instruction the game runs in native mode.
@@ -91,7 +107,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 15> kOpenings{{
+constexpr std::array<RoutineOpening, 18> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -107,6 +123,10 @@ constexpr std::array<RoutineOpening, 15> kOpenings{{
     {"CoverEffect", kCoverEffect, {0xDA, 0x08, 0xA5, 0xB2}, 4},                      // phx; php; lda $b2
     {"LearnGenjuMagic", kLearnGenjuMagic, {0xDA, 0x20, 0x93, 0x62}, 4},              // phx; jsr GetGenjuPropPtr
     {"DoLevelUp", kDoLevelUp, {0x08, 0xFE, 0x08, 0x16}, 4},                          // php; inc $1608,x
+    {"CheckAITarget", kCheckAiTarget, {0xDA, 0x5A, 0x48, 0x64}, 4},                  // phx; phy; pha; stz $b8
+    {"the AI's target test", kAiTargetTest, {0xAD, 0x2E, 0x3A, 0x48}, 4},            // lda $3a2e; pha
+    // The test's clearing of its targets for the monster itself, the same byte twice.
+    {"the AI's target test's clear", kAiTargetTest + 0x1B, {0x64, 0xFC, 0x64, 0xFC}, 4},  // stz $fc; stz $fc
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
@@ -380,6 +400,27 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
         {.inputs = {retropp::snes::C, retropp::snes::X, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
          .isa = retropp::Isa::Wdc65816});
     doLevelUp_ = machine_.bindRoutine<Call>(kDoLevelUp, byteWide);
+
+    // The AI's routines answer in the carry, read from the status byte they return with.
+    checkAiTarget_ = machine_.bindRoutine<TargetsCall>(
+        kCheckAiTarget,
+        {.inputs = {retropp::snes::A, retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+         .output = retropp::snes::P,
+         .isa = retropp::Isa::Wdc65816});
+    const std::vector<std::uint8_t> table = machine_.read(retropp::MemoryRegion{
+        .at = kAiConditionTable, .size = static_cast<std::uint32_t>(kAiConditionRoutines.size() * 2)});
+    for (std::size_t number = 0; number < kAiConditionRoutines.size(); ++number) {
+        const auto word = static_cast<std::uint16_t>(table[number * 2] | table[number * 2 + 1] << 8);
+        if (word != kAiConditionRoutines[number]) {
+            throw std::runtime_error("the cartridge's table of AI conditions does not point where the US "
+                                     "cartridges' does at condition " + std::to_string(number));
+        }
+        aiConditions_.push_back(machine_.bindRoutine<ConditionCall>(
+            kBattleProgramBank | word,
+            {.inputs = {retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+             .output = retropp::snes::P,
+             .isa = retropp::Isa::Wdc65816}));
+    }
 }
 
 DamageOracle::~DamageOracle() = default;
@@ -4645,6 +4686,479 @@ std::string DamageOracle::replayRecordCall(const TracedCall& call, const TracedR
     // A spell stored ORs Morph available into the win's flags, which writes them whatever Morph is.
     guest.progressed = call.writes.contains(kWinFlags);
     return differences(port, guest);
+}
+
+// --- a monster's AI --------------------------------------------------------------------------------
+
+namespace {
+
+// The script reader's cells: the four bytes of the step it is at (the step's command, then a
+// condition's number and two operands), whether the run is restricted (one byte, 0 when it is not),
+// the run's targets and the targets it started with.
+constexpr std::uint32_t kAiStep = kWorkRam + 0x3A2C;
+constexpr std::uint32_t kAiRestricted = kWorkRam + 0x00F8;
+constexpr std::uint32_t kAiTargets = kWorkRam + 0x00FC;
+constexpr std::uint32_t kAiStartingTargets = kWorkRam + 0x00FE;
+// The step command a condition goes out as.
+constexpr std::uint8_t kAiConditionStep = 0xFC;
+constexpr std::uint8_t kAiRestrictedOn = 0xFF;
+// Per party slot, at twice the slot's index: the party member in it, none negative. Per monster
+// slot the monster's index is the word at kMonsterIndex, none $FFFF.
+constexpr std::uint32_t kActor = kWorkRam + 0x3ED8;
+constexpr std::uint16_t kNoMonster = 0xFFFF;
+// Per battler, at twice the battler's index: its own timer (a word).
+constexpr std::uint32_t kOwnTimer = kWorkRam + 0x3DC0;
+// The battle's: the battlers alive (the party's byte, then the monsters'), the monster slots that
+// hold a monster, the monsters and party members fighting against the party, the battle's timer (a
+// word), the battle's variables followed by the battle switches, the names listed, the formation.
+constexpr std::uint32_t kAlive = kWorkRam + 0x3A74;
+constexpr std::uint32_t kMonstersHeld = kWorkRam + 0x3A73;
+constexpr std::uint32_t kEnemyCount = kWorkRam + 0x3A77;
+constexpr std::uint32_t kBattleTimer = kWorkRam + 0x3A44;
+constexpr std::uint32_t kBattleVariables = kWorkRam + 0x3EB0;
+constexpr std::uint32_t kBattleSwitches = kBattleVariables + kAiBattleVariables;
+constexpr std::uint32_t kNamesListed = kWorkRam + 0x3ECA;
+constexpr std::uint32_t kFormation = kWorkRam + 0x11E0;
+// The story's flags byte with Gau recruited in it.
+constexpr std::uint32_t kStoryFlags = kWorkRam + 0x1EDF;
+constexpr std::uint8_t kGauRecruitedBit = 0x08;
+// The carry, in the status byte a routine returns with.
+constexpr std::uint8_t kCarryBit = 0x01;
+
+std::optional<battle::BattlerSlot> slotAt(std::uint8_t value) {
+    if (value >= kTopBit) {
+        return std::nullopt;
+    }
+    return battle::BattlerSlot::fromIndex(value / 2);
+}
+
+std::string markText(const std::optional<battle::BattlerSlot>& slot) {
+    return slot ? std::to_string(slot->index()) : std::string{"none"};
+}
+
+}  // namespace
+
+void DamageOracle::writeAiCells(const AiScenario& scenario) {
+    const battle::BattleState& state = scenario.state;
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        writeWord(kBattlerBit + at, maskOf(battle::BattlerSet::of(slot)));
+        if (slot.isCharacter()) {
+            writeByte(kActor + at, battler.actor ? static_cast<std::uint8_t>(*battler.actor) : kNoOne);
+        } else {
+            writeWord(kMonsterIndex + at, battler.monster ? static_cast<std::uint16_t>(*battler.monster) : kNoMonster);
+        }
+        writeByte(kOnTheField + at, battler.present ? kPresentBit : 0);
+        writeByte(kStatus12 + at, battler.status.bytes[0]);
+        writeByte(kStatus12 + at + 1, battler.status.bytes[1]);
+        writeByte(kStatus34 + at, battler.status.bytes[2]);
+        writeByte(kStatus34 + at + 1, battler.status.bytes[3]);
+        writeWord(kHp + at, battler.hp);
+        writeWord(kMp + at, battler.mp);
+        writeByte(kLevel + at, battler.level);
+        writeByte(kWeakHalved + at, battler.elementsWeak.bits);
+        writeByte(kLastAttacker + at, battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index() |
+                                                                                       (battler.retaliationPending ? kWaitingBit : 0))
+                                                           : kNoOne);
+        writeByte(kTargetingTarget + at, slotByte(battler.targetingTarget));
+        const battle::LastHits& last = battler.lastHit;
+        const auto by = [](const auto& hit) { return hit ? static_cast<std::uint8_t>(slotIndex(hit->by)) : kNoOne; };
+        writeByte(kLastHitCommandBy + at, by(last.command));
+        writeByte(kLastHitCommand + at, last.command ? static_cast<std::uint8_t>(last.command->with) : kNoOne);
+        writeByte(kLastHitSpellBy + at, by(last.spell));
+        writeByte(kLastHitSpell + at, last.spell ? static_cast<std::uint8_t>(last.spell->with) : kNoOne);
+        writeByte(kLastHitItemBy + at, by(last.item));
+        writeByte(kLastHitItem + at, last.item ? static_cast<std::uint8_t>(last.item->with) : kNoOne);
+        writeByte(kLastHitElementBy + at, by(last.element));
+        writeByte(kLastHitElement + at, last.element ? last.element->with.bits : 0);
+        writeByte(kLastDamagedBy + at, slotByte(battler.lastDamagedBy));
+        writeByte(kAiVariable + at, battler.aiVariable);
+        writeWord(kOwnTimer + at, battler.turnTimer);
+    }
+
+    // The reach check's four cells, written so that what they leave between them is the port's own
+    // reachable set (reachableTargets()), and the sign of the word above the counterattack cell the
+    // reach flag the last command left.
+    writeByte(kReachMonsters, 0xFF);
+    writeByte(kReachCharacters, static_cast<std::uint8_t>(~seizedSet(state).characters.bits));
+    writeWord(kReachFirst, maskOf(state.targetableOrPresent & state.countedInBattle));
+    writeWord(kReachSecond, static_cast<std::uint16_t>(~maskOf(state.aiUntargetable)));
+    writeByte(kCountersEnabled, state.scratch.countersEnabled ? kCountersOn : 0);
+    writeByte(kReachKeepsAway, state.awayFromTheFieldUnreachable ? kAwayUnreachable : 0);
+    writeWord(kAwayFromTheField, maskOf(state.awayFromTheField));
+
+    std::uint8_t held = 0;
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        if (state.at(battle::BattlerSlot::monster(position)).monster) {
+            held = static_cast<std::uint8_t>(held | 1u << position);
+        }
+    }
+    writeWord(kAlive, maskOf(state.alive));
+    writeByte(kMonstersHeld, held);
+    writeByte(kAllyCount, static_cast<std::uint8_t>(state.allyCount));
+    writeByte(kEnemyCount, static_cast<std::uint8_t>(state.enemyCount));
+    writeWord(kBattleTimer, state.battleCounter);
+    machine_.write(retropp::MemoryRegion{.at = kBattleVariables, .size = kAiBattleVariables}, state.battleVariables);
+    machine_.write(retropp::MemoryRegion{.at = kBattleSwitches, .size = game::kBattleVariables}, state.switches.variables);
+    writeByte(kNamesListed, state.monsterNamesListed);
+    const std::uint8_t story = readByte(kStoryFlags);
+    writeByte(kStoryFlags, static_cast<std::uint8_t>(state.gauRecruited ? story | kGauRecruitedBit
+                                                                        : story & ~kGauRecruitedBit));
+    writeWord(kFormation, static_cast<std::uint16_t>(state.formation));
+    writeByte(kRngPosition, state.rng.position());
+
+    writeWord(kAiTargets, maskOf(scenario.run.targets));
+    writeWord(kAiStartingTargets, maskOf(scenario.run.startingTargets));
+    writeByte(kAiRestricted, scenario.run.restricted ? kAiRestrictedOn : 0);
+}
+
+std::optional<battle::BattlerSlot> DamageOracle::readTargetingTarget(battle::BattlerSlot actor) {
+    return slotAt(readByte(kTargetingTarget + slotIndex(actor)));
+}
+
+AiTargetsResult DamageOracle::aiTargets(const AiScenario& scenario, AiTarget target, bool reachableOnly) {
+    writeAiCells(scenario);
+    std::uint8_t status = 0;
+    const std::uint8_t entry = reachableOnly ? kByteWideStatus : static_cast<std::uint8_t>(kByteWideStatus | kCarryBit);
+    call([&] {
+        status = checkAiTarget_(test::ai_bytes::target(target), slotIndex(scenario.actor), entry, kBattleDataBank,
+                                kBattleDirectPage);
+    });
+    return AiTargetsResult{.targets = setOf(readWord(kTargets)),
+                           .any = (status & kCarryBit) != 0,
+                           .targetingTarget = readTargetingTarget(scenario.actor),
+                           .rngPosition = readByte(kRngPosition)};
+}
+
+AiConditionResult DamageOracle::aiCondition(const AiScenario& scenario, const AiCondition& condition) {
+    writeAiCells(scenario);
+    const test::ai_bytes::ConditionBytes bytes = test::ai_bytes::condition(condition);
+    const std::array<std::uint8_t, 4> step{kAiConditionStep, bytes.number, bytes.first, bytes.second};
+    machine_.write(retropp::MemoryRegion{.at = kAiStep, .size = static_cast<std::uint32_t>(step.size())}, step);
+    std::uint8_t status = 0;
+    call([&] {
+        status = aiConditions_.at(bytes.number)(slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank,
+                                                kBattleDirectPage);
+    });
+    return AiConditionResult{.holds = (status & kCarryBit) != 0,
+                             .targets = setOf(readWord(kAiTargets)),
+                             .restricted = readByte(kAiRestricted) != 0,
+                             .targetingTarget = readTargetingTarget(scenario.actor),
+                             .rngPosition = readByte(kRngPosition)};
+}
+
+AiTargetsResult portAiTargets(AiScenario scenario, AiTarget target, bool reachableOnly) {
+    const battle::BattlerSet targets = battle::aiTargets(scenario.state, scenario.actor, target, reachableOnly);
+    return AiTargetsResult{.targets = targets,
+                           .any = !targets.empty(),
+                           .targetingTarget = scenario.state.at(scenario.actor).targetingTarget,
+                           .rngPosition = scenario.state.rng.position()};
+}
+
+AiConditionResult portAiCondition(AiScenario scenario, const AiCondition& condition) {
+    const bool holds = battle::aiCondition(scenario.state, scenario.actor, condition, scenario.run);
+    return AiConditionResult{.holds = holds,
+                             .targets = scenario.run.targets,
+                             .restricted = scenario.run.restricted,
+                             .targetingTarget = scenario.state.at(scenario.actor).targetingTarget,
+                             .rngPosition = scenario.state.rng.position()};
+}
+
+std::string differences(const AiTargetsResult& port, const AiTargetsResult& guest) {
+    EffectCells ours;
+    EffectCells theirs;
+    const auto put = [](EffectCells& out, const AiTargetsResult& result) {
+        out.put("targets", setText(result.targets));
+        out.put("any", result.any);
+        out.put("Targetting", markText(result.targetingTarget));
+        out.put("random-number position", result.rngPosition);
+    };
+    put(ours, port);
+    put(theirs, guest);
+    return cellDifferences(ours.cells, theirs.cells);
+}
+
+std::string differences(const AiConditionResult& port, const AiConditionResult& guest) {
+    EffectCells ours;
+    EffectCells theirs;
+    const auto put = [](EffectCells& out, const AiConditionResult& result) {
+        out.put("holds", result.holds);
+        out.put("targets", setText(result.targets));
+        out.put("restricted", result.restricted);
+        out.put("Targetting", markText(result.targetingTarget));
+        out.put("random-number position", result.rngPosition);
+    };
+    put(ours, port);
+    put(theirs, guest);
+    return cellDifferences(ours.cells, theirs.cells);
+}
+
+namespace {
+
+// The party members the AI draws pick among: the first sixteen, so a drawn target often names one
+// in the party.
+constexpr unsigned kDrawnCharacters = 16;
+constexpr unsigned kMonsterCount = 384;
+constexpr unsigned kFormationCount = 576;
+constexpr unsigned kSelectorCount = 30;
+constexpr unsigned kBattleSwitchCount = 160;
+constexpr int kPartyMaxTimer = 600;
+constexpr int kHpStep = 128;
+
+AiTarget anyAiTarget(std::mt19937& rng) {
+    if (oneIn(rng, 4)) {
+        return AiTarget{static_cast<CharacterPropId>(rng() % kDrawnCharacters)};
+    }
+    return AiTarget{static_cast<AiTargetSelector>(static_cast<unsigned>(AiTargetSelector::MONSTER_SLOT_1) +
+                                                  rng() % kSelectorCount)};
+}
+
+// A status, often one a selector or a condition asks about.
+StatusId anyStatus(std::mt19937& rng) {
+    constexpr std::array<StatusId, 4> asked{StatusId::DEAD, StatusId::REFLECT, StatusId::HIDE, StatusId::DANCE};
+    return oneIn(rng, 2) ? asked[rng() % asked.size()] : static_cast<StatusId>(rng() % 32);
+}
+
+StatusSet drawnStatuses(std::mt19937& rng) {
+    if (oneIn(rng, 3)) {
+        return anyStatuses(rng);
+    }
+    StatusSet statuses{{sparse(rng), sparse(rng), sparse(rng), sparse(rng)}};
+    if (oneIn(rng, 3)) {
+        statuses.set(anyStatus(rng));
+    }
+    return statuses;
+}
+
+AiVariable anyAiVariable(std::mt19937& rng) {
+    return oneIn(rng, 3) ? AiVariable::own() : AiVariable::battle(static_cast<std::uint8_t>(rng() % kAiBattleVariables));
+}
+
+AiSwitch anyAiSwitch(std::mt19937& rng) {
+    const auto bit = static_cast<std::uint8_t>(rng() % 8);
+    switch (rng() % 3) {
+    case 0:
+        return AiSwitch::own(bit);
+    case 1:
+        return AiSwitch::battleVariable(static_cast<std::uint8_t>(rng() % kAiBattleVariables), bit);
+    default:
+        return AiSwitch::battleSwitch(static_cast<int>(rng() % kBattleSwitchCount));
+    }
+}
+
+AiMonsters anyAiMonsters(std::mt19937& rng, bool selfAllowed) {
+    AiMonsters monsters;
+    do {
+        monsters.slots = BattleSlotMask(static_cast<std::uint8_t>(byte(rng) & 0x3F));
+    } while (!selfAllowed && monsters.isSelf());
+    if (selfAllowed && oneIn(rng, 4)) {
+        monsters = AiMonsters::self();
+    }
+    return monsters;
+}
+
+// A small byte, often at a value a drawn battle holds.
+std::uint8_t nearly(std::mt19937& rng, int around) {
+    return static_cast<std::uint8_t>(std::clamp(around + upTo(rng, 2) - 1, 0, 255));
+}
+
+// HP at a multiple of the HP condition's step, or a little either side of one.
+std::uint16_t hpAroundStep(std::mt19937& rng) {
+    return static_cast<std::uint16_t>(std::max(0, kHpStep * upTo(rng, 40) + upTo(rng, 2) - 1));
+}
+
+}  // namespace
+
+AiScenario drawAiScenario(std::mt19937& rng) {
+    AiScenario s;
+    battle::BattleState& state = s.state;
+    s.actor = anySlot(rng);
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        battle::Battler& battler = state.at(slot);
+        battler.present = !oneIn(rng, 4);
+        if (slot.isCharacter()) {
+            if (!oneIn(rng, 4)) {
+                battler.actor = static_cast<CharacterPropId>(rng() % kDrawnCharacters);
+            }
+        } else if (!oneIn(rng, 4)) {
+            battler.monster = static_cast<MonsterId>(rng() % kMonsterCount);
+        }
+        battler.status = drawnStatuses(rng);
+        battler.hp = oneIn(rng, 2) ? hpAroundStep(rng) : static_cast<std::uint16_t>(upTo(rng, kPartyMaxHp));
+        battler.mp = static_cast<std::uint16_t>(oneIn(rng, 2) ? upTo(rng, 300) : upTo(rng, kPartyMaxMp));
+        battler.level = oneIn(rng, 2) ? static_cast<std::uint8_t>(1 + upTo(rng, kPartyMaxLevel - 1)) : byte(rng);
+        battler.elementsWeak.bits = sparse(rng);
+        if (!oneIn(rng, 3)) {
+            battler.lastAttacker = anySlot(rng);
+            battler.retaliationPending = oneIn(rng, 3);
+        }
+        if (oneIn(rng, 3)) {
+            battler.targetingTarget = anySlot(rng);
+        }
+        const auto hit = [&](auto with) {
+            using T = decltype(with);
+            return oneIn(rng, 2) ? std::optional<battle::Hit<T>>{} : battle::Hit<T>{.by = anySlot(rng), .with = with};
+        };
+        battler.lastHit.command = hit(static_cast<BattleCommandId>(rng() % 32));
+        battler.lastHit.spell = hit(static_cast<AttackId>(byte(rng)));
+        battler.lastHit.item = hit(static_cast<ItemId>(byte(rng)));
+        battler.lastHit.element = hit(ElementSet{sparse(rng)});
+        if (oneIn(rng, 2)) {
+            battler.lastDamagedBy = anySlot(rng);
+        }
+        battler.aiVariable = oneIn(rng, 2) ? static_cast<std::uint8_t>(upTo(rng, 10)) : byte(rng);
+        battler.turnTimer = static_cast<std::uint16_t>(upTo(rng, kPartyMaxTimer));
+        if (slot.isCharacter() && oneIn(rng, 6)) {
+            battler.seizedBy = battle::BattlerSlot::monster(upTo(rng, battle::kMonsterSlots - 1));
+        }
+    }
+    state.targetableOrPresent = oneIn(rng, 3) ? anyBattlers(rng) : battle::BattlerSet::allCharacters() | battle::BattlerSet::allMonsters();
+    state.countedInBattle = oneIn(rng, 3) ? anyBattlers(rng) : battle::BattlerSet::allCharacters() | battle::BattlerSet::allMonsters();
+    state.aiUntargetable = oneIn(rng, 3) ? anyBattlers(rng).monstersOnly() : battle::BattlerSet{};
+    state.awayFromTheField = oneIn(rng, 3) ? anyBattlers(rng) : battle::BattlerSet{};
+    state.awayFromTheFieldUnreachable = !oneIn(rng, 3);
+    state.alive = anyBattlers(rng);
+    state.allyCount = upTo(rng, battle::kPartySlots);
+    state.enemyCount = upTo(rng, battle::kMonsterSlots + 2);
+    state.battleCounter = static_cast<std::uint16_t>(upTo(rng, kPartyMaxTimer));
+    for (std::uint8_t& variable : state.battleVariables) {
+        variable = oneIn(rng, 2) ? static_cast<std::uint8_t>(upTo(rng, 10)) : byte(rng);
+    }
+    for (std::uint8_t& variable : state.switches.variables) {
+        variable = byte(rng);
+    }
+    state.monsterNamesListed = static_cast<std::uint8_t>(upTo(rng, static_cast<int>(battle::kMonsterNameLines)));
+    state.gauRecruited = oneIn(rng, 2);
+    state.formation = static_cast<FormationId>(rng() % kFormationCount);
+    state.rng = battle::BattleRng(byte(rng));
+    s.run.targets = anyBattlers(rng);
+    s.run.startingTargets = anyBattlers(rng);
+    s.run.restricted = oneIn(rng, 3);
+    return s;
+}
+
+AiTargetsCase drawAiTargetsCase(std::mt19937& rng) {
+    AiTargetsCase c{.scenario = drawAiScenario(rng)};
+    c.target = anyAiTarget(rng);
+    c.reachableOnly = oneIn(rng, 2);
+    return c;
+}
+
+AiConditionCase drawAiConditionCase(std::mt19937& rng) {
+    AiConditionCase c{.scenario = drawAiScenario(rng), .condition = ai::Never{}};
+    const battle::BattleState& state = c.scenario.state;
+    const battle::Battler& actor = state.at(c.scenario.actor);
+    const battle::Battler& other = state.at(anySlot(rng));
+    switch (rng() % std::variant_size_v<AiCondition>) {
+    case 0:
+        c.condition = ai::Never{};
+        break;
+    case 1: {
+        const auto command = actor.lastHit.command && oneIn(rng, 2) ? actor.lastHit.command->with
+                                                                   : static_cast<BattleCommandId>(rng() % 32);
+        c.condition = ai::HitByCommand{static_cast<BattleCommandId>(rng() % 32), command};
+        break;
+    }
+    case 2: {
+        const auto spell = actor.lastHit.spell && oneIn(rng, 2) ? actor.lastHit.spell->with : static_cast<AttackId>(byte(rng));
+        c.condition = ai::HitByAttack{spell, static_cast<AttackId>(byte(rng))};
+        break;
+    }
+    case 3: {
+        const auto item = actor.lastHit.item && oneIn(rng, 2) ? actor.lastHit.item->with : static_cast<ItemId>(byte(rng));
+        c.condition = ai::HitByItem{static_cast<ItemId>(byte(rng)), item};
+        break;
+    }
+    case 4: {
+        const auto elements = actor.lastHit.element && oneIn(rng, 2) ? actor.lastHit.element->with : ElementSet{sparse(rng)};
+        c.condition = ai::HitByElement{elements};
+        break;
+    }
+    case 5:
+        c.condition = ai::Damaged{};
+        break;
+    case 6:
+        c.condition = ai::HpAtMost{.target = anyAiTarget(rng),
+                                   .hp = static_cast<std::uint16_t>(kHpStep * (oneIn(rng, 2) ? other.hp / kHpStep + upTo(rng, 1)
+                                                                                             : upTo(rng, 255)))};
+        break;
+    case 7:
+        c.condition = ai::MpAtMost{.target = anyAiTarget(rng), .mp = oneIn(rng, 2) ? nearly(rng, other.mp) : byte(rng)};
+        break;
+    case 8:
+        c.condition = ai::HasStatus{.target = anyAiTarget(rng), .status = anyStatus(rng)};
+        break;
+    case 9:
+        c.condition = ai::NoStatus{.target = anyAiTarget(rng), .status = anyStatus(rng)};
+        break;
+    case 10:
+        c.condition = ai::HalfOwnTimerAtLeast{nearly(rng, actor.turnTimer / 2)};
+        break;
+    case 11:
+        c.condition = ai::VariableBelow{.variable = anyAiVariable(rng), .value = static_cast<std::uint8_t>(upTo(rng, 10))};
+        break;
+    case 12:
+        c.condition = ai::VariableAtLeast{.variable = anyAiVariable(rng), .value = static_cast<std::uint8_t>(upTo(rng, 10))};
+        break;
+    case 13:
+        c.condition = ai::LevelBelow{.target = anyAiTarget(rng), .level = oneIn(rng, 2) ? nearly(rng, other.level) : byte(rng)};
+        break;
+    case 14:
+        c.condition = ai::LevelAtLeast{.target = anyAiTarget(rng), .level = oneIn(rng, 2) ? nearly(rng, other.level) : byte(rng)};
+        break;
+    case 15:
+        c.condition = ai::OneKindOfMonster{};
+        break;
+    case 16:
+        c.condition = ai::MonstersAlive{anyAiMonsters(rng, true)};
+        break;
+    case 17:
+        c.condition = ai::MonstersDead{anyAiMonsters(rng, true)};
+        break;
+    case 18:
+        c.condition = ai::PartyAtLeast{static_cast<std::uint8_t>(upTo(rng, battle::kPartySlots + 1))};
+        break;
+    case 19:
+        c.condition = ai::MonstersAtMost{static_cast<std::uint8_t>(upTo(rng, battle::kMonsterSlots + 2))};
+        break;
+    case 20:
+        c.condition = ai::SwitchSet{anyAiSwitch(rng)};
+        break;
+    case 21:
+        c.condition = ai::SwitchClear{anyAiSwitch(rng)};
+        break;
+    case 22:
+        c.condition = ai::HalfBattleTimerAtLeast{nearly(rng, state.battleCounter / 2)};
+        break;
+    case 23:
+        c.condition = ai::TargetValid{anyAiTarget(rng)};
+        break;
+    case 24:
+        c.condition = ai::GauNotRecruited{};
+        break;
+    case 25:
+        c.condition = ai::InSlot{anyAiMonsters(rng, false)};
+        break;
+    case 26:
+        c.condition = ai::WeakTo{.target = anyAiTarget(rng), .elements = ElementSet{sparse(rng)}};
+        break;
+    case 27:
+        c.condition = ai::FormationIs{oneIn(rng, 2) ? state.formation : static_cast<FormationId>(rng() % kFormationCount)};
+        break;
+    default:
+        c.condition = ai::Always{};
+        break;
+    }
+    return c;
+}
+
+std::string describe(const AiScenario& s) {
+    return "actor " + std::to_string(s.actor.index()) + " random-number position " +
+           std::to_string(s.state.rng.position()) + " run targets " + setText(s.run.targets) + " starting " +
+           setText(s.run.startingTargets) + (s.run.restricted ? " restricted" : "");
 }
 
 }  // namespace ostinato::trace

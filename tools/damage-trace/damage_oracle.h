@@ -54,6 +54,7 @@
 #include "retropp/run_loop.h"
 #include "retropp/vm.h"
 
+#include "battle/ai_targets.h"
 #include "battle/attack.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
@@ -475,6 +476,49 @@ struct SpellLearningResult {
 
 [[nodiscard]] std::string differences(const SpellLearningResult& port, const SpellLearningResult& guest);
 
+// --- a monster's AI --------------------------------------------------------------------------------
+
+// One battle as a monster's AI script reads it: the state, the battler whose script it is, and what
+// the script's run holds so far — its targets, the targets it started with, and whether it is
+// restricted.
+struct AiScenario {
+    battle::BattleState state;
+    battle::BattlerSlot actor = battle::BattlerSlot::monster(0);
+    battle::AiRun run;
+};
+
+// What finding a script's targets leaves, as the same fields on both sides: the battlers found,
+// whether any were (the cartridge's carry), the battler's Targetting mark and the random-number
+// position.
+struct AiTargetsResult {
+    battle::BattlerSet targets;
+    bool any = false;
+    std::optional<battle::BattlerSlot> targetingTarget;
+    std::uint8_t rngPosition = 0;
+};
+
+// The port's targets for `target` over the scenario (battle::aiTargets), read back as an
+// AiTargetsResult.
+[[nodiscard]] AiTargetsResult portAiTargets(AiScenario scenario, AiTarget target, bool reachableOnly);
+
+[[nodiscard]] std::string differences(const AiTargetsResult& port, const AiTargetsResult& guest);
+
+// What testing a script's condition leaves, as the same fields on both sides: whether it holds, the
+// run's targets and restriction, the battler's Targetting mark and the random-number position.
+struct AiConditionResult {
+    bool holds = false;
+    battle::BattlerSet targets;
+    bool restricted = false;
+    std::optional<battle::BattlerSlot> targetingTarget;
+    std::uint8_t rngPosition = 0;
+};
+
+// The port's test of `condition` over the scenario (battle::aiCondition), read back as an
+// AiConditionResult.
+[[nodiscard]] AiConditionResult portAiCondition(AiScenario scenario, const AiCondition& condition);
+
+[[nodiscard]] std::string differences(const AiConditionResult& port, const AiConditionResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -580,6 +624,17 @@ public:
     // record's level must be below 99.
     [[nodiscard]] LevelUpResult levelUp(const RecordScenario& scenario);
 
+    // The battlers `target` names for the scenario's actor (CheckAITarget), with or without the cut
+    // to the battlers an attack can reach, called as a script's target step and its conditions call
+    // it: the operand in the accumulator, the actor in Y, the cut asked for by a clear carry.
+    [[nodiscard]] AiTargetsResult aiTargets(const AiScenario& scenario, AiTarget target, bool reachableOnly);
+
+    // The scenario's actor's script testing `condition` (the condition's own routine, found through
+    // the cartridge's table of them), called as the script's reader calls it: the condition's bytes
+    // where the reader leaves them, the actor in Y and the carry clear. The condition must be one a
+    // script can hold.
+    [[nodiscard]] AiConditionResult aiCondition(const AiScenario& scenario, const AiCondition& condition);
+
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
     [[nodiscard]] const std::vector<WatchedWrite>& writes() const { return writes_; }
@@ -649,6 +704,8 @@ private:
     [[nodiscard]] LevelUpResult readLevelUpResult(std::size_t recordIndex);
     [[nodiscard]] SpellLearningResult readSpellLearningResult(CharacterPropId actor);
     [[nodiscard]] std::string replayRecordCall(const TracedCall& call, const TracedRoutine& routine);
+    void writeAiCells(const AiScenario& scenario);
+    [[nodiscard]] std::optional<battle::BattlerSlot> readTargetingTarget(battle::BattlerSlot actor);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,
@@ -683,6 +740,11 @@ private:
     retropp::Routine<Call> coverEffect_;
     retropp::Routine<TargetCall> learnGenjuMagic_;
     retropp::Routine<Call> doLevelUp_;
+    using TargetsCall = std::uint8_t(std::uint8_t, std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    using ConditionCall = std::uint8_t(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    retropp::Routine<TargetsCall> checkAiTarget_;
+    // The condition routines by the game's numbering, each where the cartridge's table points.
+    std::vector<retropp::Routine<ConditionCall>> aiConditions_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -792,5 +854,41 @@ struct TargetScenario {
 
 // One line naming a drawn record scenario's inputs, for a report.
 [[nodiscard]] std::string describe(const RecordScenario& scenario);
+
+// A battle a script's targets are found in, the target asked for and whether the sides are cut to
+// the reachable.
+struct AiTargetsCase {
+    AiScenario scenario;
+    AiTarget target;
+    bool reachableOnly = false;
+};
+
+// A battle a script's condition is tested in, and the condition.
+struct AiConditionCase {
+    AiScenario scenario;
+    AiCondition condition;
+};
+
+// The battles the AI sweeps draw, from the same seed: an actor in any slot; for every battler
+// whether it is on the field, the party member or monster in its slot (or none), its statuses
+// (Dead, Reflect, Hide and the statuses from Dance on often among them), HP, MP and level often at
+// the thresholds a condition asks about, weaknesses, the battler that last attacked it and whether
+// it is waiting to answer, its Targetting mark, what it was last hit with and by whom, the battler
+// that last damaged it, its own variable and timer, and whether it is held in Seize; the battle's
+// reachable, counted, untargetable, away-from-the-field and alive sets, the reach flag the last
+// command left, the party and monster counts, the timer, the four variables and the switches, the
+// names listed, Gau, the formation and the random-number position; and the run's targets, starting
+// targets and restriction.
+[[nodiscard]] AiScenario drawAiScenario(std::mt19937& rng);
+
+// A drawn battle with any of the thirty selectors or a party member, with or without the cut.
+[[nodiscard]] AiTargetsCase drawAiTargetsCase(std::mt19937& rng);
+
+// A drawn battle with any condition a script can hold, its operands drawn within the ranges a
+// script's own can take and often at the battle's own values.
+[[nodiscard]] AiConditionCase drawAiConditionCase(std::mt19937& rng);
+
+// One line naming a drawn AI battle's inputs, for a report.
+[[nodiscard]] std::string describe(const AiScenario& scenario);
 
 }  // namespace ostinato::trace

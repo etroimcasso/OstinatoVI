@@ -64,6 +64,8 @@ add_library(ostinato-vi-lib STATIC
     src/assets/tile_planes.cpp
     src/battle/action_queue.cpp
     src/battle/actions.cpp
+    src/battle/ai_conditions.cpp
+    src/battle/ai_targets.cpp
     src/battle/attack.cpp
     src/battle/attacker_effects.cpp
     src/battle/automatic_actions.cpp
@@ -255,6 +257,8 @@ add_executable(ostinato-damage-trace
     tools/damage-trace/machine_state.cpp)
 target_compile_features(ostinato-damage-trace PRIVATE cxx_std_20)
 target_compile_options(ostinato-damage-trace PRIVATE ${_ostinato_warn})
+# The oracle turns a script's steps into the bytes the cartridge reads with the tests' encoder.
+target_include_directories(ostinato-damage-trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-damage-trace PRIVATE ostinato-vi-lib)
 
 # ---------------------------------------------------------------------------
@@ -730,3 +734,19 @@ target_compile_definitions(ostinato-vi-battle-espers-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-espers-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-espers-tests)
+
+# Monster AI: who a script aims at and what it tests, each worked out by hand from the original and
+# checked against the cartridge's own routines, run on the hosted cartridge over the same battle
+# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-ai-tests
+    tests/test_ai_conditions.cpp
+    tests/test_ai_oracle.cpp
+    tests/test_ai_targets.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-ai-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-ai-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-ai-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_link_libraries(ostinato-vi-battle-ai-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-ai-tests)

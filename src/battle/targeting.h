@@ -47,6 +47,12 @@ void chooseTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attac
 // dead, petrified or a zombie for a monster).
 BattlerSet removeAbsentTargets(const BattleState& state, BattlerSet targets);
 
+// `targets` without those no attack can reach: battlers not on the field or not counted in the
+// battle, party members held in Seize, monsters their AI has made untargetable, and — with
+// `awayFromTheFieldUnreachable` — the battlers away from the field (jumping, carried off by
+// Palidor, held in Seize).
+BattlerSet reachableTargets(const BattleState& state, BattlerSet targets, bool awayFromTheFieldUnreachable);
+
 // A True Knight or a Love Token: a battler steps in front of the target of a blow and is hit in
 // its place. A bodyguard who is controlled or held in Seize does not step in, and a target held in
 // Seize is not covered.

@@ -11,6 +11,7 @@
 
 #include <array>
 #include <bitset>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <optional>
@@ -24,6 +25,7 @@
 #include "battle/battler_set.h"
 #include "battle/player_intake.h"
 #include "battle/spell_lists.h"
+#include "data/ai_scripts.h"
 #include "data/item_properties.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
@@ -378,6 +380,9 @@ struct Battler {
     std::deque<Action> counterActions;  // counterattacks, in the order they were triggered
 };
 
+// How many lines the list of monster names has.
+inline constexpr std::size_t kMonsterNameLines = 4;
+
 // The four ways a battle can be laid out.
 enum class BattleType : std::uint8_t {
     Front,
@@ -571,6 +576,12 @@ struct BattleState {
     bool battleMayNotEnd = false;   // a hidden monster is about to reappear
     bool partyRunning = false;      // the player is holding the run buttons
     std::uint8_t runDifficulty = 0;
+    // How many lines the list of monsters' names holds, at most four: one per name among the
+    // monsters still fighting whose name is shown. Worked out with the run difficulty.
+    std::uint8_t monsterNamesListed = 0;
+    // Whether the last command left the battlers away from the field (awayFromTheField) out of
+    // reach: true unless it made an attack aimed at its own attacker. A monster's script aims by it.
+    bool awayFromTheFieldUnreachable = true;
     bool colosseum = false;
     std::optional<ItemId> colosseumWager;  // the item the player bet: given up win or lose
     std::optional<ItemId> colosseumPrize;  // what winning the match earns
@@ -592,6 +603,8 @@ struct BattleState {
     // The battle switches, as the battle started with them; monster AI changes them as it goes,
     // and the battle hands them back when it ends.
     game::BattleSwitches switches;
+    // The variables the monsters' scripts share for this battle alone. 0 as the battle starts.
+    std::array<std::uint8_t, kAiBattleVariables> battleVariables{};
 
     // Facts about the party and the story the battle's end depends on.
     bool gauMayAppear = false;      // on the Veldt: Gau can turn up when the battle is won

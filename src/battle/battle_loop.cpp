@@ -1,6 +1,7 @@
 // The battle loop: whose turn it is, the actions that run, what happens after each, and the
 // battle's end.
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <utility>
@@ -917,6 +918,9 @@ void refreshRunDifficulty(BattleState& state) {
         }
     }
     int difficulty = 0;
+    // The names listed, a line per name, in the order the monsters are counted.
+    std::array<std::optional<MonsterId>, kMonsterNameLines> names{};
+    state.monsterNamesListed = 0;
     for (int position = 0; position < kMonsterSlots; ++position) {
         const BattlerSlot slot = BattlerSlot::monster(position);
         const Battler& battler = state.at(slot);
@@ -929,6 +933,19 @@ void refreshRunDifficulty(BattleState& state) {
             state.escapeBlockedByMonster = true;
         }
         difficulty += battler.monsterFlags.has(MonsterBattleFlag::HARDER_TO_RUN) ? 6 : 2;
+        if (battler.nameHidden || !battler.nameGroup) {
+            continue;
+        }
+        for (std::optional<MonsterId>& line : names) {
+            if (!line) {
+                line = battler.nameGroup;
+                ++state.monsterNamesListed;
+                break;
+            }
+            if (*line == *battler.nameGroup) {
+                break;
+            }
+        }
     }
     if (state.battleType == BattleType::Side || state.preemptive) {
         difficulty = 0;

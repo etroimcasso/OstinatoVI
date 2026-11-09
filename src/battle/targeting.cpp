@@ -85,25 +85,12 @@ BattlerSet charactersActingAsEnemies(const BattleState& state) {
     return enemies;
 }
 
-// Drop the targets the attack cannot reach: seized party members, monsters their AI hides from
-// aiming, battlers not on the field, and those away from it (jumping, carried off, held in Seize)
-// unless the command has made an attack aimed at its own attacker. Then the attack's own
-// exclusions.
+// Drop the targets the attack cannot reach, then the attack's own exclusions.
 void maskTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attacker) {
     if (std::exchange(attack.scratch.aimExactly, false)) {
         return;
     }
-    BattlerSet reachable = (state.targetableOrPresent & state.countedInBattle).without(state.aiUntargetable);
-    for (int position = 0; position < kPartySlots; ++position) {
-        const BattlerSlot slot = BattlerSlot::character(position);
-        if (state.at(slot).seizedBy) {
-            reachable.remove(slot);
-        }
-    }
-    if (attack.scratch.awayFromTheFieldUnreachable) {
-        reachable = reachable.without(state.awayFromTheField);
-    }
-    attack.targets = attack.targets & reachable;
+    attack.targets = reachableTargets(state, attack.targets, attack.scratch.awayFromTheFieldUnreachable);
     if (attack.rules.noCharacterTargets) {
         attack.targets = attack.targets.monstersOnly();
     }
@@ -267,6 +254,20 @@ bool initTargeting(AttackInFlight& attack, BattleCommandId command, AttackId att
     }
     }
     return false;
+}
+
+BattlerSet reachableTargets(const BattleState& state, BattlerSet targets, bool awayFromTheFieldUnreachable) {
+    BattlerSet reachable = (state.targetableOrPresent & state.countedInBattle).without(state.aiUntargetable);
+    for (int position = 0; position < kPartySlots; ++position) {
+        const BattlerSlot slot = BattlerSlot::character(position);
+        if (state.at(slot).seizedBy) {
+            reachable.remove(slot);
+        }
+    }
+    if (awayFromTheFieldUnreachable) {
+        reachable = reachable.without(state.awayFromTheField);
+    }
+    return targets & reachable;
 }
 
 BattlerSet removeAbsentTargets(const BattleState& state, BattlerSet targets) {

@@ -175,8 +175,7 @@ struct DeathFade {
 
 // --- the whole state --------------------------------------------------------------------------
 
-// How many lines the list of monster names has.
-inline constexpr std::size_t kMonsterNameLines = 4;
+// The list of monster names, a line each (kMonsterNameLines, battle/battle_state.h).
 using MonsterNameList = std::array<std::optional<MonsterId>, kMonsterNameLines>;
 
 struct BattlePresentationState {
