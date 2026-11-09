@@ -12,7 +12,7 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and seven of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and nine of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
 // access made inside a call, in order, with its address and byte. Every call is logged — nothing is
@@ -25,7 +25,9 @@
 // from the battle's start and $C2:50AA from a formation change) and an attack's statuses on one
 // target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9), and an attack's special
 // effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one target
-// (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC). The addresses are the US
+// (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC); and at a won battle's end, the
+// spells an equipped esper teaches learned further (`LearnGenjuMagic`, $C2:602A, returning to
+// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4). The addresses are the US
 // cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
@@ -458,7 +460,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 12> kSweeps{{
+constexpr std::array<Sweep, 14> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -542,6 +544,17 @@ constexpr std::array<Sweep, 12> kSweeps{{
          const trace::DamageScenario s = trace::drawCoverScenario(rng);
          return DrawResult{trace::describe(s), "",
                            trace::differences(trace::portCoverTarget(s), oracle.coverEffect(s))};
+     }},
+    {.name = "esper-learning",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RecordScenario s = trace::drawLearningScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portLearnFromEsper(s), oracle.learnFromEsper(s))};
+     }},
+    {.name = "level-up",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RecordScenario s = trace::drawLevelUpScenario(rng);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portLevelUp(s), oracle.levelUp(s))};
      }},
 }};
 

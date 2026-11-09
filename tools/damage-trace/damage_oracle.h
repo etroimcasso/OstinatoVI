@@ -31,8 +31,9 @@
 // the command line; tests/test_damage_formulas.cpp and tests/test_target_damage.cpp run it against
 // the port's formulas, tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
 // status rules, tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
-// tests/test_control_menu.cpp against its special effects, and tests/test_cover_and_params.cpp
-// against its cover and its setting up of the attack's animation.
+// tests/test_control_menu.cpp against its special effects, tests/test_cover_and_params.cpp
+// against its cover and its setting up of the attack's animation, and tests/test_espers_oracle.cpp
+// against an esper's spells learned and a level-up at a battle's end.
 #pragma once
 
 #include <array>
@@ -56,29 +57,35 @@
 #include "battle/attack.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "game/character_record.h"
+#include "ostinato/character_prop_id.h"
 #include "ostinato/status_set.h"
 
 namespace ostinato::trace {
 
 // --- the trace ---------------------------------------------------------------------------------
 
-// A routine the trace follows: where it starts, where the attack frame's call to it returns, where
-// the call to it from the reflected attack returns (0: it is not called from there), and where the
-// calls from anywhere else return (0: no other).
+// A routine the trace follows: where it starts, where its main caller's call to it returns (for an
+// attack's routines, the attack frame's), where the call to it from the reflected attack returns (0:
+// it is not called from there), where the calls from anywhere else return (0: no other), and
+// whether it works on the party's records — the records, the spells known and the battle's-end
+// cells beside them are logged only inside its calls.
 struct TracedRoutine {
     const char* name;
     std::uint32_t entry;
     std::uint32_t frameReturn;
     std::uint32_t bounceReturn;
     std::array<std::uint32_t, 2> otherReturns{};
+    bool partyRecords = false;
 };
 
 // The base damage, the damage to one target, the damage taken and shown, the statuses taking effect,
-// an attack's statuses on one target, and its special effect on its attacker and on one target
-// (battle/battle_main.asm: 7217 and 8096; 1809, 8362 and 8440; 16193, 8365 and 8455; 11032, 8109, and
-// the battle's start 6128 and a formation change 13231; 11094, 8356 and 8434; 10118 and 8275; 9087,
-// 8357 and 8435 — the program sits at $C2:0000).
-inline constexpr std::array<TracedRoutine, 7> kTracedRoutines{{
+// an attack's statuses on one target, its special effect on its attacker and on one target, and at a
+// won battle's end an esper's spells learned and a level-up (battle/battle_main.asm: 7217 and 8096;
+// 1809, 8362 and 8440; 16193, 8365 and 8455; 11032, 8109, and the battle's start 6128 and a formation
+// change 13231; 11094, 8356 and 8434; 10118 and 8275; 9087, 8357 and 8435; 15661 and 15404; 15761
+// and 15748 — the program sits at $C2:0000).
+inline constexpr std::array<TracedRoutine, 9> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
@@ -86,6 +93,8 @@ inline constexpr std::array<TracedRoutine, 7> kTracedRoutines{{
     {"MagicStatusEffect", 0xC24406, 0xC2345C, 0xC234F9},
     {"DoAttackerEffect", 0xC23E7D, 0xC233A9, 0},
     {"DoTargetEffect", 0xC2387E, 0xC2345F, 0xC234FC},
+    {"LearnGenjuMagic", 0xC2602A, 0xC25E72, 0, {}, true},
+    {"DoLevelUp", 0xC260C2, 0xC260B4, 0, {}, true},
 }};
 
 // The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
@@ -121,8 +130,19 @@ inline constexpr std::array<TracedRange, 33> kTracedRanges{{
     {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},            {"away from the field", 0x7E3F2C, 2},
 }};
 
+// The cells the routines on the party's records read and write, logged only inside their calls: the
+// battle's-end cells in direct page (the flags the win shows its messages by, the magic points and
+// the place of the spells being learned, the level-up's gains), the sixteen character records (37
+// bytes each) and the spells each of the first twelve characters knows (54 bytes each).
+inline constexpr std::array<TracedRange, 3> kPartyRecordRanges{{
+    {"battle's-end cells", 0x7E00EE, 18},
+    {"character records", 0x7E1600, 592},
+    {"spells known", 0x7E1A6E, 648},
+}};
+
 // The trace on one machine: escapes on each traced routine's entry and return sites and watches over
-// kTracedRanges. At each entry it logs the routine and the attack's context — the params block
+// kTracedRanges and kPartyRecordRanges, the second logged only inside the calls of the routines on
+// the party's records. At each entry it logs the routine and the attack's context — the params block
 // ($7E:00A0-00AF), the Launcher's or Super Ball's hits to come ($7E:3405), the aiming rules
 // ($7E:00BA) and the attacker of the params block before this one in the script's buffer — and while
 // a call is open every access to a watched cell, in order. Every event is one line handed to `line`:
@@ -163,6 +183,7 @@ private:
     Line line_;
     Frame frame_;
     int open_ = 0;
+    bool partyRecordsOpen_ = false;
 };
 
 // One routine call as the trace logged it: the routine, the frame it ran on and the address it
@@ -407,6 +428,53 @@ struct CoverResult {
 
 [[nodiscard]] std::string differences(const CoverResult& port, const CoverResult& guest);
 
+// --- the party's records at a battle's end -------------------------------------------------------
+
+// One character's record and spells as a won battle's end reads them: the record and which of the
+// sixteen it is, whose spells are being learned (one of the first twelve characters), the battle's
+// magic points, and the two-bit HP and MP boosts the cartridge keeps in the top of the record's
+// maximum HP and MP words (0-3 each), which the port keeps no field for.
+struct RecordScenario {
+    game::CharacterRecord record;
+    std::size_t recordIndex = 0;
+    CharacterPropId actor = CharacterPropId::TERRA;
+    game::SpellProgress spells;
+    std::uint8_t magicPoints = 0;
+    std::uint8_t hpBoostBits = 0;
+    std::uint8_t mpBoostBits = 0;
+};
+
+// What a level-up leaves of the record, as the same fields on both sides.
+struct LevelUpResult {
+    std::uint8_t level = 0;
+    std::uint16_t maxHp = 0;
+    std::uint16_t maxMp = 0;
+    std::uint8_t hpBoostBits = 0;
+    std::uint8_t mpBoostBits = 0;
+    std::uint8_t vigor = 0;
+    std::uint8_t speed = 0;
+    std::uint8_t stamina = 0;
+    std::uint8_t magicPower = 0;
+};
+
+// The port's level-up of the scenario's record (battle::levelUp), on the US cartridges' MP curve,
+// with the boosts carried through as the scenario has them.
+[[nodiscard]] LevelUpResult portLevelUp(const RecordScenario& scenario);
+
+[[nodiscard]] std::string differences(const LevelUpResult& port, const LevelUpResult& guest);
+
+// What the esper's spells learned leave, as the same fields on both sides: the learned percentage of
+// each of the 54 spells, and whether any of them was stored.
+struct SpellLearningResult {
+    std::array<std::uint8_t, game::kLearnableSpells> progress{};
+    bool progressed = false;
+};
+
+// The port's spells learned from the scenario record's esper (battle::learnFromEsper).
+[[nodiscard]] SpellLearningResult portLearnFromEsper(const RecordScenario& scenario);
+
+[[nodiscard]] std::string differences(const SpellLearningResult& port, const SpellLearningResult& guest);
+
 // One write a routine made to a watched cell, as the watch saw it.
 struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
@@ -501,6 +569,17 @@ public:
     // with the accumulator wide and the index registers narrow. The scenario's targets are the aim's.
     [[nodiscard]] CoverResult coverEffect(const DamageScenario& scenario);
 
+    // The spells the scenario record's esper teaches learned further (LearnGenjuMagic), called as a
+    // won battle's end calls it for a party member with an esper: the record written at its place
+    // among the sixteen, the character's spells known at theirs, the battle's magic points, and Morph
+    // available so that a spell stored shows in the win's flags. The record must have an esper.
+    [[nodiscard]] SpellLearningResult learnFromEsper(const RecordScenario& scenario);
+
+    // One level-up of the scenario's record (DoLevelUp), called as a won battle's end calls it: the
+    // record written at its place with the boosts in the top of its maximum HP and MP words. The
+    // record's level must be below 99.
+    [[nodiscard]] LevelUpResult levelUp(const RecordScenario& scenario);
+
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
     [[nodiscard]] const std::vector<WatchedWrite>& writes() const { return writes_; }
@@ -566,6 +645,10 @@ private:
     [[nodiscard]] std::string replayStatusCall(const TracedCall& call, const TracedRoutine& routine);
     [[nodiscard]] DamageScenario readEffectScenario();
     [[nodiscard]] std::string replayEffectCall(const TracedCall& call, const TracedRoutine& routine, bool bounce);
+    void writeRecordScenario(const RecordScenario& scenario);
+    [[nodiscard]] LevelUpResult readLevelUpResult(std::size_t recordIndex);
+    [[nodiscard]] SpellLearningResult readSpellLearningResult(CharacterPropId actor);
+    [[nodiscard]] std::string replayRecordCall(const TracedCall& call, const TracedRoutine& routine);
     [[nodiscard]] DamageScenario readScenario();
     [[nodiscard]] TargetDamageResult readTargetResult();
     [[nodiscard]] ApplyDamageResult readApplyResult(std::size_t firstNumeralCommand = 0,
@@ -598,6 +681,8 @@ private:
     retropp::Routine<TargetCall> doTargetEffect_;
     retropp::Routine<Call> initGfxParams_;
     retropp::Routine<Call> coverEffect_;
+    retropp::Routine<TargetCall> learnGenjuMagic_;
+    retropp::Routine<Call> doLevelUp_;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -691,5 +776,21 @@ struct TargetScenario {
 // time in six a Seize hold on it; and targets for the blow three times in four. Nothing has been
 // bounced off anyone, no one has stepped in yet and no ally is covered.
 [[nodiscard]] DamageScenario drawCoverScenario(std::mt19937& rng);
+
+// The scenarios the level-up sweep draws, from the same seed: one of the sixteen records at a level
+// from 1 to 98, its maximum HP up to 9,999 and maximum MP up to 999 (each often within a level's gain
+// of its cap), its vigor, speed, stamina and magic power up to 128 (often 126 to 128, and now and then
+// 252 to 255, where the bonus comes round in the stat's byte), the two boosts 0-3 each, and any of the
+// 27 espers or none.
+[[nodiscard]] RecordScenario drawLevelUpScenario(std::mt19937& rng);
+
+// The scenarios the esper-learning sweep draws, from the same seed: one of the first twelve
+// characters with any of the 27 espers, 0 to 10 magic points or one time in four any byte (so the
+// rate times the magic points passes a byte), and each of the 54 spells at a
+// percentage below 100, just learned or learned.
+[[nodiscard]] RecordScenario drawLearningScenario(std::mt19937& rng);
+
+// One line naming a drawn record scenario's inputs, for a report.
+[[nodiscard]] std::string describe(const RecordScenario& scenario);
 
 }  // namespace ostinato::trace

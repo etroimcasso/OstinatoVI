@@ -17,8 +17,8 @@ namespace ostinato::battle {
 namespace {
 
 constexpr int kStatMax = 255;
-constexpr int kMaxHp = 9999;
-constexpr int kMaxMp = 999;
+using game::kMaxHp;
+using game::kMaxMp;
 
 // The fourteen playable characters, Terra to Umaro, each have a bit of an item's equippable-by
 // mask of their own.

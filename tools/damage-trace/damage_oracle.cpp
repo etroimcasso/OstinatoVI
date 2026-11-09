@@ -29,17 +29,22 @@
 #include "battle/battle_hooks.h"
 #include "battle/battle_script.h"
 #include "battle/damage.h"
+#include "battle/leveling.h"
+#include "battle/spell_learning.h"
 #include "battle/status.h"
 #include "battle/target_effects.h"
 #include "battle/targeting.h"
 #include "data/attack_properties.h"
+#include "data/esper_properties.h"
 #include "data/formations.h"
 #include "data/monster_attacks.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/battle_command_id.h"
+#include "ostinato/esper_id.h"
 #include "ostinato/game_limits.h"
+#include "ostinato/game_version.h"
 #include "ostinato/formation_id.h"
 #include "ostinato/item_effects.h"
 #include "ostinato/monster_id.h"
@@ -64,6 +69,8 @@ constexpr std::uint32_t kDoAttackerEffect = 0xC23E7D;
 constexpr std::uint32_t kDoTargetEffect = 0xC2387E;
 constexpr std::uint32_t kInitGfxParams = 0xC257C2;
 constexpr std::uint32_t kCoverEffect = 0xC2123B;
+constexpr std::uint32_t kLearnGenjuMagic = 0xC2602A;
+constexpr std::uint32_t kDoLevelUp = 0xC260C2;
 
 // `Reset` (field/reset.asm), where the reset vector's `jml` lands after `clc; xce`
 // (field/header.asm): the first instruction the game runs in native mode.
@@ -84,7 +91,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 13> kOpenings{{
+constexpr std::array<RoutineOpening, 15> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -98,16 +105,20 @@ constexpr std::array<RoutineOpening, 13> kOpenings{{
     {"DoTargetEffect", kDoTargetEffect, {0xDA, 0x5A, 0x08, 0xE2}, 4},                // phx; phy; php; sep
     {"InitGfxParams", kInitGfxParams, {0x08, 0xE2, 0x30, 0x64}, 4},                  // php; sep #$30; stz $a0
     {"CoverEffect", kCoverEffect, {0xDA, 0x08, 0xA5, 0xB2}, 4},                      // phx; php; lda $b2
+    {"LearnGenjuMagic", kLearnGenjuMagic, {0xDA, 0x20, 0x93, 0x62}, 4},              // phx; jsr GetGenjuPropPtr
+    {"DoLevelUp", kDoLevelUp, {0x08, 0xFE, 0x08, 0x16}, 4},                          // php; inc $1608,x
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
 // a work-RAM address. CalcDmg and RelicDmgEffect are entered with both register widths narrow,
 // ApplyDmgMult, CalcTargetDmg and CoverEffect with the accumulator wide and the index registers
-// narrow; interrupts are off throughout.
+// narrow, and the two routines on the party's records with the accumulator narrow and the index
+// registers wide; interrupts are off throughout.
 constexpr std::uint8_t kBattleDataBank = 0x7E;
 constexpr std::uint16_t kBattleDirectPage = 0x0000;
 constexpr std::uint8_t kByteWideStatus = 0x34;
 constexpr std::uint8_t kWideAccumulatorStatus = 0x14;
+constexpr std::uint8_t kWideIndexStatus = 0x24;
 
 // --- the cells the per-target pass reads and writes ----------------------------------------------
 
@@ -364,6 +375,11 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
          .isa = retropp::Isa::Wdc65816});
     initGfxParams_ = machine_.bindRoutine<Call>(kInitGfxParams, byteWide);
     coverEffect_ = machine_.bindRoutine<Call>(kCoverEffect, byteWide);
+    learnGenjuMagic_ = machine_.bindRoutine<TargetCall>(
+        kLearnGenjuMagic,
+        {.inputs = {retropp::snes::C, retropp::snes::X, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+         .isa = retropp::Isa::Wdc65816});
+    doLevelUp_ = machine_.bindRoutine<Call>(kDoLevelUp, byteWide);
 }
 
 DamageOracle::~DamageOracle() = default;
@@ -1510,6 +1526,7 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
             .at = routine.entry,
             .handler = [this, routine](retropp::Vm& vm, std::uint32_t at) {
                 ++open_;
+                partyRecordsOpen_ = routine.partyRecords;
                 const std::string prefix = framePrefix(frame_());
                 line_(prefix + " enter " + routine.name + " " + busAddress(at));
                 const std::vector<std::uint8_t> params = places_->read(vm, &ContextCells::params, kParamsCells);
@@ -1545,6 +1562,7 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                     if (open_ > 0) {
                         --open_;
                     }
+                    partyRecordsOpen_ = false;
                     line_(framePrefix(frame_()) + " return " + routine.name + " " + busAddress(at));
                 }});
         }
@@ -1553,8 +1571,8 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
 
     // A watch names the address the access drove; a direct-page access drives $00:00xx, and the same
     // byte of work RAM is logged under its $7E address so every line names one cell one way.
-    const auto watched = [this, access](char how) {
-        return [this, access, how](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+    const auto watched = [this, access](char how, bool partyRecords = false) {
+        return [this, access, how, partyRecords](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
             const std::uint32_t cell = kWorkRam | (at & 0xFFFF);
             if (how == 'w' && (cell == kExtraHits || cell == kAimingRules || cell == kNextParamsBlock ||
                                (cell >= kParamsCells && cell < kParamsCells + kParamsSize))) {
@@ -1563,7 +1581,7 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
             if (access) {
                 access(cell, value, how == 'w');
             }
-            if (open_ > 0) {
+            if (open_ > 0 && (!partyRecords || partyRecordsOpen_)) {
                 char text[48];
                 std::snprintf(text, sizeof text, " %c $7E:%04X %02X", how, cell & 0xFFFF, value);
                 line_(framePrefix(frame_()) + text);
@@ -1577,6 +1595,12 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                                                            .at = retropp::MemoryRegion{.at = range.at, .size = range.size},
                                                            .onRead = watched('r'),
                                                            .onWrite = watched('w')});
+    }
+    for (const TracedRange& range : kPartyRecordRanges) {
+        watches.declarations.push_back(retropp::GuestWatch{.key = range.key,
+                                                           .at = retropp::MemoryRegion{.at = range.at, .size = range.size},
+                                                           .onRead = watched('r', true),
+                                                           .onWrite = watched('w', true)});
     }
     // The context's cells outside the traced ranges: their writes are kept, and none is logged.
     const auto keepWrite = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
@@ -1600,6 +1624,7 @@ void DamageTrace::returnToFrame(const TracedRoutine& routine) {
     if (open_ > 0) {
         --open_;
     }
+    partyRecordsOpen_ = false;
     line_(framePrefix(frame_()) + " return " + routine.name + " " + busAddress(routine.frameReturn));
 }
 
@@ -1948,6 +1973,9 @@ std::string DamageOracle::replay(const TracedCall& call) {
     }
     if (routine.entry == kDoAttackerEffect || routine.entry == kDoTargetEffect) {
         return replayEffectCall(call, routine, bounce);
+    }
+    if (routine.partyRecords) {
+        return replayRecordCall(call, routine);
     }
 
     // The battle as the oracle writes a default scenario, then every cell the routine read as it read it.
@@ -4208,6 +4236,415 @@ DamageScenario drawCoverScenario(std::mt19937& rng) {
     s.attack.params.steppingIn = {};
     s.attack.params.coveredAlly.reset();
     return s;
+}
+
+// --- the party's records at a battle's end --------------------------------------------------------
+
+namespace {
+
+// The sixteen character records, 37 bytes each, and the places of a record's fields within it
+// (notes/field-ram.txt): the actor, graphics, name, level, HP, maximum HP with the HP boost in its top
+// two bits, MP, maximum MP with the MP boost, experience (three bytes), the first and fourth status
+// bytes, the four commands, the four stats, the esper and the six pieces of equipment.
+constexpr std::uint32_t kCharacterRecords = kWorkRam + 0x1600;
+constexpr std::uint32_t kRecordSize = 37;
+constexpr std::size_t kRecordGraphics = 1;
+constexpr std::size_t kRecordName = 2;
+constexpr std::size_t kRecordLevel = 8;
+constexpr std::size_t kRecordHp = 9;
+constexpr std::size_t kRecordMaxHp = 11;
+constexpr std::size_t kRecordMp = 13;
+constexpr std::size_t kRecordMaxMp = 15;
+constexpr std::size_t kRecordExperience = 17;
+constexpr std::size_t kRecordFirstStatus = 20;
+constexpr std::size_t kRecordFourthStatus = 21;
+constexpr std::size_t kRecordCommands = 22;
+constexpr std::size_t kRecordVigor = 26;
+constexpr std::size_t kRecordSpeed = 27;
+constexpr std::size_t kRecordStamina = 28;
+constexpr std::size_t kRecordMagicPower = 29;
+constexpr std::size_t kRecordEsper = 30;
+constexpr std::size_t kRecordEquipment = 31;
+// The esper byte names an esper by its place among the 27, or holds this for none.
+constexpr std::uint8_t kNoEsper = 0xFF;
+constexpr std::size_t kEspers = 27;
+// The maximum HP and MP words keep the boost in their top two bits.
+constexpr int kBoostShift = 14;
+constexpr std::uint16_t kMaximumBits = 0x3FFF;
+
+// The spells each of the first twelve characters knows, 54 bytes each.
+constexpr std::uint32_t kSpellsKnown = kWorkRam + 0x1A6E;
+constexpr std::uint32_t kSpellsKnownSize = 648;
+
+// The battle's-end cells in direct page: the win's flags, Morph available (bit 3, OR-ed into the
+// flags when a spell is stored), the place of the spells being learned and the battle's magic points.
+constexpr std::uint32_t kWinFlags = kWorkRam + 0x00F0;
+constexpr std::uint32_t kMorphAvailable = kWorkRam + 0x00F1;
+constexpr std::uint32_t kSpellListPlace = kWorkRam + 0x00F4;
+constexpr std::uint32_t kMagicPoints = kWorkRam + 0x00FB;
+constexpr std::uint8_t kMorphAvailableBit = 0x08;
+
+const TracedRoutine& kLearnGenjuMagicRoutine = kTracedRoutines[7];
+const TracedRoutine& kDoLevelUpRoutine = kTracedRoutines[8];
+
+std::uint32_t recordAt(std::size_t index) {
+    return kCharacterRecords + kRecordSize * static_cast<std::uint32_t>(index);
+}
+
+std::uint32_t spellListAt(CharacterPropId actor) {
+    return kSpellsKnown + static_cast<std::uint32_t>(game::kLearnableSpells) * static_cast<std::uint8_t>(actor);
+}
+
+std::uint8_t esperByte(const std::optional<EsperId>& esper) {
+    if (!esper) {
+        return kNoEsper;
+    }
+    return static_cast<std::uint8_t>(static_cast<std::uint8_t>(*esper) - static_cast<std::uint8_t>(EsperId::RAMUH));
+}
+
+std::optional<EsperId> esperOfByte(std::uint8_t value) {
+    if (value == kNoEsper) {
+        return std::nullopt;
+    }
+    if (value >= kEspers) {
+        throw std::runtime_error("the record's esper byte names no esper: " + std::to_string(value));
+    }
+    return static_cast<EsperId>(value + static_cast<std::uint8_t>(EsperId::RAMUH));
+}
+
+std::uint16_t boostedWord(int maximum, std::uint8_t boostBits) {
+    return static_cast<std::uint16_t>((maximum & kMaximumBits) | boostBits << kBoostShift);
+}
+
+void addLine(std::string& out, const char* field, int port, int guest) {
+    if (port != guest) {
+        out += std::string{field} + ": port " + std::to_string(port) + ", cartridge " + std::to_string(guest) + "\n";
+    }
+}
+
+}  // namespace
+
+void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
+    if (scenario.recordIndex >= game::kCharacterRecords) {
+        throw std::logic_error("a record scenario names one of the sixteen records");
+    }
+    if (static_cast<std::size_t>(scenario.actor) >= game::kSpellLearners) {
+        throw std::logic_error("a record scenario's spells are one of the first twelve characters'");
+    }
+    const game::CharacterRecord& record = scenario.record;
+    std::array<std::uint8_t, kRecordSize> bytes{};
+    bytes[0] = static_cast<std::uint8_t>(record.actor);
+    bytes[kRecordGraphics] = static_cast<std::uint8_t>(record.graphics);
+    std::copy(record.name.begin(), record.name.end(), bytes.begin() + kRecordName);
+    bytes[kRecordLevel] = record.level;
+    const auto putWord = [&](std::size_t at, std::uint16_t word) {
+        bytes[at] = static_cast<std::uint8_t>(word & 0xFF);
+        bytes[at + 1] = static_cast<std::uint8_t>(word >> 8);
+    };
+    putWord(kRecordHp, record.hp);
+    putWord(kRecordMaxHp, boostedWord(record.maxHp, scenario.hpBoostBits));
+    putWord(kRecordMp, record.mp);
+    putWord(kRecordMaxMp, boostedWord(record.maxMp, scenario.mpBoostBits));
+    bytes[kRecordExperience] = static_cast<std::uint8_t>(record.experience & 0xFF);
+    bytes[kRecordExperience + 1] = static_cast<std::uint8_t>(record.experience >> 8 & 0xFF);
+    bytes[kRecordExperience + 2] = static_cast<std::uint8_t>(record.experience >> 16 & 0xFF);
+    bytes[kRecordFirstStatus] = record.status.bytes[0];
+    bytes[kRecordFourthStatus] = record.status.bytes[3];
+    for (std::size_t i = 0; i < record.commands.size(); ++i) {
+        bytes[kRecordCommands + i] = static_cast<std::uint8_t>(record.commands[i]);
+    }
+    bytes[kRecordVigor] = record.vigor;
+    bytes[kRecordSpeed] = record.speed;
+    bytes[kRecordStamina] = record.stamina;
+    bytes[kRecordMagicPower] = record.magicPower;
+    bytes[kRecordEsper] = esperByte(record.esper);
+    const std::array<ItemId, 6> equipment = record.equipment();
+    for (std::size_t i = 0; i < equipment.size(); ++i) {
+        bytes[kRecordEquipment + i] = static_cast<std::uint8_t>(equipment[i]);
+    }
+    machine_.write(retropp::MemoryRegion{.at = recordAt(scenario.recordIndex), .size = kRecordSize}, bytes);
+    machine_.write(retropp::MemoryRegion{.at = spellListAt(scenario.actor),
+                                         .size = static_cast<std::uint32_t>(game::kLearnableSpells)},
+                   scenario.spells.progress);
+}
+
+LevelUpResult DamageOracle::readLevelUpResult(std::size_t recordIndex) {
+    const std::uint32_t at = recordAt(recordIndex);
+    const std::uint16_t maxHp = readWord(at + kRecordMaxHp);
+    const std::uint16_t maxMp = readWord(at + kRecordMaxMp);
+    return LevelUpResult{.level = readByte(at + kRecordLevel),
+                         .maxHp = static_cast<std::uint16_t>(maxHp & kMaximumBits),
+                         .maxMp = static_cast<std::uint16_t>(maxMp & kMaximumBits),
+                         .hpBoostBits = static_cast<std::uint8_t>(maxHp >> kBoostShift),
+                         .mpBoostBits = static_cast<std::uint8_t>(maxMp >> kBoostShift),
+                         .vigor = readByte(at + kRecordVigor),
+                         .speed = readByte(at + kRecordSpeed),
+                         .stamina = readByte(at + kRecordStamina),
+                         .magicPower = readByte(at + kRecordMagicPower)};
+}
+
+SpellLearningResult DamageOracle::readSpellLearningResult(CharacterPropId actor) {
+    SpellLearningResult result;
+    const std::vector<std::uint8_t> bytes = machine_.read(
+        retropp::MemoryRegion{.at = spellListAt(actor), .size = static_cast<std::uint32_t>(game::kLearnableSpells)});
+    std::copy(bytes.begin(), bytes.end(), result.progress.begin());
+    result.progressed = (readByte(kWinFlags) & kMorphAvailableBit) != 0;
+    return result;
+}
+
+SpellLearningResult DamageOracle::learnFromEsper(const RecordScenario& scenario) {
+    if (!scenario.record.esper) {
+        throw std::logic_error("the spells learned from an esper are called for a record with one");
+    }
+    writeRecordScenario(scenario);
+    writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(scenario.actor) & 0xFFFF));
+    writeByte(kMagicPoints, scenario.magicPoints);
+    writeByte(kMorphAvailable, kMorphAvailableBit);
+    writeByte(kWinFlags, 0);
+    call([&] {
+        learnGenjuMagic_(esperByte(scenario.record.esper),
+                         static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords),
+                         kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+    });
+    trace_->returnToFrame(kLearnGenjuMagicRoutine);
+    return readSpellLearningResult(scenario.actor);
+}
+
+LevelUpResult DamageOracle::levelUp(const RecordScenario& scenario) {
+    if (scenario.record.level >= kPartyMaxLevel) {
+        throw std::logic_error("the game never levels up a character at 99");
+    }
+    writeRecordScenario(scenario);
+    call([&] {
+        doLevelUp_(static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords), kWideIndexStatus,
+                   kBattleDataBank, kBattleDirectPage);
+    });
+    trace_->returnToFrame(kDoLevelUpRoutine);
+    return readLevelUpResult(scenario.recordIndex);
+}
+
+LevelUpResult portLevelUp(const RecordScenario& scenario) {
+    game::CharacterRecord record = scenario.record;
+    battle::levelUp(record, GameVersion::US_1_1);
+    return LevelUpResult{.level = record.level,
+                         .maxHp = record.maxHp,
+                         .maxMp = record.maxMp,
+                         .hpBoostBits = scenario.hpBoostBits,
+                         .mpBoostBits = scenario.mpBoostBits,
+                         .vigor = record.vigor,
+                         .speed = record.speed,
+                         .stamina = record.stamina,
+                         .magicPower = record.magicPower};
+}
+
+std::string differences(const LevelUpResult& port, const LevelUpResult& guest) {
+    std::string out;
+    addLine(out, "level", port.level, guest.level);
+    addLine(out, "maximum HP", port.maxHp, guest.maxHp);
+    addLine(out, "maximum MP", port.maxMp, guest.maxMp);
+    addLine(out, "HP boost", port.hpBoostBits, guest.hpBoostBits);
+    addLine(out, "MP boost", port.mpBoostBits, guest.mpBoostBits);
+    addLine(out, "vigor", port.vigor, guest.vigor);
+    addLine(out, "speed", port.speed, guest.speed);
+    addLine(out, "stamina", port.stamina, guest.stamina);
+    addLine(out, "magic power", port.magicPower, guest.magicPower);
+    return out;
+}
+
+SpellLearningResult portLearnFromEsper(const RecordScenario& scenario) {
+    SpellLearningResult result;
+    game::SpellProgress spells = scenario.spells;
+    result.progressed = battle::learnFromEsper(spells, *scenario.record.esper, scenario.magicPoints);
+    result.progress = spells.progress;
+    return result;
+}
+
+std::string differences(const SpellLearningResult& port, const SpellLearningResult& guest) {
+    std::string out;
+    for (std::size_t spell = 0; spell < port.progress.size(); ++spell) {
+        const std::string field = "spell " + std::to_string(spell);
+        addLine(out, field.c_str(), port.progress[spell], guest.progress[spell]);
+    }
+    addLine(out, "progressed", port.progressed, guest.progressed);
+    return out;
+}
+
+RecordScenario drawLevelUpScenario(std::mt19937& rng) {
+    RecordScenario s;
+    s.recordIndex = rng() % game::kCharacterRecords;
+    game::CharacterRecord& record = s.record;
+    record.actor = static_cast<CharacterPropId>(s.recordIndex);
+    record.level = static_cast<std::uint8_t>(1 + upTo(rng, kPartyMaxLevel - 2));
+    // Often within a level's largest gain of the cap, doubled by the largest bonus.
+    record.maxHp = static_cast<std::uint16_t>(oneIn(rng, 3) ? kPartyMaxHp - upTo(rng, 400) : upTo(rng, kPartyMaxHp));
+    record.maxMp = static_cast<std::uint16_t>(oneIn(rng, 3) ? kPartyMaxMp - upTo(rng, 30) : upTo(rng, kPartyMaxMp));
+    record.hp = static_cast<std::uint16_t>(upTo(rng, record.maxHp));
+    record.mp = static_cast<std::uint16_t>(upTo(rng, record.maxMp));
+    record.experience = static_cast<std::uint32_t>(rng() & 0xFFFFFF);
+    // Often near the limit, and now and then at the top of the byte, where the bonus comes round.
+    for (std::uint8_t* stat : {&record.vigor, &record.speed, &record.stamina, &record.magicPower}) {
+        *stat = static_cast<std::uint8_t>(oneIn(rng, 8)   ? 252 + upTo(rng, 3)
+                                          : oneIn(rng, 3) ? 126 + upTo(rng, 2)
+                                                          : upTo(rng, 128));
+    }
+    s.hpBoostBits = static_cast<std::uint8_t>(upTo(rng, 3));
+    s.mpBoostBits = static_cast<std::uint8_t>(upTo(rng, 3));
+    if (!oneIn(rng, 5)) {
+        record.esper = static_cast<EsperId>(static_cast<std::uint8_t>(EsperId::RAMUH) + rng() % kEspers);
+    }
+    return s;
+}
+
+RecordScenario drawLearningScenario(std::mt19937& rng) {
+    RecordScenario s;
+    s.recordIndex = rng() % game::kSpellLearners;
+    s.actor = static_cast<CharacterPropId>(s.recordIndex);
+    s.record.actor = s.actor;
+    s.record.esper = static_cast<EsperId>(static_cast<std::uint8_t>(EsperId::RAMUH) + rng() % kEspers);
+    // A battle's 0 to 10, and one time in four any byte, so the product passes a byte.
+    s.magicPoints = static_cast<std::uint8_t>(oneIn(rng, 4) ? byte(rng) : upTo(rng, 10));
+    for (std::uint8_t& learned : s.spells.progress) {
+        switch (rng() % 8) {
+            case 0:
+                learned = game::SpellProgress::kSpellJustLearned;
+                break;
+            case 1:
+                learned = game::SpellProgress::kSpellLearned;
+                break;
+            case 2:
+                learned = static_cast<std::uint8_t>(90 + upTo(rng, 9));
+                break;
+            default:
+                learned = static_cast<std::uint8_t>(upTo(rng, 99));
+                break;
+        }
+    }
+    return s;
+}
+
+std::string describe(const RecordScenario& s) {
+    const game::CharacterRecord& r = s.record;
+    return "record " + std::to_string(s.recordIndex) + " actor " + std::to_string(static_cast<int>(s.actor)) +
+           " level " + std::to_string(r.level) + " max hp " + std::to_string(r.maxHp) + " max mp " +
+           std::to_string(r.maxMp) + " boosts " + std::to_string(s.hpBoostBits) + "/" + std::to_string(s.mpBoostBits) +
+           " stats " + std::to_string(r.vigor) + "/" + std::to_string(r.speed) + "/" + std::to_string(r.stamina) + "/" +
+           std::to_string(r.magicPower) + " esper " + std::to_string(esperByte(r.esper)) + " magic points " +
+           std::to_string(s.magicPoints);
+}
+
+std::string DamageOracle::replayRecordCall(const TracedCall& call, const TracedRoutine& routine) {
+    const auto input = [&](std::uint32_t cell) -> std::optional<std::uint8_t> {
+        const auto found = call.inputs.find(cell);
+        if (found == call.inputs.end()) {
+            return std::nullopt;
+        }
+        return found->second;
+    };
+    const auto overlayWrites = [&] {
+        for (const auto& [cell, value] : call.writes) {
+            writeByte(cell, value);
+        }
+    };
+
+    if (routine.entry == kDoLevelUp) {
+        // The record is the one the call's record cells fall in.
+        std::optional<std::size_t> index;
+        for (const auto* cells : {&call.inputs, &call.writes}) {
+            for (const auto& [cell, value] : *cells) {
+                if (cell < kCharacterRecords || cell >= recordAt(game::kCharacterRecords)) {
+                    continue;
+                }
+                const std::size_t in = (cell - kCharacterRecords) / kRecordSize;
+                if (index && *index != in) {
+                    throw std::runtime_error("DoLevelUp touched more than one character record");
+                }
+                index = in;
+            }
+        }
+        if (!index) {
+            throw std::runtime_error("DoLevelUp touched no character record");
+        }
+        const std::uint32_t at = recordAt(*index);
+        const auto field = [&](std::size_t offset) { return input(at + static_cast<std::uint32_t>(offset)).value_or(0); };
+        RecordScenario s;
+        s.recordIndex = *index;
+        s.record.level = field(kRecordLevel);
+        if (s.record.level >= kPartyMaxLevel) {
+            throw std::runtime_error("DoLevelUp was called at level " + std::to_string(s.record.level));
+        }
+        const auto word = [&](std::size_t offset) {
+            return static_cast<std::uint16_t>(field(offset) | field(offset + 1) << 8);
+        };
+        s.record.maxHp = static_cast<std::uint16_t>(word(kRecordMaxHp) & kMaximumBits);
+        s.hpBoostBits = static_cast<std::uint8_t>(word(kRecordMaxHp) >> kBoostShift);
+        s.record.maxMp = static_cast<std::uint16_t>(word(kRecordMaxMp) & kMaximumBits);
+        s.mpBoostBits = static_cast<std::uint8_t>(word(kRecordMaxMp) >> kBoostShift);
+        s.record.vigor = field(kRecordVigor);
+        s.record.speed = field(kRecordSpeed);
+        s.record.stamina = field(kRecordStamina);
+        s.record.magicPower = field(kRecordMagicPower);
+        s.record.esper = esperOfByte(input(at + kRecordEsper).value_or(kNoEsper));
+        const LevelUpResult port = portLevelUp(s);
+        writeRecordScenario(s);
+        overlayWrites();
+        return differences(port, readLevelUpResult(*index));
+    }
+
+    // The spells learned from an esper: the spell cells read name the character and the spells. Each
+    // spell the esper teaches is read once, whatever its percentage, so the spells read name the
+    // esper — no two espers teach the same spells.
+    std::optional<std::size_t> actor;
+    std::set<std::size_t> taught;
+    for (const auto& [cell, value] : call.inputs) {
+        if (cell < kSpellsKnown || cell >= kSpellsKnown + kSpellsKnownSize) {
+            continue;
+        }
+        const std::size_t place = cell - kSpellsKnown;
+        const std::size_t of = place / game::kLearnableSpells;
+        if (actor && *actor != of) {
+            throw std::runtime_error("LearnGenjuMagic read more than one character's spells");
+        }
+        actor = of;
+        taught.insert(place % game::kLearnableSpells);
+    }
+    if (!actor) {
+        throw std::runtime_error("LearnGenjuMagic read no spell");
+    }
+    std::optional<EsperId> esper;
+    for (const EsperPropertiesEntry& entry : kEsperProperties) {
+        std::set<std::size_t> spells;
+        for (const EsperSpell& slot : entry.record.spells) {
+            if (slot.spell != AttackId::NONE) {
+                spells.insert(static_cast<std::size_t>(slot.spell));
+            }
+        }
+        if (spells == taught) {
+            esper = entry.id;
+        }
+    }
+    if (!esper) {
+        throw std::runtime_error("LearnGenjuMagic read spells no esper teaches");
+    }
+    const std::optional<std::uint8_t> magicPoints = input(kMagicPoints);
+    if (!magicPoints) {
+        throw std::runtime_error("LearnGenjuMagic did not read the battle's magic points");
+    }
+    RecordScenario s;
+    s.actor = static_cast<CharacterPropId>(*actor);
+    s.recordIndex = *actor;
+    s.record.actor = s.actor;
+    s.record.esper = esper;
+    s.magicPoints = *magicPoints;
+    for (std::size_t spell = 0; spell < game::kLearnableSpells; ++spell) {
+        s.spells.progress[spell] = input(spellListAt(s.actor) + static_cast<std::uint32_t>(spell)).value_or(0);
+    }
+    const SpellLearningResult port = portLearnFromEsper(s);
+    writeRecordScenario(s);
+    overlayWrites();
+    SpellLearningResult guest = readSpellLearningResult(s.actor);
+    // A spell stored ORs Morph available into the win's flags, which writes them whatever Morph is.
+    guest.progressed = call.writes.contains(kWinFlags);
+    return differences(port, guest);
 }
 
 }  // namespace ostinato::trace
