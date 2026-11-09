@@ -93,6 +93,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/system_commands.cpp
     src/battle/target_effects.cpp
     src/battle/targeting.cpp
+    src/data/ai_scripts.cpp
     src/data/attack_animations.cpp
     src/data/attack_properties.cpp
     src/data/battle_commands.cpp
@@ -520,6 +521,17 @@ target_compile_options(ostinato-vi-misc-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-misc-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_link_libraries(ostinato-vi-misc-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-misc-tests)
+
+# The monster AI scripts as data: every script's steps turned back into bytes and compared with the
+# cartridge over the whole script block, the table against its fixture, scripts traced by hand from
+# the script source, and what no script holds. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-ai-scripts-tests
+    tests/test_ai_scripts.cpp)
+target_compile_features(ostinato-vi-ai-scripts-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-ai-scripts-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-ai-scripts-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-ai-scripts-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-ai-scripts-tests)
 
 # The field dialog text engine: every control code's frame cost, the word wrap, the splices,
 # the choice cursor, the page wipe and the map title, driven frame by frame over hand-built

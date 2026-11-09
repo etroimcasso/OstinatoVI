@@ -31,6 +31,7 @@
 #include "ostinato/battle_command_id.h"
 #include "ostinato/formation_id.h"
 #include "ostinato/monster_entrance_type.h"
+#include "ostinato/monster_visibility_mode.h"
 
 namespace ostinato::battle {
 
@@ -116,15 +117,8 @@ struct MonsterDialogAction {
     std::uint16_t dialog = 0;
 };
 
-// What showing or hiding monsters does to each of them.
-enum class MonsterVisibilityMode : std::uint8_t {
-    ReviveAtFullHp = 0,      // back on the field at full HP
-    Hide = 1,                // off the field, and no longer a target
-    ReviveAtCurrentHp = 2,   // back on the field with the HP it had
-    HideButTargetable = 3,   // off the field, but still a target
-    HideAndKeepBattleGoing = 4,  // off the field; the battle does not end while no monster is left
-    HideAndKill = 5,         // off the field, and dead
-};
+// What showing or hiding monsters does to each of them (ostinato/monster_visibility_mode.h).
+using ostinato::MonsterVisibilityMode;
 
 // Monsters leave the field or come back, shown by `type`.
 struct MonsterVisibilityAction {

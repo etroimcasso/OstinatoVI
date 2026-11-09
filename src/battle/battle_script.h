@@ -34,6 +34,7 @@
 #include "ostinato/battle_command_id.h"
 #include "ostinato/esper_id.h"
 #include "ostinato/item_id.h"
+#include "ostinato/monster_animation.h"
 #include "ostinato/monster_entrance_type.h"
 #include "ostinato/monster_id.h"
 
@@ -229,23 +230,9 @@ struct MonstersEnterOrLeave {
     BattlerSet revived;
 };
 
-// The animations a monster's AI can play on monsters or the party, outside any attack.
-enum class MonsterAnimation : std::uint8_t {
-    FlashRed = 0,
-    MoveBackSlowly = 1,             // 8 pixels
-    MoveForwardSlowly = 2,
-    MoveBackQuickly = 3,
-    MoveForwardQuickly = 4,
-    PartyRunsLeftToRight = 5,       // the party runs across the screen
-    PartyRunsRightToLeft = 6,
-    MoveBackFar = 7,                // 64 pixels
-    MoveForwardFar = 8,
-    SoundEffect = 9,                // a sound effect, panned
-    KefkaHead = 10,
-    LongGlow = 11,
-    ShortGlow = 12,
-    KefkaDeath = 13,
-};
+// The animations a monster's AI can play on monsters or the party, outside any attack
+// (ostinato/monster_animation.h).
+using ostinato::MonsterAnimation;
 
 // A monster animation plays: on `monsters`, or for SoundEffect, `soundEffect` panned by `pan`.
 struct MonsterAnimationPlays {
