@@ -175,6 +175,18 @@ TEST_F(DamageFormulaTest, PhysicalDamage_AnOfferingHalvesIt) {
     });
 }
 
+// At level 251 the half plus the damage passes 65,535 and keeps 16 bits before the Offering halves
+// it: 510 × 251 keeps 62,474, the blow is 61,253, and 30,881 + 61,253 keeps 26,598.
+TEST_F(DamageFormulaTest, PhysicalDamage_AnOfferingHalvesTheSumAsItWraps) {
+    trace::runOnLoop([&] {
+        trace::DamageOracle oracle{image()};
+        oracle.start();
+        DamageScenario s = blow(BattlerSlot::character(0), 255, 255, 251);
+        s.state.at(s.attacker).relicEffects4.set(RelicEffect4::FIGHT_TO_X_FIGHT);
+        EXPECT_THREE_WAYS(portBlow(s), 13299, oracle.calcDamage(s));
+    });
+}
+
 TEST_F(DamageFormulaTest, PhysicalDamage_AGenjiGloveWithOneWeaponTakesAQuarterOff) {
     trace::runOnLoop([&] {
         // 187 − 46.

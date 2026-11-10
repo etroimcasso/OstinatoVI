@@ -273,8 +273,8 @@ target, with the covered ally recorded.
 
 The frame is checked whole: `ExecSelfAttack` and `ExecAttack` run on the cartridge over the same
 battle as the port's `runSelfAttack()` and `runAttack()`, every cell the frame reads written from the
-port's state and every cell it leaves compared (`tests/test_attack_oracle.cpp` is the test authority
-for this section).
+port's state and every cell it leaves compared, a Fight's and a Capture's hand loaded at each swing
+included (`tests/test_attack_oracle.cpp` is the test authority for this section).
 
 ### The attack loop
 
@@ -427,6 +427,14 @@ Imp is named as a monster's special attack; the hand's battle power, element and
 weapon's two-handed and back-row flags, its spell and special effect, its swing. An Offering makes
 every attack undodgeable, aimed at random, never critical and without a spell. An Imp monster
 without the Imp critical flag hits with power 1.
+
+The swing turns the attack byte: the hand is the carry `php`/`plp` keeps across the routine, and
+`ror $b6` (`:6936-6939`) moves it into the top bit — set for the shield hand — with the rest of the
+byte shifted down. The Fight animation reads the hand there (`btlgfx CmdAnim_00 :28323-28326`), and
+nothing turns the byte back, so every swing of a command turns it again and the `$ef` test of a later
+swing sees the turned byte: the plain hit `$ee` goes `$77`, `$bb` over a Fight's two swings, and an
+Offering's eight end at `$aa`. Jump loads its hand the same way once (`Cmd_16 :3869`).
+`loadWeaponAttack()` turns `attack.attack` in the same place, after the `$ef` test.
 
 `GetCmdForAI :5006-5020`: an attack's command is the command of the highest attack base at or below
 it (`kAiCommandsForAttack`), or Magic below them all.
@@ -648,8 +656,17 @@ battle wearing an Offering shows Fight's own targeting until the first refresh.
 `CommandExecutor::execute()` runs these when the battle core reaches them; each starts from the same
 frame as a command (`ExecCmd :3093-3109`) and the ones that make an attack start from the plain hit
 with no command's rules (`_c2298a` with a command past the menu's: `InitTarget :6460-6461` loads no
-aiming byte). A battle's own action carries no command of its own; most are shown as Mimic, whose
-animation is empty (`$b5 = $12`).
+aiming byte). Each runs under its own command number — `$22` damage over time, `$26` a spell with no
+caster, `$29` status timers running out, `$2d` Seize's drain, and a script's `$2e`, `$2f` and `$30` —
+which `$3a7c` holds as `InitPlayerAction :392-396` leaves it; a battler the action's attack hits keeps
+that number as the command it was last hit with (`_c235e3 :8587-8588`), which a monster's script tests
+(`kDamageOverTimeCommand` and the rest, `src/battle/attack.h`, in `attack.queuedCommand`). Most are
+shown as Mimic, whose animation is empty (`$b5 = $12`).
+
+Damage over time, the spell with no caster, the status timers and Seize's drain run whole on the
+cartridge (`Cmd_22`, `Cmd_26`, `Cmd_29`, `Cmd_2d`) over the same battle as the port's
+`CommandExecutor::execute()`, every cell they read written from the port's state and every cell they
+leave compared (`tests/test_own_actions_oracle.cpp` is the test authority for this section).
 
 ### Damage over time
 
@@ -827,7 +844,8 @@ and the hand is emptied.
 
 ## What a hit target records
 
-`_c235e3 :8578-8613`: who hit it with which command as chosen, with which spell, with which item
+`_c235e3 :8578-8613`: who hit it with which command as chosen (`$3a7c`: for one of the battle's own
+actions, its own command number), with which spell, with which item
 (when the command used one), and with which elements. `_c2361b`: a target not waiting to answer an
 attack is marked to answer this one; one already waiting takes the new attacker on heads.
 

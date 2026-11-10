@@ -240,11 +240,13 @@ and writes every scenario to `check.log`; `--only` and `--seed` narrow it
 
 ## Gotchas
 
-- **Three 16-bit cuts are the game's.** A spell's damage wraps past 65,535 — Ultima at a magic stat of
+- **The 16-bit cuts are the game's.** A spell's damage wraps past 65,535 — Ultima at a magic stat of
   140 and level 99 does 32 — a blow's first product by the level is kept to 16 bits, which the
   Guardian at Vector reaches, and an Atma Weapon hit of 42,367 or more at level 99 and full HP wraps
-  ([`docs/Bugs.md`](../../Bugs.md)). `magicDamage()`, `physicalDamage()` and `targetDamage()` keep
-  them; nothing else in `damage.cpp` cuts.
+  ([`docs/Bugs.md`](../../Bugs.md)). A party member's blow also keeps the two sums of its
+  party-member step to 16 bits before the Offering halves them, which only an attack at a level above
+  99 reaches: power 255 and vigor 255 at level 251 with an Offering does 13,299. `magicDamage()`,
+  `physicalDamage()` and `targetDamage()` keep every one; nothing else in `damage.cpp` cuts.
 - **The relic bonus's magic path reads the third relic effects.** One item that raises magic damage
   is `RelicEffect3::RAISE_MAGIC_DAMAGE` (a quarter); two are `RelicEffect1::RAISE_MAGIC_DAMAGE`
   (half). An attack on MP takes the magic path even when it is physical.

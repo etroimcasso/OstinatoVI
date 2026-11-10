@@ -33,8 +33,9 @@
 // status rules, tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
 // tests/test_control_menu.cpp against its special effects, tests/test_cover_and_params.cpp
 // against its cover and its setting up of the attack's animation, tests/test_espers_oracle.cpp
-// against an esper's spells learned and a level-up at a battle's end, and
-// tests/test_attack_oracle.cpp against the whole attack frame.
+// against an esper's spells learned and a level-up at a battle's end,
+// tests/test_attack_oracle.cpp against the whole attack frame, and tests/test_own_actions_oracle.cpp
+// against the battle's own actions.
 #pragma once
 
 #include <array>
@@ -467,6 +468,11 @@ struct AttackRun {
 
 [[nodiscard]] std::string differences(const AttackResult& port, const AttackResult& guest);
 
+// The port's action `action` for the scenario's attacker (CommandExecutor::execute(), with the battle's
+// own hooks): DamageOverTime, SpellWithoutCaster, StatusTimersExpired, SeizeDrain or an
+// AiEffectAction. Read back as ownAction() reads the cartridge's.
+[[nodiscard]] AttackResult portOwnAction(DamageScenario scenario, const battle::Action& action);
+
 // --- the party's records at a battle's end -------------------------------------------------------
 
 // One character's record and spells as a won battle's end reads them: the record and which of the
@@ -824,6 +830,16 @@ public:
     // attack is the one a command starts with, so SetStatus's and ClearStatus's attack runs whole.
     [[nodiscard]] AiCommandResult aiCommand(const AiScenario& scenario, const battle::Action& action);
 
+    // One of the battle's own actions for the scenario's attacker — damage over time (Cmd_22), a spell
+    // with no caster (Cmd_26), status timers running out (Cmd_29), Seize's drain (Cmd_2d), or a
+    // script's effect (Cmd_30, run as aiCommand() runs it) — called as running a command calls it:
+    // every cell the attack frame reads written as attack() writes it, from the attack a command
+    // starts with; the cells a command starts with; the enemies left, every battler's damage-over-time
+    // action waiting, its hold by a status and its Poison multiplier; the actor in Y, and the action's
+    // command, attack byte and targets where the command reads them. Read back as aiCommand() reads an
+    // attack's cells, with every battler's damage-over-time action waiting and Poison multiplier.
+    [[nodiscard]] AttackResult ownAction(const DamageScenario& scenario, const battle::Action& action);
+
     // Every attack of the scenario's attack (ExecAttack), made by the scenario's attacker and called
     // as a command's body calls it: every cell the frame reads written from the scenario, the
     // script's queue and params buffer empty, the attacker in X.
@@ -896,6 +912,7 @@ private:
     void writeEffectCells(const DamageScenario& scenario);
     void writeTargetEffectCells(const DamageScenario& scenario);
     void writeAttackCells(const DamageScenario& scenario);
+    void writeCommandStart();
     [[nodiscard]] AttackResult readAttackResult(bool attackCells);
     [[nodiscard]] ApplyDamageResult readApplyCells();
     void registerGate();
@@ -966,6 +983,8 @@ private:
     retropp::Routine<Call> execAiRetal_;
     // The three commands, by the command number less 0x2E.
     std::array<retropp::Routine<Call>, 3> aiCommands_;
+    // Damage over time, a spell with no caster, status timers running out and Seize's drain.
+    std::array<retropp::Routine<Call>, 4> ownActions_;
     retropp::Routine<Call> execSelfAttack_;
     retropp::Routine<Call> execAttack_;
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
@@ -1149,8 +1168,11 @@ struct AiCommandCase {
 [[nodiscard]] AiCommandCase drawAiCommandCase(std::mt19937& rng);
 
 // The scenarios the whole-attack sweep draws, from the same seed: drawTargetEffectScenario()'s
-// battle, then the attack as a command's body hands it to the frame — any command with an aiming
-// byte but Fight and Capture, its attack and the attack chosen, the targeting byte, the targets (none
+// battle, then the attack as a command's body hands it to the frame — Fight three times in eight and
+// Capture one, each with its two swings or an Offering's eight and every battler's hands (a party
+// member's whole, its shield hand empty one time in two; a monster's as loading it leaves them), or
+// else any other command with an aiming byte, its attack and the attack chosen, the targeting byte,
+// the targets (none
 // one time in four), the aiming rules, the name it is shown under, the MP it costs (above the
 // attacker's one time in four of those it costs), the swirl, quiet misses, the attack hidden without
 // targets, an exact aim, damage modification and re-aiming at random, the first pass, the attacks
@@ -1161,10 +1183,31 @@ struct AiCommandCase {
 // learn one, and the attack one of the lores half of those), and every battler's vigor and magic power.
 [[nodiscard]] DamageScenario drawAttackScenario(std::mt19937& rng);
 
+// A drawn battle and one of the battle's own actions in it.
+struct OwnActionCase {
+    DamageScenario scenario;
+    battle::Action action;
+};
+
+// The battles and actions the own-action sweep draws, from the same seed: drawAttackScenario()'s
+// battle, then one of five actions with its operands in the game's own ranges — damage over time
+// (Poison, Regen or Sap, for a battler holding the status three times in four, its Poison multiplier
+// 0 to 14 by twos, held by a status one time in four, no enemies left one time in eight); a spell with
+// no caster (Doom one time in three, with no enemies left one time in four of those, otherwise any of
+// the 54 spells) at any battler; status timers running out for a battler (one to four of Stop,
+// Reflect, Freeze and Sleep, each status held three times in four); Seize's drain by a monster holding
+// a party member; and a script's SetStatus or ClearStatus. Every battler is held by a status and has
+// a damage-over-time action waiting one time in four each, the battler a beat or a drain is for always
+// waiting, and the battler an action acts on is on the field and reachable three times in four.
+[[nodiscard]] OwnActionCase drawOwnActionCase(std::mt19937& rng);
+
+// One line naming a drawn battle's inputs and its action, for a report.
+[[nodiscard]] std::string describe(const OwnActionCase& drawn);
+
 // drawAttackScenario()'s battle with the attack the battle's own actions make on their attacker:
 // nothing shown three times in four, otherwise as Magic; sparse statuses, removed one time in two;
-// undodgeable; the level and stat 0 or drawn; the swirl; and the drain, restore, ignore-defense,
-// unsplit and undead-inverting flags drawn.
+// undodgeable; the level and stat 0 or drawn; the swirl; the drain, restore, ignore-defense, unsplit
+// and undead-inverting flags drawn; and no hand loaded.
 [[nodiscard]] DamageScenario drawSelfAttackScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

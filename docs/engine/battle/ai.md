@@ -27,7 +27,7 @@ fighting in the colosseum chooses its own attack (`chooseMonsterAction()`, [comm
 as in the game.
 
 All of it is checked against the cartridge's own routines, run on the engine's SNES machine over the
-same battle — every one but the two effects that make an attack, `SetStatus` and `ClearStatus`.
+same battle, `SetStatus` and `ClearStatus` with the attack they make.
 
 The rules, and the line of the original each is read from, are in
 [`docs/contracts/battle_ai.md`](../../contracts/battle_ai.md).
@@ -234,7 +234,7 @@ it in the block are aimed at them.
 | Condition | Holds when |
 |---|---|
 | `ai::Never` | never |
-| `ai::HitByCommand`, `ai::HitByAttack`, `ai::HitByItem` | its last hit was made with one of the two commands, spells or items; the targets become whoever made it |
+| `ai::HitByCommand`, `ai::HitByAttack`, `ai::HitByItem` | its last hit was made with one of the two commands, spells or items; the targets become whoever made it. A hit by one of the battle's own actions — a Poison beat, a spell with no caster, Seize's drain — was made with that action's own command number, not Fight ([commands.md](commands.md#the-battles-own-actions)) |
 | `ai::HitByElement` | its last hit had one of the elements; the targets become whoever made it |
 | `ai::Damaged` | an attack has taken HP or MP from it; the targets become whoever made it |
 | `ai::HpAtMost`, `ai::MpAtMost` | the target's HP or MP is the value or less |

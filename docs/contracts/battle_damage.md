@@ -118,10 +118,12 @@ in both hands (446) with a vigor stat of 255 is 701, and 701 × 94 = 65,894 pass
 the blow comes to 2,494 where 40,506 was meant (`docs/Bugs.md`, "A strong enough blow loses most
 of its damage at a high level"). `physicalDamage` keeps the low 16 bits of the first product.
 
-**No other cut is reachable.** Step 5's result is at most 65,535 × 255 / 256 = 65,279. Step 6 runs
-for a party member, whose level is 1 to 99 (`kMaxLevel`, `src/data/level_up.h`), so its damage so far
-is at most 65,535 × 99 / 256 = 25,343 and the sum at most (510 + 25,343) / 2 + 25,343 = 38,269. The
-port writes steps 5 and 6 in `int`.
+**Step 6's two sums keep 16 bits as well.** `asl; adc $11b0` and `clc; adc $11b0` (`:7266-7270`)
+are 16-bit adds: 2·*p* + damage wraps past 65,535 before it is halved, the half plus the damage wraps
+again, and the Offering halves what is left. Step 5's result is at most 65,535 × 255 / 256 = 65,279.
+At a party member's own level (1 to 99, `kMaxLevel`, `src/data/level_up.h`) the damage so far is at
+most 65,535 × 99 / 256 = 25,343 and neither sum passes (510 + 25,343) / 2 + 25,343 = 38,269; only an
+attack whose level cell `$11af` holds more than 99 wraps here. `physicalDamage` keeps all three cuts.
 
 | Case | Result | Test |
 |---|---|---|
@@ -130,6 +132,7 @@ port writes steps 5 and 6 in `int`.
 | party member, p 200, v 100, l 10 | 375 (225 if the carry were lost) | `TheVigorCarriesIntoTheHighByte` |
 | both hands, p 100, v 50, l 10 | 175 + 50 → 87 → 230 | `AWeaponInBothHandsCountsSevenQuartersOfItsPower` |
 | Offering | 93 | `AnOfferingHalvesIt` |
+| Offering, p 255, v 255, l 251 | 26,598 → 13,299 | `AnOfferingHalvesTheSumAsItWraps` |
 | Genji Glove, one weapon | 141 | `AGenjiGloveWithOneWeaponTakesAQuarterOff` |
 | both relic bits | 70 | `AnOfferingAndAGenjiGloveTogether` |
 | a monster with those bits set | 175 | `AMonsterIgnoresThePartyMembersRelicBits` |

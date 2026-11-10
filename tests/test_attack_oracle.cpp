@@ -15,6 +15,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "assets/cartridge.h"
@@ -356,6 +357,63 @@ TEST_F(AttackOracleTest, TheWeaponsSpellIsCastAfterTheHit) {
     });
 }
 
+// A party member's Fight as its body hands it to the frame: two swings, both hands with power, each
+// loaded as it comes, the hit undodgeable through the wielder's relic.
+DamageScenario heroFights(BattleCommandId command) {
+    DamageScenario s = frameBattle();
+    s.attacker = kHero;
+    s.attack.targets = battle::BattlerSet::of(kFoe);
+    s.attack.command = command;
+    s.attack.queuedCommand = command;
+    s.attack.scratch.fightCommand = command;
+    s.attack.scratch.attacksLeft = 1;
+    s.attack.canBeCritical = true;
+    s.attack.rules.opposingSideOnly = true;
+    battle::Battler& hero = s.state.at(kHero);
+    hero.relicEffects3.set(RelicEffect3::HIT_100_IGNORE_MBLOCK);
+    for (battle::Hand* hand : {&hero.weaponHand, &hero.shieldHand}) {
+        hand->item = ItemId::DIRK;
+        hand->battlePower = 50;
+        hand->hitRate = 180;
+    }
+    return s;
+}
+
+// The weapon hand swings first and the shield hand second; the attack byte the animation reads
+// carries the hand in its top bit, the plain hit's number turned down a bit at each swing.
+TEST_F(AttackOracleTest, AFightSwingsEachHandWithTheHandInTheAttacksTopBit) {
+    const DamageScenario s = heroFights(BattleCommandId::FIGHT);
+    withOracle([&](DamageOracle& oracle) {
+        const AttackResult port = checked(oracle, s);
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 0 "), 2);
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 0 119 "), 1);  // $EE turned: the weapon hand
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 0 187 "), 1);  // and again: the shield hand
+    });
+}
+
+// An Offering swings eight times, the hands in turn, and the attack byte turns at each.
+TEST_F(AttackOracleTest, AnOfferingSwingsEightTimes) {
+    DamageScenario s = heroFights(BattleCommandId::FIGHT);
+    s.state.at(kHero).relicEffects4.set(RelicEffect4::FIGHT_TO_X_FIGHT);
+    s.attack.scratch.attacksLeft = 7;
+    withOracle([&](DamageOracle& oracle) {
+        const AttackResult port = checked(oracle, s);
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 0 "), 8);
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 0 170 "), 1);  // the eighth, the shield hand
+    });
+}
+
+// Capture's hits each carry Steal: every hit that lands shows Steal's message.
+TEST_F(AttackOracleTest, CapturesHitsSteal) {
+    DamageScenario s = heroFights(BattleCommandId::CAPTURE);
+    s.state.at(kFoe).commonSteal = ItemId::POTION;
+    withOracle([&](DamageOracle& oracle) {
+        const AttackResult port = checked(oracle, s);
+        EXPECT_EQ(countOf(cell(port, "script"), "animation 6 "), 2);
+        EXPECT_GE(countOf(cell(port, "script"), "message "), 1);
+    });
+}
+
 // A spell bounced off Reflect leaves the bounce's rule on the rest of the command, so its next attack
 // is aimed back at the caster its last params block names, half the time. A bounce off the first
 // party slot names no one there, and the next attack takes two entries of the battle's lore list
@@ -423,6 +481,11 @@ struct Reached {
     int twoAttacks = 0;
     int anchored = 0;
     int lore = 0;
+    int fought = 0;
+    int shieldHand = 0;
+    int offering = 0;
+    int captured = 0;
+    int emptyHand = 0;
     std::string first;
 };
 
@@ -446,6 +509,20 @@ void sweep(DamageOracle& oracle, bool self, Reached& reached) {
         reached.twoAttacks += countOf(script, "animation") >= 2 ? 1 : 0;
         reached.anchored += s.state.at(s.attacker).airAnchored ? 1 : 0;
         reached.lore += run.after.state.loresLearned != s.state.loresLearned ? 1 : 0;
+        if (const std::optional<BattleCommandId> fight = s.attack.scratch.fightCommand) {
+            const battle::Battler& attacker = s.state.at(s.attacker);
+            ++reached.fought;
+            reached.captured += *fight == BattleCommandId::CAPTURE ? 1 : 0;
+            reached.offering += attacker.relicEffects4.has(RelicEffect4::FIGHT_TO_X_FIGHT) ? 1 : 0;
+            reached.emptyHand += attacker.shieldHand.battlePower == 0 ? 1 : 0;
+            for (const battle::BattleScriptCommand& command : run.script.commands()) {
+                const auto* animation = std::get_if<battle::AttackAnimation>(&command);
+                if (animation != nullptr && animation->offHand) {
+                    ++reached.shieldHand;
+                    break;
+                }
+            }
+        }
     }
 }
 
@@ -462,10 +539,21 @@ void expectEveryPathReached(const Reached& reached) {
     EXPECT_GT(reached.lore, 0);
 }
 
+// The paths only a command that loads a hand takes: a Fight, each hand swung, an Offering's eight
+// swings, Capture's hit and a hand with no power.
+void expectEveryHandPathReached(const Reached& reached) {
+    EXPECT_GT(reached.fought, 0);
+    EXPECT_GT(reached.shieldHand, 0);
+    EXPECT_GT(reached.offering, 0);
+    EXPECT_GT(reached.captured, 0);
+    EXPECT_GT(reached.emptyHand, 0);
+}
+
 TEST_F(AttackOracleTest, FiveHundredDrawnAttacksMatchTheCartridge) {
     Reached reached;
     withOracle([&](DamageOracle& oracle) { sweep(oracle, false, reached); });
     expectEveryPathReached(reached);
+    expectEveryHandPathReached(reached);
 }
 
 TEST_F(AttackOracleTest, FiveHundredDrawnSelfAttacksMatchTheCartridge) {

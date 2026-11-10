@@ -626,7 +626,8 @@ target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTes
 gtest_discover_tests(ostinato-vi-battle-core-tests)
 
 # The battle commands: the targeting byte read and every way an attack is aimed, the hit check,
-# the attack frame (and the frame whole against the cartridge's own, on the damage oracle), every
+# the attack frame and the battle's own actions (and both whole against the cartridge's own, on the
+# damage oracle), every
 # command the player can choose and the attack an item makes, the command menu, the battle script
 # builder, the executor that runs them, and the battle's layout — where each battler stands, which
 # way it faces and how it turns to a target. Own binary so the other baselines stay frozen.
@@ -641,6 +642,7 @@ add_executable(ostinato-vi-battle-commands-tests
     tests/test_commands.cpp
     tests/test_hit_check.cpp
     tests/test_item_attack.cpp
+    tests/test_own_actions_oracle.cpp
     tests/test_system_commands.cpp
     tests/test_targeting.cpp
     tools/damage-trace/damage_oracle.cpp)
