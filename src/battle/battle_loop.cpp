@@ -382,7 +382,8 @@ void checkHeld(BattleState& state, BattlerSlot slot) {
         return;
     }
     battler.heldByStatus = false;
-    if (battler.controlledBy || battler.status.has(StatusId::SLEEP) || battler.status.has(StatusId::FROZEN) ||
+    const bool controlled = battler.controlledBy && !battler.controlEnding;
+    if (controlled || battler.status.has(StatusId::SLEEP) || battler.status.has(StatusId::FROZEN) ||
         battler.seizedBy) {
         return;
     }

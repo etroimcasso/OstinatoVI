@@ -163,7 +163,8 @@ void diceRoll(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleScr
     attack.attack = static_cast<AttackId>(thirdShown);
     // All three the same face: the face shown again in both halves of the second value.
     const int bonus = (thirdShown << kFaceShift | thirdShown) == attack.secondary ? thirdShown : 0;
-    const int once = product * (attack.attackerLevel * 2);
+    // Twice the level is taken in a byte: from level 128 on it wraps.
+    const int once = product * static_cast<std::uint8_t>(attack.attackerLevel * 2);
     attack.damage = std::min(once * (bonus + 1), kDamageWordMax);
     if (attack.command == BattleCommandId::FIGHT) {
         attack.command = shownAs(SpecialAnimation::DiceRoll);
@@ -247,13 +248,29 @@ void sonicDive(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleSc
 }
 
 // Mantra shares the caster's HP among the others it reaches: the caster's HP over the targets but
-// itself. A Mantra with no one else to reach does 65,535.
+// itself, the count less one taken in a byte. A Mantra with no one else to reach does 65,535; one
+// aimed at no one divides by 255.
 void mantra(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, BattleScriptBuilder&) {
     attack.record.traits.set(AttackTrait::IGNORE_DEFENSE);
     attack.record.traits.set(AttackTrait::NO_DAMAGE_SPLIT);
     attack.scratch.damageModification = false;
     attack.params.targetsHit.remove(attacker);
-    attack.damage = divide(state.at(attacker).hp, attack.scratch.targetCount - 1);
+    const auto others = static_cast<std::uint8_t>(attack.scratch.targetCount - 1);
+    attack.damage = divide(state.at(attacker).hp, others);
+}
+
+// Whether the frame leaves a battler's mark to answer itself ready when an attacker effect sets it:
+// after a blow by a party member in a side attack, or by a monster in a pincer or a side attack.
+// LEGACY VERBATIM (docs/Bugs.md): the waiting comes from the processor's carry as the frame's facing
+// step (UpdateFacingDirection) leaves it, not from anything about the battler.
+bool facingStepLeavesTheMarkReady(const BattleState& state, const AttackInFlight& attack, BattlerSlot attacker) {
+    if (!attack.record.traits.has(AttackTrait::PHYSICAL)) {
+        return false;
+    }
+    if (attacker.isCharacter()) {
+        return state.battleType == BattleType::Side;
+    }
+    return state.battleType == BattleType::Pincer || state.battleType == BattleType::Side;
 }
 
 // Spiraler: the caster gives up its HP and MP, hides and dies, and is gone once the action is over.
@@ -265,8 +282,8 @@ void spiraler(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, 
         attack.params.targetsHit.remove(attacker);
         state.leavingAfterAction.add(attacker);
     }
-    // Spiraler is a spell: the frame leaves the mark unready for an attack that is not a blow.
-    hideAndDie(state, attacker, false);
+    // Spiraler is a spell, so its own record leaves the mark unready.
+    hideAndDie(state, attacker, facingStepLeavesTheMarkReady(state, attack, attacker));
     Battler& battler = state.at(attacker);
     battler.hp = 0;
     battler.mp = 0;

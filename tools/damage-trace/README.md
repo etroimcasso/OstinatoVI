@@ -272,11 +272,20 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `ai-setup` | `InitAI`, a script readied into a slot that held another | `tests/test_ai_run_oracle.cpp` |
 | `ai-turns` | `ExecMonsterAction`, one turn of a script | `tests/test_ai_run_oracle.cpp` |
 | `ai-counters` | `ExecAIRetal`, a counterattack part on one of the eight paths through its guard | `tests/test_ai_run_oracle.cpp` |
-| `ai-commands` | `Cmd_2e`, `Cmd_2f` and `Cmd_30`, the three commands only a script queues, all but the two effects that make an attack | `tests/test_ai_run_oracle.cpp` |
+| `ai-commands` | `Cmd_2e`, `Cmd_2f` and `Cmd_30`, the three commands only a script queues, with every effect; `SetStatus` and `ClearStatus` run the whole attack frame | `tests/test_ai_run_oracle.cpp` |
+| `attack` | `ExecAttack`, every attack of a command's attack, against `battle::runAttack()` | `tests/test_attack_oracle.cpp` |
+| `self-attack` | `ExecSelfAttack`, an attack aimed at its attacker, against `battle::runSelfAttack()` | `tests/test_attack_oracle.cpp` |
 
 `--replay-traced` also traces the traced routines' calls in each draw and replays them against the
 port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`, `tests/test_effects_oracle.cpp`
-and `tests/test_espers_oracle.cpp` do; a target-effect draw's calls are given the draw's target.
+and `tests/test_espers_oracle.cpp` do; a target-effect draw's calls are given the draw's target. On
+`attack` and `self-attack` the traced routines are called by the frame itself, so each call closes at
+the frame's own return site (the return column above).
+
+Each `attack` and `self-attack` call also watches the battle's work RAM, `$7E:0000-3FFF`, for a cell
+the frame reads before anything wrote it. `DamageOracle::unwrittenReads()` lists them after a call;
+`kCellsLeftAsTheMachineHasThem` in `damage_oracle.h` holds the few the frame reads and nothing it shows
+or keeps depends on, each with its reason. Any other cell in the list is one the scenario must write.
 
 ## Files
 
@@ -286,4 +295,4 @@ and `tests/test_espers_oracle.cpp` do; a target-effect draw's calls are given th
 | `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
 | `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; and over an `AiScenario`: the battlers a monster's script names and the conditions it tests; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()` and `drawAiConditionCase()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; over an `AiScenario`: the battlers a monster's script names and the conditions it tests; and the whole attack frame, `attack()` and `selfAttack()`, with `unwrittenReads()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAttackScenario()` and `drawSelfAttackScenario()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()`, `portAttack()`, `portSelfAttack()`, `attackResult()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port |

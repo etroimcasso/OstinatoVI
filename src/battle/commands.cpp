@@ -476,7 +476,9 @@ void sketchCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     sketcher.specialAttack = monster.specialAttack;
     attack.scratch.randomizeTargets = true;
     attack.nameShown = false;
-    runNestedCommand(state, hooks, script, attack, sketch->monster, sketch->attack);
+    // The caught attack is taken from where the sketch left it, and none waits after it.
+    const AttackId caught = std::exchange(attack.scratch.followUpSpell, std::nullopt).value_or(AttackId::NONE);
+    runNestedCommand(state, hooks, script, attack, sketch->monster, caught);
 }
 
 // Rage: the party member rages as the monster it chose — or, choosing none, as the last party

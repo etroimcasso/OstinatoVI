@@ -116,10 +116,10 @@ enum class AttackNameKind : std::uint8_t {
     Blitz,                // the blitz
 };
 
-// A sketch that caught its monster: the sketcher makes `attack` next, as `monster` would.
+// A sketch that caught its monster: the sketcher makes the attack it caught next, as `monster` would.
+// The attack waits where a weapon's spell does (AttackScratch::followUpSpell).
 struct SketchDrawn {
     BattlerSlot monster = BattlerSlot::monster(0);
-    AttackId attack{};
 };
 
 // What each battler is about to lose and gain from the attack being worked out, before any of it is
@@ -133,7 +133,7 @@ struct DamageLedger {
 
 // What one command keeps track of between its attacks.
 struct AttackScratch {
-    std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
+    std::optional<AttackId> followUpSpell;     // a weapon's spell cast after the hit, or the attack a sketch caught
     std::optional<std::uint8_t> message;       // a battle message shown after the attack
     // What the message names: an item ("Stole {item}") and an amount ("{amount} GP was stolen!!").
     std::optional<ItemId> messageItem;

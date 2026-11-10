@@ -626,12 +626,13 @@ target_link_libraries(ostinato-vi-battle-core-tests PRIVATE ostinato-vi-lib GTes
 gtest_discover_tests(ostinato-vi-battle-core-tests)
 
 # The battle commands: the targeting byte read and every way an attack is aimed, the hit check,
-# the attack frame, every command the player can choose and the attack an item makes, the command
-# menu, the battle script builder, the executor that runs them, and the battle's layout — where
-# each battler stands, which way it faces and how it turns to a target. Own binary so the other
-# baselines stay frozen.
+# the attack frame (and the frame whole against the cartridge's own, on the damage oracle), every
+# command the player can choose and the attack an item makes, the command menu, the battle script
+# builder, the executor that runs them, and the battle's layout — where each battler stands, which
+# way it faces and how it turns to a target. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-commands-tests
     tests/test_attack_frame.cpp
+    tests/test_attack_oracle.cpp
     tests/test_automatic_actions.cpp
     tests/test_battle_layout.cpp
     tests/test_battle_script.cpp
@@ -641,10 +642,13 @@ add_executable(ostinato-vi-battle-commands-tests
     tests/test_hit_check.cpp
     tests/test_item_attack.cpp
     tests/test_system_commands.cpp
-    tests/test_targeting.cpp)
+    tests/test_targeting.cpp
+    tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_include_directories(ostinato-vi-battle-commands-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
 target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-commands-tests)
 

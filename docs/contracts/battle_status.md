@@ -218,7 +218,7 @@ entry below does nothing either way. The helpers they share:
 | Dead | takes off Petrify and Condemned; Dead is taken out of the clears, so a Dead to set wins over a Dead to clear; then everything Petrify's going on does (`:11450-11454`) | the same as Petrify's coming off |
 | Condemned | a condemned count starts (`pendingUpdates.startCondemned`) | the count stops (`.stopCondemned`) |
 | Silence | the command list to work out again (`.commandList`) | the same |
-| Confuse | shown turned around (`$2f53`, a mirror of the status for the graphics; no field); statuses changed | the same |
+| Confuse | drawn facing the other way: its bit goes into the flipped set `$2f53-$2f54` (`BattleState::flippedByControl`) (`SetStatus_0d :11366-11369`); statuses changed | its bit comes out of the flipped set (`RemoveStatus_0d :11375-11377`), a Control link's flip with it; statuses changed |
 | Sap | takes Regen off | — |
 | Sleep | the sleep timer starts at `kSleepDuration` (18); its menu may not open; all its actions dropped (`:11482-11489`, then Petrify's last two steps) | its gauge empties after the action (`:11529-11535`) |
 | Regen | takes Sap off | — |
@@ -309,8 +309,7 @@ party member out of `monstersStanding` changes nothing, as the party member's mo
 
 - The field menu's use of an item or a spell (`CalcMagicEffect` `:11736-11756`) calls `ApplyStatusMod`
   and `CalcStatus` with no battle.
-- `$2f44` and `$2f53` are mirrors of Invisible and Confuse for the graphics; what is shown reads
-  `status`.
+- `$2f44` is a mirror of Invisible for the graphics; what is shown reads `status`.
 - `diedAwaitingCounter` and `statusChanged` are emptied elsewhere (`ExecAIRetal` `:12475`;
   `docs/contracts/battle_core.md`); the pass only adds to them.
 - The special effects that write the pending statuses directly, the status timers' counting and the

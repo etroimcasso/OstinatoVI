@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bitset>
 #include <cctype>
 #include <cstddef>
 #include <cstdio>
@@ -46,6 +47,7 @@
 #include "battle/target_effects.h"
 #include "battle/targeting.h"
 #include "data/attack_properties.h"
+#include "data/battle_commands.h"
 #include "data/esper_properties.h"
 #include "data/formations.h"
 #include "data/monster_attacks.h"
@@ -86,6 +88,9 @@ constexpr std::uint32_t kCheckAiTarget = 0xC21F25;
 constexpr std::uint32_t kInitAi = 0xC22D71;
 constexpr std::uint32_t kExecMonsterAction = 0xC202DC;
 constexpr std::uint32_t kExecAiRetal = 0xC24BF4;
+// The attack frame: an attack aimed at its own attacker, and every attack of a command.
+constexpr std::uint32_t kExecSelfAttack = 0xC23167;
+constexpr std::uint32_t kExecAttack = 0xC2317B;
 // The three commands only a script queues: a variable changed, a switch changed, an effect.
 constexpr std::array<std::uint32_t, 3> kAiCommands{0xC21DFA, 0xC21E1A, 0xC21E5E};
 // The calls each AI routine returns to as the battle program makes them: loading a monster's
@@ -127,7 +132,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 28> kOpenings{{
+constexpr std::array<RoutineOpening, 30> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -153,6 +158,8 @@ constexpr std::array<RoutineOpening, 28> kOpenings{{
     {"Cmd_2e", kAiCommands[0], {0xA6, 0xB6, 0x20, 0x45}, 4},                         // ldx $b6; jsr GetBattleVar
     {"Cmd_2f", kAiCommands[1], {0xA6, 0xB9, 0x20, 0x57}, 4},                         // ldx $b9; jsr _c21e57
     {"Cmd_30", kAiCommands[2], {0xA5, 0xB6, 0x0A, 0xAA}, 4},                         // lda $b6; asl; tax
+    {"ExecSelfAttack", kExecSelfAttack, {0xA9, 0x80, 0x14, 0xB3}, 4},                 // lda #$80; trb $b3
+    {"ExecAttack", kExecAttack, {0xDA, 0xA5, 0xBD, 0x85}, 4},                         // phx; lda $bd; sta
     // The calls they return to.
     {"the call to InitAI", kInitAiCall, {0x20, 0x71, 0x2D, 0x00}, 3},                // jsr InitAI
     {"the call to ExecMonsterAction", kExecMonsterActionCall, {0x20, 0xDC, 0x02, 0x00}, 3},  // jsr
@@ -170,6 +177,12 @@ constexpr std::uint16_t kBattleDirectPage = 0x0000;
 constexpr std::uint8_t kByteWideStatus = 0x34;
 constexpr std::uint8_t kWideAccumulatorStatus = 0x14;
 constexpr std::uint8_t kWideIndexStatus = 0x24;
+// The carry, in the status byte a routine is called or returns with.
+constexpr std::uint8_t kCarryBit = 0x01;
+
+// The read-set gate watches the battle's work RAM below the graphics buffers, the stack among it.
+constexpr std::uint32_t kGateStart = DamageOracle::kWorkRam;
+constexpr std::uint32_t kGateEnd = DamageOracle::kWorkRam + 0x4000;
 
 // --- the cells the per-target pass reads and writes ----------------------------------------------
 
@@ -316,6 +329,16 @@ constexpr std::uint8_t kNoOne = 0xFF;
 constexpr std::uint16_t kNoDamage = 0xFFFF;
 constexpr std::uint8_t kDrainCappedBit = 0x80;
 constexpr std::uint8_t kWaitingBit = 0x80;
+// A battler's last-attacker mark: the attacker's slot index with the top bit set while the battler
+// waits to answer it. With no last attacker the slot bits hold $7F, as the battle's start leaves
+// them when it fills the cell with $FF; no slot reads as a battler there.
+constexpr std::uint8_t kNoLastAttacker = 0x7F;
+
+std::uint8_t markByte(const battle::Battler& battler) {
+    const std::uint8_t slot =
+        battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : kNoLastAttacker;
+    return static_cast<std::uint8_t>(slot | (battler.retaliationPending ? kWaitingBit : 0));
+}
 // The monster flags byte: undead, the Imp critical, human, the name hidden, dying at 0 MP.
 constexpr std::uint8_t kUndeadBit = 0x80;
 constexpr std::uint8_t kImpCriticalBit = 0x40;
@@ -389,7 +412,9 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
             if (recording_ && write && (at == kDamage || at == kDamage + 1 || at == kMultiplier)) {
                 writes_.push_back(WatchedWrite{.at = at, .value = value});
             }
+            noteGuestAccess(at, value, write);
         });
+    registerGate();
 
     const retropp::RoutineBinding byteWide{
         .inputs = {retropp::snes::X, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
@@ -463,6 +488,45 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
             kAiCommands[i], {.inputs = {retropp::snes::Y, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
                              .isa = retropp::Isa::Wdc65816});
     }
+    execSelfAttack_ = machine_.bindRoutine<Call>(kExecSelfAttack, byteWide);
+    execAttack_ = machine_.bindRoutine<Call>(kExecAttack, byteWide);
+}
+
+void DamageOracle::registerGate() {
+    // The trace's watches already answer for their ranges and hand every access to noteGuestAccess();
+    // the gate watches the rest of the battle's work RAM, gap by gap.
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> taken;
+    for (const TracedRange& range : kTracedRanges) {
+        taken.emplace_back(range.at, range.at + range.size);
+    }
+    for (const TracedRange& range : kPartyRecordRanges) {
+        taken.emplace_back(range.at, range.at + range.size);
+    }
+    std::sort(taken.begin(), taken.end());
+    const auto handler = [this](bool write) {
+        return [this, write](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+            noteGuestAccess(kWorkRam | (at & 0xFFFF), value, write);
+            return retropp::AccessVerdict::proceed();
+        };
+    };
+    retropp::WatchMap gaps;
+    std::uint32_t from = kGateStart;
+    for (const auto& [start, end] : taken) {
+        if (start > from) {
+            gaps.declarations.push_back(retropp::GuestWatch{.key = "read-set gate " + std::to_string(from),
+                                                            .at = retropp::MemoryRegion{.at = from, .size = start - from},
+                                                            .onRead = handler(false),
+                                                            .onWrite = handler(true)});
+        }
+        from = std::max(from, end);
+    }
+    if (from < kGateEnd) {
+        gaps.declarations.push_back(retropp::GuestWatch{.key = "read-set gate " + std::to_string(from),
+                                                        .at = retropp::MemoryRegion{.at = from, .size = kGateEnd - from},
+                                                        .onRead = handler(false),
+                                                        .onWrite = handler(true)});
+    }
+    machine_.registerWatches(gaps);
 }
 
 DamageOracle::~DamageOracle() = default;
@@ -486,9 +550,14 @@ void DamageOracle::call(const std::function<void()>& routine) {
     }
     writes_.clear();
     trace_->forgetContextWrites();
+    unwrittenReads_.clear();
+    gateFresh_ = false;
+    gateCalling_ = true;
     recording_ = true;
     routine();
     recording_ = false;
+    gateCalling_ = false;
+    gateFresh_ = true;
 }
 
 void runOnLoop(const std::function<void()>& work) {
@@ -597,6 +666,12 @@ void DamageOracle::writeApplyCells(const DamageScenario& scenario) {
 }
 
 ApplyDamageResult DamageOracle::readApplyResult(std::size_t firstNumeralCommand, std::uint32_t firstNumeralBuffer) {
+    ApplyDamageResult result = readApplyCells();
+    result.shown = readNumerals(firstNumeralCommand, firstNumeralBuffer);
+    return result;
+}
+
+ApplyDamageResult DamageOracle::readApplyCells() {
     ApplyDamageResult result;
     const auto entry = [](std::uint16_t word) -> std::optional<std::uint16_t> {
         if (word == kNoDamage) {
@@ -624,7 +699,6 @@ ApplyDamageResult DamageOracle::readApplyResult(std::size_t firstNumeralCommand,
     result.missed = setOf(readWord(kMissed));
     result.golemHp = readWord(kGolemHp);
     result.weaponSpellcast = readByte(kWeaponSpellcast);
-    result.shown = readNumerals(firstNumeralCommand, firstNumeralBuffer);
     return result;
 }
 
@@ -688,8 +762,7 @@ ApplyDamageResult portApplied(const battle::BattleState& state, const battle::At
         result.hp[i] = battler.hp;
         result.mp[i] = battler.mp;
         result.statusesToSet[i] = battler.statusesToSet;
-        std::uint8_t mark = battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : 0;
-        mark |= battler.retaliationPending ? kWaitingBit : 0;
+        const std::uint8_t mark = markByte(battler);
         result.lastAttackerMark[i] = mark;
         result.lastDamagedBy[i] = battler.lastDamagedBy;
         result.enabledMagic[i] = battler.pendingUpdates.enabledMagic;
@@ -734,6 +807,41 @@ std::string shownText(const battle::ScatteredHitsShown& shown) {
     return text;
 }
 
+// A bounce off Reflect or a Launcher's hits as the queue's command and its params block hold them,
+// as shownText() gives it.
+std::string bounceText(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block) {
+    const auto attack = static_cast<AttackId>(command[2]);
+    const std::uint16_t set = static_cast<std::uint16_t>(block[kBlockSet] | block[kBlockSet + 1] << 8);
+    if (command[0] == kReflectedCommand) {
+        battle::ReflectedAttackShown shown{.attack = attack};
+        for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+            if (block[i] != kNoOne) {
+                shown.bouncedTo[i] = battle::BattlerSlot::fromIndex(block[i]);
+            }
+        }
+        shown.bouncesThatHit = setOf(set);
+        for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
+            shown.blocks[i] = static_cast<battle::BlockShown>(block[kBlockBlocks + i]);
+        }
+        return shownText(shown);
+    }
+    if (command[0] == kScatteredCommand) {
+        battle::ScatteredHitsShown shown{.attack = attack};
+        for (int i = battle::kBattlerSlots - 1; i >= 0; --i) {
+            if (block[static_cast<std::size_t>(i)] != kNoOne) {
+                shown.targets.push_back(battle::BattlerSlot::fromIndex(block[static_cast<std::size_t>(i)]));
+            }
+        }
+        for (int index = 0; index < battle::kBattlerSlots; ++index) {
+            if (setOf(set).has(battle::BattlerSlot::fromIndex(index))) {
+                shown.attacker = battle::BattlerSlot::fromIndex(index);
+            }
+        }
+        return shownText(shown);
+    }
+    return "command " + std::to_string(command[0]);
+}
+
 }  // namespace
 
 ApplyDamageResult portApplyDamage(DamageScenario scenario) {
@@ -744,6 +852,9 @@ ApplyDamageResult portApplyDamage(DamageScenario scenario) {
 
 ReflectedAttackResult portReflectedAttack(DamageScenario scenario) {
     battle::BattleScriptBuilder script;
+    // The block before the bounce's: the frame's own, whose attacker is the caster, as
+    // reflectedAttack() writes it.
+    script.addParams(battle::AttackAnimationParams{.attacker = scenario.attacker});
     battle::BattleHooks hooks;
     battle::resolveReflectedAttack(scenario.state, hooks, script, scenario.attack, scenario.attacker);
     ReflectedAttackResult result;
@@ -883,36 +994,7 @@ ReflectedAttackResult DamageOracle::readReflectResult() {
     const std::vector<std::uint8_t> command = machine_.read(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize});
     const std::vector<std::uint8_t> block =
         machine_.read(retropp::MemoryRegion{.at = kParamsBlocks + kParamsBlockSize, .size = kParamsBlockSize});
-    const auto attack = static_cast<AttackId>(command[2]);
-    const std::uint16_t set = static_cast<std::uint16_t>(block[kBlockSet] | block[kBlockSet + 1] << 8);
-    if (command[0] == kReflectedCommand) {
-        battle::ReflectedAttackShown shown{.attack = attack};
-        for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
-            if (block[i] != kNoOne) {
-                shown.bouncedTo[i] = battle::BattlerSlot::fromIndex(block[i]);
-            }
-        }
-        shown.bouncesThatHit = setOf(set);
-        for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
-            shown.blocks[i] = static_cast<battle::BlockShown>(block[kBlockBlocks + i]);
-        }
-        result.shownAs = shownText(shown);
-    } else if (command[0] == kScatteredCommand) {
-        battle::ScatteredHitsShown shown{.attack = attack};
-        for (int i = battle::kBattlerSlots - 1; i >= 0; --i) {
-            if (block[static_cast<std::size_t>(i)] != kNoOne) {
-                shown.targets.push_back(battle::BattlerSlot::fromIndex(block[static_cast<std::size_t>(i)]));
-            }
-        }
-        for (int index = 0; index < battle::kBattlerSlots; ++index) {
-            if (setOf(set).has(battle::BattlerSlot::fromIndex(index))) {
-                shown.attacker = battle::BattlerSlot::fromIndex(index);
-            }
-        }
-        result.shownAs = shownText(shown);
-    } else {
-        result.shownAs = "command " + std::to_string(command[0]);
-    }
+    result.shownAs = bounceText(command, block);
     result.damage = readWord(kDamage);
     result.canBeCritical = (readByte(kFirstAttackFlags) & kCannotBeCriticalBit) == 0;
     const std::uint8_t hits = readByte(kExtraHits);
@@ -1032,7 +1114,7 @@ void DamageOracle::writeTargetCells(const DamageScenario& scenario) {
     writeByte(kAnimationPlace, 0);
     writeByte(kQueueEnd, kQueueCommandSize);
     const std::array<std::uint8_t, kQueueCommandSize> unwritten{kUnwritten, kUnwritten, kUnwritten, kUnwritten};
-    machine_.write(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
+    writeBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -1069,9 +1151,11 @@ void DamageOracle::writeTargetCells(const DamageScenario& scenario) {
         writeStatuses(kStatus12, kStatus34, battler.status);
         writeStatuses(kToSet12, kToSet34, battler.statusesToSet);
         writeStatuses(kToClear12, kToClear34, battler.statusesToClear);
-        writeByte(kController + at, blockByte(battler.controlledBy));
-        std::uint8_t mark = battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : 0;
-        mark |= battler.retaliationPending ? kWaitingBit : 0;
+        // The controller's slot times two, with the top bit set while the link is ending.
+        writeByte(kController + at, battler.controlledBy ? static_cast<std::uint8_t>(slotIndex(*battler.controlledBy) |
+                                                                                    (battler.controlEnding ? kTopBit : 0))
+                                                         : kNoOne);
+        const std::uint8_t mark = markByte(battler);
         writeByte(kLastAttacker + at, mark);
         writeWord(kTaken + at, attack.scratch.ledger.taken[i].value_or(kNoDamage));
         writeWord(kHealed + at, attack.scratch.ledger.healed[i].value_or(kNoDamage));
@@ -1120,9 +1204,8 @@ TargetDamageResult portTargetDamage(DamageScenario scenario, battle::BattlerSlot
         const battle::Battler& battler = scenario.state.battlers[i];
         result.statusesToSet[i] = battler.statusesToSet;
         result.statusesToClear[i] = battler.statusesToClear;
-        result.controlled[i] = battler.controlledBy.has_value();
-        std::uint8_t mark = battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : 0;
-        mark |= battler.retaliationPending ? kWaitingBit : 0;
+        result.controlled[i] = battler.controlledBy && !battler.controlEnding;
+        const std::uint8_t mark = markByte(battler);
         result.lastAttackerMark[i] = mark;
     }
     result.stepsLeft = scenario.attack.multiplier;
@@ -1171,7 +1254,7 @@ void DamageOracle::writeScenario(const DamageScenario& scenario) {
     const battle::AttackInFlight& attack = scenario.attack;
     std::array<std::uint8_t, sizeof(AttackProperties)> record{};
     std::memcpy(record.data(), &attack.record, record.size());
-    machine_.write(retropp::MemoryRegion{.at = kRecord, .size = static_cast<std::uint32_t>(record.size())}, record);
+    writeBytes(retropp::MemoryRegion{.at = kRecord, .size = static_cast<std::uint32_t>(record.size())}, record);
     writeByte(kAttackerStat, attack.attackerStat);
     writeByte(kAttackerLevel, attack.attackerLevel);
     writeWord(kDamage, static_cast<std::uint16_t>(attack.damage));
@@ -1200,15 +1283,54 @@ void DamageOracle::writeScenario(const DamageScenario& scenario) {
     }
 }
 
+void DamageOracle::writeBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes) {
+    machine_.write(place, bytes);
+    // The first write after a call starts the next scenario's cells afresh.
+    if (gateFresh_) {
+        gateWritten_.clear();
+        gateFresh_ = false;
+    }
+    for (std::uint32_t cell = place.at; cell < place.at + place.size; ++cell) {
+        gateWritten_.insert(cell);
+    }
+}
+
+void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool write) {
+    if (!gateCalling_) {
+        return;
+    }
+    if (write) {
+        gateWritten_.insert(cell);
+    } else if (!gateWritten_.contains(cell)) {
+        unwrittenReads_.emplace(cell, value);
+    }
+}
+
+bool leftAsTheMachineHasIt(std::uint32_t cell) {
+    return std::any_of(kCellsLeftAsTheMachineHasThem.begin(), kCellsLeftAsTheMachineHasThem.end(),
+                       [cell](const CellsLeftAsTheMachineHasThem& row) {
+                           return cell >= row.at && (cell - row.at) % row.stride == 0 &&
+                                  (cell - row.at) / row.stride < row.count;
+                       });
+}
+
+std::vector<UnwrittenRead> DamageOracle::unwrittenReads() const {
+    std::vector<UnwrittenRead> reads;
+    for (const auto& [cell, value] : unwrittenReads_) {
+        reads.push_back(UnwrittenRead{.at = cell, .value = value});
+    }
+    return reads;
+}
+
 void DamageOracle::writeByte(std::uint32_t at, std::uint8_t value) {
     const std::array<std::uint8_t, 1> bytes{value};
-    machine_.write(retropp::MemoryRegion{.at = at, .size = 1}, bytes);
+    writeBytes(retropp::MemoryRegion{.at = at, .size = 1}, bytes);
 }
 
 void DamageOracle::writeWord(std::uint32_t at, std::uint16_t value) {
     const std::array<std::uint8_t, 2> bytes{static_cast<std::uint8_t>(value & 0xFF),
                                             static_cast<std::uint8_t>(value >> 8)};
-    machine_.write(retropp::MemoryRegion{.at = at, .size = 2}, bytes);
+    writeBytes(retropp::MemoryRegion{.at = at, .size = 2}, bytes);
 }
 
 std::uint8_t DamageOracle::readByte(std::uint32_t at) {
@@ -1658,7 +1780,8 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
         return [this, access, how, partyRecords](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
             const std::uint32_t cell = kWorkRam | (at & 0xFFFF);
             if (how == 'w' && (cell == kExtraHits || cell == kAimingRules || cell == kNextParamsBlock ||
-                               (cell >= kParamsCells && cell < kParamsCells + kParamsSize))) {
+                               (cell >= kParamsCells && cell < kParamsCells + kParamsSize) ||
+                               (cell >= kParamsBlocks && cell < kParamsBlocks + kBlocksSize))) {
                 places_->written[cell] = value;
             }
             if (access) {
@@ -1685,15 +1808,6 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                                                            .onRead = watched('r', true),
                                                            .onWrite = watched('w', true)});
     }
-    // The context's cells outside the traced ranges: their writes are kept, and none is logged.
-    const auto keepWrite = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
-        places_->written[kWorkRam | (at & 0xFFFF)] = value;
-        return retropp::AccessVerdict::proceed();
-    };
-    watches.declarations.push_back(
-        retropp::GuestWatch{.key = "params blocks",
-                            .at = retropp::MemoryRegion{.at = kParamsBlocks, .size = kBlocksSize},
-                            .onWrite = keepWrite});
     machine.registerWatches(watches);
 }
 
@@ -1723,6 +1837,8 @@ std::vector<TracedCall> parseTrace(std::istream& log) {
     std::vector<TracedCall> calls;
     std::optional<TracedCall> open;
     std::set<std::uint32_t> written;
+    // The attacker of the params block at the last attacker effect's entry.
+    std::optional<std::uint8_t> attackerEffectMaker;
     std::string text;
     int number = 0;
     const auto fail = [&](const std::string& why) {
@@ -1769,6 +1885,7 @@ std::vector<TracedCall> parseTrace(std::istream& log) {
             in >> name >> at;
             address(at);
             open = TracedCall{.routine = name, .frame = frame};
+            open->attackerEffectMaker = attackerEffectMaker;
             if (name == kTracedRoutines[6].name && !calls.empty() && calls.back().routine == kTracedRoutines[4].name) {
                 open->target = statusCallTarget(calls.back());
             }
@@ -1817,6 +1934,9 @@ std::vector<TracedCall> parseTrace(std::istream& log) {
             const std::uint32_t site = address(at);
             if (open && open->routine == name) {
                 open->returnedTo = site;
+                if (name == kTracedRoutines[5].name) {
+                    attackerEffectMaker = open->params[kBlockAttacker];
+                }
                 calls.push_back(std::move(*open));
                 open.reset();
             }
@@ -1930,14 +2050,21 @@ battle::BattlerSlot bounceAttacker(const TracedCall& call) {
 
 // Who a bounce's special effect is worked out for. The bounce works out a hit's statuses and effect
 // before the battler it is made from joins the bounces that hit, so for a Launcher's or Super Ball's
-// first hit those bytes are still empty and the hit is the attacker's, the attacker of the params
-// block before the bounce's.
+// first hit those bytes are still empty and the hit is made by the battler making the attack: the
+// attacker of the params block at the entry of its attacker effect, the last before the bounce, or
+// with none traced, the attacker of the params block before the bounce's.
 battle::BattlerSlot bounceEffectAttacker(const TracedCall& call) {
     const bool scattered = (call.aimingRules & kReflectedRule) == 0;
     const bool noneYet = call.params[kBlockSet] == 0 && call.params[kBlockSet + 1] == 0;
     if (scattered && noneYet) {
+        // While hits are to come an attack stops before its own block is written, after its attacker
+        // effect: the effect's params name the battler making the attack. With no attacker effect in
+        // the trace, the block before the bounce's is the attack's own.
+        if (call.attackerEffectMaker) {
+            return slotNamed(*call.attackerEffectMaker, "the attacker effect's attacker");
+        }
         if (!call.previousAttacker) {
-            throw std::runtime_error("a scattered hit's effect with no params block before it");
+            throw std::runtime_error("a scattered hit's effect with no attacker effect or params block before it");
         }
         return slotNamed(*call.previousAttacker, "the block before's attacker");
     }
@@ -2015,7 +2142,11 @@ DamageScenario DamageOracle::readScenario() {
         battler.status = statuses(kStatus12, kStatus34);
         battler.statusesToSet = statuses(kToSet12, kToSet34);
         battler.statusesToClear = statuses(kToClear12, kToClear34);
-        battler.controlledBy = slotTimesTwo(readByte(kController + at));
+        const std::uint8_t link = readByte(kController + at);
+        if (link != kNoOne) {
+            battler.controlledBy = slotTimesTwo(static_cast<std::uint8_t>(link & ~kTopBit));
+            battler.controlEnding = (link & kTopBit) != 0;
+        }
         const std::uint8_t mark = readByte(kLastAttacker + at);
         const int lastAttacker = mark & ~kWaitingBit;
         if (lastAttacker < battle::kBattlerSlots) {
@@ -2175,6 +2306,21 @@ std::string DamageOracle::replay(const TracedCall& call) {
     // The damage taken and shown.
     if (!bounce) {
         s.attacker = slotNamed(call.params[kBlockAttacker], "the params block's attacker");
+    } else if ((call.aimingRules & kReflectedRule) == 0) {
+        // A Launcher's or Super Ball's damage is shown with its maker's bit in the block's battler
+        // set (CalcReflectDmg :8451-8452), the block before it or not.
+        const battle::BattlerSet maker =
+            setOf(static_cast<std::uint16_t>(call.params[kBlockSet] | call.params[kBlockSet + 1] << 8));
+        std::optional<battle::BattlerSlot> found;
+        for (int index = 0; index < battle::kBattlerSlots; ++index) {
+            if (maker.has(battle::BattlerSlot::fromIndex(index))) {
+                found = battle::BattlerSlot::fromIndex(index);
+            }
+        }
+        if (!found) {
+            throw std::runtime_error("a Launcher's damage shown with no maker in its block");
+        }
+        s.attacker = *found;
     } else {
         if (!call.previousAttacker) {
             throw std::runtime_error("a bounce's damage shown with no params block before it");
@@ -2334,9 +2480,10 @@ StatusChangesResult DamageOracle::readStatusChangesResult() {
     return result;
 }
 
-StatusChangesResult portStatusChanges(DamageScenario scenario) {
-    battle::applyStatusChanges(scenario.state);
-    const battle::BattleState& state = scenario.state;
+namespace {
+
+// What the state holds of the statuses taking effect, read as a StatusChangesResult.
+StatusChangesResult statusChangesOf(const battle::BattleState& state) {
     StatusChangesResult result;
     for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -2360,6 +2507,13 @@ StatusChangesResult portStatusChanges(DamageScenario scenario) {
     result.monstersStanding = state.monstersStanding.monstersOnly();
     result.monstersFallen = state.monstersFallen.monstersOnly();
     return result;
+}
+
+}  // namespace
+
+StatusChangesResult portStatusChanges(DamageScenario scenario) {
+    battle::applyStatusChanges(scenario.state);
+    return statusChangesOf(scenario.state);
 }
 
 std::string differences(const StatusChangesResult& port, const StatusChangesResult& guest) {
@@ -2795,9 +2949,9 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
 
     std::array<std::uint8_t, 3> three{};
     writeThreeBytes(three, state.party.gil);
-    machine_.write(retropp::MemoryRegion{.at = kGil, .size = 3}, three);
+    writeBytes(retropp::MemoryRegion{.at = kGil, .size = 3}, three);
     writeThreeBytes(three, state.party.steps);
-    machine_.write(retropp::MemoryRegion{.at = kSteps, .size = 3}, three);
+    writeBytes(retropp::MemoryRegion{.at = kSteps, .size = 3}, three);
     writeByte(kFrameCount, state.frameCount);
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
@@ -2833,9 +2987,15 @@ AttackerEffectResult DamageOracle::attackerEffect(const DamageScenario& scenario
     writeStatusCells(scenario);
     writeAimCells(scenario);
     writeEffectCells(scenario);
-    call([&] {
-        doAttackerEffect_(slotIndex(scenario.attacker), kByteWideStatus, kBattleDataBank, kBattleDirectPage);
-    });
+    // The frame calls the routine with the carry its facing step (UpdateFacingDirection) leaves: set
+    // after a blow by a party member in a side attack or by a monster in a pincer or a side attack.
+    const battle::BattleType layout = scenario.state.battleType;
+    const bool blow = scenario.attack.record.traits.has(AttackTrait::PHYSICAL);
+    const bool carry = blow && (scenario.attacker.isCharacter()
+                                    ? layout == battle::BattleType::Side
+                                    : layout == battle::BattleType::Pincer || layout == battle::BattleType::Side);
+    const auto status = static_cast<std::uint8_t>(kByteWideStatus | (carry ? kCarryBit : 0));
+    call([&] { doAttackerEffect_(slotIndex(scenario.attacker), status, kBattleDataBank, kBattleDirectPage); });
     trace_->returnToFrame(kTracedRoutines[5]);
     return readAttackerEffectResult();
 }
@@ -2995,8 +3155,7 @@ AttackerEffectResult attackerEffectResult(const AttackerEffectRun& run) {
         out.put("HP" + of, battler.hp);
         out.put("MP" + of, battler.mp);
         out.put("statuses to set" + of, statusesText(battler.statusesToSet));
-        std::uint8_t mark = battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : 0;
-        mark |= battler.retaliationPending ? kWaitingBit : 0;
+        const std::uint8_t mark = markByte(battler);
         out.put("last attacker" + of, mark);
         out.put("gold" + of, battler.gold);
         if (slot.isCharacter()) {
@@ -3158,6 +3317,9 @@ constexpr std::uint32_t kEngulfed = kWorkRam + 0x3A8A;
 constexpr std::uint32_t kTakenFromTheParty = kWorkRam + 0x3A88;
 constexpr std::uint32_t kPartyLeft = kWorkRam + 0x3A39;
 constexpr std::uint32_t kFlipped = kWorkRam + 0x2F54;
+// The battlers drawn facing the other way, a word as the statuses and Control set it: party members
+// in its low byte (Confuse), monsters in its high byte (kFlipped).
+constexpr std::uint32_t kFlippedSet = kWorkRam + 0x2F53;
 constexpr std::uint32_t kZingerMonster = kWorkRam + 0x33F8;
 constexpr std::uint32_t kZingerSwallowed = kWorkRam + 0x33F9;
 constexpr std::uint32_t kSketched = kWorkRam + 0x3417;
@@ -3307,14 +3469,14 @@ void DamageOracle::writeTargetEffectCells(const DamageScenario& scenario) {
     writeByte(kTakenFromTheParty, state.takenFromTheParty.characters.bits);
     writeByte(kPartyLeft, state.partyLeft.characters.bits);
     writeByte(kMonstersFallen, state.monstersFallen.monsters.bits);
-    writeByte(kFlipped, state.flippedByControl.monsters.bits);
+    writeWord(kFlippedSet, maskOf(state.flippedByControl));
     writeByte(kZingerMonster, slotByte(state.heldByZinger));
     writeByte(kZingerSwallowed, slotByte(state.swallowedByZinger));
     writeByte(kSketched, attack.scratch.sketch ? static_cast<std::uint8_t>(slotIndex(attack.scratch.sketch->monster)) : kNoOne);
     writeByte(kMessageItem, attack.scratch.messageItem ? static_cast<std::uint8_t>(*attack.scratch.messageItem) : kNoOne);
     std::array<std::uint8_t, 3> amount{};
     writeThreeBytes(amount, attack.scratch.messageAmount.value_or(0));
-    machine_.write(retropp::MemoryRegion{.at = kMessageAmount, .size = 3}, amount);
+    writeBytes(retropp::MemoryRegion{.at = kMessageAmount, .size = 3}, amount);
     writeByte(kShownWithoutTargets, attack.scratch.hideWithoutTargets ? 0 : kShownBit);
 
     // The script's queue holds the attack's own animation, put there by the frame; a rewrite of it
@@ -3322,13 +3484,13 @@ void DamageOracle::writeTargetEffectCells(const DamageScenario& scenario) {
     writeByte(kAnimationPlace, 0);
     writeByte(kQueueEnd, kQueueCommandSize);
     const std::array<std::uint8_t, kQueueCommandSize> unwritten{kUnwritten, kUnwritten, kUnwritten, kUnwritten};
-    machine_.write(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
+    writeBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
 
     // Every list empty; then each battler's waiting commands, handed slots from the top down as the
     // battle hands them out.
     std::array<std::uint8_t, kActionSlots> free{};
     free.fill(kFreeSlot);
-    machine_.write(retropp::MemoryRegion{.at = kActionNext, .size = kActionSlots}, free);
+    writeBytes(retropp::MemoryRegion{.at = kActionNext, .size = kActionSlots}, free);
     writeByte(kFirstImmediateAction, kFreeSlot);
     std::uint8_t next = kActionSlots - 1;
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
@@ -3578,11 +3740,7 @@ TargetEffectResult targetEffectResult(const TargetEffectRun& run) {
     out.put("message", attack.scratch.message ? std::to_string(*attack.scratch.message) : std::string{"none"});
     out.put("message item", attack.scratch.messageItem ? static_cast<std::uint8_t>(*attack.scratch.messageItem) : kNoOne);
     out.put("message amount", static_cast<int>(attack.scratch.messageAmount.value_or(0) & 0xFFFF));
-    // The cartridge holds the sketched attack where the spell to cast next goes.
-    std::optional<AttackId> next = attack.scratch.followUpSpell;
-    if (attack.scratch.sketch) {
-        next = attack.scratch.sketch->attack;
-    }
+    const std::optional<AttackId>& next = attack.scratch.followUpSpell;
     out.put("spell next", next ? std::to_string(static_cast<std::uint8_t>(*next)) : std::string{"none"});
     out.put("sketched", attack.scratch.sketch ? std::to_string(attack.scratch.sketch->monster.index()) : std::string{"none"});
     out.put("counterattacks", state.scratch.countersEnabled);
@@ -3636,8 +3794,7 @@ TargetEffectResult targetEffectResult(const TargetEffectRun& run) {
         out.put("gold" + of, battler.gold);
         out.put("last hit with" + of,
                 battler.lastHit.command ? static_cast<std::uint8_t>(battler.lastHit.command->with) : kNoOne);
-        std::uint8_t mark = battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index()) : 0;
-        mark |= battler.retaliationPending ? kWaitingBit : 0;
+        const std::uint8_t mark = markByte(battler);
         out.put("last attacker" + of, mark);
         out.put("actions" + of, actionsText(battler.actions));
         if (slot.isCharacter()) {
@@ -3939,7 +4096,7 @@ DamageScenario DamageOracle::readEffectScenario() {
     state.engulfed = battle::BattlerSet{BattleSlotMask(readByte(kEngulfed)), BattleSlotMask{}};
     state.takenFromTheParty = battle::BattlerSet{BattleSlotMask(readByte(kTakenFromTheParty)), BattleSlotMask{}};
     state.partyLeft = battle::BattlerSet{BattleSlotMask(readByte(kPartyLeft)), BattleSlotMask{}};
-    state.flippedByControl = battle::BattlerSet{BattleSlotMask{}, BattleSlotMask(readByte(kFlipped))};
+    state.flippedByControl = setOf(readWord(kFlippedSet));
     state.heldByZinger = slotOrNone(readByte(kZingerMonster));
     state.swallowedByZinger = slotOrNone(readByte(kZingerSwallowed));
     if (const std::optional<battle::BattlerSlot> sketched = slotOrNone(readByte(kSketched))) {
@@ -4115,7 +4272,7 @@ std::string DamageOracle::replayEffectCall(const TracedCall& call, const TracedR
         }
     }
     // The attack's context at the call's entry.
-    machine_.write(retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize}, call.params);
+    writeBytes(retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize}, call.params);
     const battle::BattlerSlot attacker =
         bounce ? bounceEffectAttacker(call) : slotNamed(call.params[kBlockAttacker], "the params block's attacker");
     std::optional<battle::BattlerSlot> target;
@@ -4321,6 +4478,838 @@ DamageScenario drawCoverScenario(std::mt19937& rng) {
     return s;
 }
 
+// --- a whole attack --------------------------------------------------------------------------------
+
+namespace {
+
+// The frame's own cells (ExecAttack, battle/battle_main.asm:8015-8139, and the routines it calls):
+// the targeting byte and the command's extra steps in direct page; the targets of the attack being
+// made, the MP it costs, the name it is shown under, the command whose hands each attack loads, the
+// attack re-aimed at random (negative: it is not), the battler Interceptor guards, and the attack as
+// it was chosen; the battlers facing right (party members in the low byte, monsters in the high);
+// Strago's slot times two; the lores the party knows and the lores seen this battle, three bytes each.
+constexpr std::uint32_t kTargetingByte = kWorkRam + 0x00BB;
+constexpr std::uint32_t kExtraMultiplier = kWorkRam + 0x00BD;
+constexpr std::uint32_t kCurrentTargets = kWorkRam + 0x3A30;
+constexpr std::uint32_t kMpCost = kWorkRam + 0x3A4C;
+constexpr std::uint32_t kNameKind = kWorkRam + 0x3412;
+constexpr std::uint32_t kFightCommand = kWorkRam + 0x3413;
+constexpr std::uint32_t kRandomizeTargets = kWorkRam + 0x3415;
+constexpr std::uint32_t kInterceptorGuard = kWorkRam + 0x3416;
+constexpr std::uint32_t kQueuedAttack = kWorkRam + 0x3A7D;
+constexpr std::uint32_t kFacingRight = kWorkRam + 0x2F50;
+constexpr std::uint32_t kStragoSlot = kWorkRam + 0x3007;
+constexpr std::uint32_t kLoresKnown = kWorkRam + 0x1D29;
+constexpr std::uint32_t kLoresLearned = kWorkRam + 0x3A84;
+constexpr std::uint32_t kLoreBytes = 3;
+// The run difficulty, the byte after the monsters fallen (kMonstersFallen): read with it as a word.
+constexpr std::uint32_t kRunDifficulty = kWorkRam + 0x3A3B;
+// Per battler, at twice the battler's index: its special attack and that attack's animation, the
+// monster its special attack is named for (a word), its vigor and its magic power.
+constexpr std::uint32_t kSpecialAttack = kWorkRam + 0x322D;
+constexpr std::uint32_t kSpecialAttackAnimation = kWorkRam + 0x3C81;
+constexpr std::uint32_t kNamedMonster = kWorkRam + 0x33A8;
+constexpr std::uint32_t kVigor = kWorkRam + 0x3B2C;
+constexpr std::uint32_t kMagicPower = kWorkRam + 0x3B41;
+// Per party member, at twice its slot: the item in its weapon hand, then the item in its shield hand.
+constexpr std::uint32_t kHandItems = kWorkRam + 0x3CA8;
+// The battle's lore list, one entry per lore: a known lore's number plus kLoreListFirstEntry, and
+// 0xFF for a lore not known.
+constexpr std::uint32_t kLoreList = kWorkRam + 0x310F;
+constexpr std::uint8_t kLoreListFirstEntry = 0x37;
+
+// The triggers byte beside Retort (kTriggers, bit 0): a monster's own Runic, a party member's.
+constexpr std::uint8_t kMonsterRunicBit = 0x02;
+constexpr std::uint8_t kRunicBit = 0x04;
+
+// The first attack-flags byte ($B2) as the frame reads it, beside a drain capped (bit 7) and the
+// cannot-be-critical bit (bit 1): clear while Runic's animation is still to show, set for the first
+// pass, clear when the weapon's spell goes after the hit's targets, set while no name has been shown.
+constexpr std::uint8_t kRunicShownBit = 0x40;
+constexpr std::uint8_t kFirstPassBit = 0x20;
+constexpr std::uint8_t kOtherTargetsBit = 0x10;
+constexpr std::uint8_t kNameNotShownBit = 0x01;
+// The second ($B3), beside Vanish applying (bit 7), not two-handed (bit 6), the ignore-defense bit
+// (bit 4) and the automatic critical (bit 1, clear): the attacker's row ignored, an attack with no
+// targets aimed again, and an attack that hits someone (clear: a Blitz whose buttons were wrong).
+constexpr std::uint8_t kRowIgnoredBit = 0x20;
+constexpr std::uint8_t kEmptyTargetsReaimBit = 0x04;
+constexpr std::uint8_t kHitsSomeoneBit = 0x01;
+
+// The name kinds by the number ShowAttackNameTbl (battle_main.asm:8778-8787) gives them; the entry at
+// 3 is a bare return that no command's start writes.
+std::uint8_t nameKindByte(const std::optional<battle::AttackNameKind>& kind) {
+    if (!kind) {
+        return kNoOne;
+    }
+    switch (*kind) {
+    case battle::AttackNameKind::Attack:
+        return 0;
+    case battle::AttackNameKind::Item:
+        return 1;
+    case battle::AttackNameKind::Esper:
+        return 2;
+    case battle::AttackNameKind::Bushido:
+        return 4;
+    case battle::AttackNameKind::Command:
+        return 5;
+    case battle::AttackNameKind::MonsterSpecialAttack:
+        return 6;
+    case battle::AttackNameKind::JokerDoom:
+        return 7;
+    case battle::AttackNameKind::Blitz:
+        return 8;
+    }
+    return kNoOne;
+}
+
+// The script's commands as the frame writes them into the queue (_c2629e, battle_main.asm:16132-16149):
+// four bytes each, the command first.
+constexpr std::uint8_t kNameCommand = 0x01;
+constexpr std::uint8_t kMonsterNameCommand = 0x11;
+constexpr std::uint8_t kPoseResetCommand = 0x0E;
+// An esper's name is numbered from the first esper's attack.
+constexpr std::uint8_t kFirstEsperAttack = static_cast<std::uint8_t>(EsperId::RAMUH);
+
+std::optional<battle::BattlerSlot> stragoInParty(const battle::BattleState& state) {
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+        if (state.at(slot).actor == CharacterPropId::STRAGO) {
+            return slot;
+        }
+    }
+    return std::nullopt;
+}
+
+template <std::size_t N>
+std::array<std::uint8_t, kLoreBytes> loreBytes(const std::bitset<N>& lores) {
+    std::array<std::uint8_t, kLoreBytes> bytes{};
+    for (std::size_t lore = 0; lore < N && lore < kLoreBytes * 8; ++lore) {
+        if (lores.test(lore)) {
+            bytes[lore / 8] = static_cast<std::uint8_t>(bytes[lore / 8] | 1u << (lore % 8));
+        }
+    }
+    return bytes;
+}
+
+// A params block as the frame's animations read it: paramsText()'s fields with the battlers a spell
+// bounced off and the battlers stepping in as the one set they share, then the critical flash, a
+// monster's special attack, the covered ally's byte (every attack's params start cleared, so 0 with
+// none covered) and each party slot's block.
+std::string frameParamsText(battle::AttackAnimationParams params) {
+    params.reflectedOff = params.reflectedOff | params.steppingIn;
+    const int covered = params.coveredAlly ? params.coveredAlly->index() : 0;
+    std::string text = paramsText(params) + " critical " + std::to_string(params.criticalFlash) + " monster attack " +
+                       std::to_string(params.monsterAttack) + " covered " + std::to_string(covered) + " blocks";
+    for (const battle::BlockShown block : params.blocks) {
+        text += " " + std::to_string(static_cast<int>(block));
+    }
+    return text;
+}
+
+constexpr std::uint8_t kCriticalFlashBit = 0x20;
+constexpr std::uint8_t kMonsterAttackBit = 0x01;
+constexpr std::size_t kCoveredAllyByte = 8;
+constexpr std::size_t kBlocksByte = 10;
+
+battle::AttackAnimationParams frameParamsFromBytes(std::span<const std::uint8_t> block) {
+    battle::AttackAnimationParams params = paramsFromBytes(block);
+    params.criticalFlash = (block[0] & kCriticalFlashBit) != 0;
+    params.monsterAttack = (block[0] & kMonsterAttackBit) != 0;
+    if (block[kCoveredAllyByte] != 0) {
+        params.coveredAlly = battle::BattlerSlot::fromIndex(block[kCoveredAllyByte] % battle::kBattlerSlots);
+    }
+    for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
+        params.blocks[i] = static_cast<battle::BlockShown>(block[kBlocksByte + i]);
+    }
+    return params;
+}
+
+// Whether an animation's own handler reads the attack and second value after its command: Mimic's,
+// Defend's and the two AI commands' are a bare return (btlgfx CmdAnim_12), Runic's reads its params
+// block alone (CmdAnim_25), and a command with its top bit set plays nothing (GfxCmd_06).
+bool animationReadsItsAttack(std::uint8_t what) {
+    constexpr std::array<std::uint8_t, 5> kReadNothing{0x12, 0x15, 0x1E, 0x1F,
+                                                       static_cast<std::uint8_t>(battle::SpecialAnimation::RunicAbsorbsSpell)};
+    return (what & kTopBit) == 0 && std::find(kReadNothing.begin(), kReadNothing.end(), what) == kReadNothing.end();
+}
+
+std::string numeralText(const battle::DamageNumber& number) {
+    return std::to_string(number.target.index()) + ":" +
+           (number.miss ? std::string{"miss"} : std::to_string(number.amount)) + (number.heals ? "+" : "");
+}
+
+// The port's script as the cartridge's queue holds it, one line per queue command; each animation, a
+// bounce and a Launcher's hits with the params block it shows with. `params` are the blocks not yet
+// handed to an animation, in order (BattleScriptBuilder::params()); a finished script carries each
+// animation's on the animation.
+std::string portScriptText(const std::vector<battle::BattleScriptCommand>& commands,
+                           const std::deque<battle::AttackAnimationParams>* params) {
+    std::string text;
+    std::size_t nextParams = 0;
+    for (const battle::BattleScriptCommand& command : commands) {
+        std::visit(
+            [&](const auto& c) {
+                using T = std::decay_t<decltype(c)>;
+                if constexpr (std::is_same_v<T, battle::AttackAnimation>) {
+                    text += "animation " + std::to_string(commandByte(c.what));
+                    if (animationReadsItsAttack(commandByte(c.what))) {
+                        text += " " + std::to_string(static_cast<std::uint8_t>(c.attack)) + " " +
+                                std::to_string(c.secondary);
+                    }
+                    if (params == nullptr) {
+                        text += " | " + frameParamsText(c.params);
+                    } else if (nextParams < params->size()) {
+                        text += " | " + frameParamsText((*params)[nextParams++]);
+                    } else {
+                        text += " | no params";
+                    }
+                } else if constexpr (std::is_same_v<T, battle::AttackNameShown>) {
+                    text += "name 0 " + std::to_string(static_cast<std::uint8_t>(c.attack));
+                } else if constexpr (std::is_same_v<T, battle::ItemNameShown>) {
+                    text += "name 1 " + std::to_string(static_cast<std::uint8_t>(c.item));
+                } else if constexpr (std::is_same_v<T, battle::EsperNameShown>) {
+                    text += "name 2 " +
+                            std::to_string(static_cast<std::uint8_t>(static_cast<std::uint8_t>(c.esper) - kFirstEsperAttack));
+                } else if constexpr (std::is_same_v<T, battle::BushidoNameShown>) {
+                    text += "name 4 " + std::to_string(static_cast<std::uint8_t>(c.technique));
+                } else if constexpr (std::is_same_v<T, battle::CommandNameShown>) {
+                    text += "name 5 " + std::to_string(static_cast<std::uint8_t>(c.command));
+                } else if constexpr (std::is_same_v<T, battle::MonsterSpecialAttackNameShown>) {
+                    text += "monster name " + std::to_string(static_cast<std::uint16_t>(c.monster));
+                } else if constexpr (std::is_same_v<T, battle::BattleMessage>) {
+                    text += "message " + std::to_string(c.message);
+                } else if constexpr (std::is_same_v<T, battle::PoseReset>) {
+                    text += "pose reset " + std::to_string(c.battler.index());
+                } else if constexpr (std::is_same_v<T, battle::DamageNumbersShown>) {
+                    if (c.wait == battle::DamageNumberWait::UntilGone) {
+                        text += "numerals together";
+                        for (const battle::DamageNumber& number : c.numbers) {
+                            text += " " + numeralText(number);
+                        }
+                    } else {
+                        for (std::size_t i = 0; i < c.numbers.size(); ++i) {
+                            text += (i == 0 ? "numeral " : "; numeral ") + numeralText(c.numbers[i]);
+                        }
+                    }
+                } else if constexpr (std::is_same_v<T, battle::ReflectedAttackShown> ||
+                                     std::is_same_v<T, battle::ScatteredHitsShown>) {
+                    text += shownText(c);
+                } else {
+                    text += "a command the attack frame does not write";
+                }
+            },
+            command);
+        text += "; ";
+    }
+    if (params != nullptr) {
+        for (; nextParams < params->size(); ++nextParams) {
+            text += "params with no animation | " + frameParamsText((*params)[nextParams]) + "; ";
+        }
+    }
+    return text;
+}
+
+// The keys of the cells that belong to the attack itself, which end with the command.
+bool attackOwnCell(const std::string& cell) {
+    static const std::set<std::string> kOwn{
+        "missed by the effect", "power",       "hit rate",       "traits",         "flags 1",
+        "flags 2",              "damage",      "multiplier",     "command",        "attack",
+        "second value",         "targets",     "params",         "earlier targets", "shown Miss",
+        "message",              "message item", "message amount", "spell next",     "sketched",
+        "hidden without targets", "the weapon's spellcast", "attacks left", "damage modification",
+        "re-aimed at random",   "quiet misses",
+    };
+    return kOwn.contains(cell) || cell.starts_with("next attack: ") || cell.starts_with("damage taken of ") ||
+           cell.starts_with("damage healed of ");
+}
+
+void putApplied(EffectCells& out, const ApplyDamageResult& applied) {
+    const auto entry = [](const std::optional<std::uint16_t>& value) {
+        return value ? std::to_string(*value) : std::string{"none"};
+    };
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const std::string of = " of battler " + std::to_string(i);
+        out.put("HP" + of, applied.hp[i]);
+        out.put("MP" + of, applied.mp[i]);
+        out.put("statuses to set" + of, statusesText(applied.statusesToSet[i]));
+        out.put("last attacker" + of, applied.lastAttackerMark[i]);
+        out.put("last damaged by" + of, slotText(applied.lastDamagedBy[i]));
+        out.put("castable spells to work out" + of, applied.enabledMagic[i]);
+        out.put("damage taken" + of, entry(applied.ledger.taken[i]));
+        out.put("damage healed" + of, entry(applied.ledger.healed[i]));
+    }
+    out.put("Black Belt targets", std::to_string(maskOf(applied.blackBeltEligible)));
+    out.put("shown Miss", std::to_string(maskOf(applied.missed)));
+    out.put("the Golem's HP", applied.golemHp);
+    out.put("the weapon's spellcast", applied.weaponSpellcast);
+}
+
+void putStatusChanges(EffectCells& out, const StatusChangesResult& changes) {
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        const std::string of = " of battler " + std::to_string(i);
+        out.put("statuses" + of, statusesText(changes.status[i]));
+        out.put("statuses to set" + of, statusesText(changes.statusesToSet[i]));
+        out.put("statuses to clear" + of, statusesText(changes.statusesToClear[i]));
+        out.put("statuses for a counterattack" + of, statusesText(changes.statusForCounter[i]));
+        out.put("to work out again" + of, changes.pendingUpdates[i]);
+        out.put("menu may open" + of, changes.menuMayOpen[i]);
+        out.put("gauge empties after the action" + of, changes.emptyGaugeAfterAction[i]);
+        out.put("Phantasm" + of, changes.phantasm[i]);
+        out.put("equipment to work out" + of, changes.equipmentChanged[i]);
+        out.put("sleep timer" + of, changes.sleepTimer[i]);
+        out.put("stop timer" + of, changes.stopTimer[i]);
+        out.put("reflect timer" + of, changes.reflectTimer[i]);
+        out.put("freeze timer" + of, changes.freezeTimer[i]);
+    }
+    out.put("died this action", std::to_string(maskOf(changes.diedAwaitingCounter)));
+    out.put("statuses changed", std::to_string(maskOf(changes.statusChanged)));
+    out.put("monsters standing", std::to_string(maskOf(changes.monstersStanding)));
+}
+
+// The cells a target's special effect is read back by, with the script's own keys left to the whole
+// script.
+// A whole attack's params block is in the script; the direct-page copy it was written from is cleared
+// at every attack's start (ClearGfxParams) and read by nothing after the frame, and after a bounce off
+// Reflect it holds the bounce's block.
+void putEffectCells(EffectCells& out, const std::map<std::string, std::string>& cells) {
+    for (const auto& [cell, value] : cells) {
+        if (cell != "script" && cell != "params" && !cell.starts_with("script params")) {
+            out.cells[cell] = value;
+        }
+    }
+}
+
+std::uint8_t firstFlagsByte(const battle::AttackInFlight& attack) {
+    std::uint8_t first = kAttackFlagsAtStart;
+    const auto clearIf = [&](bool condition, std::uint8_t bit) {
+        if (condition) {
+            first = static_cast<std::uint8_t>(first & ~bit);
+        }
+    };
+    clearIf(!attack.drainCapped, kDrainCappedBit);
+    clearIf(attack.runicAbsorbing, kRunicShownBit);
+    clearIf(!attack.firstPass, kFirstPassBit);
+    clearIf(attack.followUpSameTargets, kOtherTargetsBit);
+    clearIf(attack.canBeCritical, kCannotBeCriticalBit);
+    clearIf(attack.nameShown, kNameNotShownBit);
+    return first;
+}
+
+std::uint8_t secondFlagsByte(const battle::AttackInFlight& attack) {
+    std::uint8_t second = kAttackFlagsAtStart;
+    const auto clearIf = [&](bool condition, std::uint8_t bit) {
+        if (condition) {
+            second = static_cast<std::uint8_t>(second & ~bit);
+        }
+    };
+    clearIf(!attack.vanishApplies, kVanishAppliesBit);
+    clearIf(attack.twoHanded, kNotTwoHanded);
+    clearIf(!attack.rowIgnored, kRowIgnoredBit);
+    clearIf(!attack.ignoreDefenseStopsMultiplier, kIgnoreDefenseStopsMultiplier);
+    clearIf(!attack.emptyTargetsReaim, kEmptyTargetsReaimBit);
+    clearIf(attack.automaticCritical, kAutomaticCriticalClearBit);
+    clearIf(attack.hitsNoOne, kHitsSomeoneBit);
+    return second;
+}
+
+// What the command's next attack starts from, field by field, out of the two flag bytes.
+void putNextAttack(EffectCells& out, std::uint8_t first, std::uint8_t second) {
+    out.put("next attack: drain capped", (first & kDrainCappedBit) != 0);
+    out.put("next attack: Runic's animation to show", (first & kRunicShownBit) == 0);
+    out.put("next attack: first pass", (first & kFirstPassBit) != 0);
+    out.put("next attack: the weapon's spell after the hit's targets", (first & kOtherTargetsBit) == 0);
+    out.put("next attack: can be critical", (first & kCannotBeCriticalBit) == 0);
+    out.put("next attack: name shown", (first & kNameNotShownBit) == 0);
+    out.put("next attack: Vanish applies", (second & kVanishAppliesBit) != 0);
+    out.put("next attack: two-handed", (second & kNotTwoHanded) == 0);
+    out.put("next attack: row ignored", (second & kRowIgnoredBit) != 0);
+    out.put("next attack: ignore-defense stops the multiplier", (second & kIgnoreDefenseStopsMultiplier) != 0);
+    out.put("next attack: no targets aims again", (second & kEmptyTargetsReaimBit) != 0);
+    out.put("next attack: automatic critical", (second & kAutomaticCriticalClearBit) == 0);
+    out.put("next attack: hits no one", (second & kHitsSomeoneBit) == 0);
+}
+
+// The port's cells after a whole attack. With `attackCells` false the attack's own cells are left out:
+// those are the cells of a command run whole, whose attack ends with it.
+AttackResult portAttackCells(const battle::BattleState& state, const battle::AttackInFlight& attack,
+                             const std::vector<battle::BattleScriptCommand>& commands,
+                             const std::deque<battle::AttackAnimationParams>* params, bool awayUnreachable,
+                             bool attackCells) {
+    EffectCells out;
+    battle::BattleScriptBuilder none;
+    putApplied(out, portApplied(state, attack, none));
+    putStatusChanges(out, statusChangesOf(state));
+    DamageScenario scenario{.state = state, .attack = attack};
+    TargetEffectRun run{.after = std::move(scenario), .missed = !attack.scratch.missedByEffect.empty()};
+    putEffectCells(out, targetEffectResult(run).cells);
+    // The sketch cell holds the sketcher while it makes its attack, and the monster a Sketch caught.
+    std::optional<battle::BattlerSlot> sketched = attack.scratch.sketcher;
+    if (attack.scratch.sketch) {
+        sketched = attack.scratch.sketch->monster;
+    }
+    out.put("sketched", slotText(sketched));
+    out.put("flipped", std::to_string(maskOf(state.flippedByControl)));
+    // A message's item and amount stay in their cells for the script to show; the port's message
+    // carries them.
+    for (const battle::BattleScriptCommand& command : commands) {
+        if (const auto* message = std::get_if<battle::BattleMessage>(&command)) {
+            if (message->firstNumber) {
+                out.put("message item", static_cast<std::uint8_t>(*message->firstNumber));
+            }
+            if (message->secondNumber) {
+                out.put("message amount", static_cast<int>(*message->secondNumber & 0xFFFF));
+            }
+        }
+    }
+    out.put("script", portScriptText(commands, params));
+    putNextAttack(out, firstFlagsByte(attack), secondFlagsByte(attack));
+    out.put("attacks left", static_cast<std::uint8_t>(attack.scratch.attacksLeft));
+    out.put("damage modification", attack.scratch.damageModification);
+    out.put("re-aimed at random", attack.scratch.randomizeTargets);
+    out.put("quiet misses", attack.scratch.quietMisses);
+    out.put("away from the field unreachable", awayUnreachable);
+    out.put("Interceptor guarding", slotText(state.scratch.interceptorGuarding));
+    if (!attackCells) {
+        std::erase_if(out.cells, [](const auto& cell) { return attackOwnCell(cell.first); });
+    }
+    return AttackResult{.cells = std::move(out.cells)};
+}
+
+AttackRun runPortAttack(DamageScenario scenario, bool self) {
+    AttackRun run{.after = std::move(scenario)};
+    battle::BattleHooks hooks;
+    if (self) {
+        battle::runSelfAttack(run.after.state, hooks, run.script, run.after.attack, run.after.attacker);
+    } else {
+        battle::runAttack(run.after.state, hooks, run.script, run.after.attack, run.after.attacker);
+    }
+    return run;
+}
+
+}  // namespace
+
+void DamageOracle::writeAttackCells(const DamageScenario& scenario) {
+    writeScenario(scenario);
+    writeTargetCells(scenario);
+    writeApplyCells(scenario);
+    writeStatusCells(scenario);
+    writeAimCells(scenario);
+    writeEffectCells(scenario);
+    // writeApplyCells() writes the to-work-out word whole; the Air Anchor byte in its high byte is
+    // written after it.
+    writeTargetEffectCells(scenario);
+
+    const battle::BattleState& state = scenario.state;
+    const battle::AttackInFlight& attack = scenario.attack;
+    writeByte(kTargetingByte, attack.targeting.bits);
+    writeByte(kExtraMultiplier, static_cast<std::uint8_t>(attack.extraMultiplier));
+    writeByte(kFirstAttackFlags, firstFlagsByte(attack));
+    writeByte(kAttackFlags, secondFlagsByte(attack));
+    writeWord(kCurrentTargets, maskOf(attack.scratch.currentTargets));
+    // The frame loads, subtracts and clears the MP cost as a word; only that clear writes its high byte.
+    writeWord(kMpCost, attack.scratch.mpCost);
+    writeByte(kRunDifficulty, state.runDifficulty);
+    writeByte(kNameKind, nameKindByte(attack.scratch.nameKind));
+    writeByte(kFightCommand, attack.scratch.fightCommand ? static_cast<std::uint8_t>(*attack.scratch.fightCommand) : kNoOne);
+    writeByte(kRandomizeTargets, attack.scratch.randomizeTargets ? 0 : kNoOne);
+    writeByte(kInterceptorGuard, slotByte(state.scratch.interceptorGuarding));
+    writeByte(kQueuedAttack, static_cast<std::uint8_t>(attack.queuedAttack));
+    writeWord(kFacingRight, maskOf(state.facingRight));
+    writeByte(kStragoSlot, slotByte(stragoInParty(state)));
+    writeBytes(retropp::MemoryRegion{.at = kLoresKnown, .size = kLoreBytes}, loreBytes(state.party.loresKnown));
+    writeBytes(retropp::MemoryRegion{.at = kLoresLearned, .size = kLoreBytes}, loreBytes(state.loresLearned));
+    for (std::size_t lore = 0; lore < game::kLores; ++lore) {
+        writeByte(kLoreList + static_cast<std::uint32_t>(lore),
+                  state.party.loresKnown.test(lore) ? static_cast<std::uint8_t>(kLoreListFirstEntry + lore) : kNoOne);
+    }
+    // The sketch cell holds the sketcher while it makes the attack its sketch caught.
+    std::optional<battle::BattlerSlot> sketched = attack.scratch.sketcher;
+    if (!sketched && attack.scratch.sketch) {
+        sketched = attack.scratch.sketch->monster;
+    }
+    writeByte(kSketched, slotByte(sketched));
+    // The script starts empty: the frame writes every command and params block of its own.
+    writeByte(kQueueEnd, 0);
+    writeByte(kAnimationPlace, 0);
+    writeByte(kNextParamsBlock, 0);
+
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        std::uint8_t triggers = battler.triggers.retort ? kRetortBit : 0;
+        triggers |= battler.triggers.monsterRunic ? kMonsterRunicBit : 0;
+        triggers |= battler.triggers.runic ? kRunicBit : 0;
+        writeByte(kTriggers + at, triggers);
+        writeByte(kSpecialAttack + at, battler.specialAttack.packed);
+        writeByte(kSpecialAttackAnimation + at, static_cast<std::uint8_t>(battler.specialAttackAnimation));
+        writeWord(kNamedMonster + at, static_cast<std::uint16_t>(battler.monster.value_or(battler.rage.value_or(MonsterId{}))));
+        writeByte(kVigor + at, battler.vigor);
+        writeByte(kMagicPower + at, battler.magicPower);
+        if (i < battle::kPartySlots) {
+            writeByte(kHandItems + at, static_cast<std::uint8_t>(battler.weaponHand.item));
+            writeByte(kHandItems + at + 1, static_cast<std::uint8_t>(battler.shieldHand.item));
+        }
+    }
+}
+
+AttackResult DamageOracle::attack(const DamageScenario& scenario) {
+    writeAttackCells(scenario);
+    call([&] { execAttack_(slotIndex(scenario.attacker), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readAttackResult(true);
+}
+
+AttackResult DamageOracle::selfAttack(const DamageScenario& scenario) {
+    writeAttackCells(scenario);
+    call([&] { execSelfAttack_(slotIndex(scenario.attacker), kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readAttackResult(true);
+}
+
+AttackResult DamageOracle::readAttackResult(bool attackCells) {
+    EffectCells out;
+    putApplied(out, readApplyCells());
+    putStatusChanges(out, readStatusChangesResult());
+    putEffectCells(out, readTargetEffectResult().cells);
+    out.put("sketched", slotText(slotTimesTwo(readByte(kSketched))));
+    out.put("flipped", std::to_string(readWord(kFlippedSet)));
+
+    // The whole queue, each animation, bounce and Launcher's hits with the next params block.
+    std::string script;
+    const std::uint8_t end = readByte(kQueueEnd);
+    const std::vector<std::uint8_t> queue = machine_.read(retropp::MemoryRegion{.at = kQueue, .size = end});
+    const int blockCount = readByte(kNextParamsBlock) / kParamsBlockSize;
+    int nextBlock = 0;
+    const auto takeBlock = [&]() -> std::optional<std::vector<std::uint8_t>> {
+        if (nextBlock >= blockCount) {
+            return std::nullopt;
+        }
+        return machine_.read(retropp::MemoryRegion{
+            .at = kParamsBlocks + kParamsBlockSize * static_cast<std::uint32_t>(nextBlock++), .size = kParamsBlockSize});
+    };
+    std::uint32_t buffers = 0;
+    for (std::size_t at = 0; at + kQueueCommandSize <= queue.size(); at += kQueueCommandSize) {
+        const std::span<const std::uint8_t> entry{queue.data() + at, kQueueCommandSize};
+        const auto word = static_cast<std::uint16_t>(entry[2] | entry[3] << 8);
+        const auto numeral = [](battle::BattlerSlot slot, std::uint16_t value) {
+            return battle::DamageNumber{.target = slot,
+                                        .amount = static_cast<std::uint16_t>(value & kAmountBits),
+                                        .miss = (value & kMissMark) != 0,
+                                        .heals = (value & kHealMark) != 0};
+        };
+        switch (entry[0]) {
+        case kShowAnimationCommand: {
+            script += "animation " + std::to_string(entry[1]);
+            if (animationReadsItsAttack(entry[1])) {
+                script += " " + std::to_string(entry[2]) + " " + std::to_string(entry[3]);
+            }
+            const auto block = takeBlock();
+            script += block ? " | " + frameParamsText(frameParamsFromBytes(*block)) : std::string{" | no params"};
+            break;
+        }
+        case kReflectedCommand:
+        case kScatteredCommand: {
+            const auto block = takeBlock();
+            script += block ? bounceText(entry, *block) : "bounce " + std::to_string(entry[0]) + " | no params";
+            break;
+        }
+        case kNameCommand:
+            script += "name " + std::to_string(entry[1]) + " " + std::to_string(entry[2]);
+            break;
+        case kMonsterNameCommand:
+            script += "monster name " + std::to_string(entry[1] | entry[2] << 8);
+            break;
+        case kMessageCommand:
+            script += "message " + std::to_string(entry[1]);
+            break;
+        case kPoseResetCommand:
+            script += "pose reset " + std::to_string(entry[1]);
+            break;
+        case kOneNumeral:
+            script += "numeral " + numeralText(numeral(battle::BattlerSlot::fromIndex(entry[1] % battle::kBattlerSlots), word));
+            break;
+        case kEveryNumeral: {
+            script += "numerals together";
+            const std::uint32_t buffer = kNumeralBuffer + kNumeralBufferSize * buffers++;
+            for (int index = battle::kBattlerSlots - 1; index >= 0; --index) {
+                const std::uint16_t value = readWord(buffer + static_cast<std::uint32_t>(index * 2));
+                if (value != kNoDamage) {
+                    script += " " + numeralText(numeral(battle::BattlerSlot::fromIndex(index), value));
+                }
+            }
+            break;
+        }
+        default:
+            script += "command " + std::to_string(entry[0]) + " " + std::to_string(entry[1]) + " " +
+                      std::to_string(entry[2]) + " " + std::to_string(entry[3]);
+            break;
+        }
+        script += "; ";
+    }
+    while (const auto block = takeBlock()) {
+        script += "params with no animation | " + frameParamsText(frameParamsFromBytes(*block)) + "; ";
+    }
+    out.put("script", script);
+
+    putNextAttack(out, readByte(kFirstAttackFlags), readByte(kAttackFlags));
+    out.put("attacks left", readByte(kAttacksLeft));
+    out.put("damage modification", readByte(kDamageModification) != 0);
+    out.put("re-aimed at random", (readByte(kRandomizeTargets) & kTopBit) == 0);
+    out.put("quiet misses", readByte(kQuietMisses) == 0);
+    out.put("away from the field unreachable", (readByte(kReachKeepsAway) & kTopBit) != 0);
+    out.put("Interceptor guarding", slotText(slotTimesTwo(readByte(kInterceptorGuard))));
+    if (!attackCells) {
+        std::erase_if(out.cells, [](const auto& cell) { return attackOwnCell(cell.first); });
+    }
+    return AttackResult{.cells = std::move(out.cells)};
+}
+
+AttackRun portAttack(DamageScenario scenario) {
+    return runPortAttack(std::move(scenario), false);
+}
+
+AttackRun portSelfAttack(DamageScenario scenario) {
+    return runPortAttack(std::move(scenario), true);
+}
+
+AttackResult attackResult(const AttackRun& run) {
+    return portAttackCells(run.after.state, run.after.attack, run.script.commands(), &run.script.params(),
+                           run.after.attack.scratch.awayFromTheFieldUnreachable, true);
+}
+
+std::string differences(const AttackResult& port, const AttackResult& guest) {
+    return cellDifferences(port.cells, guest.cells);
+}
+
+DamageScenario drawAttackScenario(std::mt19937& rng) {
+    DamageScenario s = drawTargetEffectScenario(rng).scenario;
+    battle::AttackInFlight& attack = s.attack;
+    battle::BattleState& state = s.state;
+    battle::Battler& attacker = state.at(s.attacker);
+
+    // The attack as a command's body hands it to the frame.
+    BattleCommandId command = BattleCommandId::FIGHT;
+    while (command == BattleCommandId::FIGHT || command == BattleCommandId::CAPTURE) {
+        command = static_cast<BattleCommandId>(rng() % kCommandTargetingInit.size());
+    }
+    attack.command = command;
+    attack.queuedCommand = command;
+    attack.attack = static_cast<AttackId>(byte(rng));
+    attack.queuedAttack = static_cast<AttackId>(byte(rng));
+    attack.targeting = Targeting{byte(rng)};
+    attack.targets = oneIn(rng, 4) ? battle::BattlerSet{} : anyBattlers(rng);
+    attack.rules = battle::AimingRules{.noCharacterTargets = oneIn(rng, 4),
+                                       .randomTarget = oneIn(rng, 4),
+                                       .fallBackToEarlierTargets = oneIn(rng, 4),
+                                       .mayTargetTheFallen = oneIn(rng, 4),
+                                       .keepTargetsThatAreGone = oneIn(rng, 4),
+                                       .opposingSideOnly = oneIn(rng, 4),
+                                       .excludeAttacker = oneIn(rng, 4)};
+    constexpr std::array<battle::AttackNameKind, 8> kinds{
+        battle::AttackNameKind::Attack,  battle::AttackNameKind::Item,    battle::AttackNameKind::Esper,
+        battle::AttackNameKind::Bushido, battle::AttackNameKind::Command, battle::AttackNameKind::MonsterSpecialAttack,
+        battle::AttackNameKind::JokerDoom, battle::AttackNameKind::Blitz};
+    const unsigned kind = rng() % 12;
+    attack.scratch.nameKind.reset();
+    if (kind < kinds.size() && (kinds[kind] != battle::AttackNameKind::MonsterSpecialAttack || s.attacker.isMonster())) {
+        attack.scratch.nameKind = kinds[kind];
+    }
+    attacker.specialAttack.packed = byte(rng);
+    attacker.specialAttackAnimation = static_cast<MonsterAttackAnimation>(byte(rng));
+    // A monster's special attack is named for it only as the Special command's attack ($EF) loads it
+    // (InitAttacker), with that attack's own record.
+    if (attack.scratch.nameKind == battle::AttackNameKind::MonsterSpecialAttack) {
+        attack.attack = AttackId::SPECIAL;
+        battle::loadAttackRecord(attack, AttackId::SPECIAL);
+    }
+    attack.record.mpCost = oneIn(rng, 2) ? 0 : byte(rng);
+    attack.scratch.mpCost = 0;
+    if (oneIn(rng, 2)) {
+        attack.scratch.mpCost = byte(rng);
+        if (oneIn(rng, 4) && attacker.mp < 0xFF) {
+            attack.scratch.mpCost = static_cast<std::uint8_t>(attacker.mp + 1 + upTo(rng, 0xFE - attacker.mp));
+        }
+    }
+    attack.scratch.quietMisses = oneIn(rng, 4);
+    attack.scratch.aimExactly = oneIn(rng, 8);
+    attack.scratch.randomizeTargets = oneIn(rng, 4);
+    attack.scratch.currentTargets = anyBattlers(rng);
+    attack.scratch.weaponSpellcast = {};
+    if (oneIn(rng, 4)) {
+        attack.scratch.weaponSpellcast.raw =
+            static_cast<std::uint8_t>(static_cast<std::uint8_t>(SpellCastMode::RANDOM_ON_ATTACK) | (byte(rng) & 0x3F));
+    }
+    if (oneIn(rng, 16)) {
+        attack.scratch.sketcher = battle::BattlerSlot::character(upTo(rng, battle::kPartySlots - 1));
+    }
+    attack.firstPass = !oneIn(rng, 4);
+    attack.extraMultiplier = upTo(rng, 3);
+    attack.scratch.attacksLeft = upTo(rng, 2);
+    attack.canBeCritical = oneIn(rng, 2);
+    if (attack.canBeCritical) {
+        attack.rules.opposingSideOnly = true;
+    }
+    attack.automaticCritical = oneIn(rng, 16);
+    attack.emptyTargetsReaim = !oneIn(rng, 8);
+    attack.rowIgnored = !oneIn(rng, 4);
+    attack.hitsNoOne = oneIn(rng, 16);
+    attack.nameShown = oneIn(rng, 8);
+
+    // The attacker's statuses that change its attack, and Air Anchor on it.
+    for (const StatusId status : {StatusId::MORPH, StatusId::BERSERK, StatusId::IMP, StatusId::SILENCE}) {
+        if (oneIn(rng, 8)) {
+            attacker.status.set(status);
+        } else {
+            attacker.status.clear(status);
+        }
+    }
+    attacker.airAnchored = oneIn(rng, 8);
+    if (oneIn(rng, 4)) {
+        attack.record.flags1.set(AttackFlag1::ENABLE_RUNIC);
+    }
+    if (oneIn(rng, 12)) {
+        state.extraHits = 1 + upTo(rng, 7);
+    } else {
+        state.extraHits.reset();
+    }
+    state.facingRight = anyBattlers(rng);
+    constexpr std::array<battle::BattleType, 3> layouts{battle::BattleType::Side, battle::BattleType::Pincer,
+                                                         battle::BattleType::Front};
+    state.battleType = layouts[rng() % layouts.size()];
+    if (oneIn(rng, 4)) {
+        battle::Battler& strago = state.at(battle::BattlerSlot::character(upTo(rng, battle::kPartySlots - 1)));
+        strago.actor = CharacterPropId::STRAGO;
+        // Half the time in none of the statuses that keep him from learning (LearnLore :8800-8802).
+        if (oneIn(rng, 2)) {
+            for (const StatusId status : {StatusId::DEAD, StatusId::PETRIFY, StatusId::BLIND, StatusId::ZOMBIE,
+                                          StatusId::SLEEP, StatusId::CONFUSE, StatusId::BERSERK, StatusId::STOP,
+                                          StatusId::FROZEN, StatusId::RAGE, StatusId::HIDE}) {
+                strago.status.clear(status);
+            }
+        }
+        if (oneIn(rng, 2)) {
+            attack.record.flags1.set(AttackFlag1::LEARNABLE_LORE);
+            // One of the lores, for Strago to see.
+            if (oneIn(rng, 2)) {
+                attack.attack = static_cast<AttackId>(static_cast<std::uint8_t>(AttackId::CONDEMNED) +
+                                                      upTo(rng, static_cast<int>(game::kLores) - 1));
+            }
+        }
+    }
+    for (std::size_t lore = 0; lore < game::kLores; ++lore) {
+        state.party.loresKnown.set(lore, oneIn(rng, 2));
+        state.loresLearned.set(lore, oneIn(rng, 4));
+    }
+    for (battle::Battler& battler : state.battlers) {
+        battler.vigor = byte(rng);
+        battler.magicPower = byte(rng);
+        battler.triggers.runic = oneIn(rng, 8);
+        battler.triggers.monsterRunic = oneIn(rng, 8);
+    }
+    // No attack removes and toggles its statuses at once; on both the cartridge runs unrelated code.
+    if (attack.record.flags2.has(AttackFlag2::REMOVE_STATUS)) {
+        attack.record.flags2.clear(AttackFlag2::TOGGLE_STATUS);
+    }
+    // An effect comes on a record it can come on: a weapon's and a command's ride the plain hit, which
+    // ignores Reflect, and an attack's own rides an attack that can bounce off Reflect only if one
+    // that can carries it. Sketch's command makes one attack with no spell to cast after it.
+    static const std::set<std::uint8_t> kBouncingEffects = [] {
+        std::set<std::uint8_t> effects;
+        for (int id = 0; id <= 0xFF; ++id) {
+            const AttackProperties& record = getAttackProperties(static_cast<AttackId>(id));
+            if (!record.flags1.has(AttackFlag1::IGNORE_REFLECT)) {
+                effects.insert(battle::SpecialEffect::of(record.specialEffect).index());
+            }
+        }
+        return effects;
+    }();
+    if (!kBouncingEffects.contains(attack.effect.index())) {
+        attack.record.flags1.set(AttackFlag1::IGNORE_REFLECT);
+    }
+    if (attack.effect == battle::SpecialEffect::of(battle::CommandEffect::Sketch)) {
+        attack.scratch.attacksLeft = 0;
+        attack.scratch.followUpSpell.reset();
+        attack.scratch.weaponSpellcast = {};
+    }
+
+    // The links as the battle makes them, each with both its ends: a party member controlling a
+    // monster, a monster holding a party member in Seize, a battler charming another, and a Love
+    // Token's bodyguard. A battler is at one end of each kind of link at most.
+    for (battle::Battler& battler : state.battlers) {
+        battler.controlling.reset();
+        battler.controlledBy.reset();
+        battler.controlEnding = false;
+        battler.seizing.reset();
+        battler.seizedBy.reset();
+        battler.charming.reset();
+        battler.charmedBy.reset();
+        battler.bodyguard.reset();
+        battler.guarding.reset();
+    }
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        const battle::BattlerSlot monster = battle::BattlerSlot::monster(position);
+        const battle::BattlerSlot member = battle::BattlerSlot::character(upTo(rng, battle::kPartySlots - 1));
+        if (oneIn(rng, 6) && !state.at(member).controlling) {
+            const bool ending = oneIn(rng, 4);
+            state.at(member).controlling = monster;
+            state.at(member).controlEnding = ending;
+            state.at(monster).controlledBy = member;
+            state.at(monster).controlEnding = ending;
+        }
+        if (oneIn(rng, 8) && !state.at(member).seizedBy && !state.at(monster).seizing) {
+            state.at(monster).seizing = member;
+            state.at(member).seizedBy = monster;
+        }
+    }
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        const battle::BattlerSlot other = anySlot(rng);
+        if (other == slot) {
+            continue;
+        }
+        if (oneIn(rng, 10) && !state.at(slot).charmedBy && !state.at(other).charming) {
+            state.at(slot).charmedBy = other;
+            state.at(other).charming = slot;
+        }
+        if (oneIn(rng, 10) && !state.at(slot).bodyguard && !state.at(other).guarding) {
+            state.at(slot).bodyguard = other;
+            state.at(other).guarding = slot;
+        }
+    }
+    return s;
+}
+
+DamageScenario drawSelfAttackScenario(std::mt19937& rng) {
+    DamageScenario s = drawAttackScenario(rng);
+    battle::AttackInFlight& attack = s.attack;
+    attack.command = oneIn(rng, 4) ? BattleCommandId::MAGIC : battle::kNothingShown;
+    for (std::uint8_t& status : attack.record.statuses.bytes) {
+        status = sparse(rng);
+    }
+    if (oneIn(rng, 2)) {
+        attack.record.flags2.set(AttackFlag2::REMOVE_STATUS);
+        attack.record.flags2.clear(AttackFlag2::TOGGLE_STATUS);
+    } else {
+        attack.record.flags2.clear(AttackFlag2::REMOVE_STATUS);
+    }
+    attack.record.flags2.set(AttackFlag2::UNDODGEABLE);
+    attack.attackerLevel = oneIn(rng, 2) ? 0 : byte(rng);
+    attack.attackerStat = oneIn(rng, 2) ? 0 : byte(rng);
+    attack.castingSwirlSuppressed = oneIn(rng, 2);
+    const auto drawn = [&](auto& flags, auto flag) {
+        if (oneIn(rng, 4)) {
+            flags.set(flag);
+        } else {
+            flags.clear(flag);
+        }
+    };
+    drawn(attack.record.flags2, AttackFlag2::DRAIN);
+    drawn(attack.record.flags2, AttackFlag2::RESTORE_HP_MP);
+    drawn(attack.record.traits, AttackTrait::IGNORE_DEFENSE);
+    drawn(attack.record.traits, AttackTrait::NO_DAMAGE_SPLIT);
+    drawn(attack.record.traits, AttackTrait::INVERT_ON_UNDEAD);
+    return s;
+}
+
 // --- the party's records at a battle's end --------------------------------------------------------
 
 namespace {
@@ -4445,8 +5434,8 @@ void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
     for (std::size_t i = 0; i < equipment.size(); ++i) {
         bytes[kRecordEquipment + i] = static_cast<std::uint8_t>(equipment[i]);
     }
-    machine_.write(retropp::MemoryRegion{.at = recordAt(scenario.recordIndex), .size = kRecordSize}, bytes);
-    machine_.write(retropp::MemoryRegion{.at = spellListAt(scenario.actor),
+    writeBytes(retropp::MemoryRegion{.at = recordAt(scenario.recordIndex), .size = kRecordSize}, bytes);
+    writeBytes(retropp::MemoryRegion{.at = spellListAt(scenario.actor),
                                          .size = static_cast<std::uint32_t>(game::kLearnableSpells)},
                    scenario.spells.progress);
 }
@@ -4764,8 +5753,7 @@ constexpr std::uint32_t kFormation = kWorkRam + 0x11E0;
 // The story's flags byte with Gau recruited in it.
 constexpr std::uint32_t kStoryFlags = kWorkRam + 0x1EDF;
 constexpr std::uint8_t kGauRecruitedBit = 0x08;
-// The carry, in the status byte a routine returns with.
-constexpr std::uint8_t kCarryBit = 0x01;
+
 
 std::optional<battle::BattlerSlot> slotAt(std::uint8_t value) {
     if (value >= kTopBit) {
@@ -4801,9 +5789,7 @@ void DamageOracle::writeAiCells(const AiScenario& scenario) {
         writeWord(kMp + at, battler.mp);
         writeByte(kLevel + at, battler.level);
         writeByte(kWeakHalved + at, battler.elementsWeak.bits);
-        writeByte(kLastAttacker + at, battler.lastAttacker ? static_cast<std::uint8_t>(battler.lastAttacker->index() |
-                                                                                       (battler.retaliationPending ? kWaitingBit : 0))
-                                                           : kNoOne);
+        writeByte(kLastAttacker + at, markByte(battler));
         writeByte(kTargetingTarget + at, slotByte(battler.targetingTarget));
         const battle::LastHits& last = battler.lastHit;
         const auto by = [](const auto& hit) { return hit ? static_cast<std::uint8_t>(slotIndex(hit->by)) : kNoOne; };
@@ -4842,8 +5828,8 @@ void DamageOracle::writeAiCells(const AiScenario& scenario) {
     writeByte(kAllyCount, static_cast<std::uint8_t>(state.allyCount));
     writeByte(kEnemyCount, static_cast<std::uint8_t>(state.enemyCount));
     writeWord(kBattleTimer, state.battleCounter);
-    machine_.write(retropp::MemoryRegion{.at = kBattleVariables, .size = kAiBattleVariables}, state.battleVariables);
-    machine_.write(retropp::MemoryRegion{.at = kBattleSwitches, .size = game::kBattleVariables}, state.switches.variables);
+    writeBytes(retropp::MemoryRegion{.at = kBattleVariables, .size = kAiBattleVariables}, state.battleVariables);
+    writeBytes(retropp::MemoryRegion{.at = kBattleSwitches, .size = game::kBattleVariables}, state.switches.variables);
     writeByte(kNamesListed, state.monsterNamesListed);
     const std::uint8_t story = readByte(kStoryFlags);
     writeByte(kStoryFlags, static_cast<std::uint8_t>(state.gauRecruited ? story | kGauRecruitedBit
@@ -4878,7 +5864,7 @@ AiConditionResult DamageOracle::aiCondition(const AiScenario& scenario, const Ai
     writeAiCells(scenario);
     const test::ai_bytes::ConditionBytes bytes = test::ai_bytes::condition(condition);
     const std::array<std::uint8_t, 4> step{kAiConditionStep, bytes.number, bytes.first, bytes.second};
-    machine_.write(retropp::MemoryRegion{.at = kAiStep, .size = static_cast<std::uint32_t>(step.size())}, step);
+    writeBytes(retropp::MemoryRegion{.at = kAiStep, .size = static_cast<std::uint32_t>(step.size())}, step);
     std::uint8_t status = 0;
     call([&] {
         status = aiConditions_.at(bytes.number)(slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank,
@@ -5556,7 +6542,7 @@ void DamageOracle::writeAiScriptCells(const battle::BattleState& state) {
 
 void DamageOracle::emptyActionLists(battle::BattlerSlot actor) {
     const std::vector<std::uint8_t> free(kActionEntries, kNoEntry);
-    machine_.write(retropp::MemoryRegion{.at = kActionNext, .size = kActionEntries}, free);
+    writeBytes(retropp::MemoryRegion{.at = kActionNext, .size = kActionEntries}, free);
     const auto at = static_cast<std::uint32_t>(actor.index() * 2);
     writeByte(kActionList + at, kNoEntry);
     writeByte(kCounterList + at, kNoEntry);
@@ -5584,7 +6570,7 @@ void DamageOracle::writeAiRunCells(const AiScenario& scenario, bool counter) {
     emptyActionLists(scenario.actor);
     // No party member's spell list holds a spell: a party member's spell costs nothing.
     const std::vector<std::uint8_t> noSpells(kSpellListPlaceCount, kNoEntry);
-    machine_.write(retropp::MemoryRegion{.at = kSpellListPlaces, .size = kSpellListPlaceCount}, noSpells);
+    writeBytes(retropp::MemoryRegion{.at = kSpellListPlaces, .size = kSpellListPlaceCount}, noSpells);
     writeByte(kBattleFlags, counter ? kCounterattackRunningBit : 0);
     writeWord(kCounterAiNotRun, static_cast<std::uint16_t>(~maskOf(state.counterAiRanThisStep)));
     writeWord(kDiedAwaitingCounter, maskOf(state.diedAwaitingCounter));
@@ -5672,9 +6658,11 @@ AiRunResult DamageOracle::aiCounter(const AiScenario& scenario) {
 AiCommandResult portAiCommand(AiScenario scenario, const battle::Action& action) {
     battle::BattleHooks hooks;
     battle::CommandExecutor executor{hooks, noText(), MonsterSprites{}};
-    executor.execute(scenario.state, scenario.actor, action);
+    const std::vector<battle::BattleScriptCommand> script = executor.execute(scenario.state, scenario.actor, action);
     const battle::BattleState& state = scenario.state;
     AiCommandResult result;
+    result.attack =
+        portAttackCells(state, battle::AttackInFlight{}, script, nullptr, state.awayFromTheFieldUnreachable, false);
     result.battleVariables = state.battleVariables;
     result.switches = state.switches.variables;
     for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
@@ -5741,11 +6729,16 @@ std::string differences(const AiCommandResult& port, const AiCommandResult& gues
     };
     put(ours, port);
     put(theirs, guest);
-    return cellDifferences(ours.cells, theirs.cells);
+    return cellDifferences(ours.cells, theirs.cells) + differences(port.attack, guest.attack);
 }
 
 AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle::Action& action) {
     const battle::BattleState& state = scenario.state;
+    // Every cell the attack frame reads, from the attack a command starts with (CommandExecutor):
+    // SetStatus and ClearStatus run the frame whole.
+    battle::AttackInFlight starting;
+    starting.attackerLevel = state.lastAttackLevel;
+    writeAttackCells(DamageScenario{.state = state, .attack = starting, .attacker = scenario.actor});
     writeAiCells(scenario);
     // The AI's untargetable monsters as their own cell holds them, which the effects change; the
     // other reach cell that writeAiCells() folds them into is opened.
@@ -5808,7 +6801,7 @@ AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle
     writeByte(kFirstAttackFlags, 0xFF);
     writeByte(kAttackFlags, kAttackFlagsAtStart);
     const std::vector<std::uint8_t> perCommand(kPerCommandCells, 0xFF);
-    machine_.write(retropp::MemoryRegion{.at = kLastSpell, .size = kPerCommandCells}, perCommand);
+    writeBytes(retropp::MemoryRegion{.at = kLastSpell, .size = kPerCommandCells}, perCommand);
 
     const auto at = [&](std::size_t i) -> std::uint8_t { return i < bytes.size() ? bytes[i] : 0; };
     writeByte(kCommandAttack, at(1));
@@ -5817,7 +6810,9 @@ AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle
     call([&] {
         aiCommands_[command](slotIndex(scenario.actor), kByteWideStatus, kBattleDataBank, kBattleDirectPage);
     });
-    return readAiCommandResult();
+    AiCommandResult result = readAiCommandResult();
+    result.attack = readAttackResult(false);
+    return result;
 }
 
 AiScenario drawAiRunScenario(std::mt19937& rng, std::uint16_t script, battle::BattlerSlot actor, CounterGuard guard) {
@@ -5922,12 +6917,13 @@ AiCommandCase drawAiCommandCase(std::mt19937& rng) {
         c.action = battle::BattleSwitchAction{.which = anyAiSwitch(rng), .change = static_cast<AiSwitchChange>(rng() % 3)};
         break;
     default: {
-        constexpr std::array<AiEffect, 12> effects{
+        constexpr std::array<AiEffect, 14> effects{
             AiEffect::ResetOwnTimer,  AiEffect::MakeInvincible, AiEffect::EndBattle,       AiEffect::RecruitGau,
             AiEffect::ResetBattleTimer, AiEffect::EndInvincible, AiEffect::MakeTargetable, AiEffect::MakeUntargetable,
-            AiEffect::FillGauge,      AiEffect::EndBattleLearningRages, AiEffect::Nothing, AiEffect::HideSelf};
+            AiEffect::FillGauge,      AiEffect::EndBattleLearningRages, AiEffect::Nothing, AiEffect::SetStatus,
+            AiEffect::ClearStatus,    AiEffect::HideSelf};
         const AiEffect effect = effects[rng() % effects.size()];
-        c.action = battle::AiEffectAction{.effect = effect, .target = anyAiTarget(rng)};
+        c.action = battle::AiEffectAction{.effect = effect, .target = anyAiTarget(rng), .status = anyStatus(rng)};
         // Gau is recruited by a party member's script: the record it joins is the party member's.
         if (effect == AiEffect::RecruitGau) {
             c.scenario.actor = battle::BattlerSlot::character(upTo(rng, battle::kPartySlots - 1));

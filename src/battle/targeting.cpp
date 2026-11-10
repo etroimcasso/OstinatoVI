@@ -147,10 +147,36 @@ bool reachesSide(BattlerSet targets, BattleSlotMask monsters) {
     return (targets.monsters.bits & monsters.bits) != 0;
 }
 
+// A known lore's entry in the battle's lore list is the lore's number counted from this; an unknown
+// lore's entry keeps the 0xFF every entry starts the battle with.
+constexpr std::uint8_t kLoreListFirstEntry = 0x37;
+constexpr std::uint8_t kNoLoreListEntry = 0xFF;
+
+// The lore list's two entries an aim reads past the battlers' targets: Revenge's as the party's
+// bits, Pearl Wind's as the monsters'.
+constexpr std::size_t kLoreReadAsCharacters =
+    static_cast<std::size_t>(AttackId::REVENGE) - static_cast<std::size_t>(AttackId::CONDEMNED);
+constexpr std::size_t kLoreReadAsMonsters =
+    static_cast<std::size_t>(AttackId::PEARL_WIND) - static_cast<std::size_t>(AttackId::CONDEMNED);
+
+std::uint8_t loreListEntry(const BattleState& state, std::size_t lore) {
+    return state.party.loresKnown.test(lore) ? static_cast<std::uint8_t>(kLoreListFirstEntry + lore)
+                                             : kNoLoreListEntry;
+}
+
+// LEGACY VERBATIM (docs/Bugs.md): the targets an aim back at the caster takes when the last params
+// block names no one in its attacker's place. The aim reads past the end of the battlers' target
+// bits, into the lore list: its two entries stand in for a battler's bit, bits that name no battler
+// included.
+BattlerSet loreListReadAsTargets(const BattleState& state) {
+    return BattlerSet{BattleSlotMask(loreListEntry(state, kLoreReadAsCharacters)),
+                      BattleSlotMask(loreListEntry(state, kLoreReadAsMonsters))};
+}
+
 // A pincer or side attack keeps an attack on one side of it, and an attack aimed at both the
 // party and the monsters ends up on one of them.
 void keepToOneSide(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
-                   std::optional<BattlerSlot> reflectedFrom) {
+                   std::optional<BattlerSlot> lastParamsAttacker) {
     if (attack.rules.reflected) {
         if (!attack.rules.opposingSideOnly || state.at(attacker).status.has(StatusId::CONFUSE)) {
             return;
@@ -158,8 +184,10 @@ void keepToOneSide(BattleState& state, AttackInFlight& attack, BattlerSlot attac
         if (state.rng.coin()) {
             return;
         }
-        if (reflectedFrom && attack.targets.has(*reflectedFrom)) {
-            attack.targets = BattlerSet::of(*reflectedFrom);
+        const BattlerSet caster =
+            lastParamsAttacker ? BattlerSet::of(*lastParamsAttacker) : loreListReadAsTargets(state);
+        if (!(caster & attack.targets).empty()) {
+            attack.targets = caster;
         }
         return;
     }
@@ -188,9 +216,23 @@ void keepToOneSide(BattleState& state, AttackInFlight& attack, BattlerSlot attac
     }
 }
 
+// One of the targets at random, counting every bit of the set: the party's bits first, then the
+// monsters', each side's from its lowest. A bit that names no battler can be the one picked.
 void pickOne(BattleState& state, AttackInFlight& attack) {
-    const std::optional<BattlerSlot> picked = state.rng.pickFrom(attack.targets);
-    attack.targets = picked ? BattlerSet::of(*picked) : BattlerSet{};
+    const int count = attack.targets.count();
+    if (count == 0) {
+        return;
+    }
+    int remaining = state.rng.below(static_cast<std::uint8_t>(count));
+    const auto bits = static_cast<std::uint16_t>(attack.targets.characters.bits | attack.targets.monsters.bits << 8);
+    for (int bit = 0; bit < 16; ++bit) {
+        const auto picked = static_cast<std::uint16_t>(1u << bit);
+        if ((bits & picked) != 0 && remaining-- == 0) {
+            attack.targets = BattlerSet{BattleSlotMask(static_cast<std::uint8_t>(picked & 0xFF)),
+                                        BattleSlotMask(static_cast<std::uint8_t>(picked >> 8))};
+            return;
+        }
+    }
 }
 
 // The highest-numbered battler in a set: monster 5 first, party member 0 last.
@@ -286,7 +328,7 @@ BattlerSet removeAbsentTargets(const BattleState& state, BattlerSet targets) {
 }
 
 void chooseTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
-                   std::optional<BattlerSlot> reflectedFrom) {
+                   std::optional<BattlerSlot> lastParamsAttacker) {
     if (attack.targeting.isSelfOnly()) {
         attack.targets = BattlerSet::of(attacker);
         return;
@@ -312,7 +354,7 @@ void chooseTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attac
             attack.targets = removeAbsentTargets(state, attack.targets);
         }
     }
-    keepToOneSide(state, attack, attacker, reflectedFrom);
+    keepToOneSide(state, attack, attacker, lastParamsAttacker);
     if (attack.rules.fallBackToEarlierTargets && attack.targets.empty()) {
         attack.targets = attack.scratch.earlierTargets;
     }

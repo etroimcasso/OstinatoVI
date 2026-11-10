@@ -93,7 +93,7 @@ traits, the command body and the attack frame add the rest.
 | `noCharacterTargets` | the aiming byte, an attack that cannot target the party |
 | `randomTarget` | the aiming byte, a random-target attack, an Offering, the randomize cell, a Dragon Horn landing with another to come |
 | `fallBackToEarlierTargets` | the aiming byte, a Dragon Horn landing with another to come |
-| `reflected` | a spell bounced off Reflect |
+| `reflected` | a spell bounced off Reflect; it lasts the rest of the command |
 | `mayTargetTheFallen` | the aiming byte, a resurrection attack, a reviving item |
 | `keepTargetsThatAreGone` | the aiming byte, every attack after a command's first |
 | `opposingSideOnly` | the params: every target is on the other side from the attacker |
@@ -103,6 +103,15 @@ traits, the command body and the attack frame add the rest.
 
 - **A pick draws.** Picking one target draws from the random numbers even when there is one to pick
   from; tests that pin later draws count it.
+- **A pick counts every bit of the set.** `BattlerSet` holds the two target bytes as they are, and
+  a pick takes one of their set bits, the party's byte first. A bit that names no battler can be the
+  one taken, and the attack then reaches no one.
+- **A bounce aims later attacks too.** Under the `reflected` rule, an attack aimed at the other side
+  only goes half the time to the battler `chooseTargets()` is given as `lastParamsAttacker` — the
+  frame passes `BattleScriptBuilder::lastParamsAttacker()` — when that battler is a target. For the
+  bounce itself that is the caster; for a later attack of the same command it is where the bounce
+  off party slot 1 went. When it names no one the attack takes two lore list entries as its targets
+  ([Bugs.md](../../Bugs.md)).
 - **Given targets skip the layout.** Targets that are still reachable are kept or picked from as
   they are; the pincer and side rules apply only when the attack is aimed afresh.
 - **The pincer sides and facing are the layout's.** `BattleState::pincerSides` and `facingRight`

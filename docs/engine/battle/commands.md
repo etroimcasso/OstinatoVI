@@ -25,6 +25,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `MonsterAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
 | `src/battle/battle_inventory.h` | `putAwayItemsObtained()` ([below](#items-obtained)) |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attack()`, `selfAttack()` and `unwrittenReads()`, the cartridge's attack frame over a `DamageScenario`; `portAttack()`, `portSelfAttack()`, `attackResult()` and `differences()`; `drawAttackScenario()`, `drawSelfAttackScenario()` ([below](#checking-an-attack-against-the-cartridge)) |
 
 ## Running commands
 
@@ -159,8 +160,9 @@ shown.
 
 These three make a second command inside the first, into the same script.
 
-- **Sketch** draws the sketch. If its effect caught the monster (`scratch.sketch`), the sketcher takes
-  the monster's special attack and its animation and makes the attack it caught, as the monster
+- **Sketch** draws the sketch. If its effect caught the monster (`scratch.sketch`, with the attack it
+  caught in `scratch.followUpSpell`), the sketcher takes the monster's special attack and its
+  animation and makes the attack it caught, as the monster
   would: with the monster's vigor or magic power, the sketcher's level, aimed at random, named again.
 - **Rage** rages as the monster chosen, or as the last party member to rage did (`state.lastRager`).
   `setRage()` takes on the monster: its special attack and animation, its attack's look in both hands,
@@ -372,6 +374,66 @@ The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`), which fi
 [damage.md](damage.md), `statusEffect` and `applyPendingStatuses` one call each into the status rules
 in [status.md](status.md), and `attackerEffect`, `targetEffect` and `controlMenu` one call each into
 the special effects and the control menu in [effects.md](effects.md).
+
+## Checking an attack against the cartridge
+
+`DamageOracle::attack()` runs the cartridge's own attack frame over a `DamageScenario` — the battle,
+the attack in flight and its attacker — and `portAttack()` runs `runAttack()` over the same battle
+with `BattleHooks`. `attackResult()` reads the port's run back as the cartridge's cells are read, and
+`differences()` names each cell where they part. `selfAttack()` and `portSelfAttack()` do the same for
+`runSelfAttack()`:
+
+```cpp
+#include "damage_oracle.h"
+
+trace::runOnLoop([&] {
+    trace::DamageOracle oracle{image};
+    oracle.start();
+
+    trace::DamageScenario s;
+    const battle::BattlerSlot hero = battle::BattlerSlot::character(0);
+    const battle::BattlerSlot foe = battle::BattlerSlot::monster(0);
+    for (const battle::BattlerSlot slot : {hero, foe}) {
+        battle::Battler& battler = s.state.at(slot);
+        battler.present = true;
+        battler.hp = 1000;
+        battler.maxHp = 1000;
+        battler.mp = 100;
+        s.state.targetableOrPresent.add(slot);
+        s.state.countedInBattle.add(slot);
+        s.state.alive.add(slot);
+    }
+    s.attacker = foe;
+    s.attack.command = BattleCommandId::MAGIC;
+    s.attack.attack = AttackId::FIRE;
+    battle::loadAttackRecord(s.attack, AttackId::FIRE);
+    s.attack.targeting = s.attack.record.targeting;
+    s.attack.targets = battle::BattlerSet::of(hero);
+
+    const trace::AttackResult port = trace::attackResult(trace::portAttack(s));
+    const std::string apart = trace::differences(port, oracle.attack(s));  // ""
+    const std::string& script = port.cells.at("script");                    // the animation, the numeral
+});
+```
+
+The result holds every cell the frame leaves — HP, MP, statuses, the marks and links, the special
+effects' cells — and the battle script whole, one line per command with each animation's params block.
+`DamageOracle::aiCommand()` runs the same frame for a script's `SetStatus` and `ClearStatus`.
+
+`drawAttackScenario()` and `drawSelfAttackScenario()` draw battles from a seeded generator, and
+`ostinato-damage-trace --check` runs them as `attack` and `self-attack`.
+
+Gotchas:
+
+- **Every cell the frame reads comes from the scenario.** After each call
+  `DamageOracle::unwrittenReads()` lists the cells of the battle's work RAM the frame read before
+  anything wrote them; the only ones allowed are in `kCellsLeftAsTheMachineHasThem`. A new field the
+  frame reads shows up there until the oracle writes it.
+- **The port side runs the battle's own hooks.** `portAttack()` uses `BattleHooks`, so the damage,
+  statuses and special effects are compared along with the frame.
+- **The frame's inner routines replay where the frame returns.** Traced during `attack()`, the
+  damage, status and special-effect routines close at the frame's own return sites, and
+  `DamageOracle::replay()` replays them as they are.
 
 ## The battle script
 

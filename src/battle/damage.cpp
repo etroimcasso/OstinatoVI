@@ -422,7 +422,11 @@ void targetDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attack
                 struck.statusesToClear.set(woken);
             }
         }
-        struck.controlledBy.reset();
+        // A blow breaks the hold on a controlled target: its link ends, and the controller is let go
+        // once the link is taken down.
+        if (struck.controlledBy) {
+            struck.controlEnding = true;
+        }
     }
     if (record.flags2.has(AttackFlag2::DRAIN)) {
         damage = drained(state, attack, attacker, target, heals, damage);

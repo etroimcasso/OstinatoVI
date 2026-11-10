@@ -312,8 +312,12 @@ public:
     // The params of the next animation that has none yet.
     void addParams(const AttackAnimationParams& params);
 
-    // The attacker named by the last params added.
-    std::optional<BattlerSlot> lastParamsAttacker() const;
+    // The battler the last params block names in its attacker's place. An animation's, a
+    // message's or Runic's block names the attacker. A bounce off Reflect's block holds there the
+    // battler the bounce off party slot 1 went on to, and names no one when nothing bounced off
+    // that slot. A Launcher's or Super Ball's hits leave it as it was: their hits end the bounce's
+    // rule, and only an attack under that rule aims from this place (chooseTargets()).
+    std::optional<BattlerSlot> lastParamsAttacker() const { return lastParamsAttacker_; }
 
     const std::vector<BattleScriptCommand>& commands() const { return commands_; }
 
@@ -327,6 +331,7 @@ private:
     std::vector<BattleScriptCommand> commands_;
     std::deque<AttackAnimationParams> params_;
     std::optional<std::size_t> animationSlot_;
+    std::optional<BattlerSlot> lastParamsAttacker_;
 };
 
 }  // namespace ostinato::battle

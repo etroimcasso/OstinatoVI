@@ -207,9 +207,20 @@ the no-party trait keeps party members out. An item that is the attack itself sk
    (`:14686-14693`: status-1 bit 1 is Zombie, status-2 bit 5 Confuse). The monsters' side is all six
    monster slots and the party members fighting against the party; the party's side is the other
    party members. Then the reach check again, and the fallen dropped unless they may be aimed at.
-6. **The battle layout** (`CheckTargetsBattleType`). A spell bounced off Reflect, aimed at the
-   other side only, by an attacker not Confused: on tails it goes to the battler that cast it, if
-   that battler is a target (`:14727-14739`); nothing else in this step applies. Otherwise, for an
+6. **The battle layout** (`CheckTargetsBattleType`). An attack under a bounce's rule (`$ba` bit 4),
+   aimed at the other side only, by an attacker not Confused: on tails it goes to the battler named in
+   the attacker's place of the last params block (`$2c5f` + `$3a32`, byte 1 of the block before the
+   next one), if that battler is a target (`:14727-14739`); nothing else in this step applies. The
+   bounce sets the rule (`CalcReflectDmg :8387-8388`) and only a Launcher's or Super Ball's hits clear
+   it (`:8393-8394`), so it holds for the bounce's own aims — where the last block is the attack's,
+   naming its caster — and for every later attack of the command. There the last block is the
+   bounce's, which holds in that place the battler the bounce off party slot 1 went on to
+   (`:8424-8427`: `$a0` + the battler bounced off ← the battler it went to), `$ff` when none did.
+   **`$ff` doubled indexes past the battlers' target bits** (`lda $3018,x` with X = `$fe`): the word
+   read is `$3116-$3117`, the lore list's entries for Revenge and Pearl Wind (`InitSpellList
+   :14062-14079`: a known lore's number plus `$37`, an unknown lore's the `$ff` the battle's memory
+   starts with, `InitBattle :6061-6067`). The low byte is taken as the party's bits and the high byte
+   as the monsters', bits that name no battler included (`docs/Bugs.md`). Otherwise, for an
    initial selection other than "all" or "half": in a pincer, a monster reaches only the monsters
    on its own side, and a party member whose targets are on both sides keeps one of them by a coin
    (heads, the second side); in a side attack, a party member reaches only its own half of the
@@ -219,6 +230,10 @@ the no-party trait keeps party members out. An item that is the attack itself sk
 7. With no target left and the fall-back rule, the command's earlier targets.
 8. An initial selection other than one keeps them all; a multi-target attack keeps them all on
    heads; otherwise one at random.
+
+A pick at random (`RandBit :13495-13515`) counts every set bit of the 16-bit target word and takes the
+draw's one, from the lowest: the party's bits 0-7, then the monsters' 8-15. A bit that names no battler
+counts and can be the one taken; the attack then reaches no one.
 
 A pick draws from the random numbers even when there is one target to pick from. The pincer sides
 and the battlers' facing are set by the battle's layout on screen (`btlgfx:2855-2857`,
@@ -256,6 +271,11 @@ target, with the covered ally recorded.
 
 ## The attack frame
 
+The frame is checked whole: `ExecSelfAttack` and `ExecAttack` run on the cartridge over the same
+battle as the port's `runSelfAttack()` and `runAttack()`, every cell the frame reads written from the
+port's state and every cell it leaves compared (`tests/test_attack_oracle.cpp` is the test authority
+for this section).
+
 ### The attack loop
 
 `ExecAttack :8015-8139` runs once per attack of the command; `attacksLeft` counts those after the
@@ -277,7 +297,8 @@ current one, and a weapon's spell adds one. Each attack:
    random; a Blitz with the wrong buttons hits no one.
 5. The name, once per command (`ShowAttackName`). Joker Doom's name also makes the next aim exact,
    removes the instant-death trait and makes the attack impossible to dodge (`:8754-8763`).
-6. While a Sketch runs, the sketcher makes the rest of the attack.
+6. The sketch cell names who makes the rest of the attack (`:8067-8069`): the sketcher while it makes
+   the attack its sketch caught, and once a sketch has caught its monster, that monster.
 7. An action chosen as the Roulette command (`$1e`) has no targets and keeps none (`:8070-8076`).
 8. **The MP gate** (`:8077-8093`): an attack with an MP cost made by a Muted battler, or by an Imp
    not casting Imp, shows only the maker going back to standing and does nothing else.
@@ -356,8 +377,9 @@ answer itself, ready only when the attack affects MP — the carry from the reco
     automatic critical; or, for an attack that can be critical aimed at the other side only, a draw
     below 8 — one in 32 — with at least one target. Two steps and the flash.
 11. The animation is written; the damage multiplied (`AttackHooks::scaleDamage`); an attack that
-    kills its attacker sets it to die; a controlled monster's controller has its menu redrawn
-    (`AttackHooks::controlMenu`).
+    kills its attacker sets it to die; a monster held by a live Control link has its controller's menu
+    redrawn (`AttackHooks::controlMenu`); an ending link redraws nothing (`ldy $32b9,x; bmi`,
+    `:8337-8338`).
 12. **Each target hit**, last slot first (`:8344-8364`): one more step for a target hit in the back
     — added to the steps the damage to that target uses up, so it goes on to the next target only when
     that target's damage leaves it (`docs/contracts/battle_damage.md`); the target records the hit; a target

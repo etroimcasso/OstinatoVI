@@ -960,7 +960,7 @@ TEST_F(TargetEffectTest, SketchCatchesTheMonstersSecondAttackOnADrawOf64OrMore) 
     const auto run = checked(s, kMonster);
     ASSERT_TRUE(run.after.attack.scratch.sketch);
     EXPECT_EQ(run.after.attack.scratch.sketch->monster, kMonster);
-    EXPECT_EQ(run.after.attack.scratch.sketch->attack, getMonsterSketch(MonsterId::SOLDIER).attacks[1]);
+    EXPECT_EQ(run.after.attack.scratch.followUpSpell, getMonsterSketch(MonsterId::SOLDIER).attacks[1]);
     EXPECT_EQ(run.after.attack.secondary, kMonster.position());
     EXPECT_NE(std::get_if<battle::AttackAnimation>(&run.script.commands().front()), nullptr);
 }
@@ -968,7 +968,7 @@ TEST_F(TargetEffectTest, SketchCatchesTheMonstersSecondAttackOnADrawOf64OrMore) 
 TEST_F(TargetEffectTest, SketchCatchesTheFirstAttackOnADrawBelow64) {
     DamageScenario s = scenarioWith(SpecialEffect::of(CommandEffect::Sketch));
     s.state.rng = battle::BattleRng{positionWhere([](std::uint8_t r) { return r < 0x40; })};
-    EXPECT_EQ(checked(s, kMonster).after.attack.scratch.sketch->attack, getMonsterSketch(MonsterId::SOLDIER).attacks[0]);
+    EXPECT_EQ(checked(s, kMonster).after.attack.scratch.followUpSpell, getMonsterSketch(MonsterId::SOLDIER).attacks[0]);
 }
 
 TEST_F(TargetEffectTest, SketchMissesAPartyMemberSilentlyAndSaysSoForAMonsterItCannotSketch) {

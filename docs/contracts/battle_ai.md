@@ -355,9 +355,8 @@ its operand. A target is found by `CheckAITarget` with the carry set (no cut).
 
 Port: `runAiEffect()` behind `kAiEffectRules`, one row per effect in this order. `SetStatus` and
 `ClearStatus` are the attack `statusTimersExpire()` makes (`Cmd_29 :13335-13367`) less the casting
-swirl's reset: `Cmd_29` turns the swirl off (`trb $b0`), `Cmd_30` does not. They are checked against the
-listing, not against the cartridge: the oracle does not set up the cells the cartridge's whole attack
-reads. `RecruitGau` reads the battler's record index for any battler; the scripts that hold it are
+swirl's reset: `Cmd_29` turns the swirl off (`trb $b0`), `Cmd_30` does not. They are checked on the
+cartridge through `Cmd_30`: the frame runs whole on both sides and every cell it leaves is compared. `RecruitGau` reads the battler's record index for any battler; the scripts that hold it are
 party members' (`$3ed9,y` of a monster is not a record), and the port changes a record only for a
 battler that has one. The port keeps no enabled or shown bit; the oracle writes both and checks that
 the enabled bit is set and the shown bit kept.

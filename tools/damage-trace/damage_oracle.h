@@ -32,8 +32,9 @@
 // the port's formulas, tests/test_status_changes.cpp and tests/test_status_effect.cpp against its
 // status rules, tests/test_attacker_effects.cpp, tests/test_target_effects.cpp and
 // tests/test_control_menu.cpp against its special effects, tests/test_cover_and_params.cpp
-// against its cover and its setting up of the attack's animation, and tests/test_espers_oracle.cpp
-// against an esper's spells learned and a level-up at a battle's end.
+// against its cover and its setting up of the attack's animation, tests/test_espers_oracle.cpp
+// against an esper's spells learned and a level-up at a battle's end, and
+// tests/test_attack_oracle.cpp against the whole attack frame.
 #pragma once
 
 #include <array>
@@ -45,6 +46,7 @@
 #include <memory>
 #include <optional>
 #include <random>
+#include <set>
 #include <span>
 #include <string>
 #include <utility>
@@ -101,7 +103,7 @@ inline constexpr std::array<TracedRoutine, 9> kTracedRoutines{{
 // The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
 // direct-page params block, attack flags and multiplier; the party's gil and steps; the attack's record copy and
 // damage; the party members' control menus; the battle's copy of the party's hands; the numeral
-// buffer; the script queue; the monsters standing, the message's item and amount, the formation's
+// buffer; the script's params blocks; the script queue; the monsters standing, the message's item and amount, the formation's
 // flags, the battlers leaving, a party member's equipment to work out and the monsters drawn flipped;
 // each battler's bit and its actions waiting; what is to be worked out again for each battler; the
 // links between battlers, Seize, Love Token, Charm and Zinger, and the items to steal; the statuses
@@ -117,10 +119,11 @@ struct TracedRange {
     std::uint32_t at;
     std::uint32_t size;
 };
-inline constexpr std::array<TracedRange, 33> kTracedRanges{{
+inline constexpr std::array<TracedRange, 34> kTracedRanges{{
     {"frame count", 0x7E021E, 1},       {"direct page", 0x7E00A0, 32},       {"gil and steps", 0x7E1860, 9},
     {"attack record", 0x7E11A0, 18},    {"monster indexes", 0x7E1FF9, 20},   {"control menus", 0x7E205E, 48},
-    {"party's hands", 0x7E2B86, 40},    {"numeral buffer", 0x7E2BCE, 160},   {"script queue", 0x7E2D6E, 256},
+    {"party's hands", 0x7E2B86, 40},    {"numeral buffer", 0x7E2BCE, 160},   {"params blocks", 0x7E2C6E, 256},
+    {"script queue", 0x7E2D6E, 256},
     {"monster cells", 0x7E2F2F, 38},    {"battler bits", 0x7E3018, 20},      {"action list", 0x7E3184, 128},
     {"to work out", 0x7E3204, 20},      {"links", 0x7E327C, 388},            {"command cells", 0x7E3400, 32},
     {"actions", 0x7E3420, 768},         {"battle cells", 0x7E3A30, 96},      {"flags", 0x7E3AA0, 20},
@@ -189,8 +192,9 @@ private:
 
 // One routine call as the trace logged it: the routine, the frame it ran on and the address it
 // returned to; each cell's value when the routine first read it, for every cell it read before it
-// wrote it; each cell's last value written; the attack's context at its entry; and, for an attack's
-// special effect on one target, the target, where the trace shows it.
+// wrote it; each cell's last value written; the attack's context at its entry; the attacker of the
+// last attacker effect before it; and, for an attack's special effect on one target, the target, where
+// the trace shows it.
 struct TracedCall {
     std::string routine;
     std::uint64_t frame = 0;
@@ -201,6 +205,8 @@ struct TracedCall {
     std::uint8_t hitsToCome = 0xFF;
     std::uint8_t aimingRules = 0;
     std::optional<std::uint8_t> previousAttacker;
+    // The attacker of the params block at the entry of the last attacker effect before this call.
+    std::optional<std::uint8_t> attackerEffectMaker;
     std::optional<battle::BattlerSlot> target;
 };
 
@@ -227,7 +233,8 @@ struct MultiplierResult {
 };
 
 // What the per-target pass leaves, as the same fields on both sides: the ledger, each battler's
-// statuses to set and to clear, whether it still has a controller and its last-attacker mark, the
+// statuses to set and to clear, whether a controller still holds it (a link that is ending holds no one)
+// and its last-attacker mark, the
 // multiplier's steps left, the animation's second value, the second value the attack's animation
 // was rewritten with (none when it was not), and the random-number position.
 struct TargetDamageResult {
@@ -429,6 +436,37 @@ struct CoverResult {
 
 [[nodiscard]] std::string differences(const CoverResult& port, const CoverResult& guest);
 
+// --- a whole attack --------------------------------------------------------------------------------
+
+// What a whole attack leaves (the attack frame, every attack of a command from loading the hand to
+// the messages after it), as the same cells on both sides, each named and given as text: every cell
+// the damage taken and shown, the statuses taking effect and a target's special effect are read back
+// by; the battle script whole, one line per command, each animation with the params block it shows
+// with; what the command's next attack starts from (its two flag bytes, field by field); the attacks
+// left, the command cells the frame sets again after each attack, the reach flag and Interceptor's
+// guard; and the random-number position.
+struct AttackResult {
+    std::map<std::string, std::string> cells;
+};
+
+// The scenario after the port's whole attack has run over it, and the script it wrote.
+struct AttackRun {
+    DamageScenario after;
+    battle::BattleScriptBuilder script;
+};
+
+// The port's whole attack over the scenario by the scenario's attacker (battle::runAttack), worked
+// out by the battle's own hooks (BattleHooks).
+[[nodiscard]] AttackRun portAttack(DamageScenario scenario);
+
+// The same aimed at the attacker itself (battle::runSelfAttack).
+[[nodiscard]] AttackRun portSelfAttack(DamageScenario scenario);
+
+// A port run read back as an AttackResult.
+[[nodiscard]] AttackResult attackResult(const AttackRun& run);
+
+[[nodiscard]] std::string differences(const AttackResult& port, const AttackResult& guest);
+
 // --- the party's records at a battle's end -------------------------------------------------------
 
 // One character's record and spells as a won battle's end reads them: the record and which of the
@@ -599,6 +637,10 @@ struct AiCommandResult {
     // recruits.
     std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
     std::uint8_t rngPosition = 0;
+    // The cells of the battle an attack leaves and the script, as AttackResult names them: unchanged
+    // on both sides for a command that makes no attack, and what SetStatus's and ClearStatus's
+    // attack leaves for those two. The attack's own cells end with the command and are not read.
+    AttackResult attack;
 };
 
 // The port's command `action` (a BattleVariableAction, BattleSwitchAction or AiEffectAction) run by
@@ -612,6 +654,40 @@ struct WatchedWrite {
     std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
     std::uint8_t value = 0;
 };
+
+// A cell a routine read before anything wrote it, and the byte the read found.
+struct UnwrittenRead {
+    std::uint32_t at = 0;  // the cell's work-RAM address, $7E:xxxx
+    std::uint8_t value = 0;
+};
+
+// Cells the attack frame reads that no scenario writes, left as the machine has them: `count` cells
+// from `at`, `stride` apart. Each is a cell whose value reaches nothing the game shows or keeps.
+struct CellsLeftAsTheMachineHasThem {
+    std::uint32_t at = 0;
+    std::uint32_t count = 1;
+    std::uint32_t stride = 1;
+    const char* why = "";
+};
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 8> kCellsLeftAsTheMachineHasThem{{
+    {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
+    {.at = 0x7E00EB,
+     .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
+    {.at = 0x7E00F3,
+     .why = "the byte after the damage-healed flag, loaded with it where only the flag's lowest bit is tested"},
+    {.at = 0x7E2F34,
+     .why = "the byte after the four equipment flags, which a 16-bit increment of the last one reads and puts back"},
+    {.at = 0x7E2F44, .count = 2,
+     .why = "the monsters drawn see-through, read and put back by Vanish's setting and clearing"},
+    {.at = 0x7E32DF, .count = 10, .stride = 2,
+     .why = "the byte before each last-attacker mark, loaded with it where only the mark's sign is tested"},
+    {.at = 0x7E3A29, .count = 3,
+     .why = "the last three bytes of a script command, which the commands queued with them do not read"},
+    {.at = 0x7E3A81, .why = "the byte before the Golem's block, loaded with it where only the next byte's sign is tested"},
+}};
+
+// Whether `cell` is one of kCellsLeftAsTheMachineHasThem.
+[[nodiscard]] bool leftAsTheMachineHasIt(std::uint32_t cell);
 
 // A clock that moves one tick per reading, so a loop run with it steps as fast as the host allows
 // instead of waiting for the wall clock.
@@ -744,9 +820,23 @@ public:
     // The command `action` (a BattleVariableAction, BattleSwitchAction or AiEffectAction) for the
     // scenario's actor (Cmd_2e, Cmd_2f or Cmd_30), called as running a command calls it: the cells a
     // command starts with, the actor in Y and the action's three bytes where the command reads them.
-    // SetStatus and ClearStatus are not compared here: they run the cartridge's whole attack, whose
-    // cells this does not write.
+    // Every cell the attack frame reads is written as attack() writes it, from a scenario whose
+    // attack is the one a command starts with, so SetStatus's and ClearStatus's attack runs whole.
     [[nodiscard]] AiCommandResult aiCommand(const AiScenario& scenario, const battle::Action& action);
+
+    // Every attack of the scenario's attack (ExecAttack), made by the scenario's attacker and called
+    // as a command's body calls it: every cell the frame reads written from the scenario, the
+    // script's queue and params buffer empty, the attacker in X.
+    [[nodiscard]] AttackResult attack(const DamageScenario& scenario);
+
+    // The same aimed at the attacker itself (ExecSelfAttack).
+    [[nodiscard]] AttackResult selfAttack(const DamageScenario& scenario);
+
+    // Every cell of the battle's work RAM ($7E:0000-3FFF) the last call read before anything wrote
+    // it — the oracle's own writes since the call before, or the guest's during the call — with the
+    // byte its first such read found, in address order. Empty when every cell the routine read came
+    // from the scenario or from the routine itself.
+    [[nodiscard]] std::vector<UnwrittenRead> unwrittenReads() const;
 
     // The writes the last call made to the watched cells, in order: the damage word at
     // $7E:11B0-11B1 and the multiplier's steps at $7E:00BC.
@@ -805,6 +895,12 @@ private:
     void writeStatusCells(const DamageScenario& scenario);
     void writeEffectCells(const DamageScenario& scenario);
     void writeTargetEffectCells(const DamageScenario& scenario);
+    void writeAttackCells(const DamageScenario& scenario);
+    [[nodiscard]] AttackResult readAttackResult(bool attackCells);
+    [[nodiscard]] ApplyDamageResult readApplyCells();
+    void registerGate();
+    void noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool write);
+    void writeBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes);
     [[nodiscard]] AttackerEffectResult readAttackerEffectResult();
     [[nodiscard]] TargetEffectResult readTargetEffectResult();
     [[nodiscard]] StatusChangesResult readStatusChangesResult();
@@ -870,6 +966,14 @@ private:
     retropp::Routine<Call> execAiRetal_;
     // The three commands, by the command number less 0x2E.
     std::array<retropp::Routine<Call>, 3> aiCommands_;
+    retropp::Routine<Call> execSelfAttack_;
+    retropp::Routine<Call> execAttack_;
+    // The read-set gate: the cells written since the last call began (by the oracle before it, by the
+    // guest during it), and the cells the guest read during the last call before any was written.
+    std::set<std::uint32_t> gateWritten_;
+    std::map<std::uint32_t, std::uint8_t> unwrittenReads_;
+    bool gateCalling_ = false;
+    bool gateFresh_ = true;
 };
 
 // Run `work` from the one tick of a run loop on the console's cadence, with no window, stepped as
@@ -1037,12 +1141,30 @@ inline constexpr int kCounterGuards = 8;
                                            CounterGuard guard = CounterGuard::Free);
 
 // A drawn battle with one of the three commands only a script queues, every operation and every
-// effect but the two that make an attack (SetStatus, ClearStatus), its operands drawn within what a
-// script can hold.
+// effect, its operands drawn within what a script can hold.
 struct AiCommandCase {
     AiScenario scenario;
     battle::Action action;
 };
 [[nodiscard]] AiCommandCase drawAiCommandCase(std::mt19937& rng);
+
+// The scenarios the whole-attack sweep draws, from the same seed: drawTargetEffectScenario()'s
+// battle, then the attack as a command's body hands it to the frame — any command with an aiming
+// byte but Fight and Capture, its attack and the attack chosen, the targeting byte, the targets (none
+// one time in four), the aiming rules, the name it is shown under, the MP it costs (above the
+// attacker's one time in four of those it costs), the swirl, quiet misses, the attack hidden without
+// targets, an exact aim, damage modification and re-aiming at random, the first pass, the attacks
+// left with a Dragon Horn, the command's extra steps, a critical hit's chance and an automatic one,
+// the sketcher; the attacker's Morph, Berserk, Imp and Mute, Air Anchor on it, Runic up on the
+// battlers, the weapon's spell cast at random, a Launcher's hits to come, the battlers' facing in a
+// side or pincer attack, Strago in the party with the lores known and learned (half the time free to
+// learn one, and the attack one of the lores half of those), and every battler's vigor and magic power.
+[[nodiscard]] DamageScenario drawAttackScenario(std::mt19937& rng);
+
+// drawAttackScenario()'s battle with the attack the battle's own actions make on their attacker:
+// nothing shown three times in four, otherwise as Magic; sparse statuses, removed one time in two;
+// undodgeable; the level and stat 0 or drawn; the swirl; and the drain, restore, ignore-defense,
+// unsplit and undead-inverting flags drawn.
+[[nodiscard]] DamageScenario drawSelfAttackScenario(std::mt19937& rng);
 
 }  // namespace ostinato::trace

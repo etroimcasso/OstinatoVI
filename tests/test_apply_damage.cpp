@@ -389,8 +389,10 @@ TEST_F(ApplyDamageTest, GainOrZero_MarksNoOne) {
         heal(s, kHero, 10);
         take(s, kAlly, 0);
         const Both both = apply(oracle, s);
-        EXPECT_THREE_WAYS(both.port.lastAttackerMark[at(kHero)], std::uint8_t{0}, both.guest.lastAttackerMark[at(kHero)]);
-        EXPECT_THREE_WAYS(both.port.lastAttackerMark[at(kAlly)], std::uint8_t{0}, both.guest.lastAttackerMark[at(kAlly)]);
+        // No last attacker, not waiting: the mark's slot bits at $7F.
+        constexpr std::uint8_t kNoMark = 0x7F;
+        EXPECT_THREE_WAYS(both.port.lastAttackerMark[at(kHero)], kNoMark, both.guest.lastAttackerMark[at(kHero)]);
+        EXPECT_THREE_WAYS(both.port.lastAttackerMark[at(kAlly)], kNoMark, both.guest.lastAttackerMark[at(kAlly)]);
         EXPECT_NUMERALS(both, "[one at a time 1:0 0:10+]");
     });
 }

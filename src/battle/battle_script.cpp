@@ -1,11 +1,22 @@
 #include "battle/battle_script.h"
 
+#include <cstddef>
 #include <utility>
 #include <variant>
 
 namespace ostinato::battle {
 
+namespace {
+
+// The party slot whose entry in a bounce's params block sits in the block's attacker's place.
+constexpr BattlerSlot kBounceEntryInTheAttackersPlace = BattlerSlot::character(1);
+
+}  // namespace
+
 void BattleScriptBuilder::add(BattleScriptCommand command) {
+    if (const auto* bounce = std::get_if<ReflectedAttackShown>(&command)) {
+        lastParamsAttacker_ = bounce->bouncedTo[static_cast<std::size_t>(kBounceEntryInTheAttackersPlace.index())];
+    }
     commands_.push_back(std::move(command));
 }
 
@@ -22,13 +33,7 @@ void BattleScriptBuilder::replaceAnimation(BattleScriptCommand command) {
 
 void BattleScriptBuilder::addParams(const AttackAnimationParams& params) {
     params_.push_back(params);
-}
-
-std::optional<BattlerSlot> BattleScriptBuilder::lastParamsAttacker() const {
-    if (params_.empty()) {
-        return std::nullopt;
-    }
-    return params_.back().attacker;
+    lastParamsAttacker_ = params.attacker;
 }
 
 std::vector<BattleScriptCommand> BattleScriptBuilder::take() {
@@ -42,6 +47,7 @@ std::vector<BattleScriptCommand> BattleScriptBuilder::take() {
     }
     params_.clear();
     animationSlot_.reset();
+    lastParamsAttacker_.reset();
     return std::exchange(commands_, {});
 }
 

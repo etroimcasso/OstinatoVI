@@ -297,7 +297,9 @@ For a physical attack (`$11a2.0`, the trait alone) that no Golem or Interceptor 
   is put in the target's statuses to set, else below 32 Blind (`$3dd4,y`).
 - The target's Sleep and Muddle (status 2 bits 7 and 5), when it has them and the attack does not
   put them on itself (`$11ab`), go into its statuses to clear (`$3dfd,y`).
-- The target's controller link is broken (`$32b9,y |= $80`): `Battler::controlledBy` is cleared.
+- The target's controller link ends (`$32b9,y |= $80`, the controller's slot kept): `Battler::controlEnding`
+  is set. An ending link holds no one, and once the action is over `RemoveControlTarget
+  :1151-1169` lets the controller go through that slot (`releaseEndedControl()`).
 
 ### 6. Drains — `CalcMaxDmg :1911-1924`, `FixDrainDmg :2183-2214`
 

@@ -321,8 +321,9 @@ const std::string second = trace::differences(trace::portAiTurn(port, s.actor), 
 
 A place in a script is compared as the cartridge keeps it, a byte offset into its script block. A
 script's readying is `DamageOracle::readyAi()` against `portScriptPlaces()`; the three commands are
-`DamageOracle::aiCommand()` against `portAiCommand()`, except `SetStatus` and `ClearStatus`, whose
-attack the oracle does not set up.
+`DamageOracle::aiCommand()` against `portAiCommand()`. `SetStatus` and `ClearStatus` make an attack,
+which the comparison includes: the battle's cells after it and the script, as `DamageOracle::attack()`
+reads them ([commands.md § Checking an attack against the cartridge](commands.md#checking-an-attack-against-the-cartridge)).
 
 `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAiRunScenario()` and `drawAiCommandCase()` draw
 battles from a seeded generator, and `ostinato-damage-trace --check` runs them as `ai-targets`,

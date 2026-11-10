@@ -484,6 +484,62 @@ answers it.
 
 ---
 
+## An attacker that hides and dies waits to answer itself after some blows
+
+**What happens.** An attacker effect that hides its attacker and sets it to die
+marks the attacker as attacked by itself. Whether that mark waits to be answered
+is decided by the processor's carry as the attack left it, not by the attack: it
+waits after a blow by a party member in a side attack, or by a monster in a
+pincer or a side attack, and not otherwise. Spiraler, the only attack with that
+effect, is a spell, so in play its mark never waits.
+
+**Where the original does it.** `AttackerEffect_16` (`battle/battle_main.asm:10804-10814`)
+reaches `_c2362f` (`:8641-8652`) through `_c2384a` and `_c23852` with the carry
+`UpdateFacingDirection` (`:3218-3271`) left: its `lsr` of the physical bit, then
+`cmp #$03` for a party member (`:3227`) or `cmp #$02` for a monster (`:3251`).
+`DoAttackerEffect` (`:10118-10129`) passes the carry through.
+
+**Where the port keeps it.** `facingStepLeavesTheMarkReady()` in
+`src/battle/attacker_effects.cpp`, read by `spiraler()`. `tests/test_attack_oracle.cpp`
+compares the whole attack with the cartridge's frame.
+
+**If you want to change it.** Passing `false` to `hideAndDie()` leaves the mark
+unready for every record, as it is for Spiraler's own.
+
+---
+
+## An attack after a bounce can take two lore list entries for its targets
+
+**What happens.** A spell that bounces off Reflect leaves the bounce's aiming rule on for the rest of
+the command. Each later attack of the command, aimed at the other side only, goes half the time to
+the battler the last params block names in its attacker's place — and after a bounce that block is
+the bounce's, which holds there where the bounce off the second party slot went. When nothing
+bounced off that slot the place holds `$FF`, and the aim reads past the end of the battlers' target
+bits: it takes the lore list's entries for Revenge and Pearl Wind as the party's bits and the
+monsters' bits. A known lore's entry is `$3E` or `$3F`, an unknown one `$FF`; either overlaps almost
+any target set, so the attack is aimed at that word, bits that name no battler included. A pick of
+one target among them can land on such a bit, and the attack then reaches no one. It needs a command
+that makes more than one attack, one of them a spell that bounces.
+
+**Where the original does it.** `CalcReflectDmg` (`battle/battle_main.asm:8387-8388`) sets `$ba`
+bit 4, which only its Launcher path clears (`:8393-8394`), and writes the bounce's block with
+`$a0` + the battler bounced off ← the battler it went to (`:8424-8427`). `CheckTargetsBattleType`
+(`:14727-14739`) reads byte 1 of the block before the next one (`$2c5f,x` with X = `$3a32`), doubles
+it and loads `$3018,x` as a word: X = `$FE` loads `$3116-$3117`, the lore list `InitSpellList`
+(`:14062-14079`) fills over the `$FF` `InitBattle` (`:6061-6067`) leaves. `RandBit` (`:13495-13515`)
+picks among all sixteen bits.
+
+**Where the port keeps it.** `BattleScriptBuilder::lastParamsAttacker()` in
+`src/battle/battle_script.cpp` tracks the place; `loreListReadAsTargets()` and `pickOne()` in
+`src/battle/targeting.cpp` take the word and pick from every bit. `tests/test_attack_oracle.cpp`
+(`TheAttackAfterABounceTakesTheLoreListForItsTargets`) compares it with the cartridge's frame, and
+`tests/test_targeting.cpp` pins the word.
+
+**If you want to change it.** Passing the attack's own attacker to `chooseTargets()` in
+`resolveAttack()` (`src/battle/attack.cpp`) aims a later attack back at the caster instead.
+
+---
+
 ## The Phantom Train's background names two tiles nothing loaded
 
 **What happens.** Two cells of the Phantom Train battle background's tilemap

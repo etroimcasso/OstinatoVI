@@ -163,8 +163,8 @@ const std::uint32_t thrown = battle::takeGil(state.party, 30 * level);   // 0 wh
 
 ## The control menu
 
-When Control takes hold, and each time the controlled monster acts, `controlMenu()` fills the
-controller's `Battler::controlMenu` from the monster's four control attacks:
+When Control takes hold, and each time the controlled monster acts while its link is not ending,
+`controlMenu()` fills the controller's `Battler::controlMenu` from the monster's four control attacks:
 
 ```cpp
 #include "battle/links.h"
@@ -296,7 +296,7 @@ call before them; a caller replaying them sets `TracedCall::target` itself.
   menu is open or during a counterattack.
 - **Ogre Nix breaks the hand by the count of attacks left.** The weapon hand on an odd count, the
   shield hand on an even one — for a Fight that is the hand swinging.
-- **A lone Mantra does 65,535**, and so does a Flare Star with no targets: the console's divide by 0.
+- **A lone Mantra does 65,535**, and so does a Flare Star with no targets: the console's divide by 0. A Mantra aimed at no one divides the caster's HP by 255: the count less one is taken in a byte.
 - **Spiraler only removes a party member.** A monster's own bit is not in the byte it reads, so a
   monster casting it stays among its targets and is not marked as leaving; it still hides and dies.
 - **Escape turns the swirl on**, and so does the instant kill: the swirl before a spell plays.

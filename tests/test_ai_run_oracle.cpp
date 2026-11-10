@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <random>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "ai_battle.h"
@@ -16,6 +17,7 @@
 #include "damage_oracle.h"
 #include "data/ai_scripts.h"
 #include "ostinato/monster_id.h"
+#include "ostinato/status_id.h"
 
 namespace ostinato::test {
 namespace {
@@ -162,10 +164,16 @@ TEST(AiRunOracleTest, EveryCounterattackPartOnEveryPathThroughItsGuardMatchesThe
 TEST(AiRunOracleTest, TheThreeCommandsOverFiveHundredDrawnCasesMatchTheCartridge) {
     std::mt19937 rng{trace::kSweepSeed};
     int differing = 0;
+    int statusesSet = 0;
+    int statusesCleared = 0;
     std::string first;
     withAiOracle([&](trace::DamageOracle& oracle) {
         for (int i = 0; i < 500; ++i) {
             const trace::AiCommandCase c = trace::drawAiCommandCase(rng);
+            if (const auto* effect = std::get_if<battle::AiEffectAction>(&c.action)) {
+                statusesSet += effect->effect == AiEffect::SetStatus ? 1 : 0;
+                statusesCleared += effect->effect == AiEffect::ClearStatus ? 1 : 0;
+            }
             const std::string difference =
                 trace::differences(trace::portAiCommand(c.scenario, c.action), oracle.aiCommand(c.scenario, c.action));
             if (!difference.empty() && ++differing == 1) {
@@ -175,6 +183,8 @@ TEST(AiRunOracleTest, TheThreeCommandsOverFiveHundredDrawnCasesMatchTheCartridge
         }
     });
     EXPECT_EQ(differing, 0) << differing << " of 500 differ; the first:\n" << first;
+    EXPECT_GT(statusesSet, 0);
+    EXPECT_GT(statusesCleared, 0);
 }
 
 TEST(AiRunOracleTest, ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCartridgeKeeps) {
@@ -282,6 +292,29 @@ TEST(AiRunOracleTest, TheEffectsThatNameNoTargetOnBothSides) {
     EXPECT_EQ(effect(AiEffect::EndBattleLearningRages).endOfBattleEvent, battle::EndOfBattleEvent::RagesLearned);
     EXPECT_TRUE(effect(AiEffect::HideSelf).statuses[kSelf.index()].has(StatusId::HIDE));
     EXPECT_EQ(effect(AiEffect::Nothing).battleCounter, 90);
+}
+
+// SetStatus and ClearStatus make an attack by the monster on itself, run whole on both sides: the
+// status goes on or comes off, and nothing else of the battle moves.
+TEST(AiRunOracleTest, SetStatusPutsProtectOnTheMonsterItself) {
+    const AiScenario s = aiBattle();
+    const trace::AiCommandResult result =
+        checkedCommand(s, battle::AiEffectAction{.effect = AiEffect::SetStatus, .status = StatusId::PROTECT});
+    EXPECT_TRUE(result.statuses[kSelf.index()].has(StatusId::PROTECT));
+    EXPECT_EQ(result.statuses[kReflecting.index()].bytes, s.state.at(kReflecting).status.bytes);
+    EXPECT_EQ(result.attack.cells.at("HP of battler " + std::to_string(kSelf.index())),
+              std::to_string(s.state.at(kSelf).hp));
+}
+
+TEST(AiRunOracleTest, ClearStatusTakesReflectOffMonsterSlotTwo) {
+    AiScenario s = aiBattle();
+    s.actor = kReflecting;
+    const trace::AiCommandResult result =
+        checkedCommand(s, battle::AiEffectAction{.effect = AiEffect::ClearStatus, .status = StatusId::REFLECT});
+    EXPECT_FALSE(result.statuses[kReflecting.index()].has(StatusId::REFLECT));
+    EXPECT_EQ(result.statuses[kSelf.index()].bytes, s.state.at(kSelf).status.bytes);
+    EXPECT_EQ(result.attack.cells.at("HP of battler " + std::to_string(kReflecting.index())),
+              std::to_string(s.state.at(kReflecting).hp));
 }
 
 TEST(AiRunOracleTest, RecruitingGauOnBothSides) {

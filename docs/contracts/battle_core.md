@@ -399,7 +399,8 @@ whose menu may open, loses that and joins the advance-wait line — it acts on i
 stops taking menu input and leaves its menu; a party member's menu closes (`CloseBattleMenu`).
 
 **Held** (`_countercheck` `:1383-1420`): held by both status and control while another battler has
-Quick; held by status when dead, petrified or stopped; otherwise held by control when controlled,
+Quick; held by status when dead, petrified or stopped; otherwise held by control when held by a live
+Control link (`$32b9,x` with its top bit clear, `:1399-1400`; a link that is ending holds no one),
 asleep, frozen or seized; otherwise free, and a battler marked to go back in line with actions
 waiting rejoins the action line (when it was skipping its advance wait) or the advance-wait line.
 
@@ -635,6 +636,9 @@ allows), the party, the battle switches and the game's text, in the original's o
 6. For every slot from the last to the first, one draw sets its **damage-over-time beat**, and the
    updates for its castable spells, a condemned count's start and stop, its battle commands and its
    ATB rate are left pending — its menu after Morph too, for a morphed battler (`:6097-6106`).
+   Every battler starts **waiting to answer, with no last attacker**: `:6061-6067` fill
+   `$2000-$341f` with `$ff`, so each last-attacker mark (`$32e0,x`) has its top bit set and names no
+   battler (`Battler::retaliationPending`, `lastAttacker` empty).
 7. The party is loaded (above), then the battle inventory and the known skills.
 8. The monsters (below).
 9. The statuses waiting to be set are put on (`executor.applyStatusChanges`); the after-command

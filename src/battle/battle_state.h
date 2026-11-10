@@ -558,7 +558,7 @@ struct BattleState {
     std::array<BattleSlotMask, 2> pincerSides{};  // the monsters on each side of a pincer attack
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
     std::optional<BattlerSlot> swallowedByZinger; // the party member that monster swallowed
-    BattlerSet flippedByControl;   // controlled monsters, drawn facing the other way
+    BattlerSet flippedByControl;   // controlled monsters and muddled battlers, drawn facing the other way
     BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
     BattlerSet invincible;         // monsters their AI has made invincible: damage to them is not taken
     // The elements Forcefield has nullified: an attack whose every element is here does no damage.

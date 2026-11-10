@@ -462,7 +462,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 20> kSweeps{{
+constexpr std::array<Sweep, 22> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -607,6 +607,18 @@ constexpr std::array<Sweep, 20> kSweeps{{
          return DrawResult{trace::describe(c.scenario) + " " + trace::listedActionText(c.action), "",
                            trace::differences(trace::portAiCommand(c.scenario, c.action),
                                               oracle.aiCommand(c.scenario, c.action))};
+     }},
+    {.name = "attack",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawAttackScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::attackResult(trace::portAttack(s)), oracle.attack(s))};
+     }},
+    {.name = "self-attack",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawSelfAttackScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::attackResult(trace::portSelfAttack(s)), oracle.selfAttack(s))};
      }},
 }};
 
