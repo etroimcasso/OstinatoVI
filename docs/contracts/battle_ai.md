@@ -6,15 +6,16 @@ what each of its conditions tests, and the three commands only a script queues. 
 into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
 `src/battle/battle_main.asm` unless another file is named. This document is the test authority for
 `tests/test_ai_targets.cpp`, `tests/test_ai_conditions.cpp`, `tests/test_ai_oracle.cpp`,
-`tests/test_ai_run.cpp`, `tests/test_ai_commands.cpp` and `tests/test_ai_run_oracle.cpp`.
+`tests/test_ai_run.cpp`, `tests/test_ai_commands.cpp`, `tests/test_ai_run_oracle.cpp` and
+`tests/test_ai_trace.cpp`.
 
 The scripts themselves are data: `src/data/ai_scripts.h`, described in
 [`docs/engine/data-layer/monster-ai-scripts.md`](../engine/data-layer/monster-ai-scripts.md). The rules
 here are `src/battle/ai.h`, `src/battle/ai_targets.h`, `src/battle/ai_conditions.h` and the three
 commands in `src/battle/system_commands.h`. Every claim about the routines named below is also checked
 against the cartridge itself: each routine is run on the cartridge, hosted on the engine's SNES
-machine, over the same battle the port is given (`tools/damage-trace/damage_oracle.h`) — every one but
-the two effects that make an attack (H).
+machine, over the same battle the port is given (`tools/damage-trace/damage_oracle.h`), and the
+routines' calls in recorded games are replayed against the port.
 
 The cells the script reader keeps: `$f0` the place it is at, `$f2` the place to go on from after a
 wait, `$f4` the blocks skipped when the part last stopped at a wait, `$f5` the blocks skipped this
@@ -58,8 +59,9 @@ battler's bit).
 |---|---|---|
 | A monster's turn: `ExecAction` finds the AI action at the head of the battler's list, removes it, and unless the battle is the colosseum's or the battler is charmed or holds Berserk or Confuse, runs `ExecMonsterAction` | `:211-224` | the battler; no targets (`QueueAction :489-490` cleared them) |
 | A party member a scripted battle gave a script, when its advance wait starts | `QueueAction :509-512` | the battler; no targets; Confuse, Berserk and Charm do not divert it |
-| A counterattack: `ExecRetal` finds the AI action at the head of the counter list, removes it and runs `ExecAIRetal` | `:12416-12425` | the battler; the battler it answers, or none |
+| A counterattack: `ExecRetal` finds the AI action at the head of the counter list, removes it and runs `ExecAIRetal` | `:12416-12425` | the battler; the targets the AI action was created with (`CreateRetalAction :12563`, loaded back by `InitPlayerAction :392-393`): `$b8` as `CheckRetal :12532-12545` leaves it — the battler's last attacker when it is waiting to answer one that is not itself, otherwise none |
 | A monster loaded: the battle's start, a formation change, a colosseum opponent | `LoadMonsterProp :7313` | the monster, its slot |
+| A party member a scripted battle seats with a script, as it is placed and before any monster is loaded | `InitBattle :7835-7840` | the script, 256 + the setup's script byte; its slot |
 
 A run starts with its targets (`$fc`) and the targets it started with (`$fe`) both the targets handed
 over (`ExecAI :4218-4223`), and restricted as its entry sets it (`ExecAICmd :4332-4334`). A target step
@@ -69,9 +71,18 @@ battler in Y, and goes on to the next step when the routine returns with the car
 
 The port's seams: `readyAi(state, slot)`, `runAiTurn(state, executor, actor)`, `runAiCounter(state,
 executor, actor, answering)`, `aiTargets(state, actor, target, reachableOnly)` and `aiCondition(state,
-actor, condition, run)`, with `AiRun` holding `$fc`, `$fe` and `$f8`. The battle's own seams —
-`CommandExecutor::initAi()`, `runAi()` and `runCounterAi()` — do not call the first three; a battle
-fought through `CommandExecutor` runs no script.
+actor, condition, run)`, with `AiRun` holding `$fc`, `$fe` and `$f8`. The battle's own seams call the
+first three:
+
+| Seam | Called by | Calls |
+|---|---|---|
+| `CommandExecutor::initAi(state, slot)` | `loadMonster()` (`battle_start.cpp`); `assembleBattle()` for each party slot with a script, straight after `placeParty()` and before `loadMonsters()` | `readyAi()` |
+| `CommandExecutor::runAi(state, actor)` | `takeTurn()` on a battler's `AiTurn`; `prepareTurn()` for a party member with a script (`battle_loop.cpp`) | for a monster that `choosesItsOwnAttack()` (the colosseum, charmed, Berserk, Confuse — `:214-220`), `chooseMonsterAction()`; for every other battler `runAiTurn()` |
+| `CommandExecutor::runCounterAi(state, actor, answering)` | `counterattack()` on a battler's counterattack `AiTurn` | `runAiCounter()` with `answering` |
+
+The counterattack's `AiTurn` carries `$b8`: `checkCounterattacks()` queues it with `AiTurn::answering`
+the battler it answers — the last attacker when `retaliationPending` and the attacker is not itself
+(`:12534-12539`), otherwise none. A turn's `AiTurn` carries none (`QueueAction :489-490`).
 
 ## B. A script readied — `InitAI`
 

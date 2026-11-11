@@ -241,7 +241,9 @@ not aimed.
 A monster that is berserk, confused, charmed or in the colosseum picks its own attack instead of
 following its AI: `runAi()` checks `choosesItsOwnAttack()` and calls `chooseMonsterAction()`, which
 takes one of its four Control attacks — from a slot drawn at random, the first filled one counting
-down and round again — or, when berserk, the plain hit. Any other monster's AI turn adds nothing.
+down and round again — or, when berserk, the plain hit. Any other monster, and a party member a
+scripted battle gives a script, reads its AI script's turn part (`runAiTurn()`); `runCounterAi()`
+reads a battler's counterattack part and `initAi()` readies its script ([ai.md](ai.md#in-a-battle)).
 
 `chooseRandomEsper()` is the esper a slot reel's summon calls: every esper but Odin and Raiden,
 equally likely.

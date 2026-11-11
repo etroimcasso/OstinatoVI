@@ -54,8 +54,9 @@ public:
     // Run a battler's AI for its turn: add the actions it chooses.
     virtual void runAi(BattleState&, BattlerSlot /*actor*/) {}
 
-    // Run a battler's counterattack AI: add the counterattacks it chooses.
-    virtual void runCounterAi(BattleState&, BattlerSlot /*actor*/) {}
+    // Run a battler's counterattack AI: add the counterattacks it chooses. `answering` is the
+    // battler it answers (AiTurn::answering), where its script's aim starts; it may be empty.
+    virtual void runCounterAi(BattleState&, BattlerSlot /*actor*/, BattlerSet /*answering*/) {}
 
     // Status upkeep after each action, for the effects that tie two battlers together.
     //   checkControl  a controller that can no longer control lets go
@@ -82,6 +83,8 @@ public:
 
     // Get a battler's AI ready from its script (Battler::aiScript): where its turns and its
     // counterattacks begin, and whether it has any counterattacks (Battler::hasCounterScript).
+    // It runs when a monster is loaded and when a scripted battle seats a party member with a
+    // script.
     virtual void initAi(BattleState&, BattlerSlot) {}
 
     // Choose the attack a menu choice comes down to: the step of the dance a dancer dances

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <variant>
 
+#include "battle/ai.h"
 #include "battle/automatic_actions.h"
 #include "battle/command_menu.h"
 #include "battle/commands.h"
@@ -120,7 +121,17 @@ void CommandExecutor::chooseAutomaticAction(BattleState& state, BattlerSlot acto
 void CommandExecutor::runAi(BattleState& state, BattlerSlot actor) {
     if (actor.isMonster() && choosesItsOwnAttack(state, actor)) {
         chooseMonsterAction(state, *this, actor);
+        return;
     }
+    runAiTurn(state, *this, actor);
+}
+
+void CommandExecutor::runCounterAi(BattleState& state, BattlerSlot actor, BattlerSet answering) {
+    runAiCounter(state, *this, actor, answering);
+}
+
+void CommandExecutor::initAi(BattleState& state, BattlerSlot slot) {
+    readyAi(state, slot);
 }
 
 void CommandExecutor::refreshCommandList(BattleState& state, BattlerSlot slot) {

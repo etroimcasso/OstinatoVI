@@ -9,9 +9,11 @@
 // battle/commands.h) — or one of the actions the battle takes on its own
 // (battle/system_commands.h), and returns the battle script it wrote. aim() sets up a command's
 // attack and chooses its targets when it was chosen without any. chooseAutomaticAction() and the
-// three menu choosers are battle/automatic_actions.h; runAi() makes a berserk, confused, charmed or
-// colosseum monster pick its own attack. refreshCommandList() decides which of a party member's
-// commands can be chosen (battle/command_menu.h).
+// three menu choosers are battle/automatic_actions.h. runAi() reads a battler's AI script on its
+// turn, except that a berserk, confused, charmed or colosseum monster picks its own attack instead;
+// runCounterAi() reads the script's counterattack part and initAi() readies the script
+// (battle/ai.h). refreshCommandList() decides which of a party member's commands can be chosen
+// (battle/command_menu.h).
 //
 // The level an action's attack is made at stays as BattleState::lastAttackLevel until an action makes
 // another attack with a level of its own; a condemned count that starts reads it.
@@ -47,7 +49,12 @@ public:
 
     void chooseAutomaticAction(BattleState& state, BattlerSlot actor) override;
 
+    // A battler's AI script (battle/ai.h): its turn part on its turn (runAiTurn()), its counterattack
+    // part when it answers an attack (runAiCounter()), and the script readied when the battler
+    // takes its slot (readyAi()).
     void runAi(BattleState& state, BattlerSlot actor) override;
+    void runCounterAi(BattleState& state, BattlerSlot actor, BattlerSet answering) override;
+    void initAi(BattleState& state, BattlerSlot slot) override;
 
     void refreshCommandList(BattleState& state, BattlerSlot slot) override;
 

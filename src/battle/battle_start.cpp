@@ -556,6 +556,14 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     state.gauMayAppear = start.gauMayAppear;
     const BattlerSet fromSetup =
         placeParty(state, lineupFor(state, start, aux, carry != nullptr ? carry->standing : FinalBattleStage{}));
+    // A party member a scripted battle gives a script has it readied as soon as it is seated, before
+    // any monster is loaded.
+    for (int position = 0; position < kPartySlots; ++position) {
+        const BattlerSlot slot = BattlerSlot::character(position);
+        if (state.at(slot).aiScript) {
+            executor.initAi(state, slot);
+        }
+    }
 
     state.switches.clear(game::kClearedAtBattleStartSwitch);
     state.switches.clear(game::kPartyDefeatedSwitch);

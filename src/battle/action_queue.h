@@ -47,8 +47,12 @@ struct CommandAction {
 };
 
 // The battler's AI decides what to do when its turn comes. A monster whose turn arrives with
-// nothing chosen gets one of these.
-struct AiTurn {};
+// nothing chosen gets one of these, and so does a battler whose counterattack script answers an
+// attack. `answering` is the battler a counterattack answers, empty when it answers its own death
+// with no one to blame; the counterattack's script starts out aimed at it. A turn's is always empty.
+struct AiTurn {
+    BattlerSet answering;
+};
 
 // What a damage-over-time action takes or gives.
 enum class DamageOverTimeKind : std::uint8_t {

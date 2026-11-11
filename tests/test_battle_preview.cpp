@@ -264,8 +264,9 @@ TEST_F(BattlePreviewTest, APincerFormationMirrorsTheRightGroup) {
 
 // Lobo fought to a win the way the preview fights it: the battle's own damage and statuses, the
 // scripted player, and the presentation telling the battle when it may go on. Every
-// hit shows its numeral over Lobo, the numerals add up to at least the HP it started with, Lobo
-// fades out once it falls, the list of names empties, and the scene closes.
+// hit shows its numeral over Lobo, the numerals add up to at least the HP it started with, Lobo's
+// own hits show over the party, Lobo fades out once it falls, the list of names empties, and the
+// scene closes.
 TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
     const assets::IngestedContent& content = *cartridge_->content;
@@ -280,6 +281,7 @@ TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     ScriptedPlayer player{messageHoldFrames(context.messageSpeed)};
     std::vector<battle::PlayerAction> answers;
     int damageShownOverLobo = 0;
+    int hitsShownOverTheParty = 0;
     bool faded = false;
     int frames = 0;
     for (; frames < 10 * 60 * 60 && !shown.sceneClosed; ++frames) {
@@ -293,6 +295,9 @@ TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
             if (numeral && numeral->target == lobo && numeral->frame == 0 && !numeral->miss) {
                 damageShownOverLobo += numeral->amount;
             }
+            if (numeral && numeral->target.isCharacter() && numeral->frame == 0 && !numeral->miss) {
+                ++hitsShownOverTheParty;
+            }
         }
         faded = faded || (shown.deathFade && shown.deathFade->dying.has(lobo));
     }
@@ -300,6 +305,8 @@ TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     ASSERT_TRUE(sim.result().has_value());
     EXPECT_TRUE(std::holds_alternative<battle::BattleWon>(sim.result()->outcome));
     EXPECT_GE(damageShownOverLobo, loboHp);
+    // Lobo takes its turns from its script before it falls, and each hit shows over the one it hit.
+    EXPECT_GT(hitsShownOverTheParty, 0);
     EXPECT_EQ(sim.state().at(lobo).hp, 0);
     EXPECT_TRUE(faded);
     EXPECT_FALSE(shown.monstersShown.has(lobo));

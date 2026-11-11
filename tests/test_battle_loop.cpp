@@ -387,9 +387,28 @@ TEST(Counterattack, AMonsterWithACounterScriptAnswers) {
     state.at(kMonster).hasCounterScript = true;
     heroHits(state, executor, kMonster, true);
     ASSERT_EQ(state.at(kMonster).counterActions.size(), 1u);
-    EXPECT_TRUE(std::holds_alternative<battle::AiTurn>(state.at(kMonster).counterActions[0]));
+    const auto* turn = std::get_if<battle::AiTurn>(&state.at(kMonster).counterActions[0]);
+    ASSERT_NE(turn, nullptr);
+    EXPECT_EQ(turn->answering, BattlerSet::of(kHero));
     EXPECT_TRUE(state.counterQueue.contains(kMonster));
     EXPECT_TRUE(state.attackedThisStep.has(kMonster));
+}
+
+TEST(Counterattack, AMonsterAnsweringItsDeathWithNoOneToBlameAnswersNoOne) {
+    // CheckRetal, :12546-12550: $b8 stays 0 for a battler in $3a56 with no one to answer.
+    BattleState state = makeBattle();
+    RecordingExecutor executor;
+    state.at(kMonster).hasCounterScript = true;
+    state.at(kMonster).retaliationPending = false;
+    executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
+        s.diedAwaitingCounter.add(kMonster);
+    };
+    readyToAct(state, kHero, CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kFriend)});
+    battle::stepBattle(state, executor);
+    ASSERT_EQ(state.at(kMonster).counterActions.size(), 1u);
+    const auto* turn = std::get_if<battle::AiTurn>(&state.at(kMonster).counterActions[0]);
+    ASSERT_NE(turn, nullptr);
+    EXPECT_TRUE(turn->answering.empty());
 }
 
 TEST(Counterattack, ACounterIsNotAnswered) {
@@ -459,9 +478,10 @@ TEST(Counterattack, AMagicHitIsNotAnsweredByRetort) {
 TEST(Counterattack, ACounterAiTurnRunsTheCounterAi) {
     BattleState state = makeBattle();
     RecordingExecutor executor;
-    battle::addCounterAction(state, kMonster, battle::AiTurn{});
+    battle::addCounterAction(state, kMonster, battle::AiTurn{.answering = BattlerSet::of(kHero)});
     battle::stepBattle(state, executor);
-    EXPECT_EQ(executor.counterAi.size(), 1u);
+    ASSERT_EQ(executor.counterAi.size(), 1u);
+    EXPECT_EQ(executor.counterAiAnswering[0], BattlerSet::of(kHero));
     EXPECT_TRUE(state.counterattackRunning);
 }
 

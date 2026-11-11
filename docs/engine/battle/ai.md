@@ -20,11 +20,8 @@ Free functions hold the rules:
 They read and change a `BattleState` and nothing else, and draw from the battle's random numbers where
 the game does. `AiRun` carries what a run of a script keeps from one step to the next.
 
-The battle's own AI seams do not call the first three: `CommandExecutor::initAi()`, `runAi()` and
-`runCounterAi()` take no action from a script, so a battle fought through `CommandExecutor` has its
-monsters act only when they choose their own attack. A monster that is charmed, berserk, confused or
-fighting in the colosseum chooses its own attack (`chooseMonsterAction()`, [commands.md](commands.md)),
-as in the game.
+A battle fought through `CommandExecutor` calls the first three from its AI seams, so every monster
+takes its turns and answers attacks from its script ([In a battle](#in-a-battle)).
 
 All of it is checked against the cartridge's own routines, run on the engine's SNES machine over the
 same battle, `SetStatus` and `ClearStatus` with the attack they make.
@@ -38,6 +35,8 @@ The rules, and the line of the original each is read from, are in
 |---|---|
 | `src/battle/ai.h` | `readyAi()`, `runAiTurn()`, `runAiCounter()` |
 | `src/battle/ai.cpp` | a part's run, step by step (`PartRun`), and the counterattack's guard |
+| `src/battle/command_executor.cpp` | `CommandExecutor::initAi()`, `runAi()` and `runCounterAi()`, the battle's AI seams |
+| `src/battle/battle_start.cpp` | `assembleBattle()`, which readies a scripted party member's script as it is seated |
 | `src/battle/action_queue.h` | the three actions only a script queues: `BattleVariableAction`, `BattleSwitchAction`, `AiEffectAction` |
 | `src/battle/system_commands.h` | `changeBattleVariable()`, `changeBattleSwitch()`, `runAiEffect()` |
 | `src/battle/system_commands.cpp` | the commands' bodies and `kAiEffectRules`, one row per effect |
@@ -111,7 +110,8 @@ How a part is read:
 
 ### The counterattack's guard
 
-A battler's counterattack part runs once a battle step (`BattleState::counterAiRanThisStep`). Its run
+A battler's counterattack part runs once a battle step (`BattleState::counterAiRanThisStep`): a second
+call for it in the same step reads nothing. Its run
 is **restricted** — only a block that `ai::MonstersDead` or `ai::Always` opens may act, and every other
 block is skipped — when:
 
@@ -125,6 +125,35 @@ block is skipped — when:
 A block that is skipped restricts the run again, even after one of the two conditions lifted it. This
 is how a monster asleep, confused or charmed still makes the attack its script gives it as it dies. A
 monster that chooses its own attack on its turn still runs its counterattack part.
+
+## In a battle
+
+The battle core calls three AI seams on its `ActionExecutor`, and `CommandExecutor` answers each from
+the battler's script:
+
+| Seam | When the battle calls it | What `CommandExecutor` does |
+|---|---|---|
+| `initAi()` | a monster is loaded — at the battle's start, in a formation change, in the colosseum — and a scripted battle seats a party member with a script, before any monster is loaded | `readyAi()` |
+| `runAi()` | a monster's gauge fills with nothing chosen and its `AiTurn` reaches the front of its actions, or a party member with a script fills its gauge | a monster that is charmed, berserk, confused or fighting in the colosseum picks its own attack (`chooseMonsterAction()`, [commands.md](commands.md)); every other battler reads its turn part with `runAiTurn()` — a party member with a script whatever its statuses |
+| `runCounterAi()` | the battler's counterattack `AiTurn` reaches the front of the counterattack line | `runAiCounter()`, aimed at the battler it answers |
+
+A counterattack's `AiTurn` carries the battler it answers (`AiTurn::answering`): the one that last
+attacked it, unless that was itself; no one for a battler answering its own death with no one to
+blame. A turn's carries no one.
+
+```cpp
+#include "battle/battle_hooks.h"
+#include "battle/battle_sim.h"
+#include "battle/command_executor.h"
+
+battle::BattleHooks hooks;
+battle::CommandExecutor executor(hooks, text, sprites);
+battle::BattleSim battle(start, party, switches, text, sprites, executor);
+// each monster's script is readied as it is loaded; it takes its turns and answers attacks from it
+```
+
+An executor that leaves the three seams as `ActionExecutor` has them reads no script: its monsters
+never act on their own, and none of its battlers answers an attack from a script.
 
 ## The three commands a script queues
 
@@ -329,6 +358,14 @@ reads them ([commands.md § Checking an attack against the cartridge](commands.m
 battles from a seeded generator, and `ostinato-damage-trace --check` runs them as `ai-targets`,
 `ai-conditions`, `ai-setup`, `ai-turns`, `ai-counters` and `ai-commands`.
 
+A game played on the cartridge is checked the same way. `ostinato-damage-trace` traces a script
+readied, a turn, a counterattack and the three commands as the game runs them, and
+`DamageOracle::replay()` rebuilds each call from the cells it read and compares the port with every
+cell it wrote ([the tool's README](../../../tools/damage-trace/README.md#replaying)). Two recordings
+under `tests/fixtures/damage-trace/` hold the AI: `guards-counter.log`, the first fight in Narshe with
+the guards taking their turns before the party acts and one guard answering attacks, and
+`petrified-guard.log`, the same fight with one guard petrified while it answers its own death.
+
 ## Gotchas
 
 - **A test on the monster itself leaves the monster as the target.** The game means to clear the
@@ -371,6 +408,9 @@ battles from a seeded generator, and `ostinato-damage-trace --check` runs them a
 
 | To change | Edit |
 |---|---|
+| How the battle reaches a script | `CommandExecutor::runAi()`, `runCounterAi()` and `initAi()` in `src/battle/command_executor.cpp` |
+| Whom a counterattack answers | `checkCounterattacks()` in `src/battle/battle_loop.cpp` |
+| Where a scripted party member's script is readied | `assembleBattle()` in `src/battle/battle_start.cpp` |
 | How a part is read, step by step | `PartRun::read()` in `src/battle/ai.cpp` |
 | What a step queues | its `PartRun::act()` overload in `src/battle/ai.cpp` |
 | When a counterattack is restricted | `runAiCounter()` and `answersRestricted()` in `src/battle/ai.cpp` |
@@ -384,3 +424,4 @@ battles from a seeded generator, and `ostinato-damage-trace --check` runs them a
 | The target test | `ConditionRules::testTarget()` in `src/battle/ai_conditions.cpp` |
 | The names counted | `refreshRunDifficulty()` in `src/battle/battle_loop.cpp` |
 | The cells the oracle writes and reads for a script | `writeAiCells()`, `writeAiRunCells()`, `readAiRunResult()` and `DamageOracle::aiCommand()` in `tools/damage-trace/damage_oracle.cpp` |
+| How a recorded AI call is rebuilt | `readAiScenario()` and `DamageOracle::replayAiCall()` in `tools/damage-trace/damage_oracle.cpp` |

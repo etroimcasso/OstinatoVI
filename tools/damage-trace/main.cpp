@@ -12,7 +12,7 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and nine of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and fifteen of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
 // access made inside a call, in order, with its address and byte. Every call is logged — nothing is
@@ -27,7 +27,12 @@
 // effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one target
 // (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC); and at a won battle's end, the
 // spells an equipped esper teaches learned further (`LearnGenjuMagic`, $C2:602A, returning to
-// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4). The addresses are the US
+// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4); and a battler's AI: its script
+// readied (`InitAI`, $C2:2D71, returning to $C2:2C3D as a monster is loaded and $C2:3041 as a scripted
+// battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to $C2:013C and, for a
+// party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`, $C2:4BF4, returning to
+// $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`, `Cmd_30`, $C2:1DFA,
+// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401). The addresses are the US
 // cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
@@ -224,8 +229,7 @@ int runTrace(std::span<const std::uint8_t> image, const std::filesystem::path& d
         renderer.renderFrame(drawn);
     });
 
-    std::printf("Tracing CalcDmg, CalcTargetDmg, the apply-and-show routine, UpdateStatus and MagicStatusEffect to %s\n",
-                (directory / "damage-trace.log").string().c_str());
+    std::printf("Tracing the battle routines to %s\n", (directory / "damage-trace.log").string().c_str());
     std::fflush(stdout);
 
     loop.exitAction([&] {

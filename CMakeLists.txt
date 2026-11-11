@@ -745,7 +745,8 @@ gtest_discover_tests(ostinato-vi-battle-espers-tests)
 # Monster AI: who a script aims at, what it tests, how a turn and a counterattack read it and the
 # three commands only a script queues, each worked out by hand from the original and checked against
 # the cartridge's own routines, run on the hosted cartridge over the same battle
-# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+# (tools/damage-trace/damage_oracle); the script wired into the battle; and the AI's calls in the
+# recorded fights replayed. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_commands.cpp
     tests/test_ai_conditions.cpp
@@ -753,11 +754,14 @@ add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_run.cpp
     tests/test_ai_run_oracle.cpp
     tests/test_ai_targets.cpp
+    tests/test_ai_trace.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-ai-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-ai-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-ai-tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/tests
     ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-ai-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-ai-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-ai-tests)

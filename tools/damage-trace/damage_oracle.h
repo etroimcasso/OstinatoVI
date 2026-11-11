@@ -88,8 +88,12 @@ struct TracedRoutine {
 // won battle's end an esper's spells learned and a level-up (battle/battle_main.asm: 7217 and 8096;
 // 1809, 8362 and 8440; 16193, 8365 and 8455; 11032, 8109, and the battle's start 6128 and a formation
 // change 13231; 11094, 8356 and 8434; 10118 and 8275; 9087, 8357 and 8435; 15661 and 15404; 15761
-// and 15748 — the program sits at $C2:0000).
-inline constexpr std::array<TracedRoutine, 9> kTracedRoutines{{
+// and 15748 — the program sits at $C2:0000). Then a battler's AI: its script readied (7442, called
+// as a monster is loaded, 7313, and as a scripted battle seats a party member, 7840), its turn (447,
+// called from a turn, 223, and reached from a scripted party member's gauge filling, 512, which
+// returns to 5742's caller), its counterattack (12468 and 12424), and the three commands only a
+// script queues (5049, 5071 and 5132, each returning to the command dispatch, 3111).
+inline constexpr std::array<TracedRoutine, 15> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
@@ -99,6 +103,12 @@ inline constexpr std::array<TracedRoutine, 9> kTracedRoutines{{
     {"DoTargetEffect", 0xC2387E, 0xC2345F, 0xC234FC},
     {"LearnGenjuMagic", 0xC2602A, 0xC25E72, 0, {}, true},
     {"DoLevelUp", 0xC260C2, 0xC260B4, 0, {}, true},
+    {"InitAI", 0xC22D71, 0xC22C3D, 0, {0xC23041}},
+    {"ExecMonsterAction", 0xC202DC, 0xC2013C, 0, {0xC221A1}},
+    {"ExecAIRetal", 0xC24BF4, 0xC24B9A, 0},
+    {"Cmd_2e", 0xC21DFA, 0xC21401, 0},
+    {"Cmd_2f", 0xC21E1A, 0xC21401, 0},
+    {"Cmd_30", 0xC21E5E, 0xC21401, 0},
 }};
 
 // The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
@@ -114,13 +124,19 @@ inline constexpr std::array<TracedRoutine, 9> kTracedRoutines{{
 // battler's flags, stop timer, stats, monster battle flags, metamorph byte, monster flags, sleep timer,
 // the commands it was last hit with, gold, AI variable, pending statuses, triggers, statuses for a
 // counterattack, Forcefield's elements and the target count, statuses, Reflect and freeze timers, and
-// who is away from the field.
+// who is away from the field. Then what a battler's AI reads and writes besides: the script reader's
+// direct-page cells, the formation, the character records' party bytes and the party played, the
+// lores known, the story's flags, the battle type and a pincer's two sides, Strago's slot, the
+// party's spell lists, each battler's gauge and advance wait, the scripts' places and counts, the
+// counterattack line, the step being read, the restriction a counterattack starts with, the ATB
+// rates, the block graphics, the scripts' wait places, the own timers, the battle's variables and
+// switches, the names listed, and the party slots' members and records.
 struct TracedRange {
     const char* key;
     std::uint32_t at;
     std::uint32_t size;
 };
-inline constexpr std::array<TracedRange, 34> kTracedRanges{{
+inline constexpr std::array<TracedRange, 56> kTracedRanges{{
     {"frame count", 0x7E021E, 1},       {"direct page", 0x7E00A0, 32},       {"gil and steps", 0x7E1860, 9},
     {"attack record", 0x7E11A0, 18},    {"monster indexes", 0x7E1FF9, 20},   {"control menus", 0x7E205E, 48},
     {"party's hands", 0x7E2B86, 40},    {"numeral buffer", 0x7E2BCE, 160},   {"params blocks", 0x7E2C6E, 256},
@@ -133,14 +149,23 @@ inline constexpr std::array<TracedRange, 34> kTracedRanges{{
     {"gold", 0x7E3D98, 20},             {"AI variables", 0x7E3DAC, 20},      {"pending statuses", 0x7E3DD4, 80},
     {"triggers", 0x7E3E4C, 20},         {"statuses for a counter", 0x7E3E60, 40}, {"forcefield", 0x7E3EC8, 2},
     {"statuses", 0x7E3EE4, 40},         {"timers", 0x7E3F0C, 20},            {"away from the field", 0x7E3F2C, 2},
+    {"script reader", 0x7E00F0, 16},    {"formation", 0x7E11E0, 2},          {"party bytes", 0x7E1850, 16},
+    {"party played", 0x7E1A6D, 1},      {"lores known", 0x7E1D29, 3},        {"story flags", 0x7E1EDF, 1},
+    {"battle type", 0x7E201F, 1},       {"pincer sides", 0x7E2EAC, 2},       {"Strago's slot", 0x7E3007, 1},
+    {"spell lists", 0x7E3084, 256},     {"gauges and waits", 0x7E3218, 40},  {"script places", 0x7E3240, 60},
+    {"counterattack line", 0x7E3920, 256}, {"script step", 0x7E3A2C, 4},     {"restricted on entry", 0x7E3A98, 2},
+    {"ATB rates", 0x7E3AC8, 20},        {"block graphics", 0x7E3CE4, 20},    {"wait places", 0x7E3D0C, 40},
+    {"own timers", 0x7E3DC0, 20},       {"battle variables", 0x7E3EB0, 24},  {"names listed", 0x7E3ECA, 1},
+    {"party slots", 0x7E3ED8, 8},
 }};
 
 // The cells the routines on the party's records read and write, logged only inside their calls: the
-// battle's-end cells in direct page (the flags the win shows its messages by, the magic points and
-// the place of the spells being learned, the level-up's gains), the sixteen character records (37
-// bytes each) and the spells each of the first twelve characters knows (54 bytes each).
+// first two battle's-end cells in direct page (the rest of them, the flags the win shows its messages
+// by, the magic points and the place of the spells being learned and the level-up's gains, are the
+// script reader's cells in kTracedRanges and logged inside every call), the sixteen character records
+// (37 bytes each) and the spells each of the first twelve characters knows (54 bytes each).
 inline constexpr std::array<TracedRange, 3> kPartyRecordRanges{{
-    {"battle's-end cells", 0x7E00EE, 18},
+    {"battle's-end cells", 0x7E00EE, 2},
     {"character records", 0x7E1600, 592},
     {"spells known", 0x7E1A6E, 648},
 }};
@@ -157,6 +182,10 @@ inline constexpr std::array<TracedRange, 3> kPartyRecordRanges{{
 //   f<frame> r $7E:<cell> <byte>              a read the routine made
 //   f<frame> w $7E:<cell> <byte>              a write it made
 //   f<frame> return <routine> $<bank>:<address>
+//
+// A return is logged only while a call of its routine is open, so a site the game also passes on
+// other paths — the command dispatch's, after every command — logs only the returns of the calls
+// the trace follows.
 //
 // The context is what the cells hold at the routine's entry, on a running machine as on a parked one:
 // the trace keeps the last byte the guest wrote to each of them and lays those over what the machine
@@ -188,6 +217,9 @@ private:
     Line line_;
     Frame frame_;
     int open_ = 0;
+    // The calls of each routine entered and not yet returned from: a return site logs the return of
+    // a routine it serves only while one of its calls is open.
+    std::map<std::string, int, std::less<>> openCalls_;
     bool partyRecordsOpen_ = false;
 };
 
@@ -213,10 +245,12 @@ struct TracedCall {
 
 // Every call in a trace, in order. A call that never returns to one of its routine's return sites —
 // one none of the callers kTracedRoutines names made — is left out, and a return with no call open
-// is skipped. The attack frame and the bounce work out an attack's statuses on a target and then its
-// special effect on the same target, so a DoTargetEffect call that follows a MagicStatusEffect call
-// takes that call's target: the one battler whose cells the status call touched. Throws
-// std::runtime_error naming the line for a line that starts like an event and is not one.
+// is skipped. A call inside which another traced call opens — a script's SetStatus or ClearStatus,
+// whose attack runs the damage routines — is left out too, and the calls inside it are kept. The
+// attack frame and the bounce work out an attack's statuses on a target and then its special effect
+// on the same target, so a DoTargetEffect call that follows a MagicStatusEffect call takes that
+// call's target: the one battler whose cells the status call touched. Throws std::runtime_error
+// naming the line for a line that starts like an event and is not one.
 [[nodiscard]] std::vector<TracedCall> parseTrace(std::istream& log);
 
 // One battle as far as the damage routines read it: the state, the attack being worked out, and
@@ -868,6 +902,16 @@ public:
     // and its effect on one target takes the call's target (TracedCall::target). Returns every cell
     // where they part, one per line; empty when they agree. Throws std::runtime_error for a call it
     // cannot rebuild, naming why.
+    //
+    // A battler's AI rebuilds as its scenario: the cells as the oracle writes a default one, then
+    // every cell the routine read, read back as an AiScenario. A script readied is the slot whose
+    // turn place the call wrote, and the script whose turn part starts there. A turn and a
+    // counterattack are the battler whose script place the call read (a counterattack that ran
+    // already reads only its battler's bit), and a counterattack answers the targets it read. The
+    // actions compared are the ones the call added to the battler's lists. A command is the action a
+    // script's step can hold whose bytes are the ones the call read, and the battler is each one the
+    // cartridge's own command, given the same reads, makes the same writes for. SetStatus and
+    // ClearStatus make an attack, which the trace follows through the attack's own calls.
     [[nodiscard]] std::string replay(const TracedCall& call);
 
     // Log every call the oracle's routines make to the traced routines in the trace's own lines; a
@@ -935,6 +979,8 @@ private:
     void writeAiRunCells(const AiScenario& scenario, bool counter);
     void emptyActionLists(battle::BattlerSlot actor);
     [[nodiscard]] AiScriptPlaces readScriptPlaces(battle::BattlerSlot slot);
+    [[nodiscard]] AiScenario readAiScenario(battle::BattlerSlot actor);
+    [[nodiscard]] std::string replayAiCall(const TracedCall& call, const TracedRoutine& routine);
     [[nodiscard]] AiRunResult readAiRunResult(battle::BattlerSlot actor);
     [[nodiscard]] AiCommandResult readAiCommandResult();
     [[nodiscard]] std::optional<battle::BattlerSlot> readTargetingTarget(battle::BattlerSlot actor);

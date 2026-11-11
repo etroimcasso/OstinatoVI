@@ -207,7 +207,7 @@ void checkCounterattacks(BattleState& state) {
             return;
         }
         if (battler.hasCounterScript && battler.counterActions.empty()) {
-            addCounterAction(state, slot, AiTurn{});
+            addCounterAction(state, slot, AiTurn{.answering = answerTo});
             return;
         }
         if (slot.isMonster() || !state.scratch.physical) {
@@ -563,8 +563,8 @@ void counterattack(BattleState& state, ActionExecutor& executor, BattlerSlot slo
     while (!battler.counterActions.empty()) {
         Action action = prepareAction(state, slot, battler.counterActions.front(), false);
         removeCounterAction(state, slot);
-        if (std::holds_alternative<AiTurn>(action)) {
-            executor.runCounterAi(state, slot);
+        if (const auto* turn = std::get_if<AiTurn>(&action)) {
+            executor.runCounterAi(state, slot, turn->answering);
             continue;
         }
         bool runs = true;

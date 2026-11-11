@@ -71,13 +71,14 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
     EXPECT_EQ(battle.state().at(lobo).hp, 0);
 
     // The log: the scene opens, the fighters step forward, swing and step back, and the scene
-    // closes last. Every swing is a Fight by a party member at Lobo.
+    // closes last. Every swing is a Fight: a party member's at Lobo, or Lobo's own at a party member.
     ASSERT_FALSE(log.empty());
     EXPECT_TRUE(std::holds_alternative<battle::OpenBattleScene>(log.front()));
     EXPECT_TRUE(std::holds_alternative<battle::CloseBattleScene>(log.back()));
     int stances = 0;
     int stepsBack = 0;
     int swings = 0;
+    int loboSwings = 0;
     std::vector<int> damageToLobo;
     std::string sequence;
     for (const BattleRequest& request : log) {
@@ -92,8 +93,17 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
             if (const auto* swing = std::get_if<battle::AttackAnimation>(&command)) {
                 ++swings;
                 EXPECT_EQ(std::get<BattleCommandId>(swing->what), BattleCommandId::FIGHT);
-                EXPECT_TRUE(swing->params.attacker.isCharacter());
-                EXPECT_EQ(swing->params.targets, BattlerSet::of(lobo));
+                if (swing->params.attacker.isCharacter()) {
+                    EXPECT_EQ(swing->params.targets, BattlerSet::of(lobo));
+                } else {
+                    // Lobo's script (ai_script.asm:39-45): every fighter here is level 1, so its
+                    // block for a party member at level 7 or above is skipped and each turn is its
+                    // Battle attack, a Fight, aimed at one party member.
+                    ++loboSwings;
+                    EXPECT_EQ(swing->params.attacker, lobo);
+                    EXPECT_EQ(swing->params.targets.count(), 1);
+                    EXPECT_TRUE(swing->params.targets.monstersOnly().empty());
+                }
             }
             if (const auto* shown = std::get_if<battle::DamageNumbersShown>(&command)) {
                 for (const battle::DamageNumber& number : shown->numbers) {
@@ -107,8 +117,10 @@ TEST(CommandBattle, ThreeFightersBeatLoboWithFights) {
     }
     RecordProperty("scripts", sequence);
     EXPECT_GT(stances, 0);
-    // Every swing is followed by a step back, as the monsters' empty turns are; a fighter still
-    // standing ready when Lobo falls never swings.
+    // Lobo's gauge fills before the fighters bring it down, so it takes its turn.
+    EXPECT_GT(loboSwings, 0);
+    // Every swing is followed by a step back; a fighter still standing ready when Lobo falls never
+    // swings.
     EXPECT_GE(stepsBack, swings);
     // Every hit on Lobo showed its damage, and the damage shown took it from full HP to 0: the
     // hits before the last one left it standing.

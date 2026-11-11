@@ -76,6 +76,7 @@ struct RecordingExecutor : battle::ActionExecutor {
     std::vector<battle::BattlerSlot> automatic;
     std::vector<battle::BattlerSlot> ai;
     std::vector<battle::BattlerSlot> counterAi;
+    std::vector<battle::BattlerSet> counterAiAnswering;  // whom each counterAi call answers
     std::function<void(battle::BattleState&, std::optional<battle::BattlerSlot>, const battle::Action&)> onExecute;
     std::function<void(battle::BattleState&, battle::BattlerSlot)> onAi;
 
@@ -100,8 +101,9 @@ struct RecordingExecutor : battle::ActionExecutor {
             onAi(state, actor);
         }
     }
-    void runCounterAi(battle::BattleState&, battle::BattlerSlot actor) override {
+    void runCounterAi(battle::BattleState&, battle::BattlerSlot actor, battle::BattlerSet answering) override {
         counterAi.push_back(actor);
+        counterAiAnswering.push_back(answering);
     }
 };
 
