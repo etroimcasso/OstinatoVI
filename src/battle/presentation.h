@@ -182,6 +182,7 @@ using MonsterNameList = std::array<std::optional<MonsterId>, kMonsterNameLines>;
 struct BattlePresentationState {
     bool sceneOpen = false;    // the battle's scene is on screen
     bool sceneClosed = false;  // the battle is over and its scene has closed
+    bool sceneClosing = false; // the battle is over: the scene closes once every script has played
 
     // The scripts waiting to play, oldest first, and how far the first has got.
     std::deque<std::vector<BattleScriptCommand>> scripts;

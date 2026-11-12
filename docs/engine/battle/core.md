@@ -276,7 +276,7 @@ nothing.
 | `applyStatusChanges(state)` | the battle's start and a formation change: the statuses waiting to be set go on |
 | `initAi(state, slot)` | a monster is loaded, or a scripted battle seats a party member with a script: get its AI ready from `aiScript` and set `hasCounterScript` |
 | `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
-| `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back |
+| `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back; `CommandExecutor` plays out the win, the loss or the special ending ([rewards.md](rewards.md#the-battles-end)) |
 
 Before `execute` runs, the battle resets `state.scratch`; the command reports there whether its hit
 was physical, who it ended up hitting, whether Interceptor guarded someone, which characters a Black
@@ -318,9 +318,10 @@ meter ([effects.md](effects.md)).
 `state.requests` collects, in order, what the presentation has to do: `OpenBattleScene` (the
 battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
 `RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won),
-`CloseBattleScene` (the battle is over) and `AddItemObtained` (a party member came away from an
-action holding an item, which joins the items obtained on its way into the battle inventory; the loop
-asks for it once the action's script has played and the battle has settled). A `RunBattleScript` can also come during an action,
+`CloseBattleScene` (the battle is over), `AddItemObtained` (a party member came away from an action
+holding an item, which joins the items obtained on its way into the battle inventory; the loop asks for
+it once the action's script has played and the battle has settled) and `VictoryFanfare` (a won battle's
+fanfare, asked for by the battle's end). A `RunBattleScript` can also come during an action,
 ahead of the action's own: Scan plays each of its messages that way. A `RunBattleScript` holds
 `BattleScriptCommand`s and is the one request the loop waits on. The battle core writes
 `ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and,

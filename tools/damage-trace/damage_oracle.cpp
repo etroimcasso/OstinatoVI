@@ -43,6 +43,7 @@
 #include "battle/battle_end.h"
 #include "battle/battle_hooks.h"
 #include "battle/battle_inventory.h"
+#include "battle/battle_start.h"
 #include "battle/battle_script.h"
 #include "battle/damage.h"
 #include "battle/items_obtained.h"
@@ -129,6 +130,10 @@ constexpr std::uint32_t kLearnRage = 0xC24A07;
 // The battle's end as every ending but two begins it (_c24903), and the title program's laying out
 // over work RAM at $7E:5000 (DecompCutsceneProg, in the battle program's bank).
 constexpr std::uint32_t kWrapUp = 0xC24903;
+// The win (WinBattle), the loss (LoseBattle) and what the game keeps (UpdateSRAM).
+constexpr std::uint32_t kWinBattle = 0xC25D57;
+constexpr std::uint32_t kLoseBattle = 0xC25FCA;
+constexpr std::uint32_t kUpdateSram = 0xC24936;
 constexpr std::uint32_t kDecompCutsceneProg = 0xC26828;
 constexpr std::uint32_t kExecBtlGfx = 0xC26411;
 constexpr std::uint32_t kExecBtlGfxExt = 0xC10000;
@@ -193,7 +198,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 46> kOpenings{{
+constexpr std::array<RoutineOpening, 49> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -242,6 +247,9 @@ constexpr std::array<RoutineOpening, 46> kOpenings{{
     {"ExecBtlGfx_ext", kExecBtlGfxExt, {0x48, 0x7B, 0x68, 0x0A}, 4},                 // pha; tdc; pla; asl
     {"_c24903", kWrapUp, {0x20, 0x36, 0x0B, 0xA2}, 4},                               // jsr SaveMorphCounter; ldx
     {"DecompCutsceneProg", kDecompCutsceneProg, {0x08, 0xC2, 0x30, 0x48}, 4},        // php; rep #$30; pha
+    {"WinBattle", kWinBattle, {0x08, 0x20, 0x67, 0x02}, 4},                          // php; jsr EndAction
+    {"LoseBattle", kLoseBattle, {0x48, 0xA9, 0x01, 0x0C}, 4},                        // pha; lda #$01; tsb
+    {"UpdateSRAM", kUpdateSram, {0xA2, 0x06, 0xBD, 0xD8}, 4},                        // ldx #$06; lda $3ed8,x
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
@@ -599,6 +607,11 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
     addItemObtained_ = machine_.bindRoutine<Call>(retropp::snes::rtl(handlers[kAddItemObtained]), byteWide);
     mergeItemsObtained_ = machine_.bindRoutine<Call>(retropp::snes::rtl(handlers[kMergeItemsObtained]), byteWide);
     wrapUp_ = machine_.bindRoutine<Call>(kWrapUp, byteWide);
+    winBattle_ = machine_.bindRoutine<Call>(kWinBattle, byteWide);
+    loseBattle_ = machine_.bindRoutine<AbilitiesCall>(
+        kLoseBattle, {.inputs = {retropp::snes::C, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+                      .isa = retropp::Isa::Wdc65816});
+    updateSram_ = machine_.bindRoutine<Call>(kUpdateSram, byteWide);
     decompCutsceneProg_ = machine_.bindRoutine<Call>(kDecompCutsceneProg, byteWide);
 
     // While a reward routine runs, the graphics program's entry answers here: the command in the
@@ -6147,7 +6160,8 @@ struct MessageVariables {
 };
 // The win's messages, each with what its text reads: an item, an attack or a party slot is the low
 // byte of its variable; a number the whole of it.
-constexpr std::array<MessageVariables, 13> kMessageVariableReads{{
+constexpr std::array<MessageVariables, 14> kMessageVariableReads{{
+    {battle::kMessageBanonFell, VariableRead::None, VariableRead::None},
     {battle::kMessageGotItem, VariableRead::LowByte, VariableRead::None},
     {battle::kMessageGotItems, VariableRead::LowByte, VariableRead::Whole},
     {battle::kMessageGotGp, VariableRead::None, VariableRead::Whole},
@@ -6728,6 +6742,42 @@ constexpr std::uint8_t kCloseMenu = 0x03;
 constexpr std::uint32_t kEquipmentChangedFlags = 4;
 // The party slots' bits of the byte marking who holds an item.
 constexpr std::uint8_t kHoldingItemBits = 0x0F;
+// Per party slot at twice the slot: the party member's actor and record (a byte each, none
+// negative) and its record's offset from $7E:1600 (a word). Per monster slot at twice the slot, the
+// monster's experience and gold (words). Per battler at twice its index, the battlers alive (a word,
+// the party's byte first) and each actor's battler, one byte per actor (none negative).
+constexpr std::uint32_t kPartyActor = kWorkRam + 0x3ED8;
+constexpr std::uint32_t kPartyRecord = kWorkRam + 0x3ED9;
+constexpr std::uint32_t kRecordOffset = kWorkRam + 0x3010;
+constexpr std::uint32_t kMonsterExperience = kWorkRam + 0x3D8C;
+constexpr std::uint32_t kMonsterGold = kWorkRam + 0x3DA0;
+constexpr std::uint32_t kBattlersAlive = kWorkRam + 0x3A74;
+constexpr std::uint32_t kEnemiesAlive = kWorkRam + 0x3A77;
+constexpr std::uint32_t kActorsBattler = kWorkRam + 0x3000;
+constexpr std::size_t kActorsWithABattler = 16;
+// The battle's: the colosseum (nonzero), the wager and the prize; the battle's number (a word); the
+// field's flags (bit 1 the Veldt, bit 3 the field's music playing on, a word) and the background (a
+// word); the formation's four bytes; Doom Gaze's battler; the battles Gau can find on the Veldt, a
+// bit each; the message variables.
+constexpr std::uint32_t kColosseumCell = kWorkRam + 0x3A97;
+constexpr std::uint8_t kInTheColosseum = 0xFF;
+constexpr std::uint32_t kWagerCell = kWorkRam + 0x0205;
+constexpr std::uint32_t kPrizeCell = kWorkRam + 0x0207;
+constexpr std::uint32_t kBattleNumber = kWorkRam + 0x3ED4;
+constexpr std::uint32_t kFieldFlags = kWorkRam + 0x11E4;
+constexpr std::uint8_t kOnTheVeldtBit = 0x02;
+constexpr std::uint32_t kBackgroundCell = kWorkRam + 0x11E2;
+constexpr std::uint32_t kFormationBytes = kWorkRam + 0x2F48;
+constexpr std::uint32_t kDoomGazeBattler = kWorkRam + 0x33FA;
+constexpr std::uint32_t kVeldtBattles = kWorkRam + 0x1DDD;
+constexpr std::uint32_t kVeldtBattleBytes = 64;
+constexpr std::uint32_t kEndingMessageVariables = kWorkRam + 0x2F35;
+constexpr std::uint32_t kMessageVariableBytes = 12;
+// What the game keeps: the party's inventory, the items' numbers then their quantities, and the battle
+// variables.
+constexpr std::uint32_t kSavedItems = kWorkRam + 0x1869;
+constexpr std::uint32_t kSavedQuantities = kWorkRam + 0x1969;
+constexpr std::uint32_t kSavedVariables = kWorkRam + 0x1DC9;
 constexpr std::uint32_t kRecordBytes = battle::kItemRecordBytes;
 // The list's last three places, where the title program leaves them.
 constexpr std::uint32_t kItemsObtainedTailRecords =
@@ -6802,16 +6852,52 @@ std::string callText(const EndingCall& call) {
             return "wait " + std::to_string(call.frames);
         case EndingCall::Kind::ItemObtained:
             return "item obtained " + std::to_string(static_cast<int>(call.item));
+        case EndingCall::Kind::Message:
+            return messageText(call.message);
+        case EndingCall::Kind::StepBack:
+            return "step back";
+        case EndingCall::Kind::Celebration:
+            return std::string{"celebration"} + (call.fanfare ? ", fanfare" : "") + (call.victoryEvent ? ", event 1" : "");
         case EndingCall::Kind::Other:
             return "other " + std::to_string(call.command);
     }
     return "?";
 }
 
-// What the port's requests show, as the cartridge's calls would.
-std::vector<EndingCall> portCalls(std::span<const battle::BattleRequest> requests) {
+bool isVictoryEvent(const battle::BattleRequest& request) {
+    const auto* script = std::get_if<battle::RunBattleScript>(&request);
+    if (script == nullptr || script->commands.size() != 1) {
+        return false;
+    }
+    const auto* event = std::get_if<battle::BattleEventPlays>(&script->commands[0]);
+    return event != nullptr && event->event == battle::kVictoryEvent;
+}
+
+// What the port's requests show, as the cartridge's calls would. In a win, the four menus closing
+// after the step back, with the fanfare and battle event 1 after them where they were asked for, are
+// the celebration.
+std::vector<EndingCall> portCalls(std::span<const battle::BattleRequest> requests, bool win) {
     std::vector<EndingCall> calls;
-    for (const battle::BattleRequest& request : requests) {
+    bool celebrationNext = false;
+    for (std::size_t i = 0; i < requests.size(); ++i) {
+        const battle::BattleRequest& request = requests[i];
+        if (celebrationNext && std::holds_alternative<battle::CloseBattleMenu>(request) &&
+            i + battle::kPartySlots <= requests.size()) {
+            celebrationNext = false;
+            EndingCall celebration{.kind = EndingCall::Kind::Celebration};
+            i += battle::kPartySlots;
+            if (i < requests.size() && std::holds_alternative<battle::VictoryFanfare>(requests[i])) {
+                celebration.fanfare = true;
+                ++i;
+            }
+            if (i < requests.size() && isVictoryEvent(requests[i])) {
+                celebration.victoryEvent = true;
+                ++i;
+            }
+            --i;
+            calls.push_back(celebration);
+            continue;
+        }
         if (const auto* close = std::get_if<battle::CloseBattleMenu>(&request)) {
             calls.push_back(EndingCall{.kind = EndingCall::Kind::CloseMenu,
                                        .slot = static_cast<std::uint8_t>(close->character.position())});
@@ -6821,6 +6907,14 @@ std::vector<EndingCall> portCalls(std::span<const battle::BattleRequest> request
             for (const battle::BattleScriptCommand& command : script->commands) {
                 if (const auto* wait = std::get_if<battle::Wait>(&command)) {
                     calls.push_back(EndingCall{.kind = EndingCall::Kind::Wait, .frames = wait->frames});
+                } else if (const auto* message = std::get_if<battle::BattleMessage>(&command)) {
+                    calls.push_back(EndingCall{.kind = EndingCall::Kind::Message,
+                                               .message = MessageShown{.message = message->message,
+                                                                       .first = message->firstNumber,
+                                                                       .second = message->secondNumber}});
+                } else if (std::holds_alternative<battle::StepBack>(command)) {
+                    calls.push_back(EndingCall{.kind = EndingCall::Kind::StepBack});
+                    celebrationNext = win;
                 } else {
                     calls.push_back(EndingCall{});
                 }
@@ -6832,10 +6926,23 @@ std::vector<EndingCall> portCalls(std::span<const battle::BattleRequest> request
     return calls;
 }
 
+// The graphics command that celebrates a win, and the battle script command a step back is.
+constexpr std::uint8_t kVictoryCommand = 0x08;
+constexpr std::uint8_t kStepBackScriptCommand = 0x0D;
+// The formation's flags bit that turns the fanfare off, and the field's flag that keeps its music
+// playing (BtlGfx_08, btlgfx_main.asm:248-261).
+constexpr std::uint8_t kFanfareOffBit = 0x02;
+constexpr std::uint8_t kFieldMusicPlaysOnBit = 0x08;
+
 // What the cartridge's calls to the graphics program show: frames waited one at a time run together
-// into one wait, and a merge of the items obtained shows nothing.
-std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls) {
+// into one wait; the hands put away are the items added between the wrap-up's wait and its merge,
+// and an item added anywhere else (a drop, the prize) is merged at once and shows only its message;
+// a merge shows nothing. The celebration is read with the formation's flags and the field's flags as
+// the call found them.
+std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls, std::uint8_t formationFlags,
+                                   std::uint8_t fieldFlags) {
     std::vector<EndingCall> out;
+    bool puttingAway = false;
     for (const GraphicsCall& call : calls) {
         switch (call.command) {
             case kWaitForFrame:
@@ -6844,14 +6951,35 @@ std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls) {
                 } else {
                     out.push_back(EndingCall{.kind = EndingCall::Kind::Wait, .frames = 1});
                 }
+                puttingAway = true;
                 break;
             case kCloseMenu:
                 out.push_back(EndingCall{.kind = EndingCall::Kind::CloseMenu, .slot = call.slot});
                 break;
             case kAddItemObtained:
-                out.push_back(EndingCall{.kind = EndingCall::Kind::ItemObtained, .item = static_cast<ItemId>(call.item[0])});
+                if (puttingAway) {
+                    out.push_back(
+                        EndingCall{.kind = EndingCall::Kind::ItemObtained, .item = static_cast<ItemId>(call.item[0])});
+                }
                 break;
             case kMergeItemsObtained:
+                puttingAway = false;
+                break;
+            case kVictoryCommand: {
+                const bool on = (formationFlags & kFanfareOffBit) == 0;
+                out.push_back(EndingCall{.kind = EndingCall::Kind::Celebration,
+                                         .fanfare = on && (fieldFlags & kFieldMusicPlaysOnBit) == 0,
+                                         .victoryEvent = on});
+                break;
+            }
+            case kPlayBattleScript:
+                if (call.script[0] == kStepBackScriptCommand) {
+                    out.push_back(EndingCall{.kind = EndingCall::Kind::StepBack});
+                } else if (const std::optional<MessageShown> message = messageShown(call)) {
+                    out.push_back(EndingCall{.kind = EndingCall::Kind::Message, .message = *message});
+                } else {
+                    out.push_back(EndingCall{.command = call.command});
+                }
                 break;
             default:
                 out.push_back(EndingCall{.command = call.command});
@@ -6869,10 +6997,12 @@ battle::BattleState portState(const EndingScenario& scenario) {
     return state;
 }
 
-EndingResult portEndingResult(const EndingScenario& scenario, const battle::BattleState& state) {
+EndingResult portEndingResult(const EndingScenario& scenario, const battle::BattleState& state, bool win) {
     EndingResult result;
     result.cells = scenario.cells;
     result.cells.party = state.party;
+    result.switches = state.switches;
+    result.rngPosition = state.rng.position();
     result.inventory = state.inventory.items;
     result.itemsObtained = state.itemsObtained;
     for (int position = 0; position < battle::kPartySlots; ++position) {
@@ -6882,7 +7012,7 @@ EndingResult portEndingResult(const EndingScenario& scenario, const battle::Batt
     }
     result.holdingItem = state.holdingItem.characters.bits;
     result.menusDisabled = state.menusDisabled;
-    result.calls = portCalls(state.requests);
+    result.calls = portCalls(state.requests, win);
     return result;
 }
 
@@ -6961,6 +7091,71 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
     writeBytes(retropp::MemoryRegion{.at = kEquipmentChanged, .size = kEquipmentChangedFlags}, unchanged);
     writeInventory(state.inventory.items);
     writeItemsObtained(state.itemsObtained);
+
+    // The rest of the battle as the win, the loss and the write-back read it.
+    std::array<std::uint8_t, kActorsWithABattler> actorsBattler{};
+    actorsBattler.fill(kNoOne);
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        const std::uint32_t at = slotIndex(slot);
+        writeWord(kBattlerBit + at, maskOf(battle::BattlerSet::of(slot)));
+        writeByte(kStatus12 + at, battler.status.bytes[0]);
+        writeByte(kStatus12 + at + 1, battler.status.bytes[1]);
+        writeByte(kStatus34 + at, battler.status.bytes[2]);
+        writeByte(kStatus34 + at + 1, battler.status.bytes[3]);
+        writeByte(kRelicEffects4And5 + at, battler.relicEffects4.bits);
+        writeByte(kRelicEffects4And5 + at + 1, battler.relicEffects5.bits);
+        writeWord(kHp + at, battler.hp);
+        writeWord(kMp + at, battler.mp);
+        writeWord(kMaxMp + at, battler.maxMp);
+        if (slot.isCharacter()) {
+            writeByte(kPartyActor + at, battler.actor ? static_cast<std::uint8_t>(*battler.actor) : kNoOne);
+            writeByte(kPartyRecord + at, battler.record ? static_cast<std::uint8_t>(*battler.record) : kNoOne);
+            writeWord(kRecordOffset + at,
+                      static_cast<std::uint16_t>(recordAt(battler.record.value_or(0)) - kCharacterRecords));
+            if (battler.actor && static_cast<std::size_t>(*battler.actor) < kActorsWithABattler) {
+                actorsBattler[static_cast<std::size_t>(*battler.actor)] = static_cast<std::uint8_t>(at);
+            }
+        } else {
+            const auto monster = static_cast<std::uint32_t>(slot.position() * 2);
+            writeWord(kMonsterIndex + at,
+                      battler.monster ? static_cast<std::uint16_t>(*battler.monster) : kEmptyMonsterSlot);
+            writeWord(kMonsterExperience + monster, battler.experience);
+            writeWord(kMonsterGold + monster, battler.gold);
+        }
+    }
+    writeBytes(retropp::MemoryRegion{.at = kActorsBattler, .size = kActorsWithABattler}, actorsBattler);
+    writeWord(kBattlersAlive, maskOf(state.alive));
+    writeByte(kAllyCount, static_cast<std::uint8_t>(state.allyCount));
+    writeByte(kEnemiesAlive, static_cast<std::uint8_t>(state.enemyCount));
+    std::array<std::uint8_t, 3> lores{};
+    for (std::size_t lore = 0; lore < state.loresLearned.size(); ++lore) {
+        if (state.loresLearned.test(lore)) {
+            lores[lore / 8] = static_cast<std::uint8_t>(lores[lore / 8] | (1u << (lore % 8)));
+        }
+    }
+    writeBytes(retropp::MemoryRegion{.at = kLoresLearned, .size = 3}, lores);
+    writeByte(kColosseumCell, state.colosseum ? kInTheColosseum : 0);
+    writeByte(kWagerCell, static_cast<std::uint8_t>(state.colosseumWager.value_or(ItemId::EMPTY)));
+    writeByte(kPrizeCell, static_cast<std::uint8_t>(state.colosseumPrize.value_or(ItemId::EMPTY)));
+    writeWord(kBattleNumber, static_cast<std::uint16_t>(state.startingFormation));
+    writeWord(kFieldFlags, static_cast<std::uint16_t>((state.onTheVeldt ? kOnTheVeldtBit : 0) |
+                                                      (state.keepFieldMusic ? kFieldMusicPlaysOnBit : 0)));
+    writeWord(kBackgroundCell, static_cast<std::uint16_t>(state.background));
+    const FormationAux& aux = getFormationAux(state.formation);
+    const std::array<std::uint8_t, 4> formation{
+        aux.entranceAndTypes, static_cast<std::uint8_t>(aux.flags | (state.noVictoryFanfare ? kFanfareOffBit : 0)),
+        aux.characterAi, aux.audioFlags};
+    writeBytes(retropp::MemoryRegion{.at = kFormationBytes, .size = 4}, formation);
+    writeByte(kTakenFromTheParty, state.takenFromTheParty.characters.bits);
+    writeByte(kDoomGazeBattler, state.doomGaze ? static_cast<std::uint8_t>(slotIndex(*state.doomGaze)) : kNoOne);
+    writeBytes(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables}, state.switches.variables);
+    writeByte(kRngPosition, state.rng.position());
+    const std::array<std::uint8_t, kMessageVariableBytes> variables{};
+    writeBytes(retropp::MemoryRegion{.at = kEndingMessageVariables, .size = kMessageVariableBytes}, variables);
+    const std::array<std::uint8_t, kVeldtBattleBytes> veldt{};
+    writeBytes(retropp::MemoryRegion{.at = kVeldtBattles, .size = kVeldtBattleBytes}, veldt);
 }
 
 EndingResult DamageOracle::readEndingResult() {
@@ -6977,29 +7172,131 @@ EndingResult DamageOracle::readEndingResult() {
     }
     result.holdingItem = static_cast<std::uint8_t>(readByte(kHoldingItem) & kHoldingItemBits);
     result.menusDisabled = (readByte(kEndingFlags) & kMenusClosedBit) != 0;
-    result.calls = guestCalls(graphicsCalls_);
+    const std::vector<std::uint8_t> switches =
+        machine_.read(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables});
+    std::copy(switches.begin(), switches.end(), result.switches.variables.begin());
+    result.rngPosition = readByte(kRngPosition);
+    result.calls = guestCalls(graphicsCalls_, readByte(kFormationBytes + 1), readByte(kFieldFlags));
     return result;
 }
 
-EndingResult DamageOracle::wrapUp(const EndingScenario& scenario) {
+EndingResult DamageOracle::callEnding(const EndingScenario& scenario, const std::function<void()>& routine) {
     writeEndingScenario(scenario);
     graphicsCalls_.clear();
     unansweredGraphics_.reset();
     machine_.escapes()[kGraphicsKey].armed(true);
-    call([&] { wrapUp_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    call(routine);
     machine_.escapes()[kGraphicsKey].armed(false);
     if (unansweredGraphics_) {
-        throw std::runtime_error("the wrap-up called graphics command " + std::to_string(*unansweredGraphics_) +
+        throw std::runtime_error("the ending called graphics command " + std::to_string(*unansweredGraphics_) +
                                  ", which the oracle has no answer for");
     }
     return readEndingResult();
+}
+
+EndingResult DamageOracle::wrapUp(const EndingScenario& scenario) {
+    return callEnding(scenario, [&] { wrapUp_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+EndingResult DamageOracle::win(const EndingScenario& scenario) {
+    return callEnding(scenario, [&] { winBattle_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+EndingResult DamageOracle::loss(const EndingScenario& scenario, std::optional<std::uint8_t> message) {
+    return callEnding(scenario, [&] {
+        loseBattle_(message.value_or(kNoOne), kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+    });
+}
+
+WriteBackResult DamageOracle::writeBack(const EndingScenario& scenario) {
+    writeEndingScenario(scenario);
+    call([&] { updateSram_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    WriteBackResult result;
+    result.cells = readParty();
+    for (std::size_t slot = 0; slot < game::kInventorySlots; ++slot) {
+        const auto at = static_cast<std::uint32_t>(slot);
+        result.inventory[slot] = game::InventorySlot{.item = static_cast<ItemId>(readByte(kSavedItems + at)),
+                                                     .quantity = readByte(kSavedQuantities + at)};
+    }
+    const std::vector<std::uint8_t> variables =
+        machine_.read(retropp::MemoryRegion{.at = kSavedVariables, .size = game::kBattleVariables});
+    std::copy(variables.begin(), variables.end(), result.switches.variables.begin());
+    for (std::size_t battle = 0; battle < result.veldtBattles.size(); ++battle) {
+        result.veldtBattles.set(battle, (readByte(kVeldtBattles + static_cast<std::uint32_t>(battle / 8)) >> (battle % 8) & 1) != 0);
+    }
+    return result;
+}
+
+WriteBackResult portWriteBack(const EndingScenario& scenario) {
+    battle::BattleState state = portState(scenario);
+    state.outcome = battle::BattleWon{};
+    const battle::BattleResult handedBack = battle::writeBack(state);
+    WriteBackResult result;
+    result.cells = scenario.cells;
+    result.cells.party = handedBack.party;
+    result.inventory = handedBack.party.inventory;
+    result.switches = handedBack.switches;
+    if (handedBack.veldtFormation) {
+        result.veldtBattles.set(static_cast<std::size_t>(*handedBack.veldtFormation));
+    }
+    return result;
+}
+
+std::string differences(const WriteBackResult& port, const WriteBackResult& guest) {
+    std::string out;
+    const std::vector<PartyCell> ours = partyImage(port.cells);
+    const std::vector<PartyCell> theirs = partyImage(guest.cells);
+    for (std::size_t i = 0; i < ours.size(); ++i) {
+        // A party byte's two top bits are not port state (PartyCells::recordFlags): taking a member out
+        // of the party clears them on the cartridge and the port has nothing to clear.
+        const bool partyByte = ours[i].at >= kRecordPartyBytes && ours[i].at < kRecordPartyBytes + game::kCharacterRecords;
+        const std::uint8_t mask = partyByte ? static_cast<std::uint8_t>(~kRecordFlagBits) : 0xFF;
+        addLine(out, partyCellName(ours[i].at).c_str(), ours[i].value & mask, theirs[i].value & mask);
+    }
+    for (std::size_t slot = 0; slot < port.inventory.size(); ++slot) {
+        const std::string field = "saved inventory slot " + std::to_string(slot);
+        addLine(out, (field + " item").c_str(), static_cast<int>(port.inventory[slot].item),
+                static_cast<int>(guest.inventory[slot].item));
+        addLine(out, (field + " quantity").c_str(), port.inventory[slot].quantity, guest.inventory[slot].quantity);
+    }
+    for (std::size_t i = 0; i < port.switches.variables.size(); ++i) {
+        const std::string field = "battle variable " + std::to_string(i);
+        addLine(out, field.c_str(), port.switches.variables[i], guest.switches.variables[i]);
+    }
+    for (std::size_t battle = 0; battle < port.veldtBattles.size(); ++battle) {
+        const std::string field = "Veldt battle " + std::to_string(battle);
+        addLine(out, field.c_str(), port.veldtBattles.test(battle), guest.veldtBattles.test(battle));
+    }
+    return out;
 }
 
 EndingResult portWrapUp(const EndingScenario& scenario) {
     battle::BattleState state = portState(scenario);
     battle::NullExecutor executor;
     battle::wrapUpBattle(state, executor);
-    return portEndingResult(scenario, state);
+    return portEndingResult(scenario, state, false);
+}
+
+EndingResult portWin(const EndingScenario& scenario) {
+    battle::BattleState state = portState(scenario);
+    battle::NullExecutor executor;
+    battle::playBattleEnd(state, executor, battle::BattleWon{});
+    return portEndingResult(scenario, state, true);
+}
+
+EndingResult portLoss(const EndingScenario& scenario, std::optional<std::uint8_t> message) {
+    battle::BattleState state = portState(scenario);
+    battle::NullExecutor executor;
+    const battle::BattleOutcome outcome = battle::BattleLost{.message = message};
+    battle::playBattleEnd(state, executor, outcome);
+    state.outcome = outcome;
+    EndingResult result = portEndingResult(scenario, state, false);
+    // The defeat switch as the write-back sets it; Doom Gaze's HP is the write-back's own, which the
+    // cartridge's loss does not run.
+    battle::BattleState handedBack = state;
+    handedBack.doomGaze.reset();
+    result.switches = battle::writeBack(handedBack).switches;
+    return result;
 }
 
 std::string differences(const EndingResult& port, const EndingResult& guest) {
@@ -7019,6 +7316,11 @@ std::string differences(const EndingResult& port, const EndingResult& guest) {
     }
     addLine(out, "holding an item", port.holdingItem, guest.holdingItem);
     addLine(out, "battle menus closed", port.menusDisabled, guest.menusDisabled);
+    for (std::size_t i = 0; i < port.switches.variables.size(); ++i) {
+        const std::string field = "battle variable " + std::to_string(i);
+        addLine(out, field.c_str(), port.switches.variables[i], guest.switches.variables[i]);
+    }
+    addLine(out, "random-number position", port.rngPosition, guest.rngPosition);
     const std::size_t calls = std::max(port.calls.size(), guest.calls.size());
     for (std::size_t i = 0; i < calls; ++i) {
         const std::string ours = i < port.calls.size() ? callText(port.calls[i]) : "none";
@@ -7158,6 +7460,144 @@ EndingScenario drawEndingScenario(std::mt19937& rng) {
     }
     state.morphCounter = static_cast<std::uint16_t>(rng() & 0xFFFF);
     state.party = s.cells.party;
+    return s;
+}
+
+namespace {
+
+constexpr std::size_t kFormationIds = 576;
+constexpr int kBackgrounds = 56;
+constexpr std::size_t kLores = 24;
+
+// The actor a party member is drawn as: the twelve with spell lists, Gogo, Umaro, Banon and Leo, and
+// the two ghosts in Banon's and Leo's records — Terra, Mog, Gau, Gogo, Umaro and the guests often.
+CharacterPropId drawActor(std::mt19937& rng, std::size_t record) {
+    if (record >= 14 && oneIn(rng, 2)) {
+        return record == 14 ? CharacterPropId::GHOST_1 : CharacterPropId::GHOST_2;
+    }
+    return static_cast<CharacterPropId>(record);
+}
+
+std::size_t drawRecord(std::mt19937& rng) {
+    static constexpr std::array<std::size_t, 8> kOften{0, 10, 11, 12, 13, 14, 15, 2};
+    return oneIn(rng, 2) ? kOften[rng() % kOften.size()] : rng() % game::kCharacterRecords;
+}
+
+}  // namespace
+
+EndingScenario drawWinScenario(std::mt19937& rng) {
+    EndingScenario s = drawEndingScenario(rng);
+    battle::BattleState& state = s.state;
+    game::Party& party = s.cells.party;
+
+    // The party: up to four members, each in a record of its own, at least one alive.
+    std::array<bool, game::kCharacterRecords> taken{};
+    int allies = 0;
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        battle::Battler& member = state.at(battle::BattlerSlot::character(position));
+        member = battle::Battler{};
+        if (position > 0 && oneIn(rng, 4)) {
+            continue;
+        }
+        std::size_t record = drawRecord(rng);
+        while (taken[record]) {
+            record = (record + 1) % game::kCharacterRecords;
+        }
+        taken[record] = true;
+        const CharacterPropId actor = drawActor(rng, record);
+        party.characters[record].actor = actor;
+        member.present = true;
+        member.actor = actor;
+        member.record = record;
+        const auto ownBit = static_cast<std::uint16_t>(1u << (static_cast<int>(actor) & 0x0F));
+        member.equipsAs.lo = static_cast<std::uint8_t>(ownBit & 0xFF);
+        member.equipsAs.hi = static_cast<std::uint8_t>(ownBit >> 8);
+        member.morphGauge = byte(rng);
+        if (oneIn(rng, 3)) {
+            member.itemInHand = drawItem(rng);
+        }
+        member.relicEffects5.bits = static_cast<std::uint8_t>((oneIn(rng, 4) ? 0x10 : 0) | (oneIn(rng, 4) ? 0x08 : 0));
+        member.relicEffects4.bits = byte(rng);
+        member.hp = static_cast<std::uint16_t>(upTo(rng, kPartyMaxHp));
+        member.maxMp = oneIn(rng, 5) ? 0 : static_cast<std::uint16_t>(1 + upTo(rng, kPartyMaxMp - 1));
+        member.mp = static_cast<std::uint16_t>(upTo(rng, member.maxMp));
+        const bool alive = allies == 0 || !oneIn(rng, 4);
+        member.status.bytes[0] = static_cast<std::uint8_t>(sparse(rng) & ~0xC2);
+        member.status.bytes[3] = sparse(rng);
+        if (alive) {
+            state.alive.add(battle::BattlerSlot::character(position));
+            ++allies;
+        } else {
+            member.status.set(oneIn(rng, 2) ? StatusId::DEAD : StatusId::PETRIFY);
+        }
+        // Experience often at or past a few levels.
+        game::CharacterRecord& r = party.characters[record];
+        r.level = static_cast<std::uint8_t>(1 + upTo(rng, kPartyMaxLevel - 1));
+        if (r.level < kPartyMaxLevel && oneIn(rng, 2)) {
+            const int reached = std::min<int>(r.level + upTo(rng, 3), kPartyMaxLevel - 1);
+            r.experience = experienceForNextLevel(static_cast<std::uint8_t>(reached)) -
+                           static_cast<std::uint32_t>(upTo(rng, 300));
+        }
+        if (oneIn(rng, 8)) {
+            state.takenFromTheParty.add(battle::BattlerSlot::character(position));
+        }
+    }
+    state.allyCount = allies;
+    state.enemyCount = 0;
+
+    // The monsters: empty, fallen, or fled and standing.
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::monster(position);
+        battle::Battler& monster = state.at(slot);
+        monster = battle::Battler{};
+        if (oneIn(rng, 4)) {
+            continue;
+        }
+        monster.present = true;
+        monster.monster = static_cast<MonsterId>(rng() % kMonsterIds);
+        monster.experience = static_cast<std::uint16_t>(oneIn(rng, 3) ? rng() & 0xFFFF : upTo(rng, 2000));
+        monster.gold = static_cast<std::uint16_t>(oneIn(rng, 3) ? rng() & 0xFFFF : upTo(rng, 2000));
+        monster.hp = static_cast<std::uint16_t>(rng() & 0xFFFF);
+        if (!oneIn(rng, 3)) {
+            static constexpr std::array<StatusId, 3> kFallenBy{StatusId::DEAD, StatusId::PETRIFY, StatusId::ZOMBIE};
+            monster.status.set(kFallenBy[rng() % kFallenBy.size()]);
+        } else {
+            state.alive.add(slot);
+        }
+    }
+    if (oneIn(rng, 10)) {
+        state.doomGaze = battle::BattlerSlot::monster(upTo(rng, battle::kMonsterSlots - 1));
+    }
+
+    state.formation = static_cast<FormationId>(rng() % kFormationIds);
+    state.startingFormation = oneIn(rng, 4) ? static_cast<FormationId>(rng() % 1024) : state.formation;
+    state.onTheVeldt = oneIn(rng, 4);
+    state.keepFieldMusic = oneIn(rng, 4);
+    state.noVictoryFanfare = oneIn(rng, 8);
+    state.background = static_cast<BattleBackgroundId>(upTo(rng, kBackgrounds - 1));
+    if (oneIn(rng, 10)) {
+        state.colosseum = true;
+        state.colosseumPrize = oneIn(rng, 10) ? ItemId::EMPTY : drawItem(rng);
+        state.colosseumWager = drawItem(rng);
+    }
+    if (oneIn(rng, 3)) {
+        for (std::size_t lore = 0; lore < kLores; ++lore) {
+            state.loresLearned.set(lore, oneIn(rng, 4));
+        }
+    }
+    for (std::uint8_t& variable : state.switches.variables) {
+        variable = byte(rng);
+    }
+    if (oneIn(rng, 2)) {
+        state.switches.set(game::kMagicPointsEarnedSwitch);
+    } else {
+        state.switches.clear(game::kMagicPointsEarnedSwitch);
+    }
+    state.rng = battle::BattleRng{byte(rng)};
+    if (oneIn(rng, 4)) {
+        party.gil = kMaxGil - static_cast<std::uint32_t>(upTo(rng, 5000));  // the gold often reaching the cap
+    }
+    state.party = party;
     return s;
 }
 

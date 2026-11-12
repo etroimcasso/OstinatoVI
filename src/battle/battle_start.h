@@ -103,6 +103,9 @@ struct BattleResult {
 
     bool shadowLeftParty = false;  // Shadow walked off when the battle was won
 
+    // Gau leapt: he has left the party and is no longer one of the characters the party can field.
+    bool gauLeftParty = false;
+
     // The last three places of the items the party comes away with, as the battle leaves them: the
     // next battle starts with them (BattleStart::itemsObtainedTail).
     ItemsObtainedTail itemsObtainedTail{};

@@ -47,8 +47,9 @@ while (!shown.sceneClosed) {
 `tickBattlePresentation` takes in the requests first, then advances one frame:
 
 - `OpenBattleScene` shows the monsters standing and builds the list of names; `RefreshMonsterNames`
-  builds it again from the battle as it stands; `CloseBattleScene` sets `sceneClosed`;
-  `RunBattleScript` queues the script. The menu requests and the rest show nothing here.
+  builds it again from the battle as it stands; `CloseBattleScene` sets `sceneClosed` once every
+  script asked for before it has played (a won battle's messages come first);
+  `RunBattleScript` queues the script. The menu requests, `VictoryFanfare` and the rest show nothing here.
 - Each party member's pose counter counts one, and every numeral on the screen moves one frame on.
 - If a script is playing or queued, it plays: commands that take no frames run straight through in
   this frame, and the frame ends on the first command that takes frames.

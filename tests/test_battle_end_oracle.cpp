@@ -4,13 +4,15 @@
 // of the cartridge's own title program, and off the cartridge after it lays the program out; the list's
 // hand-worked cases run on the graphics program's own commands, the port matching both; then 500 drawn
 // scenarios through each of the two commands and the wrap-up, with every cell the wrap-up read written
-// first.
+// first; then the win, the loss and the write-back the same way, by hand and over 500 drawn battles
+// each.
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <random>
 #include <span>
 #include <stdexcept>
@@ -23,6 +25,9 @@
 #include "battle/items_obtained.h"
 #include "damage_oracle.h"
 #include "game/character_record.h"
+#include "ostinato/character_prop_id.h"
+#include "ostinato/status_id.h"
+#include "party_test_support.h"
 #include "ostinato/item_id.h"
 #include "vanilla_rom.h"
 
@@ -36,6 +41,9 @@ using trace::ItemsObtainedScenario;
 
 constexpr std::uint32_t kWrapUp = 0xC24903;
 constexpr std::uint32_t kDecompCutsceneProg = 0xC26828;
+constexpr std::uint32_t kWinBattle = 0xC25D57;
+constexpr std::uint32_t kLoseBattle = 0xC25FCA;
+constexpr std::uint32_t kUpdateSram = 0xC24936;
 
 constexpr int kDraws = 500;
 
@@ -81,11 +89,14 @@ TEST_F(BattleEndOracleTest, TheRoutinesAreWhereTheUsCartridgesHoldThem) {
         };
         EXPECT_EQ(bytes(kWrapUp), (std::vector<std::uint8_t>{0x20, 0x36, 0x0B, 0xA2}));  // jsr SaveMorphCounter
         EXPECT_EQ(bytes(kDecompCutsceneProg), (std::vector<std::uint8_t>{0x08, 0xC2, 0x30, 0x48}));  // php; rep
+        EXPECT_EQ(bytes(kWinBattle), (std::vector<std::uint8_t>{0x08, 0x20, 0x67, 0x02}));   // php; jsr EndAction
+        EXPECT_EQ(bytes(kLoseBattle), (std::vector<std::uint8_t>{0x48, 0xA9, 0x01, 0x0C}));  // pha; lda #$01; tsb
+        EXPECT_EQ(bytes(kUpdateSram), (std::vector<std::uint8_t>{0xA2, 0x06, 0xBD, 0xD8}));  // ldx #$06; lda $3ed8,x
     });
 }
 
 TEST_F(BattleEndOracleTest, AnImageWithoutThemIsRefused) {
-    for (const std::uint32_t routine : {kWrapUp, kDecompCutsceneProg}) {
+    for (const std::uint32_t routine : {kWrapUp, kDecompCutsceneProg, kWinBattle, kLoseBattle, kUpdateSram}) {
         trace::runOnLoop([&] {
             const std::span<const std::uint8_t> original = image();
             std::vector<std::uint8_t> other(original.begin(), original.end());
@@ -236,6 +247,132 @@ TEST_F(BattleEndOracleTest, WrapUpSweep) {
                 ASSERT_TRUE(trace::leftAsTheMachineHasIt(read.at)) << "draw " << draw << " read " << std::hex << read.at;
             }
         }
+    });
+}
+
+// --- the win, the loss and the write-back ---------------------------------------------------------
+
+// Every cell the last call read was written first, but for the listed ones.
+void expectEveryReadWritten(const DamageOracle& oracle, const std::string& what) {
+    for (const trace::UnwrittenRead& read : oracle.unwrittenReads()) {
+        EXPECT_TRUE(trace::leftAsTheMachineHasIt(read.at)) << what << " read " << std::hex << read.at;
+    }
+}
+
+// Terra a level short with a Cat Hood, Locke fallen, Gau standing; two monsters fallen, one fled; on
+// the Veldt; Strago's lores; the RNG somewhere.
+EndingScenario byHand() {
+    EndingScenario s;
+    battle::BattleState& state = s.state;
+    state = battleWithParty({CharacterPropId::TERRA, CharacterPropId::LOCKE, CharacterPropId::GAU});
+    const CharacterPropId actors[] = {CharacterPropId::TERRA, CharacterPropId::LOCKE, CharacterPropId::GAU};
+    for (int position = 0; position < 3; ++position) {
+        battle::Battler& member = state.at(battle::BattlerSlot::character(position));
+        member.present = true;
+        member.actor = actors[position];
+        member.record = static_cast<std::size_t>(position);
+        member.hp = 100;
+        if (position != 1) {
+            state.alive.add(battle::BattlerSlot::character(position));
+        } else {
+            member.status.set(StatusId::DEAD);
+        }
+    }
+    state.at(battle::BattlerSlot::character(0)).relicEffects5.bits = 0x10;  // a Cat Hood
+    state.allyCount = 2;
+    state.party.characters[0].experience = 500;
+    state.party.morphSupply = 40;
+    state.switches.set(game::kMagicPointsEarnedSwitch);
+    const auto fallen = [&](int position, int id, std::uint16_t experience, std::uint16_t gold, bool fell) {
+        battle::Battler& monster = state.at(battle::BattlerSlot::monster(position));
+        monster.present = true;
+        monster.monster = static_cast<MonsterId>(id);
+        monster.experience = experience;
+        monster.gold = gold;
+        if (fell) monster.status.set(StatusId::DEAD);
+    };
+    fallen(0, 7, 120, 40, true);
+    fallen(2, 7, 120, 40, true);
+    fallen(4, 30, 900, 900, false);
+    state.loresLearned.set(3);
+    state.rng = battle::BattleRng(77);
+    state.startingFormation = static_cast<FormationId>(5);
+    state.formation = static_cast<FormationId>(5);
+    s.cells.party = state.party;
+    return s;
+}
+
+TEST_F(BattleEndOracleTest, TheWinByHand) {
+    const EndingScenario s = byHand();
+    withOracle([&](DamageOracle& oracle) {
+        EXPECT_EQ(trace::differences(trace::portWin(s), oracle.win(s)), "");
+        expectEveryReadWritten(oracle, "the win");
+        EndingScenario veldt = s;
+        veldt.state.onTheVeldt = true;
+        EXPECT_EQ(trace::differences(trace::portWin(veldt), oracle.win(veldt)), "") << "on the Veldt";
+        EndingScenario colosseum = s;
+        colosseum.state.colosseum = true;
+        colosseum.state.colosseumPrize = ItemId::ELIXIR;
+        EXPECT_EQ(trace::differences(trace::portWin(colosseum), oracle.win(colosseum)), "") << "the colosseum";
+    });
+}
+
+TEST_F(BattleEndOracleTest, TheLossByHand) {
+    const EndingScenario s = byHand();
+    withOracle([&](DamageOracle& oracle) {
+        for (const std::optional<std::uint8_t> message :
+             {std::optional<std::uint8_t>{}, std::optional<std::uint8_t>{battle::kMessageAnnihilated},
+              std::optional<std::uint8_t>{battle::kMessageBanonFell}}) {
+            EXPECT_EQ(trace::differences(trace::portLoss(s, message), oracle.loss(s, message)), "")
+                << (message ? int{*message} : -1);
+            expectEveryReadWritten(oracle, "the loss");
+        }
+    });
+}
+
+TEST_F(BattleEndOracleTest, TheWriteBackByHand) {
+    // Locke taken out of the party: the cartridge clears his whole party byte.
+    EndingScenario s = byHand();
+    s.state.takenFromTheParty.add(battle::BattlerSlot::character(1));
+    s.cells.party.membership[1].backRow = true;
+    s.state.party = s.cells.party;
+    withOracle([&](DamageOracle& oracle) {
+        EXPECT_EQ(trace::differences(trace::portWriteBack(s), oracle.writeBack(s)), "");
+        expectEveryReadWritten(oracle, "the write-back");
+    });
+}
+
+template <typename Port, typename Guest>
+void sweep(DamageOracle& oracle, Port port, Guest guest) {
+    std::mt19937 rng{trace::kSweepSeed};
+    for (int draw = 0; draw < kDraws; ++draw) {
+        const EndingScenario s = trace::drawWinScenario(rng);
+        const std::string differs = trace::differences(port(s), guest(oracle, s));
+        ASSERT_EQ(differs, "") << "draw " << draw << ": " << trace::describe(s);
+        for (const trace::UnwrittenRead& read : oracle.unwrittenReads()) {
+            ASSERT_TRUE(trace::leftAsTheMachineHasIt(read.at)) << "draw " << draw << " read " << std::hex << read.at;
+        }
+    }
+}
+
+TEST_F(BattleEndOracleTest, WinSweep) {
+    withOracle([](DamageOracle& oracle) {
+        sweep(oracle, [](const EndingScenario& s) { return trace::portWin(s); },
+              [](DamageOracle& o, const EndingScenario& s) { return o.win(s); });
+    });
+}
+
+TEST_F(BattleEndOracleTest, LossSweep) {
+    withOracle([](DamageOracle& oracle) {
+        sweep(oracle, [](const EndingScenario& s) { return trace::portLoss(s, battle::kMessageAnnihilated); },
+              [](DamageOracle& o, const EndingScenario& s) { return o.loss(s, battle::kMessageAnnihilated); });
+    });
+}
+
+TEST_F(BattleEndOracleTest, WriteBackSweep) {
+    withOracle([](DamageOracle& oracle) {
+        sweep(oracle, [](const EndingScenario& s) { return trace::portWriteBack(s); },
+              [](DamageOracle& o, const EndingScenario& s) { return o.writeBack(s); });
     });
 }
 

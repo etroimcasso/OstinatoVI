@@ -838,3 +838,59 @@ well.
 
 **If you want to change it.** Passing over a place that does not fit, instead of returning, lets the
 items behind it in.
+
+---
+
+## A Leap loses the items still on their way to the inventory
+
+**What happens.** When Gau leaps, or a battle ends by teaching its rages, the Morph supply is not saved,
+items still in a party member's hand are not put away and obtained items not yet in the inventory are
+lost.
+
+**Where the original does it.** `BattleEnd_02` and `BattleEnd_05` (`battle/battle_main.asm:12023-12036`)
+learn the rages and go straight to `UpdateSRAM` (`:11961`); every other ending runs `_c24903`
+(`:12062-12086`) first.
+
+**Where the port keeps it.** `playBattleEnd()` in `src/battle/battle_end.cpp` runs no wrap-up for
+`BattleEndReason::GauLeapt` and `RagesLearned`. `tests/test_battle_end.cpp`
+(`BattleEnd.ALeapAndTheRagesLearnedRunNoWrapUp`) pins it.
+
+**If you want to change it.** Calling `wrapUpBattle()` before the rages in those two cases saves the
+supply and puts the items away.
+
+---
+
+## Two SwdTechs learned in one win are told of once
+
+**What happens.** Cyan learning two SwdTechs, or Sabin two Blitzes, in one win is told of once: both are
+learned, and "Mastered a new technique!" or "Devised a new Blitz!" shows for the first only.
+
+**Where the original does it.** `LearnAbilities` (`battle/battle_main.asm:15967-15992`) shows its message
+only when its flag in `$f0` was not yet set (`tsb $f0; bne`), and the win sets `$f0` to 0 only once
+(`:15320`).
+
+**Where the port keeps it.** `levelEachMember()` in `src/battle/battle_end.cpp` keeps one flag for the
+technique message and one for the Blitz message per win. `tests/test_rewards_oracle.cpp`
+(`RewardsOracleTest.TwoTechniquesInOneWinAreToldOfOnce`) pins it against the cartridge.
+
+**If you want to change it.** Telling of every `AbilitiesLearned::swdtech` and `blitz` returned tells of
+each.
+
+---
+
+## A wager held in two slots is taken from one of them
+
+**What happens.** A colosseum match takes one of the wagered item from each inventory slot holding it,
+last slot first — until one slot runs out. From then on the search looks for empty slots instead, so a
+slot before it holding the same item keeps all of its count. Only an inventory holding one item in two
+slots shows it.
+
+**Where the original does it.** `UpdateSRAM` (`battle/battle_main.asm:12135-12150`) compares each slot
+with the accumulator, and empties a slot that runs out with `lda #$ff`, which replaces the wager in the
+accumulator.
+
+**Where the port keeps it.** `writeBack()` in `src/battle/battle_start.cpp`. `tests/test_battle_end.cpp`
+(`WriteBack.AWagerHeldInTwoSlotsIsTakenFromTheLastUntilItRunsOut`) and `tests/test_battle_end_oracle.cpp`
+(`BattleEndOracleTest.WriteBackSweep`) pin it, against the cartridge as well.
+
+**If you want to change it.** Keeping the wager as the item looked for takes one from every slot holding it.

@@ -242,6 +242,9 @@ struct BattleEventPlays {
     std::uint8_t event = 0;
 };
 
+// The battle event a won battle plays as the party celebrates.
+inline constexpr std::uint8_t kVictoryEvent = 1;
+
 // Monsters leave the field or come back. With anyone in `revived`, they come in by `type`;
 // otherwise the monsters in `hidden` that are still on the field leave by it.
 struct MonstersEnterOrLeave {

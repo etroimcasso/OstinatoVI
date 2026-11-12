@@ -678,9 +678,10 @@ struct BattleState {
     // fighter's place, in the order the player chose them.
     std::deque<std::size_t> finalBattleReserve;
 
-    // What the battle's end changed: Gau has just turned up, Shadow has walked off.
+    // What the battle's end changed: Gau has just turned up, Shadow has walked off, Gau has leapt.
     bool gauJoining = false;
     bool shadowLeftParty = false;
+    bool gauLeftParty = false;   // Gau leapt: he leaves the party once the battle is handed back
     bool noVictoryFanfare = false;
 
     std::optional<BattleOutcome> outcome;

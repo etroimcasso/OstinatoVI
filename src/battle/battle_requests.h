@@ -65,8 +65,12 @@ struct AddItemObtained {
     ItemId item = ItemId::EMPTY;
 };
 
+// The battle is won: the victory fanfare starts. It is not asked for when the field's music plays on
+// through the battle, nor when the fanfare is off.
+struct VictoryFanfare {};
+
 using BattleRequest = std::variant<OpenBattleMenu, CloseBattleMenu, RefreshBattleMenu, RunBattleScript,
                                    RefreshMonsterNames, OpenBattleScene, ScrollFinalBattleBackground,
-                                   CloseBattleScene, AddItemObtained>;
+                                   CloseBattleScene, AddItemObtained, VictoryFanfare>;
 
 }  // namespace ostinato::battle

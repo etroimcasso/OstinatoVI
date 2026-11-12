@@ -669,8 +669,9 @@ BattleResult writeBack(const BattleState& state) {
             continue;
         }
         const bool ghost = *battler.actor == CharacterPropId::GHOST_1 || *battler.actor == CharacterPropId::GHOST_2;
+        // Taken out of the party, the record's whole party byte is cleared: its party, slot and row.
         if ((ghost && battler.status.hasAny(kFallen)) || state.takenFromTheParty.has(slot)) {
-            party.membership[*battler.record].party = 0;
+            party.membership[*battler.record] = game::PartyMembership{};
         }
         game::CharacterRecord& record = party.characters[*battler.record];
         record.status = unionOf(intersectionOf(battler.status, kFirstStatusByte),
@@ -692,12 +693,17 @@ BattleResult writeBack(const BattleState& state) {
     const auto* ended = std::get_if<BattleEnded>(&result.outcome);
     const bool ranOutOfTime = ended != nullptr && ended->reason == BattleEndReason::RanOutOfTime;
     if (state.colosseum && state.colosseumWager && *state.colosseumWager != ItemId::EMPTY && !ranOutOfTime) {
-        for (game::InventorySlot& held : party.inventory) {
-            if (held.item != *state.colosseumWager) {
+        // Last slot first, one off each slot holding the wager. LEGACY VERBATIM (docs/Bugs.md): a slot
+        // emptied leaves the search looking for an empty slot, so a later slot holding the wager keeps it.
+        ItemId lookingFor = *state.colosseumWager;
+        for (std::size_t slot = party.inventory.size(); slot-- > 0;) {
+            game::InventorySlot& held = party.inventory[slot];
+            if (held.item != lookingFor) {
                 continue;
             }
             if (--held.quantity == 0 || held.quantity >= 0x80) {
                 held = game::InventorySlot{};
+                lookingFor = ItemId::EMPTY;
             }
         }
     }
@@ -725,11 +731,12 @@ BattleResult writeBack(const BattleState& state) {
         }
     }
 
+    result.gauLeftParty = state.gauLeftParty;
     if (state.shadowLeftParty) {
         result.shadowLeftParty = true;
         for (std::size_t index = 0; index < party.characters.size(); ++index) {
             if (party.characters[index].actor == CharacterPropId::SHADOW) {
-                party.membership[index].party = 0;
+                party.membership[index] = game::PartyMembership{};
                 party.characters[index].esper.reset();
             }
         }

@@ -9,8 +9,9 @@ some Morph supply; and the monsters' rages are learned when Gau has leapt.
 Each rule is a free function in `src/battle/rewards.h`, over the party (`game::Party`) and, where the
 rule reads the battle, the `battle::BattleState` it was won in. A rule changes what it changes and
 returns what the player is told about — a level reached, a technique learned, a dance mastered — and
-shows nothing itself: the caller tells of each in the order the game does. The battle loop does not call
-them, so a host that wins a battle applies them itself.
+shows nothing itself. The battle's end (`playBattleEnd()` in `src/battle/battle_end.h`) calls them in the
+order the game does and tells of each as it goes; `CommandExecutor` runs it when the battle has an
+outcome, before the party is handed back.
 
 Every rule with a routine of its own in the cartridge is checked against that routine, run on the
 engine's SNES machine over the same party.
@@ -24,10 +25,12 @@ The rules, and the line of the original each is read from, are in
 |---|---|
 | `src/battle/rewards.h` | `spoilsOf()`, `experienceShare()`, `addExperience()`, `earnedNextLevel()`, `learnAbilitiesAtLevel()`, `learnFromEquipment()`, `learnLores()`, `learnDance()`, `gainMorphSupply()`, `learnRages()`; `BattleSpoils`, `AbilitiesLearned`, `EquipmentLearning` |
 | `src/battle/rewards.cpp` | the three-byte mask, the fallen statuses, the level scale, the Morph supply's limit and the rage bound as named constants; the console's divide |
-| `src/battle/battle_end.h` | `wrapUpBattle()`, the close of a battle every ending but two runs; `kWrapUpWaitFrames` |
+| `src/battle/battle_end.h` | `playBattleEnd()`, what each ending runs: the win whole, the loss, the special endings; `wrapUpBattle()`, the close every ending but two runs; `kWrapUpWaitFrames`, `kRareDropBelow` |
+| `src/battle/command_executor.h` | `CommandExecutor::playBattleEnd()`, which calls `playBattleEnd()` |
+| `src/battle/battle_requests.h` | `VictoryFanfare`, the fanfare a win asks for |
 | `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `battleItemFromRecord()` and `recordOf()`, an item's five-byte form on the cartridge; `kMostOfOneItem` |
-| `src/battle/battle_start.h` | `BattleStart::itemsObtainedTail` and `BattleResult::itemsObtainedTail`, the list's last three places carried from one battle to the next |
-| `src/battle/battle_script.h` | the win's message numbers, `kMessageGotItem` to `kMessageMasteredATechnique`; `Wait`, a script command that holds the script for a number of frames |
+| `src/battle/battle_start.h` | `BattleStart::itemsObtainedTail` and `BattleResult::itemsObtainedTail`, the list's last three places carried from one battle to the next; `BattleResult::gauLeftParty`; `writeBack()`, what the game keeps |
+| `src/battle/battle_script.h` | the win's message numbers, `kMessageGotItem` to `kMessageMasteredATechnique`; `Wait`, a script command that holds the script for a number of frames; `kVictoryEvent`, the battle event a win plays |
 | `src/assets/cartridge.h` | `IngestedContent::titleProgram`, the compressed title and cutscene program the power-on tail is read out of |
 | `src/game/battle_switches.h` | `kMagicPointsEarnedSwitch` (67, the party has magicite); `BattleSwitches::cursedShieldBattles()` and `setCursedShieldBattles()` |
 | `src/battle/spell_learning.h`, `src/battle/leveling.h` | `addSpellProgress()`, which the equipment's spells go through, and `levelUp()` ([espers.md](espers.md)) |
@@ -132,6 +135,47 @@ battle::learnRages(state.party, state);   // after a Leap, or a battle that ends
 the party slots, fallen or not, and returns the dance only when the party did not know it.
 `learnRages()` takes every monster in the six slots, alive, fallen or gone, numbered below 256.
 
+## The battle's end
+
+`playBattleEnd()` plays out the battle's outcome:
+
+```cpp
+#include "battle/battle_end.h"
+
+battle::playBattleEnd(state, executor, battle::BattleWon{});
+```
+
+| Outcome | Runs |
+|---|---|
+| `BattleWon` | the win, whole |
+| `BattleLost` | the wrap-up, then the outcome's message, if any |
+| `BattleEnded` `RanOutOfTime`, `EndNow`, `TimerExpired`, `EatenByZoneEater` | the wrap-up |
+| `BattleEnded` `FinalBattleNextStage` | a `StepBack`, then the wrap-up |
+| `BattleEnded` `GauLeapt` | Gau out of the party (`BattleResult::gauLeftParty`), then the rages — no wrap-up |
+| `BattleEnded` `RagesLearned` | the rages — no wrap-up |
+
+The win, in order:
+
+1. a `StepBack`;
+2. the celebration: a `CloseBattleMenu` for each party slot, then — unless the formation turns the fanfare
+   off or Shadow has just left — a `VictoryFanfare` (not when the field's music plays on) and battle
+   event 1 (`BattleEventPlays` of `kVictoryEvent`);
+3. the wrap-up (below);
+4. in the colosseum, the prize — obtained, merged and told of — and nothing more;
+5. the experience each ally gets, told of; then for each living party member, last slot first, the first
+   Cat Hood doubling the gold, Terra's Morph supply, the experience (twice with an Exp. Egg), and for the
+   first twelve characters the spells its equipment and its esper teach;
+6. the magic points, told of when anyone learned a spell with them while the party holds magicite;
+7. for each living party member, last slot first: its levels, told of once, with what each teaches; then
+   each spell it has just learned, told of;
+8. the lores Strago saw, the last first; Mog's dance; the Cursed Shield's curse lifted;
+9. the drops: one random number per fallen monster, highest slot first — below `kRareDropBelow` (32) its
+   rare drop, otherwise its common one — gathered per item, then each obtained, merged and told of;
+10. the gold, told of and added to the party's gil, held to `kMaxGil`.
+
+Every message is its own `RunBattleScript` holding one `BattleMessage`, with the numbers its text shows: an
+item, a spell, a lore or a party slot as itself, an amount whole.
+
 ## The wrap-up
 
 `wrapUpBattle()` closes a battle once it has an outcome, before the party is handed back. A win, a loss
@@ -219,7 +263,10 @@ its end — and compares the party, the inventory, the list with both counts, th
 the menus and what was shown, in order (`EndingCall`: a menu closing, a wait, an item put away). After it,
 `unwrittenReads()` names any cell the cartridge read that the scenario did not write.
 `addItemObtained()` and `mergeItemsObtained()` run the graphics program's own two commands over an
-`ItemsObtainedScenario`. `--check` runs these as `items-obtained`, `items-merged` and `wrap-up`.
+`ItemsObtainedScenario`. `win()` and `loss()` run the cartridge's win and loss the same way, each message
+compared on the numbers its text shows and the celebration on whether the fanfare and the event play;
+`writeBack()` runs what the game keeps against `battle::writeBack()`. `--check` runs these as
+`items-obtained`, `items-merged`, `wrap-up`, `win`, `loss` and `write-back`.
 
 ## Gotchas
 
@@ -255,6 +302,13 @@ the menus and what was shown, in order (`EndingCall`: a menu closing, a wait, an
 - **The last three places outlast the battle.** Pass `BattleResult::itemsObtainedTail` into the next
   `BattleStart`; a `BattleStart` left as it is starts them empty.
 - **The wrap-up puts away every hand**, not only the ones marked as holding an item.
+- **A Leap ends the battle with no wrap-up**, and so does a battle that ends by teaching its rages: the
+  Morph supply is not saved, a hand still holding an item keeps it, and items not yet merged are lost.
+- **The colosseum gives its prize and nothing else** — no experience, gold, learning or drops.
+- **The drops are the win's only random numbers**, one per fallen monster whether it drops anything or
+  not. The first drop told of is the highest monster slot's.
+- **No gold, no gold message.** The win ends after the drops.
+- **Taken out of the party, a record's whole party byte clears**: party, slot and row.
 
 ## Where to change
 
@@ -270,6 +324,10 @@ the menus and what was shown, in order (`EndingCall`: a menu closing, a wait, an
 | The Morph supply's limit | `kMostMorphSupply` in `src/battle/rewards.cpp` |
 | Which monsters have rages | `kMonstersWithRages` in `src/battle/rewards.cpp` |
 | The win's message numbers | `src/battle/battle_script.h` |
+| What an ending runs | `playBattleEnd()` in `src/battle/battle_end.cpp` |
+| The win's order | `winBattle()` in `src/battle/battle_end.cpp` |
+| The celebration | `celebrate()` in `src/battle/battle_end.cpp` |
+| The drops | `dropItems()` and `kRareDropBelow` in `src/battle/battle_end.h`/`.cpp` |
 | The wrap-up's steps and its wait | `wrapUpBattle()` and `kWrapUpWaitFrames` in `src/battle/battle_end.h`/`.cpp` |
 | How the list fills and merges | `obtainItem()` and `mergeItemsObtained()` in `src/battle/items_obtained.cpp`; `kMostOfOneItem` in `items_obtained.h` |
 | Which places a battle's start empties | `itemsObtainedAtBattleStart()` and `kItemsObtainedTailPlaces` in `src/battle/items_obtained.h`/`.cpp` |

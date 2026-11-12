@@ -34,6 +34,10 @@ over the same party the port is given (`tools/damage-trace/damage_oracle.h`).
 | The rages | `LearnRage :12185-12198` | `learnRages()` |
 | A spell learned a little further | `IncLearnMagic :15687-15705` | `addSpellProgress()` (`docs/contracts/battle_espers.md` § B) |
 | A level-up | `DoLevelUp :15761-15816` | `levelUp()` (`docs/contracts/battle_espers.md` § C) |
+| What each ending runs | `CheckBattleEnd :11891-11964`, `BattleEndTbl :12050-12056` | `playBattleEnd()` (`src/battle/battle_end.h`), `CommandExecutor::playBattleEnd()` |
+| The win, in its order | `WinBattle :15282-15563` | `playBattleEnd()` with `BattleWon` |
+| The loss | `LoseBattle :15588-15593` | `playBattleEnd()` with `BattleLost` |
+| What the game keeps | `UpdateSRAM :12092-12179`, `RemoveChar :11879-11885` | `writeBack()` (`src/battle/battle_start.h`) |
 | The wrap-up | `_c24903 :12062-12086` | `wrapUpBattle()` (`src/battle/battle_end.h`) |
 | An item joining the list | `BtlGfx_05 G:357-373`, `LoadItemProp :13981-14037` | `obtainItem()` (`src/battle/items_obtained.h`) |
 | The list merged | `_c14445 G:9448-9494`, `CheckInventoryFull G:21262-21273` | `mergeItemsObtained()` |
@@ -62,6 +66,34 @@ The battle hands its outcome to `ActionExecutor::playBattleEnd()` and then write
 
 A lost battle gives nothing beyond what the wrap-up puts away. A win never runs `LearnRage`: the rages
 are learned only by the two endings that name them.
+
+## B. Messages and the step back — `ShowMsg :15602-15615`, `EndAction :374-380`
+
+`ShowMsg` puts the message behind battle script command `$02` and ends the script (`$2d6e-$2d72`), then
+plays it (graphics command `$04`); a message of `$ff` shows nothing. In the port each message is its own
+`RunBattleScript` holding one `BattleMessage`, with the numbers its text reads — the first from the first
+message variable (`$2f35`), the second from the second (`$2f38`); a name, an item, a spell or a party slot
+is the variable's low byte, an amount its three bytes — and none where the text reads none.
+
+| Message | Text | Numbers |
+|---|---|---|
+| 32 (`$20`) | got *item* × 1 | first: the item |
+| 33 (`$21`) | got *item* × *n* | first: the item; second: *n* |
+| 38 (`$26`) | got *n* GP, shown without waiting for a button | second: the gold |
+| 39 (`$27`) | got *n* Exp. point(s) | first: the experience each ally gets |
+| 41 (`$29`) | annihilated | — |
+| 42 (`$2a`) | dispelled curse on shield | — |
+| 45 (`$2d`) | learned *lore* | first: the lore's attack |
+| 46 (`$2e`) | *name* gained a level | second: the party slot |
+| 50 (`$32`) | *name* learned *spell* | first: the spell; second: the party slot |
+| 51 (`$33`) | devised a new Blitz | — |
+| 53 (`$35`) | got *n* magic point(s) | first: the magic points |
+| 54 (`$36`) | Banon fell | — |
+| 64 (`$40`) | mastered a new dance | — |
+| 66 (`$42`) | mastered a new technique | — |
+
+`EndAction` plays battle script command `$0d` — the acting battler steps back — as a `RunBattleScript`
+holding `StepBack`.
 
 ## C. The wrap-up — `_c24903 :12062-12086`
 
@@ -149,6 +181,25 @@ the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records
    decoded program at `$106E` (`RomAsset::CUTSCENE`, decoded by the cartridge's own decompressor). Other
    programs write over the same memory between battles; what each leaves there belongs to that program.
 
+## E. The win's opening and the colosseum — `WinBattle :15282-15310`
+
+1. The step back (§ B, `:15285`).
+2. The graphics program's second status byte is cleared for the four party members (`stz $2e99,x`,
+   `:15286-15289`): the party celebrates without the look of Condemned, Near Fatal, Image, Mute, Berserk,
+   Muddled, Seizure or Sleep. Only the picture changes; the statuses stay.
+3. The twelve message-variable bytes are zeroed (`:15290-15293`).
+4. The celebration (graphics command `$08`, `:15294-15295`; `BtlGfx_08 G:243-274`): every battle menu
+   closes (`_c10105 G:229-237`) — a `CloseBattleMenu` for slots 0 to 3 — then, unless the fanfare is off
+   (`$2f49 & $02`: the formation's flag, `FormationAux::fanfareDisabled()`, or Shadow having just left,
+   `BattleState::noVictoryFanfare`), the fanfare (song `$2f`) starts — a `VictoryFanfare` request, not
+   asked for when the field's music plays on (`$11e4 & $08`, `BattleState::keepFieldMusic`) — and battle
+   event 1 plays (script `$0f $01`, `G:279-280`) — a `RunBattleScript` holding `BattleEventPlays` of
+   `kVictoryEvent`.
+5. The wrap-up (§ C, `:15296`).
+6. **In the colosseum** (`$3a97` not 0, `:15297-15310`): the prize (`$0207`, `colosseumPrize`) joins the
+   items obtained, one of it, and is merged (`_c26279 :16085-16091`); message 32 tells of it; and the win
+   is over — no experience, gold, learning or drops.
+
 ## F. Magic points, experience and gold
 
 - **Magic points** (`$fb`, `:15313-15319`): `BattleMagicPoints` at the battle's index (`$3ed4`, set
@@ -174,12 +225,12 @@ the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records
 
 For party slots 3 → 0, a member alive (`$3018,y & $3a74`, `:15366-15368`):
 
-1. **A Cat Hood** (`$3c59,y & $10`, `:15369-15376`): the first member wearing one doubles the gold
-   total; a second does nothing (`tsb $f0; bne`).
+1. **A Cat Hood** (`$3c59,y & $10`, the fifth relic effects, `RelicEffect5::DOUBLE_GP`, `:15369-15376`):
+   the first member wearing one doubles the gold total; a second does nothing (`tsb $f0; bne`).
 2. **Terra** (the slot's actor `$3ed8,y` is Terra) with the party holding magicite (`:15377-15388`):
    magic points count as earned, and the Morph supply (`$1cf6`) gains twice the magic points (§ S).
 3. **Experience** (`:15389-15394`): `AddExp` (§ H) with the share; a member with an Exp. Egg
-   (`$3c59,y & $08`) gets `AddExp` a second time.
+   (`$3c59,y & $08`, `RelicEffect5::DOUBLE_EXPERIENCE`) gets `AddExp` a second time.
 4. **A member whose actor is before Gogo** (`cmp #CHAR::GOGO; bcs`, `:15395-15397`): the spells its
    equipment teaches (§ I), then, with an esper equipped, the esper's (`learnFromEsper()`). Gogo, Umaro
    and every guest learn neither.
@@ -262,6 +313,12 @@ By the record's actor:
 The port: `learnAbilitiesAtLevel(party, actor, level)` marks the natural spells and returns whether a
 SwdTech or a Blitz was newly learned; the caller tells of the first of each in a win.
 
+## M. The spells just learned — `ShowLearnedMagicMsg :15822-15837`
+
+After a living member's levels (§ J), for an actor before Gogo: spells 53 to 0 of its list (`ldy #$0035`),
+each at `$80` (`SpellProgress::kSpellJustLearned`) becomes `$ff` (`kSpellLearned`) and message 50 tells
+of it, with the spell and the member's party slot.
+
 ## N. Lores, the dance, the shield
 
 - **Lores** (`:15438-15458`): for lores 23 → 0, one Strago saw this battle (`$3a84`, lore *n* is bit
@@ -275,6 +332,28 @@ SwdTech or a Blitz was newly learned; the caller tells of the first of each in a
 - **The shield** (`:15469-15473`): the curse dispelled this win shows message `$2a` (42), "Dispelled
   curse on shield".
 
+## O. The drops — `:15474-15530`
+
+Six places, empty, each with a count of 0 (`$f0-$fb`).
+
+1. For monster slots 5 to 0 with Dead, Petrify or Zombie (`$3eec,x & $c2`, `:15482-15484`), **one random
+   number is drawn** (`Rand`, `:15485`): below 32 (`kRareDropBelow`) the monster's rare drop, otherwise
+   its common one (`MonsterItems+2` or `+3`, `:15486-15494`, the index built from the compare's carry). A
+   drop of `$ff` is nothing. An empty slot is never fallen: the battle's start leaves its status 0 and its
+   monster `$ffff` (measured on the first fight in Narshe).
+2. The drop goes to the first place, 5 to 0, holding the same item or empty (`:15498-15511`), and that
+   place's count goes up.
+3. Places 5 to 0, each not empty (`:15514-15530`): the item joins the items obtained with that count and
+   is merged (`_c26279`), then message 32 for a count of 1, message 33 for more.
+
+So the first drop told of is the highest-numbered fallen monster's. The drops are the win's only random
+numbers.
+
+## P. The gold — `:15531-15563`
+
+A gold total of 0 ends the win untold. Otherwise message 38 tells of it, and it is added to the party's
+gil (`$1860-$1862`) in three bytes, the carry out lost, then held to 9,999,999 (`MaxGil`, `kMaxGil`).
+
 ## Q. The rages — `LearnRage`, and Gau after a Leap
 
 - `LearnRage`: for each of the six monster slots whose monster index is below 256 (`$2002,x` is 0), that
@@ -282,6 +361,14 @@ SwdTech or a Blitz was newly learned; the caller tells of the first of each in a
   the monster is alive, fallen or gone**. An empty slot's index is `$ffff` and is passed over.
 - `BattleEnd_02`: Gau's record leaves the party (`RemoveChar :11879-11885`) and Gau is no longer among
   the characters the party can field (`trb $1edf`, bit 3); then `LearnRage`.
+  In the port, Gau's slot joins `BattleState::takenFromTheParty`, which `writeBack()` takes out of the
+  party (§ U), and `BattleResult::gauLeftParty` is set. Leap is Gau's command, so the battler that leapt
+  is Gau.
+
+## R. The loss — `LoseBattle :15588-15593`
+
+The defeat switch (`$3ebc` bit 0, battle switch 64, set by `writeBack()`), the wrap-up, then the message
+(§ B), none for `$ff`. A lost battle gives nothing beyond what the wrap-up puts away.
 
 ## S. Widths
 
@@ -305,3 +392,15 @@ inventory and the list. The arithmetic play cannot reach — an award of 128 mag
 experience sum past three bytes, a share for no allies, a Cursed Shield in more than one slot, a quantity
 sum past 255 — is reproduced all the same and checked by hand and against
 the cartridge.
+
+## U. What the game keeps — `UpdateSRAM :12092-12179`
+
+`writeBack()` does what `UpdateSRAM` does: each party member's statuses (the first byte, with Float and
+Interceptor of the fourth), HP and — unless its maximum MP is 0 — MP into its record; a fallen ghost, and
+anyone taken from the party, out of it (`RemoveChar :11879-11885`: `stz $1850,x`, **the record's whole
+party byte cleared** — party, slot and row; the byte's two top bits, which the port keeps no field for,
+clear with it); the battle inventory copied back; the colosseum's wager given up — one taken from each
+slot holding it, last slot first, until a slot runs out, after which the search looks for empty slots
+(`:12135-12150`: the emptied slot's `lda #$ff` replaces the wager the loop compares with); Doom Gaze's HP; the
+twenty battle variables; and the battle found on the Veldt. Shadow walking off (`ShadowLeaves
+:11990-12007`) clears his party byte the same way.

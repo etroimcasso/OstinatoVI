@@ -358,6 +358,7 @@ does all of this itself.
 | `veldtFormation` | the formation the battle began with, when Gau can now find it on the Veldt |
 | `shadowLeftParty` | Shadow walked off |
 | `itemsObtainedTail` | the last three places of the items obtained as the battle leaves them, for the next battle's start |
+| `gauLeftParty` | Gau leapt: he has left the party and is no longer one of the characters it can field |
 
 ## The battle switches
 

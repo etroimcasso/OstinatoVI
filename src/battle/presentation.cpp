@@ -713,7 +713,7 @@ void tickBattlePresentation(BattlePresentationState& shown, const BattleState& b
         } else if (const auto* script = std::get_if<RunBattleScript>(&request)) {
             shown.scripts.push_back(script->commands);
         } else if (std::holds_alternative<CloseBattleScene>(request)) {
-            shown.sceneClosed = true;
+            shown.sceneClosing = true;
         }
     }
 
@@ -730,6 +730,10 @@ void tickBattlePresentation(BattlePresentationState& shown, const BattleState& b
 
     shown.idle = !commandPlaying(shown) && shown.scripts.empty() && !shown.deathFade;
     shown.timeRunning = true;
+    // The battle's end plays every message it asked for before the scene fades out.
+    if (shown.sceneClosing && !commandPlaying(shown) && shown.scripts.empty()) {
+        shown.sceneClosed = true;
+    }
 }
 
 BattleInput battleInput(const BattlePresentationState& shown) {

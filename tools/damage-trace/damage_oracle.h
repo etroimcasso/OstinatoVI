@@ -39,6 +39,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -668,35 +669,64 @@ struct EndingScenario {
 };
 
 // Something an ending shows, as both sides are compared: a party member's battle menu closing, a
-// wait of so many frames, or an item a party member put away. On the cartridge a wait is that many
-// calls to wait for a frame, and a merge of the items obtained shows nothing.
+// wait of so many frames, an item a party member put away, a battle message, the acting battler
+// stepping back, or the party celebrating a win. On the cartridge a wait is that many calls to wait
+// for a frame, a merge of the items obtained shows nothing, an item added and merged at once (a drop,
+// the colosseum's prize) shows only its message, and the celebration is one call — read with whether
+// the fanfare plays and whether battle event 1 does, as the graphics program's command decides them
+// from the formation's flags and the field's music. The port's celebration is every menu closing,
+// then the fanfare and the event as it asks for them.
 struct EndingCall {
-    enum class Kind : std::uint8_t { CloseMenu, Wait, ItemObtained, Other };
+    enum class Kind : std::uint8_t { CloseMenu, Wait, ItemObtained, Message, StepBack, Celebration, Other };
     Kind kind = Kind::Other;
     std::uint8_t slot = 0;       // CloseMenu: the party slot
     int frames = 0;              // Wait
     ItemId item = ItemId::EMPTY; // ItemObtained
+    MessageShown message;        // Message
+    bool fanfare = false;        // Celebration: the fanfare starts
+    bool victoryEvent = false;   // Celebration: battle event 1 plays
     std::uint8_t command = 0;    // Other: the graphics command, or 0 for a request of the port's own
     friend bool operator==(const EndingCall&, const EndingCall&) = default;
 };
 
-// What an ending leaves, as the same fields on both sides: the party read back, the inventory, the
-// items obtained with both counts, what each party member holds in hand and who is marked as
-// holding something, the Morph meter shown per party slot, whether battle menus may open, and the
-// calls in order.
+// What an ending leaves, as the same fields on both sides: the party read back, the battle switches,
+// the inventory, the items obtained with both counts, what each party member holds in hand and who
+// is marked as holding something, the Morph meter shown per party slot, whether battle menus may
+// open, the random-number position, and the calls in order.
 struct EndingResult {
     PartyCells cells;
+    game::BattleSwitches switches;
     std::array<battle::BattleItem, game::kInventorySlots> inventory{};
     battle::ItemsObtained itemsObtained;
     std::array<std::optional<ItemId>, battle::kPartySlots> hands{};
     std::uint8_t holdingItem = 0;
     std::array<std::uint8_t, battle::kPartySlots> morphGauges{};
     bool menusDisabled = false;
+    std::uint8_t rngPosition = 0;
     std::vector<EndingCall> calls;
 };
 
-// The port's wrap-up (battle::wrapUpBattle) over the scenario.
+// The port's side of each ending over the scenario: the wrap-up (battle::wrapUpBattle), the win
+// (battle::playBattleEnd with BattleWon), and the loss with `message` (BattleLost, then the switches
+// as battle::writeBack() hands them back).
 [[nodiscard]] EndingResult portWrapUp(const EndingScenario& scenario);
+[[nodiscard]] EndingResult portWin(const EndingScenario& scenario);
+[[nodiscard]] EndingResult portLoss(const EndingScenario& scenario, std::optional<std::uint8_t> message);
+
+// What the game keeps from a battle, as the cartridge writes it to the party's cells: the party
+// (each record's statuses, HP and MP, and who is in the party), the inventory, the battle switches,
+// and the battles Gau can find on the Veldt (a bit per battle below 512).
+struct WriteBackResult {
+    PartyCells cells;
+    std::array<game::InventorySlot, game::kInventorySlots> inventory{};
+    game::BattleSwitches switches;
+    std::bitset<512> veldtBattles;
+};
+
+// The port's side: battle::writeBack() over the scenario, the Veldt's battles being the scenario's
+// with the result's veldtFormation added.
+[[nodiscard]] WriteBackResult portWriteBack(const EndingScenario& scenario);
+[[nodiscard]] std::string differences(const WriteBackResult& port, const WriteBackResult& guest);
 
 // Every field where the two parted, one per line; empty when they agree. An inventory slot or a place
 // of the list whose item is empty on both sides agrees whatever else it holds.
@@ -879,11 +909,20 @@ struct CellsLeftAsTheMachineHasThem {
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 9> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 12> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
-    {.at = 0x7E01F1, .count = 5,
+    {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
             "the command's rtl"},
+    {.at = 0x7E00F9,
+     .why = "the byte above the experience a level needs, rotated with it by a 16-bit rol and never compared; the "
+            "win zeroes it before it counts a drop there"},
+    {.at = 0x7E2F41,
+     .why = "the byte after the win's gold total, which the total's 16-bit increment of its third byte reads and puts "
+            "back; six monsters' gold never carries out of the third byte"},
+    {.at = 0x7E2E74,
+     .why = "an empty item's targeting, which the item record leaves as it was and the list copies; a place whose "
+            "item is empty is never read past its item"},
     {.at = 0x7E00EB,
      .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
     {.at = 0x7E00F3,
@@ -1039,6 +1078,16 @@ public:
     // The battle's end as every ending but two begins it (_c24903), from the scenario's cells, both
     // register widths narrow, with the graphics program answered as above.
     [[nodiscard]] EndingResult wrapUp(const EndingScenario& scenario);
+
+    // The win, whole (WinBattle), the same way, the accumulator narrow.
+    [[nodiscard]] EndingResult win(const EndingScenario& scenario);
+
+    // The loss (LoseBattle), the message in the accumulator — $FF for none.
+    [[nodiscard]] EndingResult loss(const EndingScenario& scenario, std::optional<std::uint8_t> message);
+
+    // What the game keeps from the battle (UpdateSRAM), from the scenario's cells, both register widths
+    // narrow.
+    [[nodiscard]] WriteBackResult writeBack(const EndingScenario& scenario);
 
     // The scenario's item added to the list (graphics command $05), and the list merged into the
     // inventory ($0A), each through the battle program's call to the graphics program.
@@ -1208,6 +1257,7 @@ private:
     [[nodiscard]] ItemsObtainedResult callItemsObtained(const ItemsObtainedScenario& scenario, std::uint8_t command);
     void writeEndingScenario(const EndingScenario& scenario);
     [[nodiscard]] EndingResult readEndingResult();
+    [[nodiscard]] EndingResult callEnding(const EndingScenario& scenario, const std::function<void()>& routine);
     void writeAiCells(const AiScenario& scenario);
     void writeAiScriptCells(const battle::BattleState& state);
     void writeAiRunCells(const AiScenario& scenario, bool counter);
@@ -1279,6 +1329,9 @@ private:
     retropp::Routine<Call> mergeItemsObtained_;
     // The battle's end, and the title program's laying out.
     retropp::Routine<Call> wrapUp_;
+    retropp::Routine<Call> winBattle_;
+    retropp::Routine<AbilitiesCall> loseBattle_;
+    retropp::Routine<Call> updateSram_;
     retropp::Routine<Call> decompCutsceneProg_;
     std::vector<GraphicsCall> graphicsCalls_;
     // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
@@ -1431,6 +1484,13 @@ struct TargetScenario {
 // the hands hold near 99, or full; and the items obtained empty, part-full or near the end of their
 // sixteen places, with both counts drawn so a merge often runs past place 12 into the last three.
 [[nodiscard]] EndingScenario drawEndingScenario(std::mt19937& rng);
+
+// A battle won or lost, for the win, the loss and the write-back: one to four party members with a mix
+// of actors (Terra, Mog, Gau, Gogo, Umaro and the guests often), alive or fallen, Cat Hoods and Exp.
+// Eggs, espers, experience near the next levels; one to six monsters fallen, fled or standing; on the
+// Veldt or not; the colosseum now and then; lores learned; every background; the fanfare on and off;
+// the wrap-up's own draws besides.
+[[nodiscard]] EndingScenario drawWinScenario(std::mt19937& rng);
 [[nodiscard]] std::string describe(const EndingScenario& scenario);
 
 // The list and the inventory for the graphics program's two commands, drawn the same way, with an

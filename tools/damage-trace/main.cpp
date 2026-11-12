@@ -380,8 +380,27 @@ public:
             return;
         }
         log_.open(directory / "cells.log", std::ios::app);
+        // A range the trace already watches cannot be watched twice: its writes go unlogged, and its
+        // bytes are still logged every frame.
         WatchMap map;
         for (std::size_t i = 0; i < watched_.size(); ++i) {
+            const bool tracedAlready = std::any_of(trace::kTracedRanges.begin(), trace::kTracedRanges.end(),
+                                                   [&](const trace::TracedRange& range) {
+                                                       return watched_[i].at < range.at + range.size &&
+                                                              range.at < watched_[i].at + watched_[i].size;
+                                                   }) ||
+                                       std::any_of(trace::kPartyRecordRanges.begin(), trace::kPartyRecordRanges.end(),
+                                                   [&](const trace::TracedRange& range) {
+                                                       return watched_[i].at < range.at + range.size &&
+                                                              range.at < watched_[i].at + watched_[i].size;
+                                                   });
+            if (tracedAlready) {
+                char text[64];
+                std::snprintf(text, sizeof text, "writes not watched: $%02X:%04X, which the trace watches",
+                              (watched_[i].at >> 16) & 0xFF, watched_[i].at & 0xFFFF);
+                log_ << text << '\n';
+                continue;
+            }
             map.declarations.push_back(GuestWatch{
                 .key = "watched cells " + std::to_string(i),
                 .at = MemoryRegion{.at = watched_[i].at, .size = watched_[i].size},
@@ -393,7 +412,9 @@ public:
                     return AccessVerdict::proceed();
                 }});
         }
-        machine.registerWatches(map);
+        if (!map.declarations.empty()) {
+            machine.registerWatches(map);
+        }
         machine.registerEscapes(escapes(GuestEscape{.key = "battle entry, logged",
                                                     .at = kBattleEntry,
                                                     .handler = [this](Vm&, std::uint32_t) {
@@ -573,7 +594,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 31> kSweeps{{
+constexpr std::array<Sweep, 34> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -784,6 +805,32 @@ constexpr std::array<Sweep, 31> kSweeps{{
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::EndingScenario s = trace::drawEndingScenario(rng);
          std::string differences = trace::differences(trace::portWrapUp(s), oracle.wrapUp(s));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "win",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         std::string differences = trace::differences(trace::portWin(s), oracle.win(s));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "loss",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         // The annihilated message, Banon's, or none.
+         const std::optional<std::uint8_t> message =
+             rng() % 3 == 0 ? std::nullopt
+                            : std::optional<std::uint8_t>(rng() % 2 == 0 ? battle::kMessageAnnihilated
+                                                                         : battle::kMessageBanonFell);
+         std::string differences = trace::differences(trace::portLoss(s, message), oracle.loss(s, message));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "write-back",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         std::string differences = trace::differences(trace::portWriteBack(s), oracle.writeBack(s));
          differences += unwrittenReadLines(oracle);
          return DrawResult{trace::describe(s), "", differences};
      }},
