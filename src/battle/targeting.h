@@ -38,14 +38,24 @@ inline constexpr ItemId kFirstItemUsedAsItself = ItemId::SPRINT_SHOES;
 // then, and the command loads the item's attack itself.
 bool initTargeting(AttackInFlight& attack, BattleCommandId command, AttackId attackOrItem);
 
-// Settle who the attack reaches, starting from attack.targets. For an attack bounced off Reflect,
-// `reflectedFrom` is the battler that cast it: half the time it is hit by its own spell.
+// Settle who the attack reaches, starting from attack.targets. An attack under a bounce off
+// Reflect's rule (attack.rules.reflected), aimed at the other side only, goes half the time to
+// `lastParamsAttacker` — the battle script's BattleScriptBuilder::lastParamsAttacker(), the caster
+// for the bounce itself — when that battler is among its targets. When it names no one, the attack
+// takes two lore list entries for its targets instead (docs/Bugs.md). The rule lasts the rest of
+// the command, so a later attack of the same command is aimed this way too.
 void chooseTargets(BattleState& state, AttackInFlight& attack, BattlerSlot attacker,
-                   std::optional<BattlerSlot> reflectedFrom = std::nullopt);
+                   std::optional<BattlerSlot> lastParamsAttacker = std::nullopt);
 
 // `targets` without those not on the field: absent, hidden, or fallen (dead for a party member;
 // dead, petrified or a zombie for a monster).
 BattlerSet removeAbsentTargets(const BattleState& state, BattlerSet targets);
+
+// `targets` without those no attack can reach: battlers not on the field or not counted in the
+// battle, party members held in Seize, monsters their AI has made untargetable, and — with
+// `awayFromTheFieldUnreachable` — the battlers away from the field (jumping, carried off by
+// Palidor, held in Seize).
+BattlerSet reachableTargets(const BattleState& state, BattlerSet targets, bool awayFromTheFieldUnreachable);
 
 // A True Knight or a Love Token: a battler steps in front of the target of a blow and is hit in
 // its place. A bodyguard who is controlled or held in Seize does not step in, and a target held in

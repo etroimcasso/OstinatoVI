@@ -1,7 +1,8 @@
 // The actions the battle takes on its own: damage over time, a spell no one cast, status timers
 // running out, the party getting away, Seize draining its captive, and the things a monster's AI
 // asks for besides attacks — a formation change, a dialog, a battle event, monsters leaving or
-// coming back, Scan's report, a monster animation.
+// coming back, Scan's report, a monster animation, a variable or switch changed, and the effects
+// of AiEffect.
 //
 // CommandExecutor::execute() runs each one when the battle core reaches it. Every function adds
 // what the action shows to `script`; the ones that make an attack set it up in `attack` and run it
@@ -70,5 +71,34 @@ void setMonsterVisibility(BattleState& state, BattleScriptBuilder& script, const
 // weak against that nothing else about it cancels — one message each, every message its own
 // battle script, played in order before the action's own.
 void scan(BattleState& state, BattlerSlot target);
+
+// `actor`'s script sets a variable to the action's amount, or adds it or subtracts it. A battle
+// variable is shared by every script in the battle; the battler's own is Battler::aiVariable. The
+// result stays within the variable's byte.
+void changeBattleVariable(BattleState& state, BattlerSlot actor, const BattleVariableAction& action);
+
+// `actor`'s script toggles, sets or clears a switch: a bit of a variable, or one of the game's
+// battle switches (BattleState::switches).
+void changeBattleSwitch(BattleState& state, BattlerSlot actor, const BattleSwitchAction& action);
+
+// `actor`'s script's effect (AiEffect):
+//
+//   ResetOwnTimer / ResetBattleTimer   Battler::turnTimer / BattleState::battleCounter back to 0
+//   MakeInvincible / EndInvincible     the target joins or leaves BattleState::invincible
+//   MakeTargetable / MakeUntargetable  the target's monsters leave or join BattleState::aiUntargetable
+//   EndBattle / EndBattleLearningRages the battle's end-of-battle event: EndNow / RagesLearned
+//   RecruitGau                         Gau is recruited, and `actor`'s character record joins the
+//                                      party being played at `actor`'s slot, its row kept
+//   FillGauge                          if the target names anyone, `actor`'s own gauge fills at the
+//                                      next time update — not the target's
+//   SetStatus / ClearStatus            an attack by `actor` on itself that puts the status on or
+//                                      takes it off, with nothing shown
+//   HideSelf                           Hide goes straight onto `actor`'s statuses
+//   Nothing                            nothing
+//
+// A target is found as a script's condition finds one (aiTargets(), with every battler in the
+// battle a candidate).
+void runAiEffect(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
+                 BattlerSlot actor, const AiEffectAction& action);
 
 }  // namespace ostinato::battle

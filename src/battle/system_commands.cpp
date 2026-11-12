@@ -1,9 +1,12 @@
 #include "battle/system_commands.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
+#include "battle/ai_targets.h"
 #include "battle/battle_start.h"
 #include "battle/commands.h"
 #include "battle/targeting.h"
@@ -34,6 +37,142 @@ constexpr int kElementBits = 8;
 void startOwnAttack(AttackInFlight& attack) {
     plainCommandAttack(attack, BattleCommandId::NONE);
 }
+
+std::uint8_t& variableOf(BattleState& state, BattlerSlot actor, AiVariable variable) {
+    return variable.isOwn() ? state.at(actor).aiVariable : state.battleVariables[variable.index()];
+}
+
+// --- the effects a script asks for ------------------------------------------------------------
+
+// What an effect works on.
+struct AiEffectRun {
+    BattleState& state;
+    AttackHooks& hooks;
+    BattleScriptBuilder& script;
+    AttackInFlight& attack;
+    BattlerSlot actor;
+    const AiEffectAction& action;
+
+    BattlerSet targets() { return aiTargets(state, actor, action.target, false); }
+};
+
+// The fill a gauge's rate takes for the effect that fills it: its high byte all set, so the next
+// time update fills the gauge.
+constexpr std::uint16_t kGaugeFillsNextUpdate = 0xFF00;
+constexpr std::uint16_t kRateFraction = 0x00FF;
+
+void resetOwnTimer(AiEffectRun& run) {
+    run.state.at(run.actor).turnTimer = 0;
+}
+
+void makeInvincible(AiEffectRun& run) {
+    run.state.invincible = run.state.invincible | run.targets();
+}
+
+void endBattle(AiEffectRun& run) {
+    run.state.endOfBattleEvent = EndOfBattleEvent::EndNow;
+}
+
+// Gau is recruited, and the battler's character record joins the party being played at its slot.
+void recruitGau(AiEffectRun& run) {
+    run.state.gauRecruited = true;
+    const Battler& battler = run.state.at(run.actor);
+    if (!battler.record) {
+        return;
+    }
+    game::PartyMembership& membership = run.state.party.membership[*battler.record];
+    membership.party = run.state.party.currentParty;
+    membership.slot = static_cast<std::uint8_t>(run.actor.position());
+}
+
+void resetBattleTimer(AiEffectRun& run) {
+    run.state.battleCounter = 0;
+}
+
+void endInvincible(AiEffectRun& run) {
+    run.state.invincible = run.state.invincible.without(run.targets());
+}
+
+void makeTargetable(AiEffectRun& run) {
+    run.state.aiUntargetable = run.state.aiUntargetable.without(run.targets().monstersOnly());
+}
+
+void makeUntargetable(AiEffectRun& run) {
+    run.state.aiUntargetable = run.state.aiUntargetable | run.targets().monstersOnly();
+}
+
+// The target only decides whether anything happens: it is the battler's own gauge that fills.
+void fillGauge(AiEffectRun& run) {
+    if (run.targets().empty()) {
+        return;
+    }
+    Battler& battler = run.state.at(run.actor);
+    battler.atbRate = static_cast<std::uint16_t>((battler.atbRate & kRateFraction) | kGaugeFillsNextUpdate);
+}
+
+void endBattleLearningRages(AiEffectRun& run) {
+    run.state.endOfBattleEvent = EndOfBattleEvent::RagesLearned;
+}
+
+void nothing(AiEffectRun&) {}
+
+// An attack by the battler on itself that puts the status on, or with the remove-status flag takes
+// it off, showing nothing.
+void ownStatusAttack(AiEffectRun& run, bool remove) {
+    startOwnAttack(run.attack);
+    run.attack.record.statuses.set(run.action.status);
+    run.attack.command = kNothingShown;
+    if (remove) {
+        run.attack.record.flags2.set(AttackFlag2::REMOVE_STATUS);
+    }
+    runSelfAttack(run.state, run.hooks, run.script, run.attack, run.actor);
+}
+
+void setStatus(AiEffectRun& run) {
+    ownStatusAttack(run, false);
+}
+
+void clearStatus(AiEffectRun& run) {
+    ownStatusAttack(run, true);
+}
+
+// Hide goes onto the battler's statuses directly, not through the statuses taking effect.
+void hideSelf(AiEffectRun& run) {
+    run.state.at(run.actor).status.set(StatusId::HIDE);
+}
+
+struct AiEffectRule {
+    AiEffect effect;
+    void (*run)(AiEffectRun&);
+};
+
+// One row per effect, in the order the game numbers them.
+constexpr std::array<AiEffectRule, 14> kAiEffectRules{{
+    {AiEffect::ResetOwnTimer, resetOwnTimer},
+    {AiEffect::MakeInvincible, makeInvincible},
+    {AiEffect::EndBattle, endBattle},
+    {AiEffect::RecruitGau, recruitGau},
+    {AiEffect::ResetBattleTimer, resetBattleTimer},
+    {AiEffect::EndInvincible, endInvincible},
+    {AiEffect::MakeTargetable, makeTargetable},
+    {AiEffect::MakeUntargetable, makeUntargetable},
+    {AiEffect::FillGauge, fillGauge},
+    {AiEffect::EndBattleLearningRages, endBattleLearningRages},
+    {AiEffect::Nothing, nothing},
+    {AiEffect::SetStatus, setStatus},
+    {AiEffect::ClearStatus, clearStatus},
+    {AiEffect::HideSelf, hideSelf},
+}};
+
+constexpr bool rulesInOrder() {
+    for (std::size_t i = 0; i < kAiEffectRules.size(); ++i) {
+        if (static_cast<std::size_t>(kAiEffectRules[i].effect) != i) {
+            return false;
+        }
+    }
+    return true;
+}
+static_assert(rulesInOrder(), "kAiEffectRules holds one row per effect, in the game's order");
 
 }  // namespace
 
@@ -244,6 +383,59 @@ void scan(BattleState& state, BattlerSlot target) {
             show(BattleMessage{.message = static_cast<std::uint8_t>(kMessageWeakAgainst + bit)});
         }
     }
+}
+
+void changeBattleVariable(BattleState& state, BattlerSlot actor, const BattleVariableAction& action) {
+    std::uint8_t& variable = variableOf(state, actor, action.variable);
+    switch (action.change) {
+    case AiVariableChange::Set:
+        variable = action.amount;
+        break;
+    case AiVariableChange::Add:
+        variable = static_cast<std::uint8_t>(variable + action.amount);
+        break;
+    case AiVariableChange::Subtract:
+        variable = static_cast<std::uint8_t>(variable - action.amount);
+        break;
+    }
+}
+
+void changeBattleSwitch(BattleState& state, BattlerSlot actor, const BattleSwitchAction& action) {
+    const AiSwitch which = action.which;
+    if (which.isBattleSwitch()) {
+        const int number = which.number();
+        switch (action.change) {
+        case AiSwitchChange::Toggle:
+            state.switches.set(number, !state.switches.isSet(number));
+            break;
+        case AiSwitchChange::Set:
+            state.switches.set(number, true);
+            break;
+        case AiSwitchChange::Clear:
+            state.switches.set(number, false);
+            break;
+        }
+        return;
+    }
+    std::uint8_t& variable = variableOf(state, actor, which.variable());
+    const auto bit = static_cast<std::uint8_t>(1u << which.bit());
+    switch (action.change) {
+    case AiSwitchChange::Toggle:
+        variable = static_cast<std::uint8_t>(variable ^ bit);
+        break;
+    case AiSwitchChange::Set:
+        variable = static_cast<std::uint8_t>(variable | bit);
+        break;
+    case AiSwitchChange::Clear:
+        variable = static_cast<std::uint8_t>(variable & ~bit);
+        break;
+    }
+}
+
+void runAiEffect(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& script, AttackInFlight& attack,
+                 BattlerSlot actor, const AiEffectAction& action) {
+    AiEffectRun run{.state = state, .hooks = hooks, .script = script, .attack = attack, .actor = actor, .action = action};
+    kAiEffectRules[static_cast<std::size_t>(action.effect)].run(run);
 }
 
 }  // namespace ostinato::battle

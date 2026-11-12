@@ -17,7 +17,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/command_executor.h` | `CommandExecutor` |
 | `src/battle/system_commands.h` | the battle's own actions: `damageOverTime()`, `spellWithoutCaster()`, `statusTimersExpire()`, `partyEscapes()`, `seizeDrain()`, `formationChange()`, `setMonsterVisibility()`, `scan()` |
 | `src/battle/automatic_actions.h` | `chooseAutomaticAction()`, `chooseOwnCommand()`, `choosesItsOwnAttack()`, `chooseMonsterAction()`, `chooseDanceStep()`, `chooseRageAttack()`, `chooseRandomEsper()` |
-| `src/battle/action_queue.h` | the `Action` kinds, among them `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction` with `MonsterVisibilityMode`, `ScanAction` and `MonsterAnimationAction` |
+| `src/battle/action_queue.h` | the `Action` kinds, among them `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction` with `MonsterVisibilityMode`, `ScanAction`, `MonsterAnimationAction`, `BattleVariableAction`, `BattleSwitchAction` and `AiEffectAction` |
 | `src/battle/commands.h` | `runCommand()`, the bodies' loaders — `initAttacker()`, `attackerLevel()`, `loadWeaponAttack()`, `plainCommandAttack()`, `fightAttack()`, `setRage()` — and `commandForAttack()`, `isSpear()`, `itemStatuses()`, `kBattleEventTerraMagicScene`, `kTimeUpdatesBeforeDesperation` |
 | `src/battle/item_attack.h` | `itemAttack()`, `ItemUse` |
 | `src/battle/command_menu.h` | `refreshCommandMenu()`, `kMorphSupplyToMorph`, `kOfferingTargeting` |
@@ -25,6 +25,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `MonsterAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
 | `src/battle/battle_inventory.h` | `putAwayItemsObtained()` ([below](#items-obtained)) |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attack()`, `selfAttack()` and `unwrittenReads()`, the cartridge's attack frame over a `DamageScenario`; `portAttack()`, `portSelfAttack()`, `attackResult()` and `differences()`; `drawAttackScenario()`, `drawSelfAttackScenario()` ([below](#checking-an-attack-against-the-cartridge)) |
 
 ## Running commands
 
@@ -159,8 +160,9 @@ shown.
 
 These three make a second command inside the first, into the same script.
 
-- **Sketch** draws the sketch. If its effect caught the monster (`scratch.sketch`), the sketcher takes
-  the monster's special attack and its animation and makes the attack it caught, as the monster
+- **Sketch** draws the sketch. If its effect caught the monster (`scratch.sketch`, with the attack it
+  caught in `scratch.followUpSpell`), the sketcher takes the monster's special attack and its
+  animation and makes the attack it caught, as the monster
   would: with the monster's vigor or magic power, the sketcher's level, aimed at random, named again.
 - **Rage** rages as the monster chosen, or as the last party member to rage did (`state.lastRager`).
   `setRage()` takes on the monster: its special attack and animation, its attack's look in both hands,
@@ -184,7 +186,12 @@ These three make a second command inside the first, into the same script.
 
 The battle core queues these itself, or a monster's AI asks for them; `execute()` runs each one.
 Most make an attack from the plain hit with no command's rules, shown as `kNothingShown`, so the
-hooks work out their damage and statuses like any other attack's.
+hooks work out their damage and statuses like any other attack's. Each runs under its own command
+number in `attack.queuedCommand` — `kDamageOverTimeCommand`, `kSpellWithoutCasterCommand`,
+`kStatusTimersCommand`, `kSeizeDrainCommand`, and for a script's three `kBattleVariableCommand`,
+`kBattleSwitchCommand` and `kAiEffectCommand` (`src/battle/attack.h`) — and a battler its attack hits
+keeps that number as the command it was last hit with (`Battler::lastHit`), as a monster's script
+reads it ([ai.md](ai.md)).
 
 | Action | What happens |
 |---|---|
@@ -197,6 +204,8 @@ hooks work out their damage and statuses like any other attack's.
 | `MonsterVisibilityAction` | `setMonsterVisibility()`: monsters leave or come back by `MonsterVisibilityMode` — revived at full or current HP, hidden as a target or not, hidden while the battle may not end, hidden and killed |
 | `ScanAction` | `scan()`: the level, HP, MP (unless the target has none) and each weakness nothing cancels, one message each, every message its own `RunBattleScript` played before the action's own, which is empty |
 | `MonsterDialogAction`, `BattleMessageAction`, `BattleEventAction`, `ResetBattlePose`, `MonsterAnimationAction` | only their command: `MonsterDialogShown`, `BattleMessage`, `BattleEventPlays`, `PoseReset`, `MonsterAnimationPlays` |
+| `BattleVariableAction`, `BattleSwitchAction` | `changeBattleVariable()`, `changeBattleSwitch()`: a monster's script sets, raises or lowers a variable, or toggles, sets or clears a switch ([ai.md](ai.md#the-three-commands-a-script-queues)); nothing is shown |
+| `AiEffectAction` | `runAiEffect()`: one of a monster's script's effects ([ai.md](ai.md#the-three-commands-a-script-queues)); `SetStatus` and `ClearStatus` make an attack on the battler itself, shown as `kNothingShown` |
 
 ```cpp
 AttackInFlight attack;
@@ -232,7 +241,9 @@ not aimed.
 A monster that is berserk, confused, charmed or in the colosseum picks its own attack instead of
 following its AI: `runAi()` checks `choosesItsOwnAttack()` and calls `chooseMonsterAction()`, which
 takes one of its four Control attacks — from a slot drawn at random, the first filled one counting
-down and round again — or, when berserk, the plain hit. Any other monster's AI turn adds nothing.
+down and round again — or, when berserk, the plain hit. Any other monster, and a party member a
+scripted battle gives a script, reads its AI script's turn part (`runAiTurn()`); `runCounterAi()`
+reads a battler's counterattack part and `initAi()` readies its script ([ai.md](ai.md#in-a-battle)).
 
 `chooseRandomEsper()` is the esper a slot reel's summon calls: every esper but Odin and Raiden,
 equally likely.
@@ -301,10 +312,21 @@ attack.effect.isNone();
 ## The attack frame
 
 `runAttack()` runs the command's attacks — `scratch.attacksLeft` more after the first — and
-`resolveAttack()` one of them. A Fight is two attacks, one per hand; with an Offering it is eight. A
-hand with no battle power makes no attack. `runSelfAttack()` aims at the attacker itself, and for
-the rest of the command battlers away from the field can be aimed at
+`resolveAttack()` one of them. A Fight is two attacks, one per hand; with an Offering it is eight.
+Each loads the hand it swings with (`loadWeaponAttack()`), the weapon hand first, and a hand with no
+battle power makes no attack; Capture's hits also carry Steal. `runSelfAttack()` aims at the attacker
+itself, and for the rest of the command battlers away from the field can be aimed at
 ([targeting.md](targeting.md#gotchas)).
+
+Loading a hand puts it in the top bit of `attack.attack` and turns the rest of the byte down a bit —
+the Fight animation reads the hand there — so after one swing the attack number is not the attack's
+own:
+
+```cpp
+attack.attack = AttackId::BATTLE;                 // $EE
+loadWeaponAttack(state, attack, actor, false);    // the weapon hand: $77
+loadWeaponAttack(state, attack, actor, true);     // the shield hand: $BB
+```
 
 On the way an attack can:
 
@@ -371,6 +393,83 @@ The battle's own hooks are `BattleHooks` (`src/battle/battle_hooks.h`), which fi
 in [status.md](status.md), and `attackerEffect`, `targetEffect` and `controlMenu` one call each into
 the special effects and the control menu in [effects.md](effects.md).
 
+## Checking an attack against the cartridge
+
+`DamageOracle::attack()` runs the cartridge's own attack frame over a `DamageScenario` — the battle,
+the attack in flight and its attacker — and `portAttack()` runs `runAttack()` over the same battle
+with `BattleHooks`. `attackResult()` reads the port's run back as the cartridge's cells are read, and
+`differences()` names each cell where they part. `selfAttack()` and `portSelfAttack()` do the same for
+`runSelfAttack()`:
+
+```cpp
+#include "damage_oracle.h"
+
+trace::runOnLoop([&] {
+    trace::DamageOracle oracle{image};
+    oracle.start();
+
+    trace::DamageScenario s;
+    const battle::BattlerSlot hero = battle::BattlerSlot::character(0);
+    const battle::BattlerSlot foe = battle::BattlerSlot::monster(0);
+    for (const battle::BattlerSlot slot : {hero, foe}) {
+        battle::Battler& battler = s.state.at(slot);
+        battler.present = true;
+        battler.hp = 1000;
+        battler.maxHp = 1000;
+        battler.mp = 100;
+        s.state.targetableOrPresent.add(slot);
+        s.state.countedInBattle.add(slot);
+        s.state.alive.add(slot);
+    }
+    s.attacker = foe;
+    s.attack.command = BattleCommandId::MAGIC;
+    s.attack.attack = AttackId::FIRE;
+    battle::loadAttackRecord(s.attack, AttackId::FIRE);
+    s.attack.targeting = s.attack.record.targeting;
+    s.attack.targets = battle::BattlerSet::of(hero);
+
+    const trace::AttackResult port = trace::attackResult(trace::portAttack(s));
+    const std::string apart = trace::differences(port, oracle.attack(s));  // ""
+    const std::string& script = port.cells.at("script");                    // the animation, the numeral
+});
+```
+
+The result holds every cell the frame leaves — HP, MP, statuses, the marks and links, the special
+effects' cells — and the battle script whole, one line per command with each animation's params block.
+
+`DamageOracle::ownAction()` runs one of the battle's own actions as the cartridge's command over a
+`DamageScenario` whose attacker is the battler acting — damage over time, a spell with no caster,
+status timers running out, Seize's drain, or a script's effect (through `aiCommand()`) — and
+`portOwnAction()` runs `CommandExecutor::execute()` over the same battle. The result adds every
+battler's damage-over-time action waiting and its Poison multiplier:
+
+```cpp
+s.state.at(foe).status.set(StatusId::POISON);
+s.state.enemyCount = 1;
+const battle::Action poison = battle::DamageOverTime{.kind = battle::DamageOverTimeKind::Poison};
+const trace::AttackResult beat = trace::portOwnAction(s, poison);
+const std::string apart = trace::differences(beat, oracle.ownAction(s, poison));  // ""
+beat.cells.at("poison multiplier of battler 4");                                   // "2"
+```
+
+`drawAttackScenario()`, `drawSelfAttackScenario()` and `drawOwnActionCase()` draw battles from a seeded
+generator, and `ostinato-damage-trace --check` runs them as `attack`, `self-attack` and `own-actions`.
+
+Gotchas:
+
+- **Every cell the frame reads comes from the scenario.** After each call
+  `DamageOracle::unwrittenReads()` lists the cells of the battle's work RAM the frame read before
+  anything wrote them; the only ones allowed are in `kCellsLeftAsTheMachineHasThem`. A new field the
+  frame reads shows up there until the oracle writes it.
+- **The port side runs the battle's own hooks.** `portAttack()` uses `BattleHooks`, so the damage,
+  statuses and special effects are compared along with the frame.
+- **An action starts clean on both sides.** The cartridge's command start sets the per-action cells
+  to their empty values, and `portOwnAction()` clears `state.scratch` as the battle loop does before
+  every action, so a scenario's leftover counterattack and Interceptor cells do not carry in.
+- **The frame's inner routines replay where the frame returns.** Traced during `attack()`, the
+  damage, status and special-effect routines close at the frame's own return sites, and
+  `DamageOracle::replay()` replays them as they are.
+
 ## The battle script
 
 A body writes its script into a `BattleScriptBuilder`. Animations take params — attacker, targets,
@@ -427,6 +526,9 @@ An attack shown as `kNothingShown` (Mimic's command, whose animation is empty) s
   Blind changes nothing ([`docs/Bugs.md`](../../Bugs.md)).
 - **The Golem and Interceptor make a hit.** When one of them steps in, the target counts as hit and
   the attack's statuses are removed.
+- **A Fight's attack number turns at every swing.** `loadWeaponAttack()` shifts the hand into the
+  top bit of `attack.attack`, so a check of the attack number after the first swing — a monster's
+  special attack, a message named by the attack — sees the turned byte.
 - **A nested command shares the attack.** Sketch, Rage and Control run the second command on the same
   `AttackInFlight`, so what the first changed — the targets remembered, the name already shown, the
   swirl — carries into it.

@@ -794,7 +794,8 @@ TEST(Commands, ACaughtSketchIsMadeByTheSketcherAsTheMonsterWould) {
     AttackLog log;
     log.onTargetEffect = [](AttackInFlight& attack, BattlerSlot target) {
         if (attack.command == BattleCommandId::SKETCH) {
-            attack.scratch.sketch = battle::SketchDrawn{.monster = target, .attack = AttackId::FIRE};
+            attack.scratch.sketch = battle::SketchDrawn{.monster = target};
+            attack.scratch.followUpSpell = AttackId::FIRE;
         }
     };
     const auto script = run(state, log, kTerra, plain(BattleCommandId::SKETCH));

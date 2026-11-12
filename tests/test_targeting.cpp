@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <functional>
 #include <vector>
 
@@ -13,6 +14,8 @@
 #include "data/attack_properties.h"
 #include "data/battle_commands.h"
 #include "data/item_properties.h"
+#include "ostinato/attack_id.h"
+#include "ostinato/battle_slot_mask.h"
 #include "ostinato/command_targeting_init.h"
 #include "ostinato/targeting.h"
 
@@ -420,6 +423,20 @@ TEST(ChooseTargets, HalfTheTimeABouncedSpellHitsItsCaster) {
     rngWhere(state, {heads});
     battle::chooseTargets(state, lucky, kTerra, kGuard);
     EXPECT_EQ(lucky.targets, BattlerSet::of(kGuard) | BattlerSet::of(kSoldier));
+}
+
+// The aim back at the caster when the last params block names no one there: two entries of the
+// battle's lore list stand in for the caster's bit, Revenge's (known: 0x3E) as the party's bits and
+// Pearl Wind's (not known: 0xFF) as the monsters'.
+TEST(ChooseTargets, ABouncedAimFromNoOneTakesTwoLoreListEntries) {
+    BattleState state = makeAimableBattle();
+    state.party.loresKnown.set(static_cast<std::size_t>(AttackId::REVENGE) - static_cast<std::size_t>(AttackId::CONDEMNED));
+    AttackInFlight attack = aimedAt({}, Targeting::of(TargetFlags::INIT_GROUP));
+    attack.rules.reflected = true;
+    attack.rules.opposingSideOnly = true;
+    rngWhere(state, {tails});
+    battle::chooseTargets(state, attack, kTerra);
+    EXPECT_EQ(attack.targets, (BattlerSet{BattleSlotMask(0x3E), BattleSlotMask(0xFF)}));
 }
 
 TEST(ChooseTargets, TheMonsterSideIncludesThePartyMembersFightingTheParty) {

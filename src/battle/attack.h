@@ -116,10 +116,10 @@ enum class AttackNameKind : std::uint8_t {
     Blitz,                // the blitz
 };
 
-// A sketch that caught its monster: the sketcher makes `attack` next, as `monster` would.
+// A sketch that caught its monster: the sketcher makes the attack it caught next, as `monster` would.
+// The attack waits where a weapon's spell does (AttackScratch::followUpSpell).
 struct SketchDrawn {
     BattlerSlot monster = BattlerSlot::monster(0);
-    AttackId attack{};
 };
 
 // What each battler is about to lose and gain from the attack being worked out, before any of it is
@@ -133,7 +133,7 @@ struct DamageLedger {
 
 // What one command keeps track of between its attacks.
 struct AttackScratch {
-    std::optional<AttackId> followUpSpell;     // a weapon's spell, cast after the hit
+    std::optional<AttackId> followUpSpell;     // a weapon's spell cast after the hit, or the attack a sketch caught
     std::optional<std::uint8_t> message;       // a battle message shown after the attack
     // What the message names: an item ("Stole {item}") and an amount ("{amount} GP was stolen!!").
     std::optional<ItemId> messageItem;
@@ -224,6 +224,17 @@ struct AttackInFlight {
 
 // The battle command aimed at the Roulette target: Lore's Roulette when the battle chooses it.
 inline constexpr BattleCommandId kRouletteCommand = static_cast<BattleCommandId>(0x1E);
+
+// The commands the battle's own actions are queued as, which a battler they hit keeps as the command
+// it was last hit with (LastHits::command): damage over time, a spell with no caster, status timers
+// running out, Seize's drain, and the three only a monster's script queues.
+inline constexpr BattleCommandId kDamageOverTimeCommand = static_cast<BattleCommandId>(0x22);
+inline constexpr BattleCommandId kSpellWithoutCasterCommand = static_cast<BattleCommandId>(0x26);
+inline constexpr BattleCommandId kStatusTimersCommand = static_cast<BattleCommandId>(0x29);
+inline constexpr BattleCommandId kSeizeDrainCommand = static_cast<BattleCommandId>(0x2D);
+inline constexpr BattleCommandId kBattleVariableCommand = static_cast<BattleCommandId>(0x2E);
+inline constexpr BattleCommandId kBattleSwitchCommand = static_cast<BattleCommandId>(0x2F);
+inline constexpr BattleCommandId kAiEffectCommand = static_cast<BattleCommandId>(0x30);
 
 // The parts of an attack that other parts of the battle work out. Every member does nothing by
 // default. They are called in the order an attack is worked out:

@@ -544,7 +544,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     attack.scratch.missed = {};
     attack.scratch.hitInTheBack = {};
     attack.params = {};
-    chooseTargets(state, attack, attacker);
+    chooseTargets(state, attack, attacker, script.lastParamsAttacker());
     attack.scratch.targetCount = attack.targets.count();
     coverTarget(state, attack, attacker);
     initParams(attack, attacker);
@@ -641,7 +641,7 @@ void resolveAttack(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     if (attack.record.flags1.has(AttackFlag1::KILLS_ATTACKER)) {
         markToDie(state, attack, attacker);
     }
-    if (battler.controlledBy) {
+    if (battler.controlledBy && !battler.controlEnding) {
         hooks.controlMenu(state, *battler.controlledBy, attacker);
     }
 
@@ -713,7 +713,7 @@ void resolveReflectedAttack(BattleState& state, AttackHooks& hooks, BattleScript
             continue;
         }
         do {
-            chooseTargets(state, attack, from, attacker);
+            chooseTargets(state, attack, from, script.lastParamsAttacker());
             const std::optional<BattlerSlot> target = highestIn(attack.targets);
             if (!target) {
                 break;
@@ -812,7 +812,12 @@ void attackOnce(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scr
             attack.targets = {};
         }
         showAttackName(state, script, attack, attacker);
-        const BattlerSlot maker = attack.scratch.sketcher.value_or(attacker);
+        // The sketch cell names who makes the attack: the sketcher while it makes the attack its sketch
+        // caught, and from the moment a sketch catches its monster, that monster.
+        BattlerSlot maker = attack.scratch.sketcher.value_or(attacker);
+        if (!attack.scratch.sketcher && attack.scratch.sketch) {
+            maker = attack.scratch.sketch->monster;
+        }
         if (attack.queuedCommand == kRouletteCommand) {
             attack.targets = {};
             attack.rules = AimingRules{.keepTargetsThatAreGone = true};
@@ -825,6 +830,9 @@ void attackOnce(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& scr
             airAnchor(state, attack, maker);
             hooks.baseDamage(state, attack, maker);
             resolveAttack(state, hooks, script, attack, maker);
+            // The battlers a cover stepped in with are held where the battlers a spell bounced off are:
+            // an attack that is not a blow bounces off them too.
+            attack.params.reflectedOff = attack.params.reflectedOff | attack.params.steppingIn;
             if (!attack.record.traits.has(AttackTrait::PHYSICAL) && !attack.params.reflectedOff.empty()) {
                 resolveReflectedAttack(state, hooks, script, attack, maker);
             }

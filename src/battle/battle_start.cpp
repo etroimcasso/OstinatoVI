@@ -556,6 +556,14 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     state.gauMayAppear = start.gauMayAppear;
     const BattlerSet fromSetup =
         placeParty(state, lineupFor(state, start, aux, carry != nullptr ? carry->standing : FinalBattleStage{}));
+    // A party member a scripted battle gives a script has it readied as soon as it is seated, before
+    // any monster is loaded.
+    for (int position = 0; position < kPartySlots; ++position) {
+        const BattlerSlot slot = BattlerSlot::character(position);
+        if (state.at(slot).aiScript) {
+            executor.initAi(state, slot);
+        }
+    }
 
     state.switches.clear(game::kClearedAtBattleStartSwitch);
     state.switches.clear(game::kPartyDefeatedSwitch);
@@ -570,6 +578,10 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 
     forEachSlotLastFirst([&](BattlerSlot slot) {
         Battler& battler = state.at(slot);
+        // Every battler starts the battle waiting to answer a last attacker it does not have: its
+        // first hit marks the attacker only on a coin flip, and its statuses for a counterattack are
+        // kept from the first pass of the statuses on.
+        battler.retaliationPending = true;
         battler.damageOverTimePhase = state.rng.next();
         battler.pendingUpdates = PendingUpdates{.enabledMagic = true,
                                                 .startCondemned = true,

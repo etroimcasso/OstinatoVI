@@ -11,9 +11,11 @@
 
 #include <array>
 #include <bitset>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <span>
 #include <variant>
 #include <vector>
 
@@ -24,6 +26,7 @@
 #include "battle/battler_set.h"
 #include "battle/player_intake.h"
 #include "battle/spell_lists.h"
+#include "data/ai_scripts.h"
 #include "data/item_properties.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
@@ -174,6 +177,17 @@ struct ControlMenuEntry {
 // The top bit of a battler's AI variable (Battler::aiVariable): set while it holds someone in Seize.
 inline constexpr std::uint8_t kAiVariableHoldingSeize = 0x80;
 
+// Where a script part stopped at a wait, and how many blocks it had skipped on the way there. The
+// next run of the part reads from the part's top as always; when it reaches a step that acts having
+// skipped the same number of blocks, it goes on from `at` instead. kNoResume: the part did not stop
+// at a wait the last time it ran.
+inline constexpr std::uint8_t kNoResume = 255;
+
+struct AiResume {
+    std::uint8_t blocksSkipped = kNoResume;
+    const AiStep* at = nullptr;  // the step after the wait, in the script the part was read from
+};
+
 // Every status, for a battler that can be given any of them.
 inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
@@ -284,6 +298,14 @@ struct Battler {
     // The AI script it follows: a monster's own (by MonsterId), or the one a scripted battle gives
     // a party member.
     std::optional<std::uint16_t> aiScript;
+    // The two parts of the script it reads (battle/ai.h), set when its script is readied: the part
+    // read on its turn, and the part read when it is attacked — empty when it answers nothing. A new
+    // monster in the slot whose script has no counterattack part keeps the one before it.
+    std::span<const AiStep> turnScript;
+    std::span<const AiStep> counterScript;
+    // Where each part stopped at a wait. Neither is reset when a new monster takes the slot.
+    AiResume turnResume;
+    AiResume counterResume;
 
     // --- a monster's record -------------------------------------------------------------------
     std::optional<MonsterId> monster;     // which monster it is
@@ -377,6 +399,9 @@ struct Battler {
     std::deque<Action> actions;         // in the order they were chosen
     std::deque<Action> counterActions;  // counterattacks, in the order they were triggered
 };
+
+// How many lines the list of monster names has.
+inline constexpr std::size_t kMonsterNameLines = 4;
 
 // The four ways a battle can be laid out.
 enum class BattleType : std::uint8_t {
@@ -533,7 +558,7 @@ struct BattleState {
     std::array<BattleSlotMask, 2> pincerSides{};  // the monsters on each side of a pincer attack
     std::optional<BattlerSlot> heldByZinger;      // the monster Zinger has taken off the field
     std::optional<BattlerSlot> swallowedByZinger; // the party member that monster swallowed
-    BattlerSet flippedByControl;   // controlled monsters, drawn facing the other way
+    BattlerSet flippedByControl;   // controlled monsters and muddled battlers, drawn facing the other way
     BattlerSet aiUntargetable;     // monsters their AI has made impossible to aim at
     BattlerSet invincible;         // monsters their AI has made invincible: damage to them is not taken
     // The elements Forcefield has nullified: an attack whose every element is here does no damage.
@@ -571,6 +596,12 @@ struct BattleState {
     bool battleMayNotEnd = false;   // a hidden monster is about to reappear
     bool partyRunning = false;      // the player is holding the run buttons
     std::uint8_t runDifficulty = 0;
+    // How many lines the list of monsters' names holds, at most four: one per name among the
+    // monsters still fighting whose name is shown. Worked out with the run difficulty.
+    std::uint8_t monsterNamesListed = 0;
+    // Whether the last command left the battlers away from the field (awayFromTheField) out of
+    // reach: true unless it made an attack aimed at its own attacker. A monster's script aims by it.
+    bool awayFromTheFieldUnreachable = true;
     bool colosseum = false;
     std::optional<ItemId> colosseumWager;  // the item the player bet: given up win or lose
     std::optional<ItemId> colosseumPrize;  // what winning the match earns
@@ -592,6 +623,8 @@ struct BattleState {
     // The battle switches, as the battle started with them; monster AI changes them as it goes,
     // and the battle hands them back when it ends.
     game::BattleSwitches switches;
+    // The variables the monsters' scripts share for this battle alone. 0 as the battle starts.
+    std::array<std::uint8_t, kAiBattleVariables> battleVariables{};
 
     // Facts about the party and the story the battle's end depends on.
     bool gauMayAppear = false;      // on the Veldt: Gau can turn up when the battle is won

@@ -80,8 +80,8 @@ hit in the back and calls `targetDamage`; then `applyDamage` once.
 ledger. It reads the target's defense and magic defense, its Safe, Shell, Morph, Petrify and Zombie,
 whether it is Defending or in the back row, whether it is undead, its elements and Forcefield's
 (`BattleState::elementsNullifiedByForcefield`); it draws from `state.rng` for the variance and for a
-Zombie attacker's blow. It writes the ledger, the target's statuses to set and to clear, its
-controller link, and for a drain the drainer's last-attacker mark.
+Zombie attacker's blow. It writes the ledger, the target's statuses to set and to clear, whether its
+Control link is ending (`Battler::controlEnding`), and for a drain the drainer's last-attacker mark.
 
 ```cpp
 battle::BattleScriptBuilder script;
@@ -102,7 +102,7 @@ In order, as [the contract](../../contracts/battle_damage.md) states each rule:
 | Who gains | a petrified target takes 0; with `AttackTrait::INVERT_ON_UNDEAD` a cure hurts the undead and a drain on the undead or a Zombie runs backward |
 | The elements | Forcefield over every element, absorbing, nullifying, halving and weakness, the first that applies |
 | The Atma Weapon | the damage scaled by the wielder's level and HP left; from 501 a longer beam, written into `script` |
-| A blow | the target woken, its Muddle cleared and its Control broken; a Zombie attacker's blow poisons or blinds one time in sixteen each |
+| A blow | the target woken, its Muddle cleared and its Control link ending (the controller is let go once the action is over); a Zombie attacker's blow poisons or blinds one time in sixteen each |
 | A drain | capped by the loser's pool and, while `attack.drainCapped` holds, the gainer's room; the drainer marked and given the same amount the other way |
 
 A `DamageLedger` holds, for each of the ten battlers, an optional amount taken and an optional
@@ -240,11 +240,13 @@ and writes every scenario to `check.log`; `--only` and `--seed` narrow it
 
 ## Gotchas
 
-- **Three 16-bit cuts are the game's.** A spell's damage wraps past 65,535 — Ultima at a magic stat of
+- **The 16-bit cuts are the game's.** A spell's damage wraps past 65,535 — Ultima at a magic stat of
   140 and level 99 does 32 — a blow's first product by the level is kept to 16 bits, which the
   Guardian at Vector reaches, and an Atma Weapon hit of 42,367 or more at level 99 and full HP wraps
-  ([`docs/Bugs.md`](../../Bugs.md)). `magicDamage()`, `physicalDamage()` and `targetDamage()` keep
-  them; nothing else in `damage.cpp` cuts.
+  ([`docs/Bugs.md`](../../Bugs.md)). A party member's blow also keeps the two sums of its
+  party-member step to 16 bits before the Offering halves them, which only an attack at a level above
+  99 reaches: power 255 and vigor 255 at level 251 with an Offering does 13,299. `magicDamage()`,
+  `physicalDamage()` and `targetDamage()` keep every one; nothing else in `damage.cpp` cuts.
 - **The relic bonus's magic path reads the third relic effects.** One item that raises magic damage
   is `RelicEffect3::RAISE_MAGIC_DAMAGE` (a quarter); two are `RelicEffect1::RAISE_MAGIC_DAMAGE`
   (half). An attack on MP takes the magic path even when it is physical.

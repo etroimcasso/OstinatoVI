@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <variant>
 
+#include "battle/ai.h"
 #include "battle/automatic_actions.h"
 #include "battle/command_menu.h"
 #include "battle/commands.h"
@@ -40,18 +41,22 @@ std::vector<BattleScriptCommand> CommandExecutor::execute(BattleState& state, st
         attack.attackerLevel = state.lastAttackLevel;
         runCommand(state, hooks_, script, attack, *actor);
     } else if (const auto* dot = std::get_if<DamageOverTime>(&action)) {
+        attack.queuedCommand = kDamageOverTimeCommand;
         if (actor) {
             damageOverTime(state, hooks_, script, attack, *actor, dot->kind);
         }
     } else if (const auto* spell = std::get_if<SpellWithoutCaster>(&action)) {
+        attack.queuedCommand = kSpellWithoutCasterCommand;
         spellWithoutCaster(state, hooks_, script, attack, spell->spell, spell->target);
     } else if (const auto* expired = std::get_if<StatusTimersExpired>(&action)) {
+        attack.queuedCommand = kStatusTimersCommand;
         statusTimersExpire(state, hooks_, script, attack, *expired);
     } else if (std::holds_alternative<PartyEscape>(action)) {
         partyEscapes(state, *this, script);
     } else if (const auto* pose = std::get_if<ResetBattlePose>(&action)) {
         script.add(PoseReset{.battler = pose->character});
     } else if (const auto* seize = std::get_if<SeizeDrain>(&action)) {
+        attack.queuedCommand = kSeizeDrainCommand;
         if (actor) {
             seizeDrain(state, hooks_, script, attack, *actor, seize->seized);
         }
@@ -72,10 +77,26 @@ std::vector<BattleScriptCommand> CommandExecutor::execute(BattleState& state, st
                                          .monsters = animation->monsters,
                                          .soundEffect = animation->soundEffect,
                                          .pan = animation->pan});
+    } else if (const auto* variable = std::get_if<BattleVariableAction>(&action)) {
+        attack.queuedCommand = kBattleVariableCommand;
+        if (actor) {
+            changeBattleVariable(state, *actor, *variable);
+        }
+    } else if (const auto* change = std::get_if<BattleSwitchAction>(&action)) {
+        attack.queuedCommand = kBattleSwitchCommand;
+        if (actor) {
+            changeBattleSwitch(state, *actor, *change);
+        }
+    } else if (const auto* effect = std::get_if<AiEffectAction>(&action)) {
+        attack.queuedCommand = kAiEffectCommand;
+        if (actor) {
+            runAiEffect(state, hooks_, script, attack, *actor, *effect);
+        }
     }
     state.scratch.physical = attack.record.traits.has(AttackTrait::PHYSICAL);
     state.scratch.finalTargets = attack.targets;
     state.lastAttackLevel = attack.attackerLevel;
+    state.awayFromTheFieldUnreachable = attack.scratch.awayFromTheFieldUnreachable;
     return script.take();
 }
 
@@ -100,7 +121,17 @@ void CommandExecutor::chooseAutomaticAction(BattleState& state, BattlerSlot acto
 void CommandExecutor::runAi(BattleState& state, BattlerSlot actor) {
     if (actor.isMonster() && choosesItsOwnAttack(state, actor)) {
         chooseMonsterAction(state, *this, actor);
+        return;
     }
+    runAiTurn(state, *this, actor);
+}
+
+void CommandExecutor::runCounterAi(BattleState& state, BattlerSlot actor, BattlerSet answering) {
+    runAiCounter(state, *this, actor, answering);
+}
+
+void CommandExecutor::initAi(BattleState& state, BattlerSlot slot) {
+    readyAi(state, slot);
 }
 
 void CommandExecutor::refreshCommandList(BattleState& state, BattlerSlot slot) {

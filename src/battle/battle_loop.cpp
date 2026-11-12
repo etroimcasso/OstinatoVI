@@ -1,6 +1,7 @@
 // The battle loop: whose turn it is, the actions that run, what happens after each, and the
 // battle's end.
 
+#include <array>
 #include <cstddef>
 #include <optional>
 #include <utility>
@@ -206,7 +207,7 @@ void checkCounterattacks(BattleState& state) {
             return;
         }
         if (battler.hasCounterScript && battler.counterActions.empty()) {
-            addCounterAction(state, slot, AiTurn{});
+            addCounterAction(state, slot, AiTurn{.answering = answerTo});
             return;
         }
         if (slot.isMonster() || !state.scratch.physical) {
@@ -381,7 +382,8 @@ void checkHeld(BattleState& state, BattlerSlot slot) {
         return;
     }
     battler.heldByStatus = false;
-    if (battler.controlledBy || battler.status.has(StatusId::SLEEP) || battler.status.has(StatusId::FROZEN) ||
+    const bool controlled = battler.controlledBy && !battler.controlEnding;
+    if (controlled || battler.status.has(StatusId::SLEEP) || battler.status.has(StatusId::FROZEN) ||
         battler.seizedBy) {
         return;
     }
@@ -561,8 +563,8 @@ void counterattack(BattleState& state, ActionExecutor& executor, BattlerSlot slo
     while (!battler.counterActions.empty()) {
         Action action = prepareAction(state, slot, battler.counterActions.front(), false);
         removeCounterAction(state, slot);
-        if (std::holds_alternative<AiTurn>(action)) {
-            executor.runCounterAi(state, slot);
+        if (const auto* turn = std::get_if<AiTurn>(&action)) {
+            executor.runCounterAi(state, slot, turn->answering);
             continue;
         }
         bool runs = true;
@@ -917,6 +919,9 @@ void refreshRunDifficulty(BattleState& state) {
         }
     }
     int difficulty = 0;
+    // The names listed, a line per name, in the order the monsters are counted.
+    std::array<std::optional<MonsterId>, kMonsterNameLines> names{};
+    state.monsterNamesListed = 0;
     for (int position = 0; position < kMonsterSlots; ++position) {
         const BattlerSlot slot = BattlerSlot::monster(position);
         const Battler& battler = state.at(slot);
@@ -929,6 +934,19 @@ void refreshRunDifficulty(BattleState& state) {
             state.escapeBlockedByMonster = true;
         }
         difficulty += battler.monsterFlags.has(MonsterBattleFlag::HARDER_TO_RUN) ? 6 : 2;
+        if (battler.nameHidden || !battler.nameGroup) {
+            continue;
+        }
+        for (std::optional<MonsterId>& line : names) {
+            if (!line) {
+                line = battler.nameGroup;
+                ++state.monsterNamesListed;
+                break;
+            }
+            if (*line == *battler.nameGroup) {
+                break;
+            }
+        }
     }
     if (state.battleType == BattleType::Side || state.preemptive) {
         difficulty = 0;

@@ -749,8 +749,8 @@ bool sketch(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, Ba
     attack.secondary = static_cast<std::uint8_t>(target.position());
     script.replaceAnimation(animationOf(attack));
     const std::size_t slot = state.rng.next() >= kSecondSketchFrom ? 1 : 0;
-    attack.scratch.sketch =
-        SketchDrawn{.monster = target, .attack = getMonsterSketch(monster.monster.value_or(MonsterId{})).attacks[slot]};
+    attack.scratch.sketch = SketchDrawn{.monster = target};
+    attack.scratch.followUpSpell = getMonsterSketch(monster.monster.value_or(MonsterId{})).attacks[slot];
     return false;
 }
 

@@ -187,18 +187,21 @@ A condemned count that starts is 20 + max(0, 60 − (L + a random 0 … L − 1)
 ## Actions and the lines
 
 An `Action` is one of: `CommandAction` (a battle command with its attack, targets and MP cost),
-`AiTurn`, `DamageOverTime`, `SpellWithoutCaster`, `StatusTimersExpired`, `PartyEscape`,
+`AiTurn` (a battler's AI script has its turn, or answers an attack; `answering` is the battler a
+counterattack answers, no one for a turn), `DamageOverTime`, `SpellWithoutCaster`, `StatusTimersExpired`, `PartyEscape`,
 `ResetBattlePose`, `SeizeDrain`, `BattleEventAction`, `BattleMessageAction` (the battle's opening
 message), `NoAction` (handed to the executor when a battler's turn comes with nothing chosen), and the
 ones a monster's AI asks for: `FormationChange`, `MonsterDialogAction`, `MonsterVisibilityAction`,
-`ScanAction` and `MonsterAnimationAction` ([commands.md](commands.md#the-battles-own-actions)).
+`ScanAction`, `MonsterAnimationAction`, `BattleVariableAction`, `BattleSwitchAction` and
+`AiEffectAction` ([commands.md](commands.md#the-battles-own-actions)).
 
 ```cpp
 #include "battle/actions.h"
 
 addAction(state, slot, CommandAction{.command = BattleCommandId::FIGHT,
                                      .targets = BattlerSet::of(BattlerSlot::monster(0))});
-addCounterAction(state, slot, AiTurn{});                    // joins the counter line
+addCounterAction(state, slot, AiTurn{.answering = BattlerSet::of(BattlerSlot::character(0))});
+                                                            // joins the counter line
 addImmediateAction(state, PartyEscape{});                   // runs before anything else
 addAutomaticAction(state, executor, slot, CommandAction{.command = BattleCommandId::FIGHT});
 removeAllActions(state, slot);
@@ -264,14 +267,14 @@ nothing.
 | `execute(state, actor, action)` | an action runs; returns the battle script that shows it |
 | `aim(state, actor, command)` | a command is chosen or re-timed and has to be aimed |
 | `chooseAutomaticAction(state, actor)` | a party member acting on its own has nothing chosen |
-| `runAi(state, actor)` | a battler's AI takes its turn |
-| `runCounterAi(state, actor)` | a battler's counter AI answers |
+| `runAi(state, actor)` | a battler's AI takes its turn: a monster's `AiTurn` reaches the front of its actions, or a party member with a script fills its gauge |
+| `runCounterAi(state, actor, answering)` | a battler's counter AI answers: its counterattack `AiTurn` reaches the front of the counter line, and `answering` is that action's `AiTurn::answering` |
 | `checkControl`, `releaseLinks`, `clearControl` | after every command, for control, Zinger, Love Token and Charm |
 | `refreshCommandList`, `refreshMorph` | an action left those updates pending for a battler; `refreshCommandList` also after an equipment change |
 | `checkNearFatal(state, slot)` | the last thing for each battler as the battle settles after an action: a near-fatal battler's relics cast their spells |
 | `tickMorph(state, slot)` | every time update, for the morphed battler |
 | `applyStatusChanges(state)` | the battle's start and a formation change: the statuses waiting to be set go on |
-| `initAi(state, slot)` | a monster is loaded: get its AI ready from `aiScript` and set `hasCounterScript` |
+| `initAi(state, slot)` | a monster is loaded, or a scripted battle seats a party member with a script: get its AI ready from `aiScript` and set `hasCounterScript` |
 | `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
 | `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back |
 
@@ -303,7 +306,9 @@ struct Swing : ActionExecutor {
 
 `NullExecutor` is the base class itself: nothing happens, no AI acts. `CommandExecutor`
 ([commands.md](commands.md)) is the battle's own: it carries out every action, aims commands,
-chooses for the battlers no one chooses for, settles the menu choices left to chance, puts on the
+chooses for the battlers no one chooses for, runs each battler's AI script on its turn, when it
+answers an attack and when it takes its slot ([ai.md](ai.md#in-a-battle)), settles the menu choices
+left to chance, puts on the
 statuses waiting at the start and at a formation change, casts the near-fatal relics' spells
 ([status.md](status.md)), lets go of the links between battlers after each action and runs Morph's
 meter ([effects.md](effects.md)).

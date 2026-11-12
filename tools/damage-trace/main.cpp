@@ -12,7 +12,7 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and nine of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and fifteen of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
 // access made inside a call, in order, with its address and byte. Every call is logged — nothing is
@@ -27,7 +27,12 @@
 // effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one target
 // (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC); and at a won battle's end, the
 // spells an equipped esper teaches learned further (`LearnGenjuMagic`, $C2:602A, returning to
-// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4). The addresses are the US
+// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4); and a battler's AI: its script
+// readied (`InitAI`, $C2:2D71, returning to $C2:2C3D as a monster is loaded and $C2:3041 as a scripted
+// battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to $C2:013C and, for a
+// party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`, $C2:4BF4, returning to
+// $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`, `Cmd_30`, $C2:1DFA,
+// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401). The addresses are the US
 // cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
@@ -103,7 +108,9 @@
 #include "retropp/windowed_host.h"
 
 #include "assets/cartridge.h"
+#include "battle/ai.h"
 #include "battle/damage.h"
+#include "data/ai_scripts.h"
 #include "damage_oracle.h"
 #include "machine_state.h"
 #include "ostinato/attack_flags.h"
@@ -222,8 +229,7 @@ int runTrace(std::span<const std::uint8_t> image, const std::filesystem::path& d
         renderer.renderFrame(drawn);
     });
 
-    std::printf("Tracing CalcDmg, CalcTargetDmg, the apply-and-show routine, UpdateStatus and MagicStatusEffect to %s\n",
-                (directory / "damage-trace.log").string().c_str());
+    std::printf("Tracing the battle routines to %s\n", (directory / "damage-trace.log").string().c_str());
     std::fflush(stdout);
 
     loop.exitAction([&] {
@@ -460,7 +466,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 14> kSweeps{{
+constexpr std::array<Sweep, 23> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -555,6 +561,75 @@ constexpr std::array<Sweep, 14> kSweeps{{
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::RecordScenario s = trace::drawLevelUpScenario(rng);
          return DrawResult{trace::describe(s), "", trace::differences(trace::portLevelUp(s), oracle.levelUp(s))};
+     }},
+    {.name = "ai-targets",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiTargetsCase c = trace::drawAiTargetsCase(rng);
+         return DrawResult{trace::describe(c.scenario), "",
+                           trace::differences(trace::portAiTargets(c.scenario, c.target, c.reachableOnly),
+                                              oracle.aiTargets(c.scenario, c.target, c.reachableOnly))};
+     }},
+    {.name = "ai-conditions",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiConditionCase c = trace::drawAiConditionCase(rng);
+         return DrawResult{trace::describe(c.scenario), "",
+                           trace::differences(trace::portAiCondition(c.scenario, c.condition),
+                                              oracle.aiCondition(c.scenario, c.condition))};
+     }},
+    {.name = "ai-setup",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         // A script readied into a slot that already held one, both drawn.
+         const auto slot = battle::BattlerSlot::monster(static_cast<int>(rng() % battle::kMonsterSlots));
+         trace::AiScenario s =
+             trace::drawAiRunScenario(rng, static_cast<std::uint16_t>(rng() % kAiScriptCount), slot);
+         s.state.at(slot).aiScript = static_cast<std::uint16_t>(rng() % kAiScriptCount);
+         const trace::AiScriptPlaces guest = oracle.readyAi(s, slot);
+         battle::readyAi(s.state, slot);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portScriptPlaces(s.state, slot), guest)};
+     }},
+    {.name = "ai-turns",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const auto actor = battle::BattlerSlot::fromIndex(static_cast<int>(rng() % battle::kBattlerSlots));
+         const trace::AiScenario s =
+             trace::drawAiRunScenario(rng, static_cast<std::uint16_t>(rng() % kAiScriptCount), actor);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portAiTurn(s), oracle.aiTurn(s))};
+     }},
+    {.name = "ai-counters",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         std::uint16_t script = 0;
+         do {
+             script = static_cast<std::uint16_t>(rng() % kAiScriptCount);
+         } while (!aiScript(script).hasCounter());
+         const auto guard = static_cast<trace::CounterGuard>(rng() % trace::kCounterGuards);
+         const trace::AiScenario s = trace::drawAiRunScenario(
+             rng, script, battle::BattlerSlot::monster(static_cast<int>(rng() % battle::kMonsterSlots)), guard);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portAiCounter(s), oracle.aiCounter(s))};
+     }},
+    {.name = "ai-commands",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::AiCommandCase c = trace::drawAiCommandCase(rng);
+         return DrawResult{trace::describe(c.scenario) + " " + trace::listedActionText(c.action), "",
+                           trace::differences(trace::portAiCommand(c.scenario, c.action),
+                                              oracle.aiCommand(c.scenario, c.action))};
+     }},
+    {.name = "attack",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawAttackScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::attackResult(trace::portAttack(s)), oracle.attack(s))};
+     }},
+    {.name = "self-attack",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::DamageScenario s = trace::drawSelfAttackScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::attackResult(trace::portSelfAttack(s)), oracle.selfAttack(s))};
+     }},
+    {.name = "own-actions",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::OwnActionCase c = trace::drawOwnActionCase(rng);
+         return DrawResult{trace::describe(c), "",
+                           trace::differences(trace::portOwnAction(c.scenario, c.action),
+                                              oracle.ownAction(c.scenario, c.action))};
      }},
 }};
 

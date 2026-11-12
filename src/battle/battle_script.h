@@ -34,6 +34,7 @@
 #include "ostinato/battle_command_id.h"
 #include "ostinato/esper_id.h"
 #include "ostinato/item_id.h"
+#include "ostinato/monster_animation.h"
 #include "ostinato/monster_entrance_type.h"
 #include "ostinato/monster_id.h"
 
@@ -229,23 +230,9 @@ struct MonstersEnterOrLeave {
     BattlerSet revived;
 };
 
-// The animations a monster's AI can play on monsters or the party, outside any attack.
-enum class MonsterAnimation : std::uint8_t {
-    FlashRed = 0,
-    MoveBackSlowly = 1,             // 8 pixels
-    MoveForwardSlowly = 2,
-    MoveBackQuickly = 3,
-    MoveForwardQuickly = 4,
-    PartyRunsLeftToRight = 5,       // the party runs across the screen
-    PartyRunsRightToLeft = 6,
-    MoveBackFar = 7,                // 64 pixels
-    MoveForwardFar = 8,
-    SoundEffect = 9,                // a sound effect, panned
-    KefkaHead = 10,
-    LongGlow = 11,
-    ShortGlow = 12,
-    KefkaDeath = 13,
-};
+// The animations a monster's AI can play on monsters or the party, outside any attack
+// (ostinato/monster_animation.h).
+using ostinato::MonsterAnimation;
 
 // A monster animation plays: on `monsters`, or for SoundEffect, `soundEffect` panned by `pan`.
 struct MonsterAnimationPlays {
@@ -325,8 +312,12 @@ public:
     // The params of the next animation that has none yet.
     void addParams(const AttackAnimationParams& params);
 
-    // The attacker named by the last params added.
-    std::optional<BattlerSlot> lastParamsAttacker() const;
+    // The battler the last params block names in its attacker's place. An animation's, a
+    // message's or Runic's block names the attacker. A bounce off Reflect's block holds there the
+    // battler the bounce off party slot 1 went on to, and names no one when nothing bounced off
+    // that slot. A Launcher's or Super Ball's hits leave it as it was: their hits end the bounce's
+    // rule, and only an attack under that rule aims from this place (chooseTargets()).
+    std::optional<BattlerSlot> lastParamsAttacker() const { return lastParamsAttacker_; }
 
     const std::vector<BattleScriptCommand>& commands() const { return commands_; }
 
@@ -340,6 +331,7 @@ private:
     std::vector<BattleScriptCommand> commands_;
     std::deque<AttackAnimationParams> params_;
     std::optional<std::size_t> animationSlot_;
+    std::optional<BattlerSlot> lastParamsAttacker_;
 };
 
 }  // namespace ostinato::battle

@@ -303,9 +303,10 @@ std::uint16_t physicalDamage(const BattleState& state, const AttackInFlight& att
     int damage = (once * level) >> kBlowProductShift;
 
     if (attacker.isCharacter()) {
-        // A party member's level is at most 99, so the damage so far is at most 65535 × 99 / 256 =
-        // 25,343 and this sum stays below 65,536: at most (2 × 255 + 25,343) / 2 + 25,343 = 38,269.
-        damage = ((attack.record.power * 2 + damage) >> 1) + damage;
+        // Both sums keep 16 bits, and the Offering halves what is left: an attack at a level well
+        // above 99 can pass 65535 here.
+        const int half = static_cast<std::uint16_t>(attack.record.power * 2 + damage) >> 1;
+        damage = static_cast<std::uint16_t>(half + damage);
         const RelicEffect4Set relics = state.at(attacker).relicEffects4;
         if (relics.has(RelicEffect4::FIGHT_TO_X_FIGHT)) {
             damage >>= 1;
@@ -422,7 +423,11 @@ void targetDamage(BattleState& state, AttackInFlight& attack, BattlerSlot attack
                 struck.statusesToClear.set(woken);
             }
         }
-        struck.controlledBy.reset();
+        // A blow breaks the hold on a controlled target: its link ends, and the controller is let go
+        // once the link is taken down.
+        if (struck.controlledBy) {
+            struck.controlEnding = true;
+        }
     }
     if (record.flags2.has(AttackFlag2::DRAIN)) {
         damage = drained(state, attack, attacker, target, heals, damage);

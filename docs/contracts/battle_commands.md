@@ -207,9 +207,20 @@ the no-party trait keeps party members out. An item that is the attack itself sk
    (`:14686-14693`: status-1 bit 1 is Zombie, status-2 bit 5 Confuse). The monsters' side is all six
    monster slots and the party members fighting against the party; the party's side is the other
    party members. Then the reach check again, and the fallen dropped unless they may be aimed at.
-6. **The battle layout** (`CheckTargetsBattleType`). A spell bounced off Reflect, aimed at the
-   other side only, by an attacker not Confused: on tails it goes to the battler that cast it, if
-   that battler is a target (`:14727-14739`); nothing else in this step applies. Otherwise, for an
+6. **The battle layout** (`CheckTargetsBattleType`). An attack under a bounce's rule (`$ba` bit 4),
+   aimed at the other side only, by an attacker not Confused: on tails it goes to the battler named in
+   the attacker's place of the last params block (`$2c5f` + `$3a32`, byte 1 of the block before the
+   next one), if that battler is a target (`:14727-14739`); nothing else in this step applies. The
+   bounce sets the rule (`CalcReflectDmg :8387-8388`) and only a Launcher's or Super Ball's hits clear
+   it (`:8393-8394`), so it holds for the bounce's own aims — where the last block is the attack's,
+   naming its caster — and for every later attack of the command. There the last block is the
+   bounce's, which holds in that place the battler the bounce off party slot 1 went on to
+   (`:8424-8427`: `$a0` + the battler bounced off ← the battler it went to), `$ff` when none did.
+   **`$ff` doubled indexes past the battlers' target bits** (`lda $3018,x` with X = `$fe`): the word
+   read is `$3116-$3117`, the lore list's entries for Revenge and Pearl Wind (`InitSpellList
+   :14062-14079`: a known lore's number plus `$37`, an unknown lore's the `$ff` the battle's memory
+   starts with, `InitBattle :6061-6067`). The low byte is taken as the party's bits and the high byte
+   as the monsters', bits that name no battler included (`docs/Bugs.md`). Otherwise, for an
    initial selection other than "all" or "half": in a pincer, a monster reaches only the monsters
    on its own side, and a party member whose targets are on both sides keeps one of them by a coin
    (heads, the second side); in a side attack, a party member reaches only its own half of the
@@ -219,6 +230,10 @@ the no-party trait keeps party members out. An item that is the attack itself sk
 7. With no target left and the fall-back rule, the command's earlier targets.
 8. An initial selection other than one keeps them all; a multi-target attack keeps them all on
    heads; otherwise one at random.
+
+A pick at random (`RandBit :13495-13515`) counts every set bit of the 16-bit target word and takes the
+draw's one, from the lowest: the party's bits 0-7, then the monsters' 8-15. A bit that names no battler
+counts and can be the one taken; the attack then reaches no one.
 
 A pick draws from the random numbers even when there is one target to pick from. The pincer sides
 and the battlers' facing are set by the battle's layout on screen (`btlgfx:2855-2857`,
@@ -256,6 +271,11 @@ target, with the covered ally recorded.
 
 ## The attack frame
 
+The frame is checked whole: `ExecSelfAttack` and `ExecAttack` run on the cartridge over the same
+battle as the port's `runSelfAttack()` and `runAttack()`, every cell the frame reads written from the
+port's state and every cell it leaves compared, a Fight's and a Capture's hand loaded at each swing
+included (`tests/test_attack_oracle.cpp` is the test authority for this section).
+
 ### The attack loop
 
 `ExecAttack :8015-8139` runs once per attack of the command; `attacksLeft` counts those after the
@@ -277,7 +297,8 @@ current one, and a weapon's spell adds one. Each attack:
    random; a Blitz with the wrong buttons hits no one.
 5. The name, once per command (`ShowAttackName`). Joker Doom's name also makes the next aim exact,
    removes the instant-death trait and makes the attack impossible to dodge (`:8754-8763`).
-6. While a Sketch runs, the sketcher makes the rest of the attack.
+6. The sketch cell names who makes the rest of the attack (`:8067-8069`): the sketcher while it makes
+   the attack its sketch caught, and once a sketch has caught its monster, that monster.
 7. An action chosen as the Roulette command (`$1e`) has no targets and keeps none (`:8070-8076`).
 8. **The MP gate** (`:8077-8093`): an attack with an MP cost made by a Muted battler, or by an Imp
    not casting Imp, shows only the maker going back to standing and does nothing else.
@@ -356,8 +377,9 @@ answer itself, ready only when the attack affects MP — the carry from the reco
     automatic critical; or, for an attack that can be critical aimed at the other side only, a draw
     below 8 — one in 32 — with at least one target. Two steps and the flash.
 11. The animation is written; the damage multiplied (`AttackHooks::scaleDamage`); an attack that
-    kills its attacker sets it to die; a controlled monster's controller has its menu redrawn
-    (`AttackHooks::controlMenu`).
+    kills its attacker sets it to die; a monster held by a live Control link has its controller's menu
+    redrawn (`AttackHooks::controlMenu`); an ending link redraws nothing (`ldy $32b9,x; bmi`,
+    `:8337-8338`).
 12. **Each target hit**, last slot first (`:8344-8364`): one more step for a target hit in the back
     — added to the steps the damage to that target uses up, so it goes on to the next target only when
     that target's damage leaves it (`docs/contracts/battle_damage.md`); the target records the hit; a target
@@ -405,6 +427,14 @@ Imp is named as a monster's special attack; the hand's battle power, element and
 weapon's two-handed and back-row flags, its spell and special effect, its swing. An Offering makes
 every attack undodgeable, aimed at random, never critical and without a spell. An Imp monster
 without the Imp critical flag hits with power 1.
+
+The swing turns the attack byte: the hand is the carry `php`/`plp` keeps across the routine, and
+`ror $b6` (`:6936-6939`) moves it into the top bit — set for the shield hand — with the rest of the
+byte shifted down. The Fight animation reads the hand there (`btlgfx CmdAnim_00 :28323-28326`), and
+nothing turns the byte back, so every swing of a command turns it again and the `$ef` test of a later
+swing sees the turned byte: the plain hit `$ee` goes `$77`, `$bb` over a Fight's two swings, and an
+Offering's eight end at `$aa`. Jump loads its hand the same way once (`Cmd_16 :3869`).
+`loadWeaponAttack()` turns `attack.attack` in the same place, after the `$ef` test.
 
 `GetCmdForAI :5006-5020`: an attack's command is the command of the highest attack base at or below
 it (`kAiCommandsForAttack`), or Magic below them all.
@@ -626,8 +656,17 @@ battle wearing an Offering shows Fight's own targeting until the first refresh.
 `CommandExecutor::execute()` runs these when the battle core reaches them; each starts from the same
 frame as a command (`ExecCmd :3093-3109`) and the ones that make an attack start from the plain hit
 with no command's rules (`_c2298a` with a command past the menu's: `InitTarget :6460-6461` loads no
-aiming byte). A battle's own action carries no command of its own; most are shown as Mimic, whose
-animation is empty (`$b5 = $12`).
+aiming byte). Each runs under its own command number — `$22` damage over time, `$26` a spell with no
+caster, `$29` status timers running out, `$2d` Seize's drain, and a script's `$2e`, `$2f` and `$30` —
+which `$3a7c` holds as `InitPlayerAction :392-396` leaves it; a battler the action's attack hits keeps
+that number as the command it was last hit with (`_c235e3 :8587-8588`), which a monster's script tests
+(`kDamageOverTimeCommand` and the rest, `src/battle/attack.h`, in `attack.queuedCommand`). Most are
+shown as Mimic, whose animation is empty (`$b5 = $12`).
+
+Damage over time, the spell with no caster, the status timers and Seize's drain run whole on the
+cartridge (`Cmd_22`, `Cmd_26`, `Cmd_29`, `Cmd_2d`) over the same battle as the port's
+`CommandExecutor::execute()`, every cell they read written from the port's state and every cell they
+leave compared (`tests/test_own_actions_oracle.cpp` is the test authority for this section).
 
 ### Damage over time
 
@@ -805,7 +844,8 @@ and the hand is emptied.
 
 ## What a hit target records
 
-`_c235e3 :8578-8613`: who hit it with which command as chosen, with which spell, with which item
+`_c235e3 :8578-8613`: who hit it with which command as chosen (`$3a7c`: for one of the battle's own
+actions, its own command number), with which spell, with which item
 (when the command used one), and with which elements. `_c2361b`: a target not waiting to answer an
 attack is marked to answer this one; one already waiting takes the new attacker on heads.
 

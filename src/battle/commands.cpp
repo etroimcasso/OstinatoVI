@@ -35,6 +35,9 @@ constexpr int kOfferingAttacksAfterTheFirst = 7;
 // An Imp monster without its Imp critical hits this hard.
 constexpr std::uint8_t kImpMonsterPower = 1;
 
+// The attack byte's bit that names the shield hand while a weapon attack is loaded.
+constexpr std::uint8_t kShieldHandBit = 0x80;
+
 constexpr int kStatMax = 255;
 
 // A desperation attack comes one time in sixteen: a draw whose low four bits are clear.
@@ -476,7 +479,9 @@ void sketchCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& 
     sketcher.specialAttack = monster.specialAttack;
     attack.scratch.randomizeTargets = true;
     attack.nameShown = false;
-    runNestedCommand(state, hooks, script, attack, sketch->monster, sketch->attack);
+    // The caught attack is taken from where the sketch left it, and none waits after it.
+    const AttackId caught = std::exchange(attack.scratch.followUpSpell, std::nullopt).value_or(AttackId::NONE);
+    runNestedCommand(state, hooks, script, attack, sketch->monster, caught);
 }
 
 // Rage: the party member rages as the monster it chose — or, choosing none, as the last party
@@ -610,6 +615,10 @@ void loadWeaponAttack(const BattleState& state, AttackInFlight& attack, BattlerS
         attack.scratch.nameKind = AttackNameKind::MonsterSpecialAttack;
     }
 
+    // The swing's hand goes into the attack byte's top bit, the rest of the byte turned down one
+    // bit: the Fight animation reads the hand there. Each swing turns the byte again, so after the
+    // first the attack number is not the attack's own.
+    attack.attack = static_cast<AttackId>(static_cast<std::uint8_t>(attack.attack) >> 1 | (offHand ? kShieldHandBit : 0));
     const Hand& hand = offHand ? battler.shieldHand : battler.weaponHand;
     attack.offHand = offHand;
     attack.record.power = hand.battlePower;

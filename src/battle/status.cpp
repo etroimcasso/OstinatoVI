@@ -94,7 +94,14 @@ void zombieComesOff(BattleState& state, Battler&, BattlerSlot slot, StatusWork&)
     statusesChanged(state, slot);
 }
 
-void confuseGoesOnOrComesOff(BattleState& state, Battler&, BattlerSlot slot, StatusWork&) {
+// A muddled battler is drawn facing the other way.
+void confuseGoesOn(BattleState& state, Battler&, BattlerSlot slot, StatusWork&) {
+    state.flippedByControl.add(slot);
+    statusesChanged(state, slot);
+}
+
+void confuseComesOff(BattleState& state, Battler&, BattlerSlot slot, StatusWork&) {
+    state.flippedByControl.remove(slot);
     statusesChanged(state, slot);
 }
 
@@ -209,7 +216,7 @@ constexpr std::array<StatusHandler, kStatusCount> kGoingOn = [] {
     table[entry(StatusId::DEAD)] = deadGoesOn;
     table[entry(StatusId::CONDEMNED)] = condemnedGoesOn;
     table[entry(StatusId::SILENCE)] = silenceGoesOnOrComesOff;
-    table[entry(StatusId::CONFUSE)] = confuseGoesOnOrComesOff;
+    table[entry(StatusId::CONFUSE)] = confuseGoesOn;
     table[entry(StatusId::SAP)] = sapGoesOn;
     table[entry(StatusId::SLEEP)] = sleepGoesOn;
     table[entry(StatusId::REGEN)] = regenGoesOn;
@@ -232,7 +239,7 @@ constexpr std::array<StatusHandler, kStatusCount> kComingOff = [] {
     table[entry(StatusId::DEAD)] = petrifyOrDeadComesOff;
     table[entry(StatusId::CONDEMNED)] = condemnedComesOff;
     table[entry(StatusId::SILENCE)] = silenceGoesOnOrComesOff;
-    table[entry(StatusId::CONFUSE)] = confuseGoesOnOrComesOff;
+    table[entry(StatusId::CONFUSE)] = confuseComesOff;
     table[entry(StatusId::SLEEP)] = sleepComesOff;
     table[entry(StatusId::SLOW)] = speedChanges;
     table[entry(StatusId::HASTE)] = speedChanges;

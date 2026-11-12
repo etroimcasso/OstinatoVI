@@ -484,6 +484,62 @@ answers it.
 
 ---
 
+## An attacker that hides and dies waits to answer itself after some blows
+
+**What happens.** An attacker effect that hides its attacker and sets it to die
+marks the attacker as attacked by itself. Whether that mark waits to be answered
+is decided by the processor's carry as the attack left it, not by the attack: it
+waits after a blow by a party member in a side attack, or by a monster in a
+pincer or a side attack, and not otherwise. Spiraler, the only attack with that
+effect, is a spell, so in play its mark never waits.
+
+**Where the original does it.** `AttackerEffect_16` (`battle/battle_main.asm:10804-10814`)
+reaches `_c2362f` (`:8641-8652`) through `_c2384a` and `_c23852` with the carry
+`UpdateFacingDirection` (`:3218-3271`) left: its `lsr` of the physical bit, then
+`cmp #$03` for a party member (`:3227`) or `cmp #$02` for a monster (`:3251`).
+`DoAttackerEffect` (`:10118-10129`) passes the carry through.
+
+**Where the port keeps it.** `facingStepLeavesTheMarkReady()` in
+`src/battle/attacker_effects.cpp`, read by `spiraler()`. `tests/test_attack_oracle.cpp`
+compares the whole attack with the cartridge's frame.
+
+**If you want to change it.** Passing `false` to `hideAndDie()` leaves the mark
+unready for every record, as it is for Spiraler's own.
+
+---
+
+## An attack after a bounce can take two lore list entries for its targets
+
+**What happens.** A spell that bounces off Reflect leaves the bounce's aiming rule on for the rest of
+the command. Each later attack of the command, aimed at the other side only, goes half the time to
+the battler the last params block names in its attacker's place — and after a bounce that block is
+the bounce's, which holds there where the bounce off the second party slot went. When nothing
+bounced off that slot the place holds `$FF`, and the aim reads past the end of the battlers' target
+bits: it takes the lore list's entries for Revenge and Pearl Wind as the party's bits and the
+monsters' bits. A known lore's entry is `$3E` or `$3F`, an unknown one `$FF`; either overlaps almost
+any target set, so the attack is aimed at that word, bits that name no battler included. A pick of
+one target among them can land on such a bit, and the attack then reaches no one. It needs a command
+that makes more than one attack, one of them a spell that bounces.
+
+**Where the original does it.** `CalcReflectDmg` (`battle/battle_main.asm:8387-8388`) sets `$ba`
+bit 4, which only its Launcher path clears (`:8393-8394`), and writes the bounce's block with
+`$a0` + the battler bounced off ← the battler it went to (`:8424-8427`). `CheckTargetsBattleType`
+(`:14727-14739`) reads byte 1 of the block before the next one (`$2c5f,x` with X = `$3a32`), doubles
+it and loads `$3018,x` as a word: X = `$FE` loads `$3116-$3117`, the lore list `InitSpellList`
+(`:14062-14079`) fills over the `$FF` `InitBattle` (`:6061-6067`) leaves. `RandBit` (`:13495-13515`)
+picks among all sixteen bits.
+
+**Where the port keeps it.** `BattleScriptBuilder::lastParamsAttacker()` in
+`src/battle/battle_script.cpp` tracks the place; `loreListReadAsTargets()` and `pickOne()` in
+`src/battle/targeting.cpp` take the word and pick from every bit. `tests/test_attack_oracle.cpp`
+(`TheAttackAfterABounceTakesTheLoreListForItsTargets`) compares it with the cartridge's frame, and
+`tests/test_targeting.cpp` pins the word.
+
+**If you want to change it.** Passing the attack's own attacker to `chooseTargets()` in
+`resolveAttack()` (`src/battle/attack.cpp`) aims a later attack back at the caster instead.
+
+---
+
 ## The Phantom Train's background names two tiles nothing loaded
 
 **What happens.** Two cells of the Phantom Train battle background's tilemap
@@ -652,3 +708,85 @@ shows the failed Metamorph set up on the running cartridge.
 
 **If you want to change it.** Writing the message after a successful draw only
 leaves a failed Metamorph with the attack's own animation.
+
+---
+
+## One Mag Roader answers attacks with Wild Cat's turn script
+
+**What happens.** The fourth Mag Roader's script ends its turn part and is
+missing the marker that ends its counterattack part. The game therefore reads
+the next script in the table — Wild Cat's turn part — as the Mag Roader's
+counterattacks. When it is attacked and is the only monster left, it may answer
+with Fire Ball (one time in three, nothing otherwise); with others still
+standing it answers with Wild Cat's blows, alternating between its two turns.
+
+**Where the original does it.** `battle/ai_script.asm:2530-2537` (script 243)
+has no `end_retal`. `InitAI` (`battle/battle_main.asm:7442-7466`) takes the byte
+after the turn part's end as the counterattack part's start unless it is
+`$ff`: that byte is the first of script 119 (`:2542`), 3410 bytes into the
+script block.
+
+**Where the port keeps it.** `src/data/generated/ai_scripts_data.inc` gives
+script 243 the counterattack part `kWildCatTurn`, and `readyAi()`
+(`src/battle/ai.cpp`) sets it as the slot's. `tests/test_ai_run.cpp`
+(`AiReadyTest.TheMagRoaderAnswersWithWildCatsTurnPart`) and
+`tests/test_ai_run_oracle.cpp`
+(`AiRunOracleTest.TheMagRoadersCounterattackPartIsWildCatsTurnPart`) pin it,
+against the cartridge's routine as well.
+
+**If you want to change it.** Giving the row an empty counterattack part makes
+the Mag Roader answer nothing, as its own script reads.
+
+---
+
+## A condition on the monster itself leaves the monster as the target
+
+**What happens.** A script condition that names a target also makes it the
+target of the attacks that follow it in the block. For a condition on the
+monster itself the game means to clear that target afterward, and clears only
+the party's half of it: the monster's own place stays. A monster's next attack
+in such a block is aimed at itself unless the script sets a target first. A
+party member a scripted battle gives a script is left with no target.
+
+**Where the original does it.** `AICond_17`
+(`battle/battle_main.asm:4920-4939`), the target test six other conditions also
+use, ends with `stz $fc; stz $fc` (`:4936-4937`) when the operand is `SELF`: the
+same byte twice, the party's half of the targets word, with the accumulator one
+byte wide.
+
+**Where the port keeps it.** `ConditionRules::testTarget()` in
+`src/battle/ai_conditions.cpp` keeps the targets' monsters only.
+`tests/test_ai_conditions.cpp` pins it for a monster and for a party member,
+against the cartridge's routine as well.
+
+**If you want to change it.** Clearing the whole targets word leaves the attacks
+after the condition aimed as the run started.
+
+---
+
+## A new monster keeps the script memory of the one before it in its slot
+
+**What happens.** When a battle changes formation, each monster slot keeps
+what its last monster's script had: its own variable and timer, where each part
+of its script had stopped at a wait and how many blocks it had skipped then,
+and — if the new monster's script has no counterattack part — the old
+monster's counterattack part. The new monster's first turn can therefore go on
+from the middle of the old monster's script, and a new monster can answer
+attacks as the old one did.
+
+**Where the original does it.** `Cmd_20` (`battle/battle_main.asm:13219-13230`)
+clears only `$3aa8`, `$3e54`, `$2001` and `$320c` before loading the new
+monsters; `InitAI` (`:7442-7466`) writes the turn part's start and, only for a
+script with one, the counterattack part's.
+
+**Where the port keeps it.** `readyAi()` in `src/battle/ai.cpp` sets the turn
+part and, only when the script has one, the counterattack part, and nothing
+else; `changeFormation()` leaves the slot's fields alone. `tests/test_ai_run.cpp`
+(`AiReadyTest.ANewMonsterWithNoCounterattackPartKeepsTheSlotsAndAllItsScriptMemory`)
+and `tests/test_ai_run_oracle.cpp`
+(`AiRunOracleTest.ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCartridgeKeeps`)
+pin it, against the cartridge's routine as well.
+
+**If you want to change it.** Clearing `Battler::turnResume`, `counterResume`,
+`counterScript`, `aiVariable` and `turnTimer` when a monster is loaded starts
+each new monster's script afresh.

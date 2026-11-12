@@ -4,6 +4,7 @@
 
 #include <gtest/gtest.h>
 
+#include <cstddef>
 #include <variant>
 
 #include "battle/battle_script.h"
@@ -73,6 +74,24 @@ TEST(BattleScript, TheLastParamsAttackerIsTheCasterOfTheLastAttackShown) {
     EXPECT_FALSE(script.lastParamsAttacker());
     script.addParams(paramsBy(BattlerSlot::monster(3)));
     EXPECT_EQ(script.lastParamsAttacker(), BattlerSlot::monster(3));
+}
+
+// A bounce's block holds, in the attacker's place, where the bounce off party slot 1 went; a
+// Launcher's hits leave the place as it was, and a finished script starts with no block.
+TEST(BattleScript, ABouncesBlockNamesWhereTheBounceOffTheSecondPartySlotWent) {
+    BattleScriptBuilder script;
+    script.addParams(paramsBy(BattlerSlot::monster(3)));
+    battle::ReflectedAttackShown bounce;
+    bounce.bouncedTo[static_cast<std::size_t>(BattlerSlot::character(0).index())] = BattlerSlot::monster(0);
+    script.add(bounce);
+    EXPECT_FALSE(script.lastParamsAttacker());
+    bounce.bouncedTo[static_cast<std::size_t>(BattlerSlot::character(1).index())] = BattlerSlot::monster(2);
+    script.add(bounce);
+    EXPECT_EQ(script.lastParamsAttacker(), BattlerSlot::monster(2));
+    script.add(battle::ScatteredHitsShown{});
+    EXPECT_EQ(script.lastParamsAttacker(), BattlerSlot::monster(2));
+    (void)script.take();
+    EXPECT_FALSE(script.lastParamsAttacker());
 }
 
 TEST(BattleScript, TakeStartsAFreshScript) {

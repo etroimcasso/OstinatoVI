@@ -146,6 +146,10 @@ their flags, their sprite and their AI script (`Battler::aiScript`, script 256 +
 `CurrentParty` and `gauMayAppear` set, the Veldt setup is staged instead when Gau can come back now;
 when he cannot, `gauMayAppear` is cleared.
 
+`placeParty()` sets the script but does not ready it. `startBattle()` calls `executor.initAi()` for
+each party slot with a script straight after placing the party, before any monster is loaded; when
+calling the steps yourself, do the same, or call `readyAi()` ([ai.md](ai.md#readying-a-script)).
+
 For each filled slot it sets `actor`, `record`, `present`, `actsAsEnemy`, `backRow`, `graphics`
 and `equipsAs`. It returns the slots a scripted setup or a colosseum match filled: pass them to
 `loadParty()`, which heals those characters to full.

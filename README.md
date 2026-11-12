@@ -32,8 +32,8 @@ What the checks cover so far, as each part of the game is built:
   - [x] **Damage** — every damage and healing formula, each target's elements, row, defense and multipliers, the damage taken and shown, and spells bounced off Reflect, each checked against the cartridge
   - [x] **Statuses** — every status put on and taken off, the statuses a battle starts with, and the relics that act near death, each checked against the cartridge
   - [x] **Special effects** — what each attack does beyond its damage: Steal, Metamorph, Control, Sketch, instant kills and the rest, each checked against the cartridge; the links between battlers let go when they should end, and Morph's timer
-  - [ ] **Espers**
-  - [ ] **Monster AI**
+  - [x] **Espers** — the spells an equipped esper teaches and its bonus at each level-up, each checked against the cartridge
+  - [x] **Monster AI** — every monster's script: its turns, its counterattacks, who it aims at and what it tests, each checked against the cartridge
   - [ ] **Rewards and experience**
 - [ ] **Battle presentation** *(in progress)*
   - [x] **The battle scene** — the background, the monsters and the party drawn where the battle stands them, the windows, the damage numerals and the death fade, from the cartridge's own art, with a self-playing preview
