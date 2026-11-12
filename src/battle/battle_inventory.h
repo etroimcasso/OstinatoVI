@@ -77,10 +77,12 @@ void loadBattleInventory(BattleState& state);
 // blitzes, which dances, and which rages, in order.
 void loadKnownSkills(BattleState& state);
 
-// Once an action is over, each party member who came away holding an item
-// (BattleState::holdingItem) with one still in hand (Battler::itemInHand) puts it into the party's
-// inventory — an AddItemObtained request each, last party member first — and its hand is emptied.
-// Everyone leaves BattleState::holdingItem.
+// Each party member marked as holding an item (BattleState::holdingItem) with one still in hand
+// (Battler::itemInHand), last party member first, puts it with the items obtained — one of it
+// (obtainItem() in battle/items_obtained.h), with an AddItemObtained request — and its hand is
+// emptied. Everyone leaves BattleState::holdingItem. The items reach the inventory when the list is
+// merged. The battle runs this once an action is over, and the wrap-up runs it with every party
+// member marked.
 void putAwayItemsObtained(BattleState& state);
 
 }  // namespace ostinato::battle

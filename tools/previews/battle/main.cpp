@@ -67,6 +67,7 @@
 #include "battle/battle_hooks.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
+#include "battle/items_obtained.h"
 #include "battle/command_executor.h"
 #include "battle/presentation.h"
 #include "battle_preview.h"
@@ -169,6 +170,16 @@ game::Party partyOf(std::span<const CharacterPropId> actors, const TextCorpus& t
     return party;
 }
 
+// What the last three items-obtained places hold on a console just switched on, out of the
+// cartridge's own title program; empty on a cartridge whose decompressor has no known place.
+battle::ItemsObtainedTail powerOnItemsObtainedTail(const assets::IngestedContent& content) {
+    if (!content.routines) {
+        return {};
+    }
+    return battle::itemsObtainedTailAtPowerOn(
+        content.routines->decompress(assets::compressedStream(content.titleProgram)));
+}
+
 // One battle being fought, frame by frame: the battle, its presentation, the hooks and the scripted
 // player.
 struct Fight {
@@ -183,7 +194,9 @@ struct Fight {
     Fight(FormationId formation, BattleBackgroundId background, std::span<const CharacterPropId> actors,
           const assets::IngestedContent& content, std::uint8_t messageSpeed)
         : executor(hooks, content.text, content.monsterSprites),
-          sim(battle::BattleStart{.formation = FormationRef::of(formation), .background = background},
+          sim(battle::BattleStart{.formation = FormationRef::of(formation),
+                                  .background = background,
+                                  .itemsObtainedTail = powerOnItemsObtainedTail(content)},
               partyOf(actors, content.text), {}, content.text, content.monsterSprites, executor),
           player(messageHoldFrames(messageSpeed)) {}
 

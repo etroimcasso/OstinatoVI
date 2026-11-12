@@ -60,6 +60,7 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `config` | the player's battle settings (`BattleConfig`) |
 | `version` | the cartridge's `GameVersion` |
 | `playTimeFrames` | the frames part of the play clock; the battle's random numbers start at four times it |
+| `itemsObtainedTail` | the last three places of the items obtained, which a battle's start does not empty: the last battle's `BattleResult::itemsObtainedTail` ([rewards.md](rewards.md#items-obtained)); empty when left as it is |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
 line in the list of names. The monsters' sprites (`MonsterSprites`, from the cartridge) decide where
@@ -341,7 +342,7 @@ The fighters standing go on in their slots with their statuses, less Dance, Rage
 fallen, absent or air-anchored fighter's slot takes the next character in line. Mimic's memory, the
 Reflect and Freeze timers, who is in the air and who has summoned carry on, the party keeps the way
 each fighter faces while the new monsters are placed, and a fighter still in the air comes down as
-the stage opens. The stage opens with `FormationChanges` — the background scrolls on and its
+the stage opens. The items obtained carry on whole, both counts with them. The stage opens with `FormationChanges` — the background scrolls on and its
 monsters come in — and the loop waits for that script. `BattleSim`
 does all of this itself.
 
@@ -356,6 +357,7 @@ does all of this itself.
 | `switches` | the battle switches, with how the battle ended (party defeated 64, ran out of time 68, timer expired 69, Zone Eater 71) and Doom Gaze's HP |
 | `veldtFormation` | the formation the battle began with, when Gau can now find it on the Veldt |
 | `shadowLeftParty` | Shadow walked off |
+| `itemsObtainedTail` | the last three places of the items obtained as the battle leaves them, for the next battle's start |
 
 ## The battle switches
 

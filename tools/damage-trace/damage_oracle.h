@@ -658,6 +658,72 @@ struct RewardResult {
 // by cell as the cartridge holds it, each cell named.
 [[nodiscard]] std::string differences(const RewardResult& port, const RewardResult& guest);
 
+// --- a battle's end ------------------------------------------------------------------------------
+
+// A battle at its end as an ending reads it: the party (its game::Party is the battle's party) and
+// the battle.
+struct EndingScenario {
+    PartyCells cells;
+    battle::BattleState state;
+};
+
+// Something an ending shows, as both sides are compared: a party member's battle menu closing, a
+// wait of so many frames, or an item a party member put away. On the cartridge a wait is that many
+// calls to wait for a frame, and a merge of the items obtained shows nothing.
+struct EndingCall {
+    enum class Kind : std::uint8_t { CloseMenu, Wait, ItemObtained, Other };
+    Kind kind = Kind::Other;
+    std::uint8_t slot = 0;       // CloseMenu: the party slot
+    int frames = 0;              // Wait
+    ItemId item = ItemId::EMPTY; // ItemObtained
+    std::uint8_t command = 0;    // Other: the graphics command, or 0 for a request of the port's own
+    friend bool operator==(const EndingCall&, const EndingCall&) = default;
+};
+
+// What an ending leaves, as the same fields on both sides: the party read back, the inventory, the
+// items obtained with both counts, what each party member holds in hand and who is marked as
+// holding something, the Morph meter shown per party slot, whether battle menus may open, and the
+// calls in order.
+struct EndingResult {
+    PartyCells cells;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+    battle::ItemsObtained itemsObtained;
+    std::array<std::optional<ItemId>, battle::kPartySlots> hands{};
+    std::uint8_t holdingItem = 0;
+    std::array<std::uint8_t, battle::kPartySlots> morphGauges{};
+    bool menusDisabled = false;
+    std::vector<EndingCall> calls;
+};
+
+// The port's wrap-up (battle::wrapUpBattle) over the scenario.
+[[nodiscard]] EndingResult portWrapUp(const EndingScenario& scenario);
+
+// Every field where the two parted, one per line; empty when they agree. An inventory slot or a place
+// of the list whose item is empty on both sides agrees whatever else it holds.
+[[nodiscard]] std::string differences(const EndingResult& port, const EndingResult& guest);
+
+// The items obtained and the inventory, as the graphics program's two commands for them read them:
+// the list with both counts, the inventory, and the item a command adds and how many — handed over as
+// the battle works its record out (battle::battleItem) with no one in the party.
+struct ItemsObtainedScenario {
+    battle::ItemsObtained list;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+    ItemId item = ItemId::EMPTY;
+    std::uint8_t quantity = 0;
+};
+
+struct ItemsObtainedResult {
+    battle::ItemsObtained list;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+};
+
+// The port's side: the scenario's item put in the list as battle::obtainItem() puts it, and the list
+// merged (battle::mergeItemsObtained).
+[[nodiscard]] ItemsObtainedResult portAddItemObtained(const ItemsObtainedScenario& scenario);
+[[nodiscard]] ItemsObtainedResult portMergeItemsObtained(const ItemsObtainedScenario& scenario);
+
+[[nodiscard]] std::string differences(const ItemsObtainedResult& port, const ItemsObtainedResult& guest);
+
 // --- a monster's AI --------------------------------------------------------------------------------
 
 // One battle as a monster's AI script reads it: the state, the battler whose script it is, and what
@@ -813,8 +879,11 @@ struct CellsLeftAsTheMachineHasThem {
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 8> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 9> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
+    {.at = 0x7E01F1, .count = 5,
+     .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
+            "the command's rtl"},
     {.at = 0x7E00EB,
      .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
     {.at = 0x7E00F3,
@@ -966,6 +1035,19 @@ public:
     // One call to the graphics program as the battle program makes it (ExecBtlGfx), the command in the
     // accumulator, from the cells as they stand, answered as above. Returns the calls it made.
     const std::vector<GraphicsCall>& graphicsCommand(std::uint8_t command);
+
+    // The battle's end as every ending but two begins it (_c24903), from the scenario's cells, both
+    // register widths narrow, with the graphics program answered as above.
+    [[nodiscard]] EndingResult wrapUp(const EndingScenario& scenario);
+
+    // The scenario's item added to the list (graphics command $05), and the list merged into the
+    // inventory ($0A), each through the battle program's call to the graphics program.
+    [[nodiscard]] ItemsObtainedResult addItemObtained(const ItemsObtainedScenario& scenario);
+    [[nodiscard]] ItemsObtainedResult mergeItemsObtained(const ItemsObtainedScenario& scenario);
+
+    // The cartridge's title program laid over work RAM as a console just switched on lays it
+    // (DecompCutsceneProg), and the last three places of the items obtained read back.
+    [[nodiscard]] battle::ItemsObtainedTail itemsObtainedTailAtPowerOn();
 
     // The battlers `target` names for the scenario's actor (CheckAITarget), with or without the cut
     // to the battlers an attack can reach, called as a script's target step and its conditions call
@@ -1119,6 +1201,13 @@ private:
     [[nodiscard]] RewardResult readRewardResult();
     [[nodiscard]] RewardResult callReward(const std::function<void()>& routine);
     void answerGraphics(const GraphicsCall& call);
+    void writeItemsObtained(const battle::ItemsObtained& list);
+    [[nodiscard]] battle::ItemsObtained readItemsObtained();
+    void writeInventory(const std::array<battle::BattleItem, game::kInventorySlots>& inventory);
+    [[nodiscard]] std::array<battle::BattleItem, game::kInventorySlots> readInventory();
+    [[nodiscard]] ItemsObtainedResult callItemsObtained(const ItemsObtainedScenario& scenario, std::uint8_t command);
+    void writeEndingScenario(const EndingScenario& scenario);
+    [[nodiscard]] EndingResult readEndingResult();
     void writeAiCells(const AiScenario& scenario);
     void writeAiScriptCells(const battle::BattleState& state);
     void writeAiRunCells(const AiScenario& scenario, bool counter);
@@ -1188,6 +1277,9 @@ private:
     retropp::Routine<AbilitiesCall> execBtlGfx_;
     retropp::Routine<Call> addItemObtained_;
     retropp::Routine<Call> mergeItemsObtained_;
+    // The battle's end, and the title program's laying out.
+    retropp::Routine<Call> wrapUp_;
+    retropp::Routine<Call> decompCutsceneProg_;
     std::vector<GraphicsCall> graphicsCalls_;
     // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
     std::optional<std::uint8_t> unansweredGraphics_;
@@ -1333,6 +1425,17 @@ struct TargetScenario {
 
 // One line naming a drawn reward scenario's inputs, for a report.
 [[nodiscard]] std::string describe(const RewardScenario& scenario);
+
+// A battle at its end, for the wrap-up: up to four party members, each holding an item in hand or
+// not and marked as holding one or not, someone morphed or not; an inventory with room, with items
+// the hands hold near 99, or full; and the items obtained empty, part-full or near the end of their
+// sixteen places, with both counts drawn so a merge often runs past place 12 into the last three.
+[[nodiscard]] EndingScenario drawEndingScenario(std::mt19937& rng);
+[[nodiscard]] std::string describe(const EndingScenario& scenario);
+
+// The list and the inventory for the graphics program's two commands, drawn the same way, with an
+// item and a quantity to add.
+[[nodiscard]] ItemsObtainedScenario drawItemsObtainedScenario(std::mt19937& rng);
 
 // A battle a script's targets are found in, the target asked for and whether the sides are cut to
 // the reachable.

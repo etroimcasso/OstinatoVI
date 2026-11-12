@@ -71,6 +71,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/attacker_effects.cpp
     src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
+    src/battle/battle_end.cpp
     src/battle/battle_hooks.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_layout.cpp
@@ -84,6 +85,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/commands.cpp
     src/battle/damage.cpp
     src/battle/item_attack.cpp
+    src/battle/items_obtained.cpp
     src/battle/leveling.cpp
     src/battle/links.cpp
     src/battle/morph.cpp
@@ -774,6 +776,9 @@ gtest_discover_tests(ostinato-vi-battle-ai-tests)
 add_executable(ostinato-vi-battle-rewards-tests
     tests/test_rewards.cpp
     tests/test_rewards_oracle.cpp
+    tests/test_items_obtained.cpp
+    tests/test_battle_end.cpp
+    tests/test_battle_end_oracle.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})

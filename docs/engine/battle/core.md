@@ -319,8 +319,8 @@ meter ([effects.md](effects.md)).
 battle begins), `OpenBattleMenu`, `CloseBattleMenu`, `RefreshBattleMenu`, `RunBattleScript`,
 `RefreshMonsterNames`, `ScrollFinalBattleBackground` (a final-battle stage is won),
 `CloseBattleScene` (the battle is over) and `AddItemObtained` (a party member came away from an
-action holding an item, which goes into the battle inventory; the loop asks for it once the action's
-script has played and the battle has settled). A `RunBattleScript` can also come during an action,
+action holding an item, which joins the items obtained on its way into the battle inventory; the loop
+asks for it once the action's script has played and the battle has settled). A `RunBattleScript` can also come during an action,
 ahead of the action's own: Scan plays each of its messages that way. A `RunBattleScript` holds
 `BattleScriptCommand`s and is the one request the loop waits on. The battle core writes
 `ReadyStance` (a character stepping forward for its command, or leaping for a Jump), `StepBack` and,

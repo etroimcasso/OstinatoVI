@@ -8,8 +8,10 @@ and the rages. All citations point into the pinned reference tree `original-src/
 character record's cells are named from `notes/field-ram.txt:885-927`: record *n* starts at `$1600 +
 37·n`, with the actor at `+$00`, the level at `+$08`, the experience at `+$11` (three bytes), the esper
 at `+$1E` and the six pieces of equipment at `+$1F` to `+$24`. `$f0`-`$ff` are the win's direct-page
-cells and `$2f35`-`$2f40` the four message variables, three bytes each. This document is the test
-authority for `tests/test_rewards.cpp` and `tests/test_rewards_oracle.cpp`.
+cells and `$2f35`-`$2f40` the four message variables, three bytes each. Lines marked `G:` are into
+`src/btlgfx/btlgfx_main.asm`, the graphics program, which keeps the list of items obtained. This
+document is the test authority for `tests/test_rewards.cpp`, `tests/test_rewards_oracle.cpp`,
+`tests/test_items_obtained.cpp`, `tests/test_battle_end.cpp` and `tests/test_battle_end_oracle.cpp`.
 
 The rules are functions over the party (`game::Party`, `src/game/character_record.h`) and the battle
 (`battle::BattleState`) in `src/battle/rewards.h`. Every rule with a routine of its own is also checked
@@ -32,6 +34,11 @@ over the same party the port is given (`tools/damage-trace/damage_oracle.h`).
 | The rages | `LearnRage :12185-12198` | `learnRages()` |
 | A spell learned a little further | `IncLearnMagic :15687-15705` | `addSpellProgress()` (`docs/contracts/battle_espers.md` § B) |
 | A level-up | `DoLevelUp :15761-15816` | `levelUp()` (`docs/contracts/battle_espers.md` § C) |
+| The wrap-up | `_c24903 :12062-12086` | `wrapUpBattle()` (`src/battle/battle_end.h`) |
+| An item joining the list | `BtlGfx_05 G:357-373`, `LoadItemProp :13981-14037` | `obtainItem()` (`src/battle/items_obtained.h`) |
+| The list merged | `_c14445 G:9448-9494`, `CheckInventoryFull G:21262-21273` | `mergeItemsObtained()` |
+| The list as a battle starts | `G:43456-43460`, `G:2475-2480`, `InitBattle :6180-6193` | `itemsObtainedAtBattleStart()`, `BattleStart::itemsObtainedTail` |
+| The list's last three places at power-on | `DecompCutsceneProg` (`src/cutscene/cutscene_main.asm:81-122`), `src/cutscene/opening.asm:1302-1314` | `itemsObtainedTailAtPowerOn()` |
 | The switch the win reads | `:15321-15323` | `game::kMagicPointsEarnedSwitch` (67) |
 | The Cursed Shield's count | `$3ec0`, battle variable 12 | `game::BattleSwitches::cursedShieldBattles()` |
 | The tables | `BattleMagicPoints`, `LevelUpExp`, `NaturalMagic`, `BushidoLevelTbl`, `BattleBGDance`, `ItemProp` | `magicPointsForBattle()`, `levelUpExp()`, `kNaturalMagicTerra`/`kNaturalMagicCeles`, `abilityLearnLevels()`, `backgroundDance()`, `getItemProperties()` |
@@ -55,6 +62,92 @@ The battle hands its outcome to `ActionExecutor::playBattleEnd()` and then write
 
 A lost battle gives nothing beyond what the wrap-up puts away. A win never runs `LearnRage`: the rages
 are learned only by the two endings that name them.
+
+## C. The wrap-up — `_c24903 :12062-12086`
+
+`wrapUpBattle()`, in order:
+
+1. `SaveMorphCounter :1762-1771`: with someone morphed (`$3ee2` not negative), the Morph supply
+   (`$1cf6`) becomes the supply times the meter's high byte (`$3f31`), over 256 (`MultAB`, then `xba`).
+   With no one morphed the supply is left as it is.
+2. For party slots 3 to 0 (`ldx #$06 … dex2; bpl`, `:12065-12073`): the Morph meter shown (`$3b04,x`) is
+   emptied and the slot's battle menu closes (graphics command `$03` with the slot in `$10`) — a
+   `CloseBattleMenu` request per slot, slot 3's first.
+3. No battle menu may open again (`lda #$80; tsb $b1`, `:12074-12075`) — `BattleState::menusDisabled`.
+4. 32 frames pass (graphics command `$01`, 32 times, `:12076-12080`) — one `Wait` script command of 32
+   frames. The presentation holds the script for that many frames, the frame it starts counting as the
+   first.
+5. **Every party member's hand is put away**, not only the ones marked as holding something: `lda #$0f;
+   tsb $3a8c` (`:12081-12082`) marks all four, then `_c262c7 :16168-16187`, slots 3 to 0, takes each
+   marked slot's mark off and, where its item in hand (`$32f4,x`) is not `$ff`, adds one of it to the list
+   (§ D.1, graphics command `$05`) and empties the hand. So an item chosen for Item or Throw and never
+   used comes back. Each one put away is also an `AddItemObtained` request.
+6. The list is merged into the inventory (graphics command `$0a`, `:12084-12085`; § D.3).
+7. `UpdateCharProp :5595-5631`: for party slots 3 to 0 whose equipment changed in the battle's Item menu
+   (`$2f30,x`), the record takes the two hands' items and its battle stats are worked out again
+   (`applyEquipmentChanges()`).
+
+The same steps run after every action but 5: `_c262c7` alone runs once an action is over, for the party
+members marked as holding an item (`putAwayItemsObtained()`), and nothing is merged then.
+
+## D. The items obtained
+
+The battle program hands an item to the graphics program as a five-byte record at `$2e72` built by
+`LoadItemProp :13981-14037`: the item; its flags — `$80` set when it cannot be used in battle, `$20`
+throwable, then the item type's bits from `ItemTypeMaskTbl` shifted once, `$40` a tool, `$10` a weapon,
+`$08` a shield; its targeting (`ItemProp+14`); its quantity (`$2e75`, written by the caller); and one bit
+per party slot, set where that party member cannot hold it (`:14021-14033`: `sec` on no match, `rol`), or
+`$ff` for a type that is never held. The port's `BattleItem` holds each of these
+(`battleItemFromRecord()`, `recordOf()`); the flags' low three bits, which `LoadItemProp` never sets, and
+the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records) has the same form.
+
+1. **Adding — `BtlGfx_05 G:357-373`.** The record is copied to place `added & 15` of a sixteen-place list
+   (`w7e602d`, five bytes a place, `btlgfx_ram.inc:97`) and `added` (`w7e64da`) goes up by one, wrapping
+   past 255. Neither count is brought back down within the battle: the list is a ring.
+2. **A battle's start.** The graphics program's start (`BtlGfx_00 G:379-381`) zeroes `$7E:6178-$7E:8D12`
+   (`G:43456-43460`), which holds both counts, then writes `$ff` over the list's first **64** bytes
+   (`G:2475-2480`, `cpx #$0040`; the disassembly marks it "should be #$0050 *** bug ***"): places 0-11
+   whole and place 12's first four bytes, which reads as empty. **Places 13-15 are not reached**: they keep
+   whatever was in them. `itemsObtainedAtBattleStart()` empties places 0-12 and both counts, and lays
+   `BattleStart::itemsObtainedTail` into places 13-15; `writeBack()` hands places 13-15 back on
+   `BattleResult::itemsObtainedTail` as the battle leaves them.
+3. **A later stage of the final battle** plays script command `$12` in place of the graphics program's
+   start (`InitBattle :6180-6193`): the whole list and both counts carry on into the stage.
+4. **Merging — `_c14445 G:9448-9494`.** From place `merged & 15` (`w7e64db`): a place whose item is `$ff`
+   ends the merge. Otherwise the inventory's 256 slots are searched for the item, first slot first
+   (`G:9461-9466`):
+   - **held**: the place's quantity is added to the slot's, eight bits wide with the carry unread, and a
+     result of 100 or more becomes 99 (`cmp #$64; bcc; lda #$63`, `G:9482-9488`) — 98 + 5 is 99, but
+     200 + 100 is 44;
+   - **not held**: `CheckInventoryFull G:21262-21273` finds the first slot whose item is `$ff`, and the
+     place's five bytes are copied into it — the quantity as it is, past 99 too. With no empty slot the
+     merge ends there: the place keeps its item and `merged` does not move (`bcs @44a1`, `G:9469-9470`).
+
+   Then the place's item becomes `$ff`, `merged` goes up by one, and the next place is tried. A place whose
+   item is `$ff` is empty: nothing else in it is read.
+5. **Who merges**: the wrap-up (§ C.6), each drop and the colosseum's prize (`_c26279 :16085-16091`, which
+   adds and merges at once), and a party member's battle menu opening (`_c144a2 G:9500-9512`, from
+   `_c102ca G:548-568`).
+6. **What follows from the clear stopping short.** Merged after each item (as drops are), the first
+   twelve fill and merge places 0-11. The thirteenth fills and merges place 12, and the merge walks on
+   into places 13-15, merging whatever they hold, then to place 0, which it emptied, and stops: `merged`
+   is 16. The fourteenth to sixteenth then go into places 13-15 and wait, since the merge looks at place 0;
+   the seventeenth to twenty-eighth fill and merge places 0-11; the twenty-ninth fills place 12 and the
+   walk merges the waiting three behind it. Whatever places 13-15 hold when the battle ends is handed
+   back and is not in the inventory. An empty place 13 stops the walk at the thirteenth, and the next three
+   merge as they come.
+7. **A full inventory stops the merge for good.** A place whose item the party does not hold, with no
+   empty slot, stays; every item after it waits behind it, held items too, in this battle and, for places
+   13-15, the next.
+8. **What a console just switched on holds there.** Every power-on runs the title screen, which lays the
+   title and cutscene program over `$7E:5000-$7E:7C62` (`DecompCutsceneProg`,
+   `src/cutscene/cutscene_main.asm:81-122`, `:105`); `OpeningCredits`, `FloatingContScene` and
+   `WorldOfRuinScene` lay it again (`:55-75`). In it, `$7E:606E` is `ArmorBpdySprite_01`
+   (`src/cutscene/opening.asm:1309-1314`, the opening's Magitek armor, body, second frame), so places
+   13-15 read as item `$04` (Thief Knife) × 108, flags `$98`; item `$88` (Silk Robe) × 112, flags `$08`;
+   item `$18` (Excalibur) × 136, flags `$80`. `itemsObtainedTailAtPowerOn()` reads them out of the
+   decoded program at `$106E` (`RomAsset::CUTSCENE`, decoded by the cartridge's own decompressor). Other
+   programs write over the same memory between battles; what each leaves there belongs to that program.
 
 ## F. Magic points, experience and gold
 
@@ -207,7 +300,8 @@ SwdTech or a Blitz was newly learned; the caller tells of the first of each in a
 
 ## T. Reachability
 
-Every rule here is reachable: the port owns the party, the switches and the monsters' slots. The
-arithmetic play cannot reach — an award of 128 magic points or more, an experience sum past three
-bytes, a share for no allies, a Cursed Shield in more than one slot — is reproduced all the same and
-checked by hand and against the cartridge.
+Every rule here is reachable: the port owns the party, the switches, the monsters' slots, the
+inventory and the list. The arithmetic play cannot reach — an award of 128 magic points or more, an
+experience sum past three bytes, a share for no allies, a Cursed Shield in more than one slot, a quantity
+sum past 255 — is reproduced all the same and checked by hand and against
+the cartridge.

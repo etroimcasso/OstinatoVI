@@ -790,3 +790,51 @@ pin it, against the cartridge's routine as well.
 **If you want to change it.** Clearing `Battler::turnResume`, `counterResume`,
 `counterScript`, `aiVariable` and `turnTimer` when a monster is loaded starts
 each new monster's script afresh.
+
+---
+
+## Thirteen items obtained bring three more that were never obtained
+
+**What happens.** A battle's start empties the first 13 of the 16 places for items the party comes
+away with. The last three keep whatever was in them. When a thirteenth item is obtained in one battle,
+whatever those three places hold follows it into the inventory. On a console just switched on they hold
+part of the opening's Magitek armor animation, which reads as 108 Thief Knives, 112 Silk Robes and 136
+Excaliburs; an item the party does not already hold arrives in that number, past the usual 99. The
+fourteenth, fifteenth and sixteenth items obtained in that battle then wait in those places and stay out
+of the inventory until a twenty-ninth is obtained, or until a later battle's thirteenth.
+
+**Where the original does it.** The graphics program's start writes `$FF` over the list's first 64
+bytes, where 80 are the list (`btlgfx/btlgfx_main.asm:2475-2480`, marked "should be #$0050" in the
+disassembly), and zeroes the two counts (`:43456-43460`). The merge (`_c14445`, `:9448-9494`) runs on
+until it meets an empty place. The title and cutscene program, laid over `$7E:5000` at every power-on
+(`cutscene/cutscene_main.asm:81-122`), leaves `cutscene/opening.asm:1309-1314` in those places.
+
+**Where the port keeps it.** `itemsObtainedAtBattleStart()` in `src/battle/items_obtained.cpp` empties
+places 0-12 and lays `BattleStart::itemsObtainedTail` into places 13-15; `writeBack()` hands them back
+on `BattleResult::itemsObtainedTail`. `itemsObtainedTailAtPowerOn()` reads the power-on bytes out of
+the cartridge's own title program. `tests/test_items_obtained.cpp`
+(`ItemsObtained.TheThirteenthItemBringsTheLastThreePlacesIntoTheInventory`,
+`ItemsObtained.TheFourteenthToSixteenthWaitUntilTheTwentyNinth`) and `tests/test_battle_end_oracle.cpp`
+(`BattleEndOracleTest.TheLastThreePlacesAtPowerOnAreThreeItemsInNumbersPastTheMost`) pin it, against the
+cartridge as well.
+
+**If you want to change it.** Emptying all sixteen places in `itemsObtainedAtBattleStart()` ends both.
+
+---
+
+## A full inventory holds back every item obtained after the one that would not fit
+
+**What happens.** With no empty inventory slot, an obtained item the party does not already hold stays
+where it is, and every item obtained after it waits behind it, even ones the party holds.
+
+**Where the original does it.** `_c14445` (`btlgfx/btlgfx_main.asm:9448-9494`) returns at a full
+inventory (`bcs @44a1`, `:9469-9470`) without moving its count, so every later merge starts at the same
+place.
+
+**Where the port keeps it.** `mergeItemsObtained()` in `src/battle/items_obtained.cpp`.
+`tests/test_items_obtained.cpp` (`ItemsObtained.AFullInventoryStopsTheMergeAndEverythingBehindItWaits`) and
+`tests/test_battle_end_oracle.cpp` (`BattleEndOracleTest.TheListByHand`) pin it, against the cartridge as
+well.
+
+**If you want to change it.** Passing over a place that does not fit, instead of returning, lets the
+items behind it in.

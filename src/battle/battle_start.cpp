@@ -505,6 +505,8 @@ struct StageCarry {
     // placed anew.
     BattlerSet partyFacingRight;
     BattlerSet animationTargets;
+    // A stage's start empties none of the items obtained and leaves both counts where they stood.
+    ItemsObtained itemsObtained;
 };
 
 BattleState assembleBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
@@ -542,10 +544,12 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.morphCounter = carry->morphCounter;
         state.morphCounterSpeed = carry->morphCounterSpeed;
         state.finalBattleReserve = carry->finalBattleReserve;
+        state.itemsObtained = carry->itemsObtained;
     } else {
         state.finalBattleChain = start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
         state.finalBattleReserve.assign(start.finalBattleOrder.begin(), start.finalBattleOrder.end());
         state.mimic.last.command = BattleCommandId::MIMIC;
+        state.itemsObtained = itemsObtainedAtBattleStart(start.itemsObtainedTail);
     }
 
     state.rng = BattleRng(static_cast<std::uint8_t>(start.playTimeFrames * 4));
@@ -654,7 +658,8 @@ BattleState startBattle(const BattleStart& start, game::Party party, game::Battl
 BattleResult writeBack(const BattleState& state) {
     BattleResult result{.outcome = state.outcome.value_or(BattleOutcome{BattleWon{}}),
                         .party = state.party,
-                        .switches = state.switches};
+                        .switches = state.switches,
+                        .itemsObtainedTail = itemsObtainedTail(state.itemsObtained)};
     game::Party& party = result.party;
 
     for (int position = kPartySlots - 1; position >= 0; --position) {
@@ -765,6 +770,7 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     carry.finalBattleReserve = finished.finalBattleReserve;
     carry.partyFacingRight = finished.facingRight.charactersOnly();
     carry.animationTargets = finished.animationTargets;
+    carry.itemsObtained = finished.itemsObtained;
     for (std::size_t stage = 0; stage + 1 < kFinalBattleFormations.size(); ++stage) {
         if (kFinalBattleFormations[stage + 1] == next) {
             carry.scroll = kFinalBattleScroll[2 * stage].scroll;

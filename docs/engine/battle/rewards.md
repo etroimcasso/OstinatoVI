@@ -24,7 +24,11 @@ The rules, and the line of the original each is read from, are in
 |---|---|
 | `src/battle/rewards.h` | `spoilsOf()`, `experienceShare()`, `addExperience()`, `earnedNextLevel()`, `learnAbilitiesAtLevel()`, `learnFromEquipment()`, `learnLores()`, `learnDance()`, `gainMorphSupply()`, `learnRages()`; `BattleSpoils`, `AbilitiesLearned`, `EquipmentLearning` |
 | `src/battle/rewards.cpp` | the three-byte mask, the fallen statuses, the level scale, the Morph supply's limit and the rage bound as named constants; the console's divide |
-| `src/battle/battle_script.h` | the win's message numbers, `kMessageGotItem` to `kMessageMasteredATechnique` |
+| `src/battle/battle_end.h` | `wrapUpBattle()`, the close of a battle every ending but two runs; `kWrapUpWaitFrames` |
+| `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `battleItemFromRecord()` and `recordOf()`, an item's five-byte form on the cartridge; `kMostOfOneItem` |
+| `src/battle/battle_start.h` | `BattleStart::itemsObtainedTail` and `BattleResult::itemsObtainedTail`, the list's last three places carried from one battle to the next |
+| `src/battle/battle_script.h` | the win's message numbers, `kMessageGotItem` to `kMessageMasteredATechnique`; `Wait`, a script command that holds the script for a number of frames |
+| `src/assets/cartridge.h` | `IngestedContent::titleProgram`, the compressed title and cutscene program the power-on tail is read out of |
 | `src/game/battle_switches.h` | `kMagicPointsEarnedSwitch` (67, the party has magicite); `BattleSwitches::cursedShieldBattles()` and `setCursedShieldBattles()` |
 | `src/battle/spell_learning.h`, `src/battle/leveling.h` | `addSpellProgress()`, which the equipment's spells go through, and `levelUp()` ([espers.md](espers.md)) |
 | `src/data/level_up.h` | `levelUpExp()`, the experience step to each level; `abilityLearnLevels()`, the levels the SwdTechs and Blitzes are learned at |
@@ -32,7 +36,7 @@ The rules, and the line of the original each is read from, are in
 | `src/data/item_properties.h` | `getItemProperties()`: each item's spell and learn rate |
 | `src/data/battle_tables.h` | `backgroundDance()`: the dance each battle background teaches |
 | `include/ostinato/game_limits.h` | `kMaxExperience` (15,000,000), `kMaxGil` (9,999,999) |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; `wrapUp()` over an `EndingScenario`; `addItemObtained()` and `mergeItemsObtained()` over an `ItemsObtainedScenario`; `itemsObtainedTailAtPowerOn()`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them |
 
 ## Experience and gold
 
@@ -128,6 +132,57 @@ battle::learnRages(state.party, state);   // after a Leap, or a battle that ends
 the party slots, fallen or not, and returns the dance only when the party did not know it.
 `learnRages()` takes every monster in the six slots, alive, fallen or gone, numbered below 256.
 
+## The wrap-up
+
+`wrapUpBattle()` closes a battle once it has an outcome, before the party is handed back. A win, a loss
+and every special ending but two run it; a Leap and a battle that ends by teaching its rages do not.
+
+```cpp
+#include "battle/battle_end.h"
+
+battle::wrapUpBattle(state, executor);
+```
+
+In order it keeps the Morph supply as the meter stands, closes the party's battle menus from slot 3 to
+slot 0 (a `CloseBattleMenu` request each), sets `BattleState::menusDisabled`, waits 32 frames (a
+`RunBattleScript` holding one `Wait`), puts away every party member's hand (`putAwayItemsObtained()`
+with all four marked: an item chosen for Item or Throw and never used comes back), merges the items
+obtained into the inventory, and applies equipment changed in the Item menu.
+
+## Items obtained
+
+An item the party comes away with does not go straight into the inventory. It waits in
+`BattleState::itemsObtained`, sixteen places used as a ring, and reaches `state.inventory` when the list is
+merged:
+
+```cpp
+#include "battle/items_obtained.h"
+
+battle::obtainItem(state, ItemId::POTION, 2);   // in place `added % 16`
+battle::mergeItemsObtained(state);              // held: added to, at most 99; not held: the first empty slot
+```
+
+A battle starts with both counts at 0 and the first thirteen places empty; the last three are what the
+host hands it. The host carries them from one battle's result to the next battle's start, and starts a
+play session with what a console just switched on holds there, read out of the cartridge's own title
+program:
+
+```cpp
+#include "assets/cartridge.h"
+#include "battle/battle_start.h"
+
+battle::BattleStart start{.formation = FormationRef::of(formation),
+                          .itemsObtainedTail = battle::itemsObtainedTailAtPowerOn(
+                              content.routines->decompress(assets::compressedStream(content.titleProgram)))};
+// ... the battle ...
+start.itemsObtainedTail = result.itemsObtainedTail;   // the next battle
+```
+
+A later stage of the final battle keeps the whole list and both counts.
+
+`battleItemFromRecord()` and `recordOf()` turn a `BattleItem` into the five bytes the cartridge keeps an
+inventory slot and a place of the list in, and back.
+
 ## Checking against the cartridge
 
 The oracle runs the cartridge's own routine for each rule over a `RewardScenario` — the whole party in
@@ -159,6 +214,13 @@ commands that wait on the screen or the sound return at once; the two that keep 
 as the cartridge holds them. `ostinato-damage-trace --check` runs the draws as `add-exp`,
 `item-learning`, `level-ups`, `abilities` and `rages`.
 
+`wrapUp()` runs the cartridge's wrap-up over an `EndingScenario` — the party in its cells and the battle at
+its end — and compares the party, the inventory, the list with both counts, the hands, the meters shown,
+the menus and what was shown, in order (`EndingCall`: a menu closing, a wait, an item put away). After it,
+`unwrittenReads()` names any cell the cartridge read that the scenario did not write.
+`addItemObtained()` and `mergeItemsObtained()` run the graphics program's own two commands over an
+`ItemsObtainedScenario`. `--check` runs these as `items-obtained`, `items-merged` and `wrap-up`.
+
 ## Gotchas
 
 - **The share drops its remainder.** 301 experience between 4 allies is 75 each.
@@ -181,6 +243,18 @@ as the cartridge holds them. `ostinato-damage-trace --check` runs the draws as `
 - **The Morph supply's doubling keeps its low byte.** 128 magic points add 1, and 200 add 145.
 - **A rage is learned from a monster that fled.** Every monster in the slots counts.
 - **Switch 67 is the party having magicite, not Morph.** The Morph command reads switch 66.
+- **An item obtained waits until a merge.** `obtainItem()` alone leaves the inventory as it was; the
+  wrap-up, each drop, the colosseum's prize and a battle menu opening merge.
+- **A merge stops for good at a full inventory.** An item the party does not hold, with no empty slot,
+  stays in its place, and every item obtained after it waits behind it — held items too.
+- **A held item's sum keeps its low byte before it is held to 99.** 200 plus 100 is 44.
+- **An item not held arrives in the number it was obtained in**, past 99 too.
+- **The thirteenth item obtained in one battle brings the last three places with it.** On a console just
+  switched on they hold 108 Thief Knives, 112 Silk Robes and 136 Excaliburs. The fourteenth to sixteenth
+  then wait until a twenty-ninth.
+- **The last three places outlast the battle.** Pass `BattleResult::itemsObtainedTail` into the next
+  `BattleStart`; a `BattleStart` left as it is starts them empty.
+- **The wrap-up puts away every hand**, not only the ones marked as holding an item.
 
 ## Where to change
 
@@ -196,6 +270,12 @@ as the cartridge holds them. `ostinato-damage-trace --check` runs the draws as `
 | The Morph supply's limit | `kMostMorphSupply` in `src/battle/rewards.cpp` |
 | Which monsters have rages | `kMonstersWithRages` in `src/battle/rewards.cpp` |
 | The win's message numbers | `src/battle/battle_script.h` |
+| The wrap-up's steps and its wait | `wrapUpBattle()` and `kWrapUpWaitFrames` in `src/battle/battle_end.h`/`.cpp` |
+| How the list fills and merges | `obtainItem()` and `mergeItemsObtained()` in `src/battle/items_obtained.cpp`; `kMostOfOneItem` in `items_obtained.h` |
+| Which places a battle's start empties | `itemsObtainedAtBattleStart()` and `kItemsObtainedTailPlaces` in `src/battle/items_obtained.h`/`.cpp` |
+| Where the power-on tail is read from | `kItemsObtainedTailInTitleProgram` in `src/battle/items_obtained.cpp` |
+| How long a `Wait` holds the script | `playCommandFrame()` in `src/battle/presentation.cpp` |
+| The ending's cells the oracle writes and reads | `writeEndingScenario()`, `readEndingResult()`, `writeItemsObtained()` and `writeInventory()` in `tools/damage-trace/damage_oracle.cpp` |
 | The party's cells the oracle writes and reads | `partyImage()`, `writeParty()` and `readParty()` in `tools/damage-trace/damage_oracle.cpp` |
 | How the oracle answers the graphics program | `answerGraphics()` in `tools/damage-trace/damage_oracle.cpp` |
 | What text reads which message variable | `kMessageVariableReads` in `tools/damage-trace/damage_oracle.cpp` |

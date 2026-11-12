@@ -222,6 +222,11 @@ inline constexpr std::uint8_t kMessageGotMagicPoints = 53;      // "Got {n} Magi
 inline constexpr std::uint8_t kMessageMasteredADance = 64;      // "Mastered a new dance!"
 inline constexpr std::uint8_t kMessageMasteredATechnique = 66;  // "Mastered a new technique!"
 
+// Nothing new is shown for `frames` frames; the script goes on after them.
+struct Wait {
+    int frames = 0;
+};
+
 // A party member goes back to standing normally.
 struct PoseReset {
     BattlerSlot battler = BattlerSlot::character(0);
@@ -310,7 +315,7 @@ using BattleScriptCommand =
     std::variant<ReadyStance, StepBack, FormationChanges, AttackAnimation, AttackNameShown, BushidoNameShown,
                  ItemNameShown, EsperNameShown, CommandNameShown, MonsterSpecialAttackNameShown, BattleMessage,
                  PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays,
-                 DamageNumbersShown, ReflectedAttackShown, ScatteredHitsShown>;
+                 DamageNumbersShown, ReflectedAttackShown, ScatteredHitsShown, Wait>;
 
 // Builds one action's battle script.
 class BattleScriptBuilder {
