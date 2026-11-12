@@ -471,6 +471,8 @@ TEST(WriteBack, ATakenPartyMembersWholePartyByteIsCleared) {
     // RemoveChar :11879-11885: `stz $1850,x`.
     BattleState state = battleWithParty({CharacterPropId::LOCKE, CharacterPropId::EDGAR});
     state.party.membership[1].backRow = true;
+    state.party.membership[1].enabled = true;
+    state.party.membership[1].visible = true;
     battle::Battler& edgar = state.at(BattlerSlot::character(1));
     edgar.actor = CharacterPropId::EDGAR;
     edgar.record = 1;
@@ -480,6 +482,8 @@ TEST(WriteBack, ATakenPartyMembersWholePartyByteIsCleared) {
     EXPECT_EQ(result.party.membership[1].party, 0);
     EXPECT_EQ(result.party.membership[1].slot, 0);
     EXPECT_FALSE(result.party.membership[1].backRow);
+    EXPECT_FALSE(result.party.membership[1].enabled);
+    EXPECT_FALSE(result.party.membership[1].visible);
 }
 
 TEST(WriteBack, AWagerHeldInTwoSlotsIsTakenFromTheLastUntilItRunsOut) {

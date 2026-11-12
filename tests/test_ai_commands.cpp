@@ -178,16 +178,30 @@ TEST(AiEffectTest, TheTwoEndsOfTheBattle) {
 }
 
 TEST(AiEffectTest, RecruitingGauPutsTheBattlersRecordInThePartyAtItsSlot) {
+    // MiscAIEffect_03 :5213-5227: `ora #$40; and #$e0` sets enabled and keeps visible and the row.
     EffectRun r;
     const BattlerSlot gau = BattlerSlot::character(2);
     r.state.at(gau).record = 11;
     r.state.party.currentParty = 2;
-    r.state.party.membership[11] = {.party = 0, .slot = 0, .backRow = true};
+    r.state.party.membership[11] = {.party = 0, .slot = 0, .backRow = true, .enabled = false, .visible = true};
     r.run(AiEffect::RecruitGau, {}, {}, gau);
     EXPECT_TRUE(r.state.gauRecruited);
     EXPECT_EQ(r.state.party.membership[11].party, 2);
     EXPECT_EQ(r.state.party.membership[11].slot, 2);
     EXPECT_TRUE(r.state.party.membership[11].backRow);
+    EXPECT_TRUE(r.state.party.membership[11].enabled);
+    EXPECT_TRUE(r.state.party.membership[11].visible);
+}
+
+TEST(AiEffectTest, RecruitingGauLeavesAnInvisibleRecordInvisible) {
+    EffectRun r;
+    const BattlerSlot gau = BattlerSlot::character(0);
+    r.state.at(gau).record = 11;
+    r.state.party.membership[11] = {.party = 0, .slot = 3, .backRow = false, .enabled = false, .visible = false};
+    r.run(AiEffect::RecruitGau, {}, {}, gau);
+    EXPECT_TRUE(r.state.party.membership[11].enabled);
+    EXPECT_FALSE(r.state.party.membership[11].visible);
+    EXPECT_FALSE(r.state.party.membership[11].backRow);
 }
 
 TEST(AiEffectTest, FillGaugeFillsTheAskersGaugeWhenTheTargetNamesAnyone) {

@@ -308,7 +308,8 @@ compared on the numbers its text shows and the celebration on whether the fanfar
 - **The drops are the win's only random numbers**, one per fallen monster whether it drops anything or
   not. The first drop told of is the highest monster slot's.
 - **No gold, no gold message.** The win ends after the drops.
-- **Taken out of the party, a record's whole party byte clears**: party, slot and row.
+- **Taken out of the party, a record's whole `PartyMembership` clears**: party, slot, row, enabled and
+  visible.
 
 ## Where to change
 

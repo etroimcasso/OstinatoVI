@@ -73,7 +73,8 @@ void endBattle(AiEffectRun& run) {
     run.state.endOfBattleEvent = EndOfBattleEvent::EndNow;
 }
 
-// Gau is recruited, and the battler's character record joins the party being played at its slot.
+// Gau is recruited, and the battler's character record joins the party being played at its slot,
+// enabled, with its row and its visibility kept.
 void recruitGau(AiEffectRun& run) {
     run.state.gauRecruited = true;
     const Battler& battler = run.state.at(run.actor);
@@ -83,6 +84,7 @@ void recruitGau(AiEffectRun& run) {
     game::PartyMembership& membership = run.state.party.membership[*battler.record];
     membership.party = run.state.party.currentParty;
     membership.slot = static_cast<std::uint8_t>(run.actor.position());
+    membership.enabled = true;
 }
 
 void resetBattleTimer(AiEffectRun& run) {

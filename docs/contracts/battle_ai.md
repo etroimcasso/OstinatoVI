@@ -369,8 +369,8 @@ Port: `runAiEffect()` behind `kAiEffectRules`, one row per effect in this order.
 swirl's reset: `Cmd_29` turns the swirl off (`trb $b0`), `Cmd_30` does not. They are checked on the
 cartridge through `Cmd_30`: the frame runs whole on both sides and every cell it leaves is compared. `RecruitGau` reads the battler's record index for any battler; the scripts that hold it are
 party members' (`$3ed9,y` of a monster is not a record), and the port changes a record only for a
-battler that has one. The port keeps no enabled or shown bit; the oracle writes both and checks that
-the enabled bit is set and the shown bit kept.
+battler that has one. `PartyMembership::enabled` and `visible` are the byte's bits 6 and 7: the port
+sets `enabled` and keeps `visible`, and the oracle draws both at random and compares the whole byte.
 
 ## I. Widths and carries
 

@@ -398,8 +398,8 @@ the cartridge.
 `writeBack()` does what `UpdateSRAM` does: each party member's statuses (the first byte, with Float and
 Interceptor of the fourth), HP and — unless its maximum MP is 0 — MP into its record; a fallen ghost, and
 anyone taken from the party, out of it (`RemoveChar :11879-11885`: `stz $1850,x`, **the record's whole
-party byte cleared** — party, slot and row; the byte's two top bits, which the port keeps no field for,
-clear with it); the battle inventory copied back; the colosseum's wager given up — one taken from each
+party byte cleared** — party, slot, row, enabled (bit 6) and visible (bit 7): a default
+`PartyMembership`); the battle inventory copied back; the colosseum's wager given up — one taken from each
 slot holding it, last slot first, until a slot runs out, after which the search looks for empty slots
 (`:12135-12150`: the emptied slot's `lda #$ff` replaces the wager the loop compares with); Doom Gaze's HP; the
 twenty battle variables; and the battle found on the Veldt. Shadow walking off (`ShadowLeaves

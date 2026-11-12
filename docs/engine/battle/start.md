@@ -84,7 +84,7 @@ as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](..
 | Member | Holds |
 |---|---|
 | `characters` | the sixteen `CharacterRecord`s |
-| `membership` | per record: its party (0 for none, 1-3), its slot in that party's line-up, its row |
+| `membership` | per record: its party (0 for none, 1-3), its slot in that party's line-up, its row, and whether the character is enabled and visible |
 | `currentParty` | the party the player controls |
 | `spells` | per character of the first twelve (indexed by actor): `SpellProgress`, a percentage per spell or `kSpellLearned` |
 | `loresKnown`, `dancesKnown`, `ragesKnown` | `std::bitset`s, bit *n* for lore *n*, `DanceId` *n*, the rage of `MonsterId` *n* |

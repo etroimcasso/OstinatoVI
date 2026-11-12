@@ -592,12 +592,11 @@ struct MessageShown {
 
 // The party as the cartridge keeps it in its cells: game::Party, and the bits of those cells the
 // port keeps no field for — each record's two-bit HP and MP boosts (the top of its maximum HP and MP
-// words) and the enabled and shown bits of its party byte.
+// words).
 struct PartyCells {
     game::Party party;
     std::array<std::uint8_t, game::kCharacterRecords> hpBoostBits{};
     std::array<std::uint8_t, game::kCharacterRecords> mpBoostBits{};
-    std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
 };
 
 // The win's flags, as the cells the win keeps them in: the curse dispelled, magic points earned, a
@@ -872,10 +871,6 @@ struct AiCommandResult {
     std::optional<battle::EndOfBattleEvent> endOfBattleEvent;
     bool gauRecruited = false;
     std::array<game::PartyMembership, game::kCharacterRecords> membership{};
-    // Each record's enabled and shown bits, which the port does not keep: the commands' scenario
-    // writes them in a fixed pattern, and recruiting Gau sets the enabled bit of the record it
-    // recruits.
-    std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
     std::uint8_t rngPosition = 0;
     // The cells of the battle an attack leaves and the script, as AttackResult names them: unchanged
     // on both sides for a command that makes no attack, and what SetStatus's and ClearStatus's

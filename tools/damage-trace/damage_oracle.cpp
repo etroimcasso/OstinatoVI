@@ -6054,13 +6054,14 @@ constexpr std::uint32_t kBlitzesKnown = kWorkRam + 0x1D28;
 constexpr std::uint32_t kRagesKnown = kWorkRam + 0x1D2C;
 constexpr std::uint32_t kDancesKnown = kWorkRam + 0x1D4C;
 constexpr std::uint32_t kGilSize = 3;
-// A record's party byte: the party in bits 0-2, the slot in bits 3-4, the back row in bit 5, and the
-// enabled and shown bits above them.
+// A record's party byte: the party in bits 0-2, the slot in bits 3-4, the back row in bit 5, enabled
+// in bit 6 and visible in bit 7.
 constexpr std::uint8_t kPartyNumberMask = 0x07;
 constexpr int kPartySlotPlace = 3;
 constexpr std::uint8_t kPartySlotMask = 0x03;
 constexpr std::uint8_t kPartyBackRowBit = 0x20;
-constexpr std::uint8_t kRecordFlagBits = 0xC0;
+constexpr std::uint8_t kPartyEnabledBit = 0x40;
+constexpr std::uint8_t kPartyVisibleBit = 0x80;
 // The battle switches' twenty variables.
 constexpr std::uint32_t kSwitchVariables = kWorkRam + 0x3EB4;
 // The value "gained a level" is armed with, and a monster slot's index with no monster in it.
@@ -6104,7 +6105,8 @@ std::vector<PartyCell> partyImage(const PartyCells& cells) {
                        .value = static_cast<std::uint8_t>((m.party & kPartyNumberMask) |
                                                           (m.slot & kPartySlotMask) << kPartySlotPlace |
                                                           (m.backRow ? kPartyBackRowBit : 0) |
-                                                          (cells.recordFlags[record] & kRecordFlagBits))});
+                                                          (m.enabled ? kPartyEnabledBit : 0) |
+                                                          (m.visible ? kPartyVisibleBit : 0))});
     }
     for (std::uint32_t i = 0; i < kGilSize; ++i) {
         out.push_back({.at = kGil + i, .value = static_cast<std::uint8_t>(party.gil >> (8 * i) & 0xFF)});
@@ -6260,8 +6262,9 @@ PartyCells DamageOracle::readParty() {
         party.membership[record] =
             game::PartyMembership{.party = static_cast<std::uint8_t>(value & kPartyNumberMask),
                                   .slot = static_cast<std::uint8_t>(value >> kPartySlotPlace & kPartySlotMask),
-                                  .backRow = (value & kPartyBackRowBit) != 0};
-        cells.recordFlags[record] = static_cast<std::uint8_t>(value & kRecordFlagBits);
+                                  .backRow = (value & kPartyBackRowBit) != 0,
+                                  .enabled = (value & kPartyEnabledBit) != 0,
+                                  .visible = (value & kPartyVisibleBit) != 0};
     }
     party.gil = 0;
     for (std::uint32_t i = 0; i < kGilSize; ++i) {
@@ -6552,10 +6555,11 @@ PartyCells drawPartyCells(std::mt19937& rng) {
         }
         cells.hpBoostBits[r] = static_cast<std::uint8_t>(upTo(rng, 3));
         cells.mpBoostBits[r] = static_cast<std::uint8_t>(upTo(rng, 3));
-        cells.recordFlags[r] = static_cast<std::uint8_t>(byte(rng) & kRecordFlagBits);
         party.membership[r] = game::PartyMembership{.party = static_cast<std::uint8_t>(upTo(rng, 3)),
                                                     .slot = static_cast<std::uint8_t>(upTo(rng, 3)),
-                                                    .backRow = oneIn(rng, 2)};
+                                                    .backRow = oneIn(rng, 2),
+                                                    .enabled = oneIn(rng, 2),
+                                                    .visible = oneIn(rng, 2)};
     }
     for (game::SpellProgress& spells : party.spells) {
         for (std::uint8_t& learned : spells.progress) {
@@ -7247,11 +7251,7 @@ std::string differences(const WriteBackResult& port, const WriteBackResult& gues
     const std::vector<PartyCell> ours = partyImage(port.cells);
     const std::vector<PartyCell> theirs = partyImage(guest.cells);
     for (std::size_t i = 0; i < ours.size(); ++i) {
-        // A party byte's two top bits are not port state (PartyCells::recordFlags): taking a member out
-        // of the party clears them on the cartridge and the port has nothing to clear.
-        const bool partyByte = ours[i].at >= kRecordPartyBytes && ours[i].at < kRecordPartyBytes + game::kCharacterRecords;
-        const std::uint8_t mask = partyByte ? static_cast<std::uint8_t>(~kRecordFlagBits) : 0xFF;
-        addLine(out, partyCellName(ours[i].at).c_str(), ours[i].value & mask, theirs[i].value & mask);
+        addLine(out, partyCellName(ours[i].at).c_str(), ours[i].value, theirs[i].value);
     }
     for (std::size_t slot = 0; slot < port.inventory.size(); ++slot) {
         const std::string field = "saved inventory slot " + std::to_string(slot);
@@ -8354,13 +8354,6 @@ AiRunResult portRunResult(const battle::BattleState& state, battle::BattlerSlot 
     return result;
 }
 
-// Each character record's enabled and shown bits as the commands' scenario writes them: shown for
-// every odd record, enabled for none. The port keeps neither; recruiting Gau sets the enabled bit of
-// the record it recruits and leaves the shown bit as written.
-std::uint8_t recordFlagsWritten(std::size_t record) {
-    return record % 2 == 1 ? kRecordShownBit : 0;
-}
-
 }  // namespace
 
 std::string listedActionText(const battle::Action& action) {
@@ -8645,13 +8638,6 @@ AiCommandResult portAiCommand(AiScenario scenario, const battle::Action& action)
     result.endOfBattleEvent = state.endOfBattleEvent;
     result.gauRecruited = state.gauRecruited;
     result.membership = state.party.membership;
-    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
-        result.recordFlags[record] = recordFlagsWritten(record);
-    }
-    const auto* effect = std::get_if<battle::AiEffectAction>(&action);
-    if (effect != nullptr && effect->effect == AiEffect::RecruitGau && state.at(scenario.actor).record) {
-        result.recordFlags[*state.at(scenario.actor).record] |= kRecordEnabledBit;
-    }
     result.rngPosition = state.rng.position();
     return result;
 }
@@ -8687,8 +8673,9 @@ std::string differences(const AiCommandResult& port, const AiCommandResult& gues
         for (std::size_t i = 0; i < result.membership.size(); ++i) {
             const game::PartyMembership& m = result.membership[i];
             out.put("party of record " + std::to_string(i), std::to_string(m.party) + " slot " + std::to_string(m.slot) +
-                                                                (m.backRow ? " back" : " front") + " flags " +
-                                                                std::to_string(result.recordFlags[i]));
+                                                                (m.backRow ? " back" : " front") +
+                                                                (m.enabled ? " enabled" : " disabled") +
+                                                                (m.visible ? " visible" : " hidden"));
         }
         out.put("random-number position", result.rngPosition);
     };
@@ -8740,7 +8727,8 @@ AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle
         const game::PartyMembership& m = state.party.membership[record];
         writeByte(kPartyBytes + static_cast<std::uint32_t>(record),
                   static_cast<std::uint8_t>((m.party & kPartyNumberBits) | (m.slot & kPartySlotBits) << kPartySlotShift |
-                                            (m.backRow ? kPartyRowBit : 0) | recordFlagsWritten(record)));
+                                            (m.backRow ? kPartyRowBit : 0) | (m.enabled ? kRecordEnabledBit : 0) |
+                                            (m.visible ? kRecordShownBit : 0)));
     }
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
         const battle::Battler& battler = state.at(battle::BattlerSlot::fromIndex(index));
@@ -9012,7 +9000,9 @@ AiCommandCase drawAiCommandCase(std::mt19937& rng) {
     for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
         state.party.membership[record] = game::PartyMembership{.party = static_cast<std::uint8_t>(upTo(rng, 3)),
                                                                .slot = static_cast<std::uint8_t>(upTo(rng, 3)),
-                                                               .backRow = oneIn(rng, 2)};
+                                                               .backRow = oneIn(rng, 2),
+                                                               .enabled = oneIn(rng, 2),
+                                                               .visible = oneIn(rng, 2)};
     }
     state.party.currentParty = static_cast<std::uint8_t>(1 + upTo(rng, 2));
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
@@ -9094,8 +9084,9 @@ AiCommandResult DamageOracle::readAiCommandResult() {
         result.membership[record] =
             game::PartyMembership{.party = static_cast<std::uint8_t>(value & kPartyNumberBits),
                                   .slot = static_cast<std::uint8_t>(value >> kPartySlotShift & kPartySlotBits),
-                                  .backRow = (value & kPartyRowBit) != 0};
-        result.recordFlags[record] = static_cast<std::uint8_t>(value & (kRecordEnabledBit | kRecordShownBit));
+                                  .backRow = (value & kPartyRowBit) != 0,
+                                  .enabled = (value & kRecordEnabledBit) != 0,
+                                  .visible = (value & kRecordShownBit) != 0};
     }
     result.rngPosition = readByte(kRngPosition);
     return result;
@@ -9225,7 +9216,9 @@ AiScenario DamageOracle::readAiScenario(battle::BattlerSlot actor) {
         state.party.membership[record] =
             game::PartyMembership{.party = static_cast<std::uint8_t>(value & kPartyNumberBits),
                                   .slot = static_cast<std::uint8_t>(value >> kPartySlotShift & kPartySlotBits),
-                                  .backRow = (value & kPartyRowBit) != 0};
+                                  .backRow = (value & kPartyRowBit) != 0,
+                                  .enabled = (value & kRecordEnabledBit) != 0,
+                                  .visible = (value & kRecordShownBit) != 0};
     }
 
     state.counterattackRunning = (readByte(kBattleFlags) & kCounterattackRunningBit) != 0;
@@ -9506,7 +9499,6 @@ std::string DamageOracle::replayAiCall(const TracedCall& call, const TracedRouti
         overlayReads();
     };
     rebuild();
-    const AiCommandResult beforeRun = readAiCommandResult();
     overlay(call.writes);
     AiCommandResult recorded = readAiCommandResult();
 
@@ -9525,15 +9517,6 @@ std::string DamageOracle::replayAiCall(const TracedCall& call, const TracedRouti
         rebuild();
         AiScenario s = readAiScenario(actor);
         AiCommandResult port = portAiCommand(s, step->action);
-        // The port keeps no record's enabled and shown bits: the ones the call found stand, and
-        // recruiting Gau sets the enabled bit of the record it recruits.
-        const auto* effect = std::get_if<battle::AiEffectAction>(&step->action);
-        const std::optional<std::size_t> recruited =
-            effect != nullptr && effect->effect == AiEffect::RecruitGau ? s.state.at(actor).record : std::nullopt;
-        for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
-            port.recordFlags[record] = static_cast<std::uint8_t>(beforeRun.recordFlags[record] |
-                                                                 (recruited == record ? kRecordEnabledBit : 0));
-        }
         // No command here makes an attack, so the attack's cells are not compared.
         port.attack = {};
         recorded.attack = {};
