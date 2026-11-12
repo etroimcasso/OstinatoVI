@@ -466,7 +466,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 23> kSweeps{{
+constexpr std::array<Sweep, 28> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -630,6 +630,36 @@ constexpr std::array<Sweep, 23> kSweeps{{
          return DrawResult{trace::describe(c), "",
                            trace::differences(trace::portOwnAction(c.scenario, c.action),
                                               oracle.ownAction(c.scenario, c.action))};
+     }},
+    {.name = "add-exp",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawExperienceScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portAddExperience(s), oracle.addExperience(s))};
+     }},
+    {.name = "item-learning",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawEquipmentScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portLearnFromEquipment(s), oracle.learnFromEquipment(s))};
+     }},
+    {.name = "level-ups",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawLevelScenario(rng);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portLevelUps(s), oracle.levelUps(s))};
+     }},
+    {.name = "abilities",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const auto actor = static_cast<CharacterPropId>(rng() % 16);
+         const auto level = static_cast<std::uint8_t>(1 + rng() % 99);
+         const trace::RewardScenario s = trace::abilityCase(actor, level, static_cast<int>(rng() % 3), rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portLearnAbilities(s), oracle.learnAbilities(s))};
+     }},
+    {.name = "rages",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawRageScenario(rng);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portLearnRages(s), oracle.learnRages(s))};
      }},
 }};
 

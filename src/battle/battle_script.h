@@ -207,6 +207,21 @@ inline constexpr std::uint8_t kMessageHp = 48;
 inline constexpr std::uint8_t kMessageMp = 49;
 inline constexpr std::uint8_t kMessageWeakAgainst = 21;
 
+// The messages a won battle shows. A name or an item is the first number's or second number's low
+// byte, as the message says; an amount is the whole number.
+inline constexpr std::uint8_t kMessageGotItem = 32;             // "Got {item} × 1": the item first
+inline constexpr std::uint8_t kMessageGotItems = 33;            // "Got {item} × {n}": the item, then n
+inline constexpr std::uint8_t kMessageGotGp = 38;               // "Got {n} GP": n second
+inline constexpr std::uint8_t kMessageGotExperience = 39;       // "Got {n} Exp. point(s)": n first
+inline constexpr std::uint8_t kMessageCurseDispelled = 42;      // "Dispelled curse on shield"
+inline constexpr std::uint8_t kMessageLearnedLore = 45;         // "Learned {lore}": the attack first
+inline constexpr std::uint8_t kMessageGainedALevel = 46;        // "{name} gained a level": the party slot second
+inline constexpr std::uint8_t kMessageLearnedSpell = 50;        // "{name} learned {spell}": the spell, then the slot
+inline constexpr std::uint8_t kMessageDevisedABlitz = 51;       // "Devised a new Blitz!"
+inline constexpr std::uint8_t kMessageGotMagicPoints = 53;      // "Got {n} Magic Point(s)": n first
+inline constexpr std::uint8_t kMessageMasteredADance = 64;      // "Mastered a new dance!"
+inline constexpr std::uint8_t kMessageMasteredATechnique = 66;  // "Mastered a new technique!"
+
 // A party member goes back to standing normally.
 struct PoseReset {
     BattlerSlot battler = BattlerSlot::character(0);

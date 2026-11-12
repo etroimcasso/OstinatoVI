@@ -108,7 +108,7 @@ switches, the names listed and the party slots' members (`kTracedRanges` in `dam
 call of `LearnGenjuMagic` or `DoLevelUp` the sixteen character records, the spells each character knows
 and the first two battle's-end cells in direct page (`$7E:00EE-00EF`) are logged as well
 (`kPartyRecordRanges`); inside any other call they are not. The rest of the battle's-end cells — the
-win's flags, Morph available, the place of the spells being learned, the magic points and the level-up's
+win's flags, whether the party has magicite, the place of the spells being learned, the magic points and the level-up's
 gains — are the script reader's cells and are logged in every call. The addresses are the US cartridges'.
 
 ## Starting at a battle
@@ -330,6 +330,20 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `attack` | `ExecAttack`, every attack of a command's attack, a Fight's and a Capture's hand loaded at each swing among them, against `battle::runAttack()` | `tests/test_attack_oracle.cpp` |
 | `self-attack` | `ExecSelfAttack`, an attack aimed at its attacker, against `battle::runSelfAttack()` | `tests/test_attack_oracle.cpp` |
 | `own-actions` | `Cmd_22`, `Cmd_26`, `Cmd_29` and `Cmd_2d`, the battle's own damage over time, spell with no caster, status timers running out and Seize's drain, and `Cmd_30`'s `SetStatus` and `ClearStatus`, each run whole against `CommandExecutor::execute()` | `tests/test_own_actions_oracle.cpp` |
+| `add-exp` | `AddExp`, a share of a win's experience added to a record | `tests/test_rewards_oracle.cpp` |
+| `item-learning` | `LearnItemMagic`, the spells a record's equipment teaches, with the Cursed Shield's count | `tests/test_rewards_oracle.cpp` |
+| `level-ups` | `CheckLevelUp`, every level a record reaches with what each teaches and the messages told | `tests/test_rewards_oracle.cpp` |
+| `abilities` | `LearnAbilities`, what an actor learns at a level | `tests/test_rewards_oracle.cpp` |
+| `rages` | `LearnRage`, the rages of the six monster slots | `tests/test_rewards_oracle.cpp` |
+
+While one of the reward routines runs, its calls to the graphics program (`ExecBtlGfx`, `$C2:6411`) are
+answered by the oracle at the graphics program's entry (`$C1:0000`): each call is recorded with the cells
+the graphics program reads — the command, the party slot at `$7E:0010`, the battle script's first five
+bytes, the item record at `$7E:2E72` and the four message variables — and the commands that wait on the
+screen or the sound return at once. Command `$05` (an item added to the items obtained) and command `$0A`
+(those items merged into the inventory) run as the cartridge holds them, each found through the
+cartridge's own table of graphics commands at `$C1:0008`. A message is compared on the numbers its text
+shows.
 
 `--replay-traced` also traces the traced routines' calls in each draw and replays them against the
 port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`, `tests/test_effects_oracle.cpp`

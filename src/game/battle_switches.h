@@ -12,6 +12,7 @@
 //     switches.set(game::kMagicOnlySwitch);           // Fanatics' Tower: only magic works
 //     switches.isSet(game::kPartyDefeatedSwitch);     // after a battle: the party lost
 //     switches.doomGazeHp();
+//     switches.cursedShieldBattles();
 #pragma once
 
 #include <array>
@@ -31,6 +32,7 @@ inline constexpr int kClearedAtBattleStartSwitch = 63; // every battle clears it
 inline constexpr int kPartyDefeatedSwitch = 64;        // the battle just fought was lost
 inline constexpr int kTerraMagicSceneSwitch = 65;      // Terra's next spell in battle starts a scene
 inline constexpr int kMorphAvailableSwitch = 66;       // Terra can Morph
+inline constexpr int kMagicPointsEarnedSwitch = 67;    // the party has magicite: a win gives magic points
 inline constexpr int kRanOutOfTimeSwitch = 68;         // the story's time ran out during the battle; also Warp
 inline constexpr int kTimerExpiredSwitch = 69;         // a story countdown reached zero during the battle
 inline constexpr int kEatenByZoneEaterSwitch = 71;     // Zone Eater swallowed the party
@@ -61,11 +63,18 @@ struct BattleSwitches {
         variables[kDoomGazeHpHigh] = static_cast<std::uint8_t>(hp >> 8);
     }
 
+    // The battles won with the Cursed Shield equipped, one per slot holding it, counting round
+    // from 255 to 0. The count coming round to 0 lifts the curse.
+    constexpr std::uint8_t cursedShieldBattles() const { return variables[kCursedShieldBattles]; }
+
+    constexpr void setCursedShieldBattles(std::uint8_t battles) { variables[kCursedShieldBattles] = battles; }
+
     friend constexpr bool operator==(const BattleSwitches&, const BattleSwitches&) = default;
 
 private:
     static constexpr std::size_t kDoomGazeHpLow = 10;
     static constexpr std::size_t kDoomGazeHpHigh = 11;
+    static constexpr std::size_t kCursedShieldBattles = 12;
 
     static constexpr std::uint8_t bit(int number) { return static_cast<std::uint8_t>(1u << (number % 8)); }
 };

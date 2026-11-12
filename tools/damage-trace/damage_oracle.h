@@ -62,7 +62,9 @@
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
 #include "game/character_record.h"
+#include "game/battle_switches.h"
 #include "ostinato/character_prop_id.h"
+#include "ostinato/monster_id.h"
 #include "ostinato/status_set.h"
 
 namespace ostinato::trace {
@@ -554,6 +556,108 @@ struct SpellLearningResult {
 
 [[nodiscard]] std::string differences(const SpellLearningResult& port, const SpellLearningResult& guest);
 
+// --- what a won battle gives ---------------------------------------------------------------------
+
+// One call the battle program made to the graphics program (ExecBtlGfx, $C2:6411), as the call
+// found the cells the graphics program reads: the command, the party slot it is for ($7E:0010), the
+// first five bytes of the battle script ($7E:2D6E — a message is script command 2, the message, and
+// the script's end in the fifth), the item record an obtained item is handed over in ($7E:2E72) and
+// the four message variables, three bytes each ($7E:2F35).
+struct GraphicsCall {
+    std::uint8_t command = 0;
+    std::uint8_t slot = 0;
+    std::array<std::uint8_t, 5> script{};
+    std::array<std::uint8_t, 5> item{};
+    std::array<std::uint8_t, 12> messageVariables{};
+};
+
+// The graphics command that plays the battle script, and the script command that shows a message.
+inline constexpr std::uint8_t kPlayBattleScript = 0x04;
+inline constexpr std::uint8_t kShowMessageScriptCommand = 0x02;
+
+// A battle message as the player reads it: the message, and the numbers its text shows — its first
+// from the first variable and its second from the second, each only where the text reads it, and
+// as much of it as the text reads (a name or an item from the low byte, an amount from all three).
+struct MessageShown {
+    std::uint8_t message = 0;
+    std::optional<std::uint32_t> first;
+    std::optional<std::uint32_t> second;
+    friend bool operator==(const MessageShown&, const MessageShown&) = default;
+};
+
+// The message `call` shows, read as its text reads its variables; nothing for a call that is not a
+// message. Throws std::logic_error for a message whose variables this table does not name.
+[[nodiscard]] std::optional<MessageShown> messageShown(const GraphicsCall& call);
+
+// The party as the cartridge keeps it in its cells: game::Party, and the bits of those cells the
+// port keeps no field for — each record's two-bit HP and MP boosts (the top of its maximum HP and MP
+// words) and the enabled and shown bits of its party byte.
+struct PartyCells {
+    game::Party party;
+    std::array<std::uint8_t, game::kCharacterRecords> hpBoostBits{};
+    std::array<std::uint8_t, game::kCharacterRecords> mpBoostBits{};
+    std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
+};
+
+// The win's flags, as the cells the win keeps them in: the curse dispelled, magic points earned, a
+// Cat Hood counted, a technique and a blitz told of, and whether the party has magicite (battle
+// switch 67, which the win copies before the first party member).
+struct WinFlags {
+    bool curseDispelled = false;
+    bool magicPointsEarned = false;
+    bool catHoodCounted = false;
+    bool techniqueMessageShown = false;
+    bool blitzMessageShown = false;
+    bool partyHasMagicite = false;
+    friend bool operator==(const WinFlags&, const WinFlags&) = default;
+};
+
+// One step of a win's rewards as the cartridge's routine for it reads them: the party and the battle
+// switches; the record whose turn it is and the party slot it sits in (what "gained a level" names);
+// the battle's magic points and the win's flags; the experience share; whether "gained a level" is
+// still to be told for this member; the actor and level an ability check is made for; and the
+// monster in each of the six monster slots, none for an empty one.
+struct RewardScenario {
+    PartyCells cells;
+    game::BattleSwitches switches;
+    std::size_t recordIndex = 0;
+    std::uint8_t partySlot = 0;
+    std::uint8_t magicPoints = 0;
+    WinFlags flags;
+    std::uint32_t share = 0;
+    bool levelMessageToTell = true;
+    CharacterPropId actor = CharacterPropId::TERRA;
+    std::uint8_t level = 1;
+    std::array<std::optional<MonsterId>, battle::kMonsterSlots> monsters{};
+};
+
+// What a step leaves, as the same fields on both sides: the party and switches read back, the win's
+// flags, whether "gained a level" is still to be told, and the messages shown in order — with every
+// other graphics call the cartridge made, which the port never makes.
+struct RewardResult {
+    PartyCells cells;
+    game::BattleSwitches switches;
+    WinFlags flags;
+    bool levelMessageToTell = false;
+    std::vector<MessageShown> messages;
+    std::vector<GraphicsCall> otherGraphicsCalls;
+};
+
+// The port's side of each step over the same scenario: the share added to the record's experience
+// (battle::addExperience); the spells the record's equipment teaches (battle::learnFromEquipment); the
+// levels the record reaches, each with the abilities it teaches and the messages the win shows for
+// them; the abilities of the scenario's actor at the scenario's level; and the rages of the six
+// monster slots.
+[[nodiscard]] RewardResult portAddExperience(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnFromEquipment(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLevelUps(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnAbilities(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnRages(const RewardScenario& scenario);
+
+// Every field where the two parted, one per line; empty when they agree. The party is compared cell
+// by cell as the cartridge holds it, each cell named.
+[[nodiscard]] std::string differences(const RewardResult& port, const RewardResult& guest);
+
 // --- a monster's AI --------------------------------------------------------------------------------
 
 // One battle as a monster's AI script reads it: the state, the battler whose script it is, and what
@@ -819,14 +923,49 @@ public:
 
     // The spells the scenario record's esper teaches learned further (LearnGenjuMagic), called as a
     // won battle's end calls it for a party member with an esper: the record written at its place
-    // among the sixteen, the character's spells known at theirs, the battle's magic points, and Morph
-    // available so that a spell stored shows in the win's flags. The record must have an esper.
+    // among the sixteen, the character's spells known at theirs, the battle's magic points, and the
+    // party holding magicite so that a spell stored shows in the win's flags. The record must have an
+    // esper.
     [[nodiscard]] SpellLearningResult learnFromEsper(const RecordScenario& scenario);
 
     // One level-up of the scenario's record (DoLevelUp), called as a won battle's end calls it: the
     // record written at its place with the boosts in the top of its maximum HP and MP words. The
     // record's level must be below 99.
     [[nodiscard]] LevelUpResult levelUp(const RecordScenario& scenario);
+
+    // The steps of a win's rewards, each called as the win calls it, the party written into its cells
+    // (writeParty()), the switches, the win's flags, the magic points, the scenario record's actor's
+    // spells as the ones being learned and the message variables as the win leaves them:
+    //
+    // The share added to the scenario record's experience (AddExp): the record in X, the accumulator
+    // narrow and the index registers wide.
+    [[nodiscard]] RewardResult addExperience(const RewardScenario& scenario);
+
+    // The spells the scenario record's equipment teaches (LearnItemMagic), the same way. The record's
+    // actor must be one of the first twelve characters.
+    [[nodiscard]] RewardResult learnFromEquipment(const RewardScenario& scenario);
+
+    // The levels the scenario record reaches (CheckLevelUp), the same way, with "gained a level" still
+    // to be told or not and the scenario's party slot in the second message variable.
+    [[nodiscard]] RewardResult levelUps(const RewardScenario& scenario);
+
+    // The abilities of the scenario's actor at the scenario's level (LearnAbilities): the actor in the
+    // accumulator's low byte and the level in its high byte.
+    [[nodiscard]] RewardResult learnAbilities(const RewardScenario& scenario);
+
+    // The rages of the six monster slots (LearnRage), both register widths narrow.
+    [[nodiscard]] RewardResult learnRages(const RewardScenario& scenario);
+
+    // Every call the last of those made to the graphics program, in order. While one of them runs, a
+    // call to the graphics program is answered here: the commands that wait on the screen or the sound
+    // return at once, and the two that keep the items obtained ($05, which adds one to the list, and
+    // $0A, which merges the list into the inventory) run as the cartridge holds them, each found
+    // through the cartridge's own table of the commands.
+    [[nodiscard]] const std::vector<GraphicsCall>& graphicsCalls() const { return graphicsCalls_; }
+
+    // One call to the graphics program as the battle program makes it (ExecBtlGfx), the command in the
+    // accumulator, from the cells as they stand, answered as above. Returns the calls it made.
+    const std::vector<GraphicsCall>& graphicsCommand(std::uint8_t command);
 
     // The battlers `target` names for the scenario's actor (CheckAITarget), with or without the cut
     // to the battlers an attack can reach, called as a script's target step and its conditions call
@@ -974,6 +1113,12 @@ private:
     [[nodiscard]] LevelUpResult readLevelUpResult(std::size_t recordIndex);
     [[nodiscard]] SpellLearningResult readSpellLearningResult(CharacterPropId actor);
     [[nodiscard]] std::string replayRecordCall(const TracedCall& call, const TracedRoutine& routine);
+    void writeParty(const PartyCells& cells);
+    [[nodiscard]] PartyCells readParty();
+    void writeRewardScenario(const RewardScenario& scenario);
+    [[nodiscard]] RewardResult readRewardResult();
+    [[nodiscard]] RewardResult callReward(const std::function<void()>& routine);
+    void answerGraphics(const GraphicsCall& call);
     void writeAiCells(const AiScenario& scenario);
     void writeAiScriptCells(const battle::BattleState& state);
     void writeAiRunCells(const AiScenario& scenario, bool counter);
@@ -1033,6 +1178,19 @@ private:
     std::array<retropp::Routine<Call>, 4> ownActions_;
     retropp::Routine<Call> execSelfAttack_;
     retropp::Routine<Call> execAttack_;
+    // A win's rewards, and the two graphics commands that keep the items obtained.
+    retropp::Routine<Call> addExp_;
+    retropp::Routine<Call> learnItemMagic_;
+    retropp::Routine<Call> checkLevelUp_;
+    using AbilitiesCall = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    retropp::Routine<AbilitiesCall> learnAbilities_;
+    retropp::Routine<Call> learnRage_;
+    retropp::Routine<AbilitiesCall> execBtlGfx_;
+    retropp::Routine<Call> addItemObtained_;
+    retropp::Routine<Call> mergeItemsObtained_;
+    std::vector<GraphicsCall> graphicsCalls_;
+    // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
+    std::optional<std::uint8_t> unansweredGraphics_;
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
     // guest during it), and the cells the guest read during the last call before any was written.
     std::set<std::uint32_t> gateWritten_;
@@ -1148,6 +1306,33 @@ struct TargetScenario {
 
 // One line naming a drawn record scenario's inputs, for a report.
 [[nodiscard]] std::string describe(const RecordScenario& scenario);
+
+// The scenarios the reward sweeps draw, from the same seed. Each draws the whole party: the sixteen
+// records with their two boosts, every character's spells (a percentage below 100, just learned or
+// learned), the SwdTechs, Blitzes, lores, dances and rages known, the gil and the Morph supply; the
+// battle switches; a record and the party slot it sits in; the battle's magic points; and every one
+// of the win's flags. Then:
+//
+// - drawExperienceScenario: the record's experience anywhere to 15,000,000, often within a share of
+//   the cap, and a share anywhere to 16,777,215, often small.
+// - drawEquipmentScenario: one of the first twelve characters, each of the six slots empty or any
+//   item, the Cursed Shield often, the shield's count often at 254 or 255, any magic points.
+// - drawLevelScenario: any of the sixteen actors at a level from 1 to 99, its experience from just
+//   under its next level to several levels past it, an esper or none, "gained a level" still to be
+//   told or not.
+// - drawRageScenario: each of the six monster slots empty, a monster numbered below 256 or one above.
+[[nodiscard]] RewardScenario drawExperienceScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawEquipmentScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawLevelScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawRageScenario(std::mt19937& rng);
+
+// One case of the ability walk, which takes every actor 0-15 at every level 1-99 over three spell
+// lists: `actor` at `level` with every spell below 100 % (`mix` 0), just learned (1) or learned (2),
+// and the rest of the party, the SwdTechs and Blitzes known and the win's flags drawn from `rng`.
+[[nodiscard]] RewardScenario abilityCase(CharacterPropId actor, std::uint8_t level, int mix, std::mt19937& rng);
+
+// One line naming a drawn reward scenario's inputs, for a report.
+[[nodiscard]] std::string describe(const RewardScenario& scenario);
 
 // A battle a script's targets are found in, the target asked for and whether the sides are cut to
 // the reachable.

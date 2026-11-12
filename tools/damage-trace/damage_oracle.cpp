@@ -43,6 +43,7 @@
 #include "battle/battle_script.h"
 #include "battle/damage.h"
 #include "battle/leveling.h"
+#include "battle/rewards.h"
 #include "battle/spell_learning.h"
 #include "battle/status.h"
 #include "battle/target_effects.h"
@@ -51,6 +52,7 @@
 #include "data/battle_commands.h"
 #include "data/esper_properties.h"
 #include "data/formations.h"
+#include "data/level_up.h"
 #include "data/monster_attacks.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
@@ -110,6 +112,31 @@ constexpr std::uint32_t kCommandCall = 0xC213FE;
 constexpr std::uint32_t kSeatedInitAiCall = 0xC2303E;
 constexpr std::uint32_t kQueuedTurnJump = 0xC2034F;
 constexpr std::uint32_t kQueueActionCall = 0xC2219E;
+// A win's rewards: the experience added, the spells equipment teaches, the levels reached, the
+// abilities a level teaches and the rages learned.
+constexpr std::uint32_t kAddExp = 0xC26235;
+constexpr std::uint32_t kLearnItemMagic = 0xC25FEF;
+constexpr std::uint32_t kCheckLevelUp = 0xC2606D;
+constexpr std::uint32_t kLearnAbilities = 0xC261B6;
+constexpr std::uint32_t kLearnRage = 0xC24A07;
+// The battle program's call to the graphics program (ExecBtlGfx), the graphics program's entry for it
+// (ExecBtlGfx_ext, which a JSL enters) and its table of commands (BtlGfxTbl, a word per command, each
+// the handler's address in the graphics program's bank; each handler ends with an RTL).
+constexpr std::uint32_t kExecBtlGfx = 0xC26411;
+constexpr std::uint32_t kExecBtlGfxExt = 0xC10000;
+constexpr std::uint32_t kGraphicsCommandTable = 0xC10008;
+constexpr std::uint32_t kGraphicsProgramBank = 0xC10000;
+// Where each command's handler sits on the US cartridges (BtlGfx_00 to BtlGfx_0d); the table must
+// point at them.
+constexpr std::array<std::uint16_t, 14> kGraphicsCommandHandlers{{
+    0x01EC, 0x01FB, 0x0257, 0x024C, 0x950F, 0x01CC, 0x0197, 0x0170, 0x0117, 0x00AF, 0x00AB, 0x0171, 0x002D, 0x0024,
+}};
+// The two commands that keep the items obtained, which run as the cartridge holds them, and the one
+// that answers the menu queue's position, which nothing the oracle runs calls.
+constexpr std::uint8_t kAddItemObtained = 0x05;
+constexpr std::uint8_t kMergeItemsObtained = 0x0A;
+constexpr std::uint8_t kMenuQueuePosition = 0x0D;
+constexpr const char* kGraphicsKey = "graphics";
 // The AI's routines among kTracedRoutines.
 constexpr const TracedRoutine& kTracedInitAi = kTracedRoutines[9];
 constexpr const TracedRoutine& kTracedExecMonsterAction = kTracedRoutines[10];
@@ -158,7 +185,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 37> kOpenings{{
+constexpr std::array<RoutineOpening, 44> kOpenings{{
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -198,6 +225,13 @@ constexpr std::array<RoutineOpening, 37> kOpenings{{
     {"the seated party member's call to InitAI", kSeatedInitAiCall, {0x20, 0x71, 0x2D, 0x00}, 3},  // jsr InitAI
     {"QueueAction's jump to ExecMonsterAction", kQueuedTurnJump, {0x4C, 0xDC, 0x02, 0x00}, 3},     // jmp
     {"the call to QueueAction", kQueueActionCall, {0x20, 0x1C, 0x03, 0x00}, 3},                    // jsr QueueAction
+    {"AddExp", kAddExp, {0x08, 0xC2, 0x21, 0xAD}, 4},                                // php; rep #$21; lda $2f35
+    {"LearnItemMagic", kLearnItemMagic, {0xDA, 0xA0, 0x06, 0x00}, 4},                // phx; ldy #$0006
+    {"CheckLevelUp", kCheckLevelUp, {0x64, 0xF8, 0x7B, 0xBD}, 4},                    // stz $f8; tdc; lda $1608,x
+    {"LearnAbilities", kLearnAbilities, {0xA2, 0x00, 0x00, 0xC9}, 4},                // ldx #$0000; cmp #CHAR::TERRA
+    {"LearnRage", kLearnRage, {0xA2, 0x0A, 0xBD, 0x02}, 4},                          // ldx #$0a; lda $2002,x
+    {"ExecBtlGfx", kExecBtlGfx, {0xDA, 0x5A, 0x08, 0xE2}, 4},                        // phx; phy; php; sep #$20
+    {"ExecBtlGfx_ext", kExecBtlGfxExt, {0x48, 0x7B, 0x68, 0x0A}, 4},                 // pha; tdc; pla; asl
 }};
 
 // The frame the battle program calls them in: data bank $7E and direct page $0000, so every cell is
@@ -528,6 +562,82 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
     }
     execSelfAttack_ = machine_.bindRoutine<Call>(kExecSelfAttack, byteWide);
     execAttack_ = machine_.bindRoutine<Call>(kExecAttack, byteWide);
+
+    addExp_ = machine_.bindRoutine<Call>(kAddExp, byteWide);
+    learnItemMagic_ = machine_.bindRoutine<Call>(kLearnItemMagic, byteWide);
+    checkLevelUp_ = machine_.bindRoutine<Call>(kCheckLevelUp, byteWide);
+    learnAbilities_ = machine_.bindRoutine<AbilitiesCall>(
+        kLearnAbilities, {.inputs = {retropp::snes::C, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+                          .isa = retropp::Isa::Wdc65816});
+    learnRage_ = machine_.bindRoutine<Call>(kLearnRage, byteWide);
+    execBtlGfx_ = machine_.bindRoutine<AbilitiesCall>(
+        kExecBtlGfx, {.inputs = {retropp::snes::C, retropp::snes::P, retropp::snes::DB, retropp::snes::D},
+                      .isa = retropp::Isa::Wdc65816});
+
+    // The graphics program's handlers, found through its own table.
+    const std::vector<std::uint8_t> graphicsTable = machine_.read(retropp::MemoryRegion{
+        .at = kGraphicsCommandTable, .size = static_cast<std::uint32_t>(kGraphicsCommandHandlers.size() * 2)});
+    std::array<std::uint32_t, kGraphicsCommandHandlers.size()> handlers{};
+    for (std::size_t command = 0; command < handlers.size(); ++command) {
+        const auto word = static_cast<std::uint16_t>(graphicsTable[command * 2] | graphicsTable[command * 2 + 1] << 8);
+        if (word != kGraphicsCommandHandlers[command]) {
+            throw std::runtime_error("the cartridge's table of graphics commands does not point where the US "
+                                     "cartridges' does at command " + std::to_string(command));
+        }
+        handlers[command] = kGraphicsProgramBank | word;
+    }
+    addItemObtained_ = machine_.bindRoutine<Call>(retropp::snes::rtl(handlers[kAddItemObtained]), byteWide);
+    mergeItemsObtained_ = machine_.bindRoutine<Call>(retropp::snes::rtl(handlers[kMergeItemsObtained]), byteWide);
+
+    // While a reward routine runs, the graphics program's entry answers here: the command in the
+    // accumulator, the cells the graphics program reads at their places.
+    const auto cell = [](std::uint32_t at) { return retropp::Location::memory(kWorkRam | at); };
+    machine_.registerEscapes(retropp::escapes(retropp::GuestEscape{
+        .key = kGraphicsKey,
+        .at = retropp::snes::rtl(kExecBtlGfxExt),
+        .replaces = retropp::routine(
+            retropp::RoutineBinding{.inputs = {retropp::snes::A, cell(0x0010), cell(0x2D6E), cell(0x2D72),
+                                               cell(0x2E72), cell(0x2E76), cell(0x2F35), cell(0x2F39), cell(0x2F3D)}},
+            [this](std::uint8_t command, std::uint8_t slot, std::uint32_t script, std::uint8_t scriptEnd,
+                   std::uint32_t item, std::uint8_t itemLast, std::uint32_t first4, std::uint32_t middle4,
+                   std::uint32_t last4) {
+                GraphicsCall call{.command = command, .slot = slot};
+                const auto unpack = [](auto& bytes, std::size_t from, std::uint32_t word) {
+                    for (std::size_t i = 0; i < 4; ++i) {
+                        bytes[from + i] = static_cast<std::uint8_t>(word >> (8 * i) & 0xFF);
+                    }
+                };
+                unpack(call.script, 0, script);
+                call.script[4] = scriptEnd;
+                unpack(call.item, 0, item);
+                call.item[4] = itemLast;
+                unpack(call.messageVariables, 0, first4);
+                unpack(call.messageVariables, 4, middle4);
+                unpack(call.messageVariables, 8, last4);
+                graphicsCalls_.push_back(call);
+                answerGraphics(call);
+            }),
+        .armed = false}));
+}
+
+void DamageOracle::answerGraphics(const GraphicsCall& call) {
+    // The handlers are entered as the graphics program's entry leaves them: the command's place in its
+    // table in X, the accumulator narrow and the index registers wide.
+    const auto tableIndex = static_cast<std::uint16_t>(call.command * 2);
+    switch (call.command) {
+        case kAddItemObtained:
+            addItemObtained_(tableIndex, kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+            break;
+        case kMergeItemsObtained:
+            mergeItemsObtained_(tableIndex, kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+            break;
+        case kMenuQueuePosition:
+            unansweredGraphics_ = call.command;
+            break;
+        default:
+            // Every other command waits on the screen or the sound, or does nothing on a parked machine.
+            break;
+    }
 }
 
 void DamageOracle::registerGate() {
@@ -5474,13 +5584,14 @@ constexpr std::uint16_t kMaximumBits = 0x3FFF;
 constexpr std::uint32_t kSpellsKnown = kWorkRam + 0x1A6E;
 constexpr std::uint32_t kSpellsKnownSize = 648;
 
-// The battle's-end cells in direct page: the win's flags, Morph available (bit 3, OR-ed into the
-// flags when a spell is stored), the place of the spells being learned and the battle's magic points.
+// The battle's-end cells in direct page: the win's flags, whether the party has magicite (battle
+// switch 67's bit as the win copies it, which is magic points earned in the flags and is OR-ed into
+// them when a spell is stored), the place of the spells being learned and the battle's magic points.
 constexpr std::uint32_t kWinFlags = kWorkRam + 0x00F0;
-constexpr std::uint32_t kMorphAvailable = kWorkRam + 0x00F1;
+constexpr std::uint32_t kPartyHasMagicite = kWorkRam + 0x00F1;
 constexpr std::uint32_t kSpellListPlace = kWorkRam + 0x00F4;
 constexpr std::uint32_t kMagicPoints = kWorkRam + 0x00FB;
-constexpr std::uint8_t kMorphAvailableBit = 0x08;
+constexpr std::uint8_t kMagiciteBit = 0x08;
 
 const TracedRoutine& kLearnGenjuMagicRoutine = kTracedRoutines[7];
 const TracedRoutine& kDoLevelUpRoutine = kTracedRoutines[8];
@@ -5520,16 +5631,9 @@ void addLine(std::string& out, const char* field, int port, int guest) {
     }
 }
 
-}  // namespace
-
-void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
-    if (scenario.recordIndex >= game::kCharacterRecords) {
-        throw std::logic_error("a record scenario names one of the sixteen records");
-    }
-    if (static_cast<std::size_t>(scenario.actor) >= game::kSpellLearners) {
-        throw std::logic_error("a record scenario's spells are one of the first twelve characters'");
-    }
-    const game::CharacterRecord& record = scenario.record;
+// A character record's 37 bytes, as the cartridge keeps them.
+std::array<std::uint8_t, kRecordSize> recordBytes(const game::CharacterRecord& record, std::uint8_t hpBoostBits,
+                                                  std::uint8_t mpBoostBits) {
     std::array<std::uint8_t, kRecordSize> bytes{};
     bytes[0] = static_cast<std::uint8_t>(record.actor);
     bytes[kRecordGraphics] = static_cast<std::uint8_t>(record.graphics);
@@ -5540,9 +5644,9 @@ void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
         bytes[at + 1] = static_cast<std::uint8_t>(word >> 8);
     };
     putWord(kRecordHp, record.hp);
-    putWord(kRecordMaxHp, boostedWord(record.maxHp, scenario.hpBoostBits));
+    putWord(kRecordMaxHp, boostedWord(record.maxHp, hpBoostBits));
     putWord(kRecordMp, record.mp);
-    putWord(kRecordMaxMp, boostedWord(record.maxMp, scenario.mpBoostBits));
+    putWord(kRecordMaxMp, boostedWord(record.maxMp, mpBoostBits));
     bytes[kRecordExperience] = static_cast<std::uint8_t>(record.experience & 0xFF);
     bytes[kRecordExperience + 1] = static_cast<std::uint8_t>(record.experience >> 8 & 0xFF);
     bytes[kRecordExperience + 2] = static_cast<std::uint8_t>(record.experience >> 16 & 0xFF);
@@ -5560,6 +5664,61 @@ void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
     for (std::size_t i = 0; i < equipment.size(); ++i) {
         bytes[kRecordEquipment + i] = static_cast<std::uint8_t>(equipment[i]);
     }
+    return bytes;
+}
+
+// The record its 37 bytes hold, with the two boosts out of the top of its maximum HP and MP words.
+struct RecordRead {
+    game::CharacterRecord record;
+    std::uint8_t hpBoostBits = 0;
+    std::uint8_t mpBoostBits = 0;
+};
+
+RecordRead recordOf(std::span<const std::uint8_t> bytes) {
+    const auto word = [&](std::size_t at) { return static_cast<std::uint16_t>(bytes[at] | bytes[at + 1] << 8); };
+    RecordRead read;
+    game::CharacterRecord& record = read.record;
+    record.actor = static_cast<CharacterPropId>(bytes[0]);
+    record.graphics = static_cast<CharacterGfxId>(bytes[kRecordGraphics]);
+    std::copy(bytes.begin() + kRecordName, bytes.begin() + kRecordName + record.name.size(), record.name.begin());
+    record.level = bytes[kRecordLevel];
+    record.hp = word(kRecordHp);
+    record.maxHp = static_cast<std::uint16_t>(word(kRecordMaxHp) & kMaximumBits);
+    read.hpBoostBits = static_cast<std::uint8_t>(word(kRecordMaxHp) >> kBoostShift);
+    record.mp = word(kRecordMp);
+    record.maxMp = static_cast<std::uint16_t>(word(kRecordMaxMp) & kMaximumBits);
+    read.mpBoostBits = static_cast<std::uint8_t>(word(kRecordMaxMp) >> kBoostShift);
+    record.experience = static_cast<std::uint32_t>(bytes[kRecordExperience] | bytes[kRecordExperience + 1] << 8 |
+                                                   bytes[kRecordExperience + 2] << 16);
+    record.status.bytes[0] = bytes[kRecordFirstStatus];
+    record.status.bytes[3] = bytes[kRecordFourthStatus];
+    for (std::size_t i = 0; i < record.commands.size(); ++i) {
+        record.commands[i] = static_cast<BattleCommandId>(bytes[kRecordCommands + i]);
+    }
+    record.vigor = bytes[kRecordVigor];
+    record.speed = bytes[kRecordSpeed];
+    record.stamina = bytes[kRecordStamina];
+    record.magicPower = bytes[kRecordMagicPower];
+    record.esper = esperOfByte(bytes[kRecordEsper]);
+    ItemId* const equipment[] = {&record.weapon, &record.shield, &record.helmet,
+                                 &record.armor,  &record.relic1, &record.relic2};
+    for (std::size_t i = 0; i < std::size(equipment); ++i) {
+        *equipment[i] = static_cast<ItemId>(bytes[kRecordEquipment + i]);
+    }
+    return read;
+}
+
+}  // namespace
+
+void DamageOracle::writeRecordScenario(const RecordScenario& scenario) {
+    if (scenario.recordIndex >= game::kCharacterRecords) {
+        throw std::logic_error("a record scenario names one of the sixteen records");
+    }
+    if (static_cast<std::size_t>(scenario.actor) >= game::kSpellLearners) {
+        throw std::logic_error("a record scenario's spells are one of the first twelve characters'");
+    }
+    const std::array<std::uint8_t, kRecordSize> bytes =
+        recordBytes(scenario.record, scenario.hpBoostBits, scenario.mpBoostBits);
     writeBytes(retropp::MemoryRegion{.at = recordAt(scenario.recordIndex), .size = kRecordSize}, bytes);
     writeBytes(retropp::MemoryRegion{.at = spellListAt(scenario.actor),
                                          .size = static_cast<std::uint32_t>(game::kLearnableSpells)},
@@ -5586,7 +5745,7 @@ SpellLearningResult DamageOracle::readSpellLearningResult(CharacterPropId actor)
     const std::vector<std::uint8_t> bytes = machine_.read(
         retropp::MemoryRegion{.at = spellListAt(actor), .size = static_cast<std::uint32_t>(game::kLearnableSpells)});
     std::copy(bytes.begin(), bytes.end(), result.progress.begin());
-    result.progressed = (readByte(kWinFlags) & kMorphAvailableBit) != 0;
+    result.progressed = (readByte(kWinFlags) & kMagiciteBit) != 0;
     return result;
 }
 
@@ -5597,7 +5756,7 @@ SpellLearningResult DamageOracle::learnFromEsper(const RecordScenario& scenario)
     writeRecordScenario(scenario);
     writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(scenario.actor) & 0xFFFF));
     writeByte(kMagicPoints, scenario.magicPoints);
-    writeByte(kMorphAvailable, kMorphAvailableBit);
+    writeByte(kPartyHasMagicite, kMagiciteBit);
     writeByte(kWinFlags, 0);
     call([&] {
         learnGenjuMagic_(esperByte(scenario.record.esper),
@@ -5840,9 +5999,693 @@ std::string DamageOracle::replayRecordCall(const TracedCall& call, const TracedR
     writeRecordScenario(s);
     overlayWrites();
     SpellLearningResult guest = readSpellLearningResult(s.actor);
-    // A spell stored ORs Morph available into the win's flags, which writes them whatever Morph is.
+    // A spell stored ORs the magicite flag into the win's flags, which writes them whether the party
+    // has magicite or not.
     guest.progressed = call.writes.contains(kWinFlags);
     return differences(port, guest);
+}
+
+// --- what a won battle gives ---------------------------------------------------------------------
+
+namespace {
+
+// The win's other direct-page cells: the message "gained a level" is told with, 0 once it has been.
+constexpr std::uint32_t kLevelMessage = kWorkRam + 0x00F2;
+// The win's flags, a bit each.
+constexpr std::uint8_t kCurseDispelledBit = 0x01;
+constexpr std::uint8_t kMagicPointsEarnedBit = 0x08;
+constexpr std::uint8_t kCatHoodCountedBit = 0x10;
+constexpr std::uint8_t kTechniqueToldBit = 0x40;
+constexpr std::uint8_t kBlitzToldBit = 0x80;
+// The four message variables, three bytes each.
+constexpr std::uint32_t kMessageVariables = kWorkRam + 0x2F35;
+constexpr std::uint32_t kMessageVariableSize = 3;
+// The party's cells beyond the records and the spells known: each record's party byte, the Morph
+// supply, the SwdTechs and Blitzes known, the rages known (32 bytes from here) and the dances known.
+constexpr std::uint32_t kRecordPartyBytes = kWorkRam + 0x1850;
+constexpr std::uint32_t kMorphSupply = kWorkRam + 0x1CF6;
+constexpr std::uint32_t kSwdtechsKnown = kWorkRam + 0x1CF7;
+constexpr std::uint32_t kBlitzesKnown = kWorkRam + 0x1D28;
+constexpr std::uint32_t kRagesKnown = kWorkRam + 0x1D2C;
+constexpr std::uint32_t kDancesKnown = kWorkRam + 0x1D4C;
+constexpr std::uint32_t kGilSize = 3;
+// A record's party byte: the party in bits 0-2, the slot in bits 3-4, the back row in bit 5, and the
+// enabled and shown bits above them.
+constexpr std::uint8_t kPartyNumberMask = 0x07;
+constexpr int kPartySlotPlace = 3;
+constexpr std::uint8_t kPartySlotMask = 0x03;
+constexpr std::uint8_t kPartyBackRowBit = 0x20;
+constexpr std::uint8_t kRecordFlagBits = 0xC0;
+// The battle switches' twenty variables.
+constexpr std::uint32_t kSwitchVariables = kWorkRam + 0x3EB4;
+// The value "gained a level" is armed with, and a monster slot's index with no monster in it.
+constexpr std::uint8_t kLevelMessageArmed = battle::kMessageGainedALevel;
+constexpr std::uint16_t kEmptyMonsterSlot = 0xFFFF;
+
+// One cell of the party's image: where it is and what it holds.
+struct PartyCell {
+    std::uint32_t at = 0;
+    std::uint8_t value = 0;
+};
+
+// Each bit `bits` holds, laid into bytes a bit per place: bit n is bit n % 8 of byte n / 8.
+template <std::size_t N>
+void putBits(std::vector<PartyCell>& out, std::uint32_t at, const std::bitset<N>& bits) {
+    for (std::size_t byte = 0; byte < (N + 7) / 8; ++byte) {
+        std::uint8_t value = 0;
+        for (std::size_t bit = 0; bit < 8 && byte * 8 + bit < N; ++bit) {
+            value = static_cast<std::uint8_t>(value | (bits.test(byte * 8 + bit) ? 1u << bit : 0u));
+        }
+        out.push_back({.at = at + static_cast<std::uint32_t>(byte), .value = value});
+    }
+}
+
+// Every cell the party's image fills, in address order: the sixteen records, their party bytes, the
+// gil, the spells the first twelve characters know, the Morph supply, the SwdTechs, the Blitzes, the
+// lores, the rages and the dances known.
+std::vector<PartyCell> partyImage(const PartyCells& cells) {
+    const game::Party& party = cells.party;
+    std::vector<PartyCell> out;
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const std::array<std::uint8_t, kRecordSize> bytes =
+            recordBytes(party.characters[record], cells.hpBoostBits[record], cells.mpBoostBits[record]);
+        for (std::size_t i = 0; i < bytes.size(); ++i) {
+            out.push_back({.at = recordAt(record) + static_cast<std::uint32_t>(i), .value = bytes[i]});
+        }
+    }
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const game::PartyMembership& m = party.membership[record];
+        out.push_back({.at = kRecordPartyBytes + static_cast<std::uint32_t>(record),
+                       .value = static_cast<std::uint8_t>((m.party & kPartyNumberMask) |
+                                                          (m.slot & kPartySlotMask) << kPartySlotPlace |
+                                                          (m.backRow ? kPartyBackRowBit : 0) |
+                                                          (cells.recordFlags[record] & kRecordFlagBits))});
+    }
+    for (std::uint32_t i = 0; i < kGilSize; ++i) {
+        out.push_back({.at = kGil + i, .value = static_cast<std::uint8_t>(party.gil >> (8 * i) & 0xFF)});
+    }
+    for (std::size_t actor = 0; actor < game::kSpellLearners; ++actor) {
+        for (std::size_t spell = 0; spell < game::kLearnableSpells; ++spell) {
+            out.push_back({.at = spellListAt(static_cast<CharacterPropId>(actor)) + static_cast<std::uint32_t>(spell),
+                           .value = party.spells[actor].progress[spell]});
+        }
+    }
+    out.push_back({.at = kMorphSupply, .value = party.morphSupply});
+    out.push_back({.at = kSwdtechsKnown, .value = party.swdtechsKnown.bits});
+    out.push_back({.at = kBlitzesKnown, .value = party.blitzesKnown.bits});
+    putBits(out, kLoresKnown, party.loresKnown);
+    putBits(out, kRagesKnown, party.ragesKnown);
+    out.push_back({.at = kDancesKnown, .value = static_cast<std::uint8_t>(party.dancesKnown.to_ulong())});
+    return out;
+}
+
+// The name of the party's cell `at`, for a report.
+std::string partyCellName(std::uint32_t at) {
+    const auto hex = [](std::uint32_t value) {
+        char text[8];
+        std::snprintf(text, sizeof text, "%04X", value & 0xFFFF);
+        return std::string{text};
+    };
+    if (at >= kCharacterRecords && at < recordAt(game::kCharacterRecords)) {
+        const std::uint32_t offset = at - kCharacterRecords;
+        return "record " + std::to_string(offset / kRecordSize) + " byte " + std::to_string(offset % kRecordSize);
+    }
+    if (at >= kSpellsKnown && at < kSpellsKnown + kSpellsKnownSize) {
+        const std::uint32_t offset = at - kSpellsKnown;
+        return "actor " + std::to_string(offset / game::kLearnableSpells) + " spell " +
+               std::to_string(offset % game::kLearnableSpells);
+    }
+    return "$7E:" + hex(at);
+}
+
+std::uint8_t winFlagsByte(const WinFlags& flags) {
+    return static_cast<std::uint8_t>((flags.curseDispelled ? kCurseDispelledBit : 0) |
+                                     (flags.magicPointsEarned ? kMagicPointsEarnedBit : 0) |
+                                     (flags.catHoodCounted ? kCatHoodCountedBit : 0) |
+                                     (flags.techniqueMessageShown ? kTechniqueToldBit : 0) |
+                                     (flags.blitzMessageShown ? kBlitzToldBit : 0));
+}
+
+// The message variables a message's text reads: none, a byte of one, or the whole of one.
+enum class VariableRead : std::uint8_t { None, LowByte, Whole };
+struct MessageVariables {
+    std::uint8_t message;
+    VariableRead first;
+    VariableRead second;
+};
+// The win's messages, each with what its text reads: an item, an attack or a party slot is the low
+// byte of its variable; a number the whole of it.
+constexpr std::array<MessageVariables, 13> kMessageVariableReads{{
+    {battle::kMessageGotItem, VariableRead::LowByte, VariableRead::None},
+    {battle::kMessageGotItems, VariableRead::LowByte, VariableRead::Whole},
+    {battle::kMessageGotGp, VariableRead::None, VariableRead::Whole},
+    {battle::kMessageGotExperience, VariableRead::Whole, VariableRead::None},
+    {battle::kMessageAnnihilated, VariableRead::None, VariableRead::None},
+    {battle::kMessageCurseDispelled, VariableRead::None, VariableRead::None},
+    {battle::kMessageLearnedLore, VariableRead::LowByte, VariableRead::None},
+    {battle::kMessageGainedALevel, VariableRead::None, VariableRead::LowByte},
+    {battle::kMessageLearnedSpell, VariableRead::LowByte, VariableRead::LowByte},
+    {battle::kMessageDevisedABlitz, VariableRead::None, VariableRead::None},
+    {battle::kMessageGotMagicPoints, VariableRead::Whole, VariableRead::None},
+    {battle::kMessageMasteredADance, VariableRead::None, VariableRead::None},
+    {battle::kMessageMasteredATechnique, VariableRead::None, VariableRead::None},
+}};
+
+std::optional<std::uint32_t> variableRead(const GraphicsCall& call, std::size_t variable, VariableRead read) {
+    const std::size_t at = variable * kMessageVariableSize;
+    switch (read) {
+        case VariableRead::None:
+            return std::nullopt;
+        case VariableRead::LowByte:
+            return call.messageVariables[at];
+        case VariableRead::Whole:
+            return static_cast<std::uint32_t>(call.messageVariables[at] | call.messageVariables[at + 1] << 8 |
+                                              call.messageVariables[at + 2] << 16);
+    }
+    return std::nullopt;
+}
+
+std::string messageText(const MessageShown& shown) {
+    std::string text = "message " + std::to_string(shown.message);
+    if (shown.first) {
+        text += " first " + std::to_string(*shown.first);
+    }
+    if (shown.second) {
+        text += " second " + std::to_string(*shown.second);
+    }
+    return text;
+}
+
+RewardResult startingResult(const RewardScenario& scenario) {
+    return RewardResult{.cells = scenario.cells,
+                        .switches = scenario.switches,
+                        .flags = scenario.flags,
+                        .levelMessageToTell = scenario.levelMessageToTell};
+}
+
+// The abilities a level teaches and what the win tells of them: a technique or a blitz told of the
+// first time in the win.
+void tellAbilities(RewardResult& result, CharacterPropId actor, std::uint8_t level) {
+    const battle::AbilitiesLearned learned = battle::learnAbilitiesAtLevel(result.cells.party, actor, level);
+    if (learned.swdtech && !result.flags.techniqueMessageShown) {
+        result.flags.techniqueMessageShown = true;
+        result.messages.push_back({.message = battle::kMessageMasteredATechnique});
+    }
+    if (learned.blitz && !result.flags.blitzMessageShown) {
+        result.flags.blitzMessageShown = true;
+        result.messages.push_back({.message = battle::kMessageDevisedABlitz});
+    }
+}
+
+}  // namespace
+
+std::optional<MessageShown> messageShown(const GraphicsCall& call) {
+    if (call.command != kPlayBattleScript || call.script[0] != kShowMessageScriptCommand) {
+        return std::nullopt;
+    }
+    const std::uint8_t message = call.script[1];
+    for (const MessageVariables& reads : kMessageVariableReads) {
+        if (reads.message == message) {
+            return MessageShown{.message = message,
+                                .first = variableRead(call, 0, reads.first),
+                                .second = variableRead(call, 1, reads.second)};
+        }
+    }
+    throw std::logic_error("no table entry says what message " + std::to_string(message) + "'s text reads");
+}
+
+void DamageOracle::writeParty(const PartyCells& cells) {
+    for (const PartyCell& cell : partyImage(cells)) {
+        writeByte(cell.at, cell.value);
+    }
+}
+
+PartyCells DamageOracle::readParty() {
+    PartyCells cells;
+    game::Party& party = cells.party;
+    const std::vector<std::uint8_t> records = machine_.read(
+        retropp::MemoryRegion{.at = kCharacterRecords, .size = kRecordSize * static_cast<std::uint32_t>(game::kCharacterRecords)});
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const RecordRead read = recordOf(std::span<const std::uint8_t>(records).subspan(record * kRecordSize, kRecordSize));
+        party.characters[record] = read.record;
+        cells.hpBoostBits[record] = read.hpBoostBits;
+        cells.mpBoostBits[record] = read.mpBoostBits;
+        const std::uint8_t value = readByte(kRecordPartyBytes + static_cast<std::uint32_t>(record));
+        party.membership[record] =
+            game::PartyMembership{.party = static_cast<std::uint8_t>(value & kPartyNumberMask),
+                                  .slot = static_cast<std::uint8_t>(value >> kPartySlotPlace & kPartySlotMask),
+                                  .backRow = (value & kPartyBackRowBit) != 0};
+        cells.recordFlags[record] = static_cast<std::uint8_t>(value & kRecordFlagBits);
+    }
+    party.gil = 0;
+    for (std::uint32_t i = 0; i < kGilSize; ++i) {
+        party.gil |= static_cast<std::uint32_t>(readByte(kGil + i)) << (8 * i);
+    }
+    const std::vector<std::uint8_t> spells =
+        machine_.read(retropp::MemoryRegion{.at = kSpellsKnown, .size = kSpellsKnownSize});
+    for (std::size_t actor = 0; actor < game::kSpellLearners; ++actor) {
+        std::copy_n(spells.begin() + static_cast<std::ptrdiff_t>(actor * game::kLearnableSpells), game::kLearnableSpells,
+                    party.spells[actor].progress.begin());
+    }
+    party.morphSupply = readByte(kMorphSupply);
+    party.swdtechsKnown = AbilityLearnedSet{readByte(kSwdtechsKnown)};
+    party.blitzesKnown = AbilityLearnedSet{readByte(kBlitzesKnown)};
+    const auto readBits = [&](auto& bits, std::uint32_t at) {
+        for (std::size_t n = 0; n < bits.size(); ++n) {
+            bits.set(n, (readByte(at + static_cast<std::uint32_t>(n / 8)) >> (n % 8) & 1) != 0);
+        }
+    };
+    readBits(party.loresKnown, kLoresKnown);
+    readBits(party.ragesKnown, kRagesKnown);
+    party.dancesKnown = std::bitset<8>(readByte(kDancesKnown));
+    return cells;
+}
+
+void DamageOracle::writeRewardScenario(const RewardScenario& scenario) {
+    if (scenario.recordIndex >= game::kCharacterRecords) {
+        throw std::logic_error("a reward scenario names one of the sixteen records");
+    }
+    writeParty(scenario.cells);
+    writeBytes(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables},
+               scenario.switches.variables);
+    writeByte(kWinFlags, winFlagsByte(scenario.flags));
+    writeByte(kPartyHasMagicite, scenario.flags.partyHasMagicite ? kMagiciteBit : 0);
+    writeByte(kLevelMessage, scenario.levelMessageToTell ? kLevelMessageArmed : 0);
+    writeByte(kMagicPoints, scenario.magicPoints);
+    // The message variables as the win leaves them for these steps: the share in the first, the
+    // member's party slot in the second, the rest 0.
+    std::array<std::uint8_t, 4 * kMessageVariableSize> variables{};
+    for (std::size_t i = 0; i < kMessageVariableSize; ++i) {
+        variables[i] = static_cast<std::uint8_t>(scenario.share >> (8 * i) & 0xFF);
+    }
+    variables[kMessageVariableSize] = scenario.partySlot;
+    writeBytes(retropp::MemoryRegion{.at = kMessageVariables, .size = static_cast<std::uint32_t>(variables.size())},
+               variables);
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        const std::optional<MonsterId>& monster = scenario.monsters[static_cast<std::size_t>(position)];
+        writeWord(kMonsterIndex + slotIndex(battle::BattlerSlot::monster(position)),
+                  monster ? static_cast<std::uint16_t>(*monster) : kEmptyMonsterSlot);
+    }
+}
+
+RewardResult DamageOracle::readRewardResult() {
+    RewardResult result;
+    result.cells = readParty();
+    const std::vector<std::uint8_t> switches =
+        machine_.read(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables});
+    std::copy(switches.begin(), switches.end(), result.switches.variables.begin());
+    const std::uint8_t flags = readByte(kWinFlags);
+    result.flags = WinFlags{.curseDispelled = (flags & kCurseDispelledBit) != 0,
+                            .magicPointsEarned = (flags & kMagicPointsEarnedBit) != 0,
+                            .catHoodCounted = (flags & kCatHoodCountedBit) != 0,
+                            .techniqueMessageShown = (flags & kTechniqueToldBit) != 0,
+                            .blitzMessageShown = (flags & kBlitzToldBit) != 0,
+                            .partyHasMagicite = (readByte(kPartyHasMagicite) & kMagiciteBit) != 0};
+    result.levelMessageToTell = readByte(kLevelMessage) != 0;
+    for (const GraphicsCall& call : graphicsCalls_) {
+        if (const std::optional<MessageShown> shown = messageShown(call)) {
+            result.messages.push_back(*shown);
+        } else {
+            result.otherGraphicsCalls.push_back(call);
+        }
+    }
+    return result;
+}
+
+RewardResult DamageOracle::callReward(const std::function<void()>& routine) {
+    graphicsCalls_.clear();
+    unansweredGraphics_.reset();
+    machine_.escapes()[kGraphicsKey].armed(true);
+    call(routine);
+    machine_.escapes()[kGraphicsKey].armed(false);
+    if (unansweredGraphics_) {
+        throw std::runtime_error("the routine called graphics command " + std::to_string(*unansweredGraphics_) +
+                                 ", which the oracle has no answer for");
+    }
+    return readRewardResult();
+}
+
+const std::vector<GraphicsCall>& DamageOracle::graphicsCommand(std::uint8_t command) {
+    graphicsCalls_.clear();
+    unansweredGraphics_.reset();
+    machine_.escapes()[kGraphicsKey].armed(true);
+    call([&] { execBtlGfx_(command, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+    machine_.escapes()[kGraphicsKey].armed(false);
+    return graphicsCalls_;
+}
+
+RewardResult DamageOracle::addExperience(const RewardScenario& scenario) {
+    writeRewardScenario(scenario);
+    const auto record = static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords);
+    return callReward( [&] { addExp_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+RewardResult DamageOracle::learnFromEquipment(const RewardScenario& scenario) {
+    const CharacterPropId actor = scenario.cells.party.characters[scenario.recordIndex].actor;
+    if (static_cast<std::size_t>(actor) >= game::kSpellLearners) {
+        throw std::logic_error("the spells equipment teaches are learned by the first twelve characters only");
+    }
+    writeRewardScenario(scenario);
+    writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(actor) & 0xFFFF));
+    const auto record = static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords);
+    return callReward(
+                      [&] { learnItemMagic_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+RewardResult DamageOracle::levelUps(const RewardScenario& scenario) {
+    const game::CharacterRecord& member = scenario.cells.party.characters[scenario.recordIndex];
+    if (member.level == 0) {
+        throw std::logic_error("a character's level is 1 or more");
+    }
+    writeRewardScenario(scenario);
+    // The place the spells of the record's actor would be, as the win works it out for every actor.
+    writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(member.actor) & 0xFFFF));
+    const auto record = static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords);
+    return callReward( [&] { checkLevelUp_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+RewardResult DamageOracle::learnAbilities(const RewardScenario& scenario) {
+    writeRewardScenario(scenario);
+    writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(scenario.actor) & 0xFFFF));
+    const auto actorAndLevel =
+        static_cast<std::uint16_t>(static_cast<std::uint8_t>(scenario.actor) | scenario.level << 8);
+    return callReward(
+                      [&] { learnAbilities_(actorAndLevel, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+RewardResult DamageOracle::learnRages(const RewardScenario& scenario) {
+    writeRewardScenario(scenario);
+    return callReward( [&] { learnRage_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+}
+
+RewardResult portAddExperience(const RewardScenario& scenario) {
+    RewardResult result = startingResult(scenario);
+    battle::addExperience(result.cells.party.characters[scenario.recordIndex], scenario.share);
+    return result;
+}
+
+RewardResult portLearnFromEquipment(const RewardScenario& scenario) {
+    RewardResult result = startingResult(scenario);
+    game::Party& party = result.cells.party;
+    game::CharacterRecord& record = party.characters[scenario.recordIndex];
+    const battle::EquipmentLearning learning = battle::learnFromEquipment(
+        record, party.spells[static_cast<std::size_t>(record.actor)], result.switches, scenario.magicPoints);
+    result.flags.curseDispelled |= learning.curseDispelled;
+    result.flags.magicPointsEarned |= learning.progressed && result.flags.partyHasMagicite;
+    return result;
+}
+
+RewardResult portLevelUps(const RewardScenario& scenario) {
+    RewardResult result = startingResult(scenario);
+    game::CharacterRecord& record = result.cells.party.characters[scenario.recordIndex];
+    while (battle::earnedNextLevel(record)) {
+        if (result.levelMessageToTell) {
+            result.levelMessageToTell = false;
+            result.messages.push_back({.message = battle::kMessageGainedALevel, .second = scenario.partySlot});
+        }
+        battle::levelUp(record, GameVersion::US_1_1);
+        tellAbilities(result, record.actor, record.level);
+    }
+    return result;
+}
+
+RewardResult portLearnAbilities(const RewardScenario& scenario) {
+    RewardResult result = startingResult(scenario);
+    tellAbilities(result, scenario.actor, scenario.level);
+    return result;
+}
+
+RewardResult portLearnRages(const RewardScenario& scenario) {
+    RewardResult result = startingResult(scenario);
+    battle::BattleState state;
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        state.at(battle::BattlerSlot::monster(position)).monster = scenario.monsters[static_cast<std::size_t>(position)];
+    }
+    battle::learnRages(result.cells.party, state);
+    return result;
+}
+
+std::string differences(const RewardResult& port, const RewardResult& guest) {
+    std::string out;
+    const std::vector<PartyCell> ours = partyImage(port.cells);
+    const std::vector<PartyCell> theirs = partyImage(guest.cells);
+    for (std::size_t i = 0; i < ours.size(); ++i) {
+        addLine(out, partyCellName(ours[i].at).c_str(), ours[i].value, theirs[i].value);
+    }
+    for (std::size_t i = 0; i < port.switches.variables.size(); ++i) {
+        const std::string field = "battle variable " + std::to_string(i);
+        addLine(out, field.c_str(), port.switches.variables[i], guest.switches.variables[i]);
+    }
+    addLine(out, "curse dispelled", port.flags.curseDispelled, guest.flags.curseDispelled);
+    addLine(out, "magic points earned", port.flags.magicPointsEarned, guest.flags.magicPointsEarned);
+    addLine(out, "Cat Hood counted", port.flags.catHoodCounted, guest.flags.catHoodCounted);
+    addLine(out, "technique told", port.flags.techniqueMessageShown, guest.flags.techniqueMessageShown);
+    addLine(out, "blitz told", port.flags.blitzMessageShown, guest.flags.blitzMessageShown);
+    addLine(out, "party has magicite", port.flags.partyHasMagicite, guest.flags.partyHasMagicite);
+    addLine(out, "gained a level still to tell", port.levelMessageToTell, guest.levelMessageToTell);
+    const std::size_t messages = std::max(port.messages.size(), guest.messages.size());
+    for (std::size_t i = 0; i < messages; ++i) {
+        const std::string ours = i < port.messages.size() ? messageText(port.messages[i]) : "none";
+        const std::string theirs = i < guest.messages.size() ? messageText(guest.messages[i]) : "none";
+        if (ours != theirs) {
+            out += "message shown " + std::to_string(i) + ": port " + ours + ", cartridge " + theirs + "\n";
+        }
+    }
+    for (const GraphicsCall& call : guest.otherGraphicsCalls) {
+        out += "the cartridge called graphics command " + std::to_string(call.command) + ", which the port does not\n";
+    }
+    return out;
+}
+
+namespace {
+
+constexpr std::size_t kItemsBelowEmpty = 255;
+constexpr std::size_t kActors = 16;
+constexpr std::size_t kMonsterIds = 384;
+constexpr std::uint32_t kLargestShare = 0xFFFFFF;
+
+// A spell's learned percentage: below 100, just learned or learned.
+std::uint8_t drawProgress(std::mt19937& rng) {
+    switch (rng() % 6) {
+        case 0:
+            return game::SpellProgress::kSpellJustLearned;
+        case 1:
+            return game::SpellProgress::kSpellLearned;
+        case 2:
+            return static_cast<std::uint8_t>(90 + upTo(rng, 9));
+        default:
+            return static_cast<std::uint8_t>(upTo(rng, 99));
+    }
+}
+
+ItemId drawItem(std::mt19937& rng) {
+    return static_cast<ItemId>(rng() % kItemsBelowEmpty);
+}
+
+// The experience a character at `level` (1-98) needs for its next level.
+std::uint32_t experienceForNextLevel(std::uint8_t level) {
+    std::uint32_t steps = 0;
+    for (int at = kFirstProgressionLevel; at <= level + 1; ++at) {
+        steps += levelUpExp(static_cast<std::uint8_t>(at));
+    }
+    return steps * 8;
+}
+
+PartyCells drawPartyCells(std::mt19937& rng) {
+    PartyCells cells;
+    game::Party& party = cells.party;
+    for (std::size_t r = 0; r < game::kCharacterRecords; ++r) {
+        game::CharacterRecord& record = party.characters[r];
+        record.actor = static_cast<CharacterPropId>(r);
+        record.graphics = static_cast<CharacterGfxId>(rng() % kActors);
+        for (std::uint8_t& letter : record.name) {
+            letter = byte(rng);
+        }
+        record.level = static_cast<std::uint8_t>(1 + upTo(rng, kPartyMaxLevel - 1));
+        record.maxHp = static_cast<std::uint16_t>(upTo(rng, kPartyMaxHp));
+        record.hp = static_cast<std::uint16_t>(upTo(rng, record.maxHp));
+        record.maxMp = static_cast<std::uint16_t>(upTo(rng, kPartyMaxMp));
+        record.mp = static_cast<std::uint16_t>(upTo(rng, record.maxMp));
+        record.experience = static_cast<std::uint32_t>(rng() % (kMaxExperience + 1));
+        record.status.bytes[0] = sparse(rng);
+        record.status.bytes[3] = sparse(rng);
+        for (BattleCommandId& command : record.commands) {
+            command = static_cast<BattleCommandId>(byte(rng));
+        }
+        record.vigor = static_cast<std::uint8_t>(upTo(rng, 128));
+        record.speed = static_cast<std::uint8_t>(upTo(rng, 128));
+        record.stamina = static_cast<std::uint8_t>(upTo(rng, 128));
+        record.magicPower = static_cast<std::uint8_t>(upTo(rng, 128));
+        if (!oneIn(rng, 4)) {
+            record.esper = static_cast<EsperId>(static_cast<std::uint8_t>(EsperId::RAMUH) + rng() % kEspers);
+        }
+        ItemId* const equipment[] = {&record.weapon, &record.shield, &record.helmet,
+                                     &record.armor,  &record.relic1, &record.relic2};
+        for (ItemId* slot : equipment) {
+            *slot = oneIn(rng, 3) ? ItemId::EMPTY : drawItem(rng);
+        }
+        cells.hpBoostBits[r] = static_cast<std::uint8_t>(upTo(rng, 3));
+        cells.mpBoostBits[r] = static_cast<std::uint8_t>(upTo(rng, 3));
+        cells.recordFlags[r] = static_cast<std::uint8_t>(byte(rng) & kRecordFlagBits);
+        party.membership[r] = game::PartyMembership{.party = static_cast<std::uint8_t>(upTo(rng, 3)),
+                                                    .slot = static_cast<std::uint8_t>(upTo(rng, 3)),
+                                                    .backRow = oneIn(rng, 2)};
+    }
+    for (game::SpellProgress& spells : party.spells) {
+        for (std::uint8_t& learned : spells.progress) {
+            learned = drawProgress(rng);
+        }
+    }
+    party.swdtechsKnown = AbilityLearnedSet{byte(rng)};
+    party.blitzesKnown = AbilityLearnedSet{byte(rng)};
+    for (std::size_t lore = 0; lore < game::kLores; ++lore) {
+        party.loresKnown.set(lore, oneIn(rng, 2));
+    }
+    party.dancesKnown = std::bitset<8>(byte(rng));
+    for (std::size_t rage = 0; rage < party.ragesKnown.size(); ++rage) {
+        party.ragesKnown.set(rage, oneIn(rng, 2));
+    }
+    party.gil = static_cast<std::uint32_t>(rng() % (kMaxGil + 1));
+    party.morphSupply = byte(rng);
+    return cells;
+}
+
+WinFlags drawWinFlags(std::mt19937& rng) {
+    return WinFlags{.curseDispelled = oneIn(rng, 2),
+                    .magicPointsEarned = oneIn(rng, 2),
+                    .catHoodCounted = oneIn(rng, 2),
+                    .techniqueMessageShown = oneIn(rng, 2),
+                    .blitzMessageShown = oneIn(rng, 2),
+                    .partyHasMagicite = oneIn(rng, 2)};
+}
+
+RewardScenario drawRewardScenario(std::mt19937& rng) {
+    RewardScenario s;
+    s.cells = drawPartyCells(rng);
+    for (std::uint8_t& variable : s.switches.variables) {
+        variable = byte(rng);
+    }
+    s.recordIndex = rng() % game::kCharacterRecords;
+    s.partySlot = static_cast<std::uint8_t>(upTo(rng, battle::kPartySlots - 1));
+    s.magicPoints = oneIn(rng, 2) ? static_cast<std::uint8_t>(upTo(rng, 10)) : byte(rng);
+    s.flags = drawWinFlags(rng);
+    s.levelMessageToTell = oneIn(rng, 2);
+    return s;
+}
+
+}  // namespace
+
+RewardScenario drawExperienceScenario(std::mt19937& rng) {
+    RewardScenario s = drawRewardScenario(rng);
+    game::CharacterRecord& record = s.cells.party.characters[s.recordIndex];
+    switch (rng() % 4) {
+        case 0:
+            record.experience = kMaxExperience - static_cast<std::uint32_t>(upTo(rng, 100'000));
+            break;
+        case 1:
+            // Past the cap, and up to the top of the three bytes.
+            record.experience = kMaxExperience + static_cast<std::uint32_t>(rng() % (kLargestShare - kMaxExperience + 1));
+            break;
+        default:
+            break;
+    }
+    s.share = oneIn(rng, 3) ? static_cast<std::uint32_t>(rng() & kLargestShare)
+                            : static_cast<std::uint32_t>(upTo(rng, 30'000));
+    return s;
+}
+
+RewardScenario drawEquipmentScenario(std::mt19937& rng) {
+    RewardScenario s = drawRewardScenario(rng);
+    game::CharacterRecord& record = s.cells.party.characters[s.recordIndex];
+    record.actor = static_cast<CharacterPropId>(rng() % game::kSpellLearners);
+    ItemId* const equipment[] = {&record.weapon, &record.shield, &record.helmet,
+                                 &record.armor,  &record.relic1, &record.relic2};
+    for (ItemId* slot : equipment) {
+        switch (rng() % 4) {
+            case 0:
+                *slot = ItemId::EMPTY;
+                break;
+            case 1:
+                *slot = ItemId::CURSED_SHLD;
+                break;
+            default:
+                *slot = drawItem(rng);
+                break;
+        }
+    }
+    s.switches.setCursedShieldBattles(oneIn(rng, 2) ? static_cast<std::uint8_t>(254 + upTo(rng, 1)) : byte(rng));
+    return s;
+}
+
+RewardScenario drawLevelScenario(std::mt19937& rng) {
+    RewardScenario s = drawRewardScenario(rng);
+    game::CharacterRecord& record = s.cells.party.characters[s.recordIndex];
+    record.actor = static_cast<CharacterPropId>(rng() % kActors);
+    record.level = static_cast<std::uint8_t>(1 + upTo(rng, kPartyMaxLevel - 1));
+    if (record.level < kPartyMaxLevel) {
+        if (oneIn(rng, 4)) {
+            // Just short of the next level.
+            const std::uint32_t need = experienceForNextLevel(record.level);
+            record.experience = need - 1 - std::min<std::uint32_t>(need - 1, static_cast<std::uint32_t>(upTo(rng, 100)));
+        } else {
+            // At the next level or up to five past it.
+            const int reached = std::min<int>(record.level + upTo(rng, 5), kPartyMaxLevel - 1);
+            record.experience = experienceForNextLevel(static_cast<std::uint8_t>(reached)) +
+                                static_cast<std::uint32_t>(upTo(rng, 1000));
+        }
+    }
+    return s;
+}
+
+RewardScenario drawRageScenario(std::mt19937& rng) {
+    RewardScenario s = drawRewardScenario(rng);
+    for (std::optional<MonsterId>& monster : s.monsters) {
+        switch (rng() % 4) {
+            case 0:
+                monster.reset();
+                break;
+            case 1:
+                monster = static_cast<MonsterId>(256 + rng() % (kMonsterIds - 256));
+                break;
+            default:
+                monster = static_cast<MonsterId>(rng() % 256);
+                break;
+        }
+    }
+    return s;
+}
+
+RewardScenario abilityCase(CharacterPropId actor, std::uint8_t level, int mix, std::mt19937& rng) {
+    RewardScenario s = drawRewardScenario(rng);
+    s.actor = actor;
+    s.level = level;
+    if (static_cast<std::size_t>(actor) < game::kSpellLearners) {
+        for (std::uint8_t& learned : s.cells.party.spells[static_cast<std::size_t>(actor)].progress) {
+            learned = mix == 0   ? static_cast<std::uint8_t>(upTo(rng, 99))
+                      : mix == 1 ? game::SpellProgress::kSpellJustLearned
+                                 : game::SpellProgress::kSpellLearned;
+        }
+    }
+    return s;
+}
+
+std::string describe(const RewardScenario& s) {
+    const game::CharacterRecord& r = s.cells.party.characters[s.recordIndex];
+    std::string text = "record " + std::to_string(s.recordIndex) + " actor " + std::to_string(static_cast<int>(r.actor)) +
+                       " level " + std::to_string(r.level) + " experience " + std::to_string(r.experience) +
+                       " share " + std::to_string(s.share) + " magic points " + std::to_string(s.magicPoints) +
+                       " flags " + std::to_string(winFlagsByte(s.flags)) + " magicite " +
+                       std::to_string(s.flags.partyHasMagicite) + " level message " +
+                       std::to_string(s.levelMessageToTell) + " cursed-shield battles " +
+                       std::to_string(s.switches.cursedShieldBattles()) + " equipment";
+    for (const ItemId item : r.equipment()) {
+        text += " " + std::to_string(static_cast<int>(item));
+    }
+    text += " ability check " + std::to_string(static_cast<int>(s.actor)) + "@" + std::to_string(s.level) + " monsters";
+    for (const std::optional<MonsterId>& monster : s.monsters) {
+        text += " " + (monster ? std::to_string(static_cast<int>(*monster)) : std::string{"-"});
+    }
+    return text;
 }
 
 // --- a monster's AI --------------------------------------------------------------------------------
