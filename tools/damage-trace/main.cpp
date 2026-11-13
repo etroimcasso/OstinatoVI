@@ -5,6 +5,7 @@
 //     ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
 //     ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]
 //                                             [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...
+//                                             [--watch <address> <count>]...
 //     ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 //     ostinato-damage-trace <rom> <directory> --check-state <ticks>
 //     ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]
@@ -12,10 +13,12 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and fifteen of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and nineteen of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
-// access made inside a call, in order, with its address and byte. Every call is logged — nothing is
+// access made inside a call, in order, with its address and byte. The win, the loss and the wrap-up are
+// traced whole, as every cell of their ranges on entry and on return, and every battle message shown
+// inside a traced call or ending is logged with its variables. Every call is logged — nothing is
 // filtered — to `damage-trace.log` under <directory>, in the lines damage_oracle.h names.
 //
 // The routines: the base damage (`CalcDmg`, $C2:2B9D, returning to $C2:322E), the damage to one
@@ -32,8 +35,11 @@
 // battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to $C2:013C and, for a
 // party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`, $C2:4BF4, returning to
 // $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`, `Cmd_30`, $C2:1DFA,
-// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401). The addresses are the US
-// cartridges'. --quit-after-frames closes the window after that many frames;
+// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401); and at a won battle's end, the
+// experience added (`AddExp`, $C2:6235, returning to $C2:5E4F and $C2:5E59), the spells equipment
+// teaches (`LearnItemMagic`, $C2:5FEF, returning to $C2:5E6A), the abilities a level teaches
+// (`LearnAbilities`, $C2:61B6, returning to $C2:60BF) and the rages (`LearnRage`, $C2:4A07, returning to
+// $C2:48EE). The addresses are the US cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
 // With --from the trace starts at a state written by --to-battle instead of at power-on, on a machine
@@ -49,7 +55,9 @@
 // With --headless nothing opens. The trace runs for --frames frames from power-on or --from, holding
 // the buttons --inputs names, on a machine with no battery file, and writes the picture of each
 // --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before its frame
-// runs (machine_state.h has the form).
+// runs (machine_state.h has the form), and the trace is told of them. Each --watch logs the cartridge's
+// every write to <count> cells of work RAM from <address> on, and their bytes after every frame, to
+// `cells.log` (CellLog has the lines).
 //
 // With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its state
 // is written, read back and restored on a second machine; both run on, and their memory and pictures
@@ -57,14 +65,15 @@
 //
 // With --replay nothing opens. Every call in <directory>/damage-trace.log, or the file --log names, is
 // rebuilt as a battle and worked out by the port, and the port's answer is compared with every cell the
-// cartridge wrote; each call is logged to `replay.log` with its differences, and any difference fails
-// the run.
+// cartridge wrote; every ending is rebuilt from the cells it found and played out by the port, compared
+// with the cells it left and the messages it showed. Each is logged to `replay.log` with its
+// differences, and any difference fails the run.
 //
 // With --check nothing opens. The cartridge is started as far as its reset code, its routines are bound
 // where it holds them, and <draws> scenarios drawn from a fixed seed (or --seed) are run through each
 // routine (or those --only names) and through the port. Every scenario is logged to `check.log`; a
-// disagreement is printed and fails the run. --replay-traced also traces the cartridge's calls in each
-// draw and replays them against the port.
+// disagreement is printed and fails the run. --replay-traced also traces the cartridge's calls and
+// endings in each draw and replays them against the port.
 //
 // Keys: arrows = d-pad, X = A, Z = B, S = X, A = Y, Q/W = L/R, Enter = Start, Right Shift = Select.
 
@@ -337,23 +346,142 @@ RegionMapId<WorkRam> declareWorkRam(Vm& machine) {
     return machine.registerRegions(regions(region(&WorkRam::cells, MemoryRegion{.at = 0x7E0000, .size = 0x10000}, "work RAM")));
 }
 
+// Cells of work RAM a run with no window watches.
+struct WatchedCells {
+    std::uint32_t at = 0;  // the first cell, $7E:0000-$7F:FFFF
+    std::uint32_t size = 0;
+};
+
+// Reads `$BB:AAAA` (the `$` and the colon optional) as a work RAM address. Nothing for any other shape
+// or an address outside $7E:0000-$7F:FFFF.
+std::optional<std::uint32_t> parseWorkRamAddress(std::string_view text) {
+    std::string digits;
+    for (const char c : text) {
+        if (c != '$' && c != ':') {
+            digits.push_back(c);
+        }
+    }
+    std::uint32_t at = 0;
+    const auto [end, error] = std::from_chars(digits.data(), digits.data() + digits.size(), at, 16);
+    if (error != std::errc{} || end != digits.data() + digits.size() || digits.size() != 6 || at < 0x7E0000 ||
+        at > 0x7FFFFF) {
+        return std::nullopt;
+    }
+    return at;
+}
+
+// Every write the cartridge makes to the watched cells is logged as it lands, with the frame it lands
+// in, and every watched range's bytes are logged after every frame, to `cells.log`: one line each,
+//
+//     battle entered <frame>
+//     write <frame> $BB:AAAA <byte>
+//     cells <frame> $BB:AAAA <the range's bytes>
+//
+// The battle program's entry is logged too, so a write can be placed before, in or after a battle.
+class CellLog {
+public:
+    CellLog(Vm& machine, const std::filesystem::path& directory, std::span<const WatchedCells> watched,
+            const std::uint64_t& frame)
+        : watched_(watched.begin(), watched.end()), frame_(frame) {
+        if (watched_.empty()) {
+            return;
+        }
+        log_.open(directory / "cells.log", std::ios::app);
+        // A range the trace already watches cannot be watched twice: its writes come from the trace
+        // (traceWrite()), and its bytes are logged every frame like any other.
+        const std::vector<std::pair<std::uint32_t, std::uint32_t>> traced = trace::DamageTrace::watchedRanges();
+        WatchMap map;
+        for (std::size_t i = 0; i < watched_.size(); ++i) {
+            const bool tracedAlready = std::any_of(traced.begin(), traced.end(), [&](const auto& range) {
+                return watched_[i].at < range.second && range.first < watched_[i].at + watched_[i].size;
+            });
+            if (tracedAlready) {
+                fromTheTrace_.push_back(watched_[i]);
+                continue;
+            }
+            map.declarations.push_back(GuestWatch{
+                .key = "watched cells " + std::to_string(i),
+                .at = MemoryRegion{.at = watched_[i].at, .size = watched_[i].size},
+                .onWrite = [this](Vm&, std::uint32_t at, std::uint8_t value) {
+                    logWrite(at, value);
+                    return AccessVerdict::proceed();
+                }});
+        }
+        if (!map.declarations.empty()) {
+            machine.registerWatches(map);
+        }
+        machine.registerEscapes(escapes(GuestEscape{.key = "battle entry, logged",
+                                                    .at = kBattleEntry,
+                                                    .handler = [this](Vm&, std::uint32_t) {
+                                                        log_ << "battle entered " << frame_ << '\n';
+                                                    }}));
+    }
+
+    // Each watched range's bytes as the frame just run left them.
+    void logFrame(Vm& machine, const trace::WorkRamBytes::Map& ram) {
+        for (const WatchedCells& range : watched_) {
+            char text[32];
+            std::snprintf(text, sizeof text, "cells %llu $%02X:%04X ", static_cast<unsigned long long>(frame_),
+                          (range.at >> 16) & 0xFF, range.at & 0xFFFF);
+            std::string line = text;
+            for (std::uint32_t i = 0; i < range.size; ++i) {
+                const std::vector<std::uint8_t> byte = machine.read(ram, &trace::WorkRamBytes::bytes, range.at - 0x7E0000 + i);
+                char hex[3];
+                std::snprintf(hex, sizeof hex, "%02X", byte.empty() ? 0 : byte[0]);
+                line += hex;
+            }
+            log_ << line << '\n';
+        }
+    }
+
+    // A write the trace's own watches saw: logged when it lands in a watched range the trace covers.
+    void traceWrite(std::uint32_t at, std::uint8_t value) {
+        for (const WatchedCells& range : fromTheTrace_) {
+            if (at >= range.at && at < range.at + range.size) {
+                logWrite(at, value);
+                return;
+            }
+        }
+    }
+
+private:
+    std::vector<WatchedCells> watched_;
+    std::vector<WatchedCells> fromTheTrace_;
+    const std::uint64_t& frame_;
+    std::ofstream log_;
+
+    void logWrite(std::uint32_t at, std::uint8_t value) {
+        char text[64];
+        std::snprintf(text, sizeof text, "write %llu $%02X:%04X %02X", static_cast<unsigned long long>(frame_),
+                      (at >> 16) & 0xFF, at & 0xFFFF, value);
+        log_ << text << '\n';
+    }
+};
+
 int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path& directory, std::uint64_t frames,
                 const std::optional<StartingState>& from, std::span<const trace::InputStep> script,
-                std::span<const std::uint64_t> pictureFrames, std::span<const trace::CellWrite> writes) {
+                std::span<const std::uint64_t> pictureFrames, std::span<const trace::CellWrite> writes,
+                std::span<const WatchedCells> watched) {
     std::ofstream log{directory / "damage-trace.log", std::ios::app};
     int result = 0;
     trace::runOnLoop([&] {
         Vm::SNES machine{VmConfig{.video = true}};
         machine.hostRom(image);
         std::uint64_t frame = 0;
-        const trace::DamageTrace traced{machine,
+        CellLog cells{machine, directory, watched, frame};
+        trace::DamageTrace traced{machine,
                                         [&](const std::string& line) {
                                             log << line << '\n';
                                             if (line.find(" enter ") != std::string::npos) {
                                                 std::printf("%s\n", line.c_str());
                                             }
                                         },
-                                        [&] { return frame; }};
+                                        [&] { return frame; },
+                                        [&](std::uint32_t at, std::uint8_t value, bool write) {
+                                            if (write) {
+                                                cells.traceWrite(at, value);
+                                            }
+                                        }};
         if (from) {
             if (!machine.restore(from->state.bytes)) {
                 std::fprintf(stderr, "%s is not a state this machine takes\n", from->file.string().c_str());
@@ -366,8 +494,20 @@ int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path
         machine.run(Vm::Advance::OnTick);
         for (; frame < frames; ++frame) {
             trace::writeCells(machine, ram, writes, frame);
+            // The trace's watches do not see these writes, so it is told of them.
+            for (const trace::CellWrite& write : writes) {
+                if (write.frame != frame) {
+                    continue;
+                }
+                for (std::size_t i = 0; i < write.bytes.size(); ++i) {
+                    traced.noteWrite(write.at + static_cast<std::uint32_t>(i), write.bytes[i]);
+                }
+            }
             machine.buttons(snes::Ports{.one = trace::buttonsAt(script, frame), .two = std::nullopt});
             machine.advanceTick();
+            if (!watched.empty()) {
+                cells.logFrame(machine, ram);
+            }
             if (std::find(pictureFrames.begin(), pictureFrames.end(), frame) != pictureFrames.end()) {
                 const std::filesystem::path file = directory / ("frame-" + std::to_string(frame) + ".ppm");
                 if (!writePicture(file, machine.video())) {
@@ -452,6 +592,21 @@ struct DrawResult {
 
 using SweepDraw = DrawResult (*)(trace::DamageOracle&, std::mt19937&);
 
+// A line for each cell the last call read before anything wrote it, past the cells listed as left as
+// the machine has them.
+std::string unwrittenReadLines(const trace::DamageOracle& oracle) {
+    std::string lines;
+    for (const trace::UnwrittenRead& read : oracle.unwrittenReads()) {
+        if (!trace::leftAsTheMachineHasIt(read.at)) {
+            char text[64];
+            std::snprintf(text, sizeof text, "read before written: $%02X:%04X (%02X)\n", (read.at >> 16) & 0xFF,
+                          read.at & 0xFFFF, read.value);
+            lines += text;
+        }
+    }
+    return lines;
+}
+
 struct Sweep {
     std::string_view name;
     SweepDraw draw;
@@ -466,7 +621,7 @@ std::string numberAnswers(long port, long cartridge) {
 }
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-constexpr std::array<Sweep, 23> kSweeps{{
+constexpr std::array<Sweep, 34> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -631,6 +786,81 @@ constexpr std::array<Sweep, 23> kSweeps{{
                            trace::differences(trace::portOwnAction(c.scenario, c.action),
                                               oracle.ownAction(c.scenario, c.action))};
      }},
+    {.name = "add-exp",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawExperienceScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portAddExperience(s), oracle.addExperience(s))};
+     }},
+    {.name = "item-learning",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawEquipmentScenario(rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portLearnFromEquipment(s), oracle.learnFromEquipment(s))};
+     }},
+    {.name = "level-ups",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawLevelScenario(rng);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portLevelUps(s), oracle.levelUps(s))};
+     }},
+    {.name = "abilities",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const auto actor = static_cast<CharacterPropId>(rng() % 16);
+         const auto level = static_cast<std::uint8_t>(1 + rng() % 99);
+         const trace::RewardScenario s = trace::abilityCase(actor, level, static_cast<int>(rng() % 3), rng);
+         return DrawResult{trace::describe(s), "",
+                           trace::differences(trace::portLearnAbilities(s), oracle.learnAbilities(s))};
+     }},
+    {.name = "rages",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::RewardScenario s = trace::drawRageScenario(rng);
+         return DrawResult{trace::describe(s), "", trace::differences(trace::portLearnRages(s), oracle.learnRages(s))};
+     }},
+    {.name = "items-obtained",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::ItemsObtainedScenario s = trace::drawItemsObtainedScenario(rng);
+         return DrawResult{"item " + std::to_string(static_cast<int>(s.item)) + " x" + std::to_string(s.quantity), "",
+                           trace::differences(trace::portAddItemObtained(s), oracle.addItemObtained(s))};
+     }},
+    {.name = "items-merged",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::ItemsObtainedScenario s = trace::drawItemsObtainedScenario(rng);
+         return DrawResult{"added " + std::to_string(s.list.added) + " merged " + std::to_string(s.list.merged), "",
+                           trace::differences(trace::portMergeItemsObtained(s), oracle.mergeItemsObtained(s))};
+     }},
+    {.name = "wrap-up",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawEndingScenario(rng);
+         std::string differences = trace::differences(trace::portWrapUp(s), oracle.wrapUp(s));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "win",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         std::string differences = trace::differences(trace::portWin(s), oracle.win(s));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "loss",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         // The annihilated message, Banon's, or none.
+         const std::optional<std::uint8_t> message =
+             rng() % 3 == 0 ? std::nullopt
+                            : std::optional<std::uint8_t>(rng() % 2 == 0 ? battle::kMessageAnnihilated
+                                                                         : battle::kMessageBanonFell);
+         std::string differences = trace::differences(trace::portLoss(s, message), oracle.loss(s, message));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
+    {.name = "write-back",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::EndingScenario s = trace::drawWinScenario(rng);
+         std::string differences = trace::differences(trace::portWriteBack(s), oracle.writeBack(s));
+         differences += unwrittenReadLines(oracle);
+         return DrawResult{trace::describe(s), "", differences};
+     }},
 }};
 
 struct CheckOptions {
@@ -657,10 +887,11 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
             for (int draw = 0; draw < options.draws; ++draw) {
                 DrawResult result = sweep.draw(oracle, rng);
                 if (options.replayTraced) {
-                    std::stringstream traced;
+                    std::string text;
                     for (const std::string& line : oracle.takeTrace()) {
-                        traced << line << '\n';
+                        text += line + '\n';
                     }
+                    std::istringstream traced{text};
                     for (trace::TracedCall call : trace::parseTrace(traced)) {
                         if (!call.target) {
                             call.target = result.target;
@@ -668,6 +899,13 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                         const std::string parted = oracle.replay(call);
                         if (!parted.empty()) {
                             result.differences += "replayed " + call.routine + ":\n" + parted;
+                        }
+                    }
+                    std::istringstream endings{text};
+                    for (const trace::TracedEnding& ending : trace::parseEndings(endings)) {
+                        const std::string parted = oracle.replayEnding(ending);
+                        if (!parted.empty()) {
+                            result.differences += "replayed " + ending.routine + ":\n" + parted;
                         }
                     }
                 }
@@ -697,8 +935,19 @@ int runReplay(std::span<const std::uint8_t> image, const std::filesystem::path& 
         return 1;
     }
     const std::vector<trace::TracedCall> calls = trace::parseTrace(recorded);
+    recorded.clear();
+    recorded.seekg(0);
+    const std::vector<trace::TracedEnding> endings = trace::parseEndings(recorded);
     std::ofstream log{directory / "replay.log"};
     int parted = 0;
+    const auto logOne = [&](std::uint64_t frame, const std::string& routine, const std::string& differences) {
+        log << "f" << frame << ' ' << routine << (differences.empty() ? " agrees\n" : " PARTS\n") << differences;
+        if (!differences.empty()) {
+            ++parted;
+            std::printf("frame %llu, %s:\n%s", static_cast<unsigned long long>(frame), routine.c_str(),
+                        differences.c_str());
+        }
+    };
     trace::runOnLoop([&] {
         trace::DamageOracle oracle{image};
         oracle.start();
@@ -709,16 +958,20 @@ int runReplay(std::span<const std::uint8_t> image, const std::filesystem::path& 
             } catch (const std::runtime_error& error) {
                 differences = std::string{"could not be rebuilt: "} + error.what() + "\n";
             }
-            log << "f" << call.frame << ' ' << call.routine << (differences.empty() ? " agrees\n" : " PARTS\n") << differences;
-            if (!differences.empty()) {
-                ++parted;
-                std::printf("frame %llu, %s:\n%s", static_cast<unsigned long long>(call.frame), call.routine.c_str(),
-                            differences.c_str());
+            logOne(call.frame, call.routine, differences);
+        }
+        for (const trace::TracedEnding& ending : endings) {
+            std::string differences;
+            try {
+                differences = oracle.replayEnding(ending);
+            } catch (const std::runtime_error& error) {
+                differences = std::string{"could not be rebuilt: "} + error.what() + "\n";
             }
+            logOne(ending.frame, ending.routine, differences);
         }
     });
-    std::printf("%zu calls replayed, %d differing from the cartridge; %s\n", calls.size(), parted,
-                (directory / "replay.log").string().c_str());
+    std::printf("%zu calls and %zu endings replayed, %d differing from the cartridge; %s\n", calls.size(),
+                endings.size(), parted, (directory / "replay.log").string().c_str());
     return parted == 0 ? 0 : 1;
 }
 
@@ -758,6 +1011,7 @@ struct Options {
     std::optional<std::filesystem::path> inputs;         // --headless
     std::vector<std::uint64_t> pictureFrames;            // --headless
     std::vector<trace::CellWrite> writes;                // --headless
+    std::vector<WatchedCells> watched;                   // --headless
     std::optional<std::filesystem::path> recording;      // --replay
     bool twice = false;                                  // --to-battle
     std::uint32_t seed = trace::kSweepSeed;              // --check
@@ -770,6 +1024,7 @@ constexpr const char* kUsage =
     "usage: ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]\n"
     "       ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]\n"
     "                                               [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...\n"
+    "                                               [--watch <address> <count>]...\n"
     "       ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]\n"
     "       ostinato-damage-trace <rom> <directory> --check-state <ticks>\n"
     "       ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]\n"
@@ -792,8 +1047,8 @@ std::optional<std::string> refusal(const Options& o) {
     if (o.headless != o.frames.has_value()) {
         return "--headless and --frames go together";
     }
-    if (!o.headless && (o.inputs || !o.pictureFrames.empty() || !o.writes.empty())) {
-        return "--inputs, --picture-at and --write-at go with --headless";
+    if (!o.headless && (o.inputs || !o.pictureFrames.empty() || !o.writes.empty() || !o.watched.empty())) {
+        return "--inputs, --picture-at, --write-at and --watch go with --headless";
     }
     if (o.recording && !o.replay) {
         return "--log goes with --replay";
@@ -885,7 +1140,8 @@ int runMode(const Options& options, std::span<const std::uint8_t> image, const s
         }
         script = std::move(*read);
     }
-    return runHeadless(image, directory, *options.frames, from, script, options.pictureFrames, options.writes);
+    return runHeadless(image, directory, *options.frames, from, script, options.pictureFrames, options.writes,
+                       options.watched);
 }
 
 }  // namespace
@@ -944,6 +1200,15 @@ int main(int argc, char** argv) {
                 return 2;
             }
             i += 3;
+        } else if (flag == "--watch" && i + 2 < argc) {
+            const std::optional<std::uint32_t> at = parseWorkRamAddress(argv[i + 1]);
+            const std::optional<std::uint64_t> size = parseCount(argv[i + 2]);
+            if (!at || !size || *size == 0 || *at + *size > 0x800000) {
+                std::fprintf(stderr, "--watch takes a work RAM address and a number of cells\n%s", kUsage);
+                return 2;
+            }
+            options.watched.push_back(WatchedCells{.at = *at, .size = static_cast<std::uint32_t>(*size)});
+            i += 2;
         } else if (flag == "--seed") {
             const std::optional<std::uint64_t> seed = count(i, argv[i]);
             if (!seed) {

@@ -23,6 +23,7 @@
 #include "battle/battle_inventory.h"
 #include "battle/battle_requests.h"
 #include "battle/battle_rng.h"
+#include "battle/items_obtained.h"
 #include "battle/battler_set.h"
 #include "battle/player_intake.h"
 #include "battle/spell_lists.h"
@@ -643,6 +644,9 @@ struct BattleState {
 
     // The party's items and what it knows.
     BattleInventory inventory;
+    // The items the party has come away with, waiting to be merged into `inventory`
+    // (battle/items_obtained.h).
+    ItemsObtained itemsObtained;
     RelicEffect2Set partyRelicEffects2;   // every party member's second relic effects together
     BattlerSet espersSummoned;            // party members who have summoned their esper this battle
     int swdtechsKnown = 0;
@@ -663,7 +667,7 @@ struct BattleState {
     // effect, before its hit check.
     std::optional<int> extraHits;
     // Party members who come away from the action holding Battler::itemInHand: once the action is
-    // over, the item goes into the party's inventory.
+    // over, the item joins the items obtained.
     BattlerSet holdingItem;
 
     // The commands the player has finished choosing, waiting for the battle to take them in
@@ -674,9 +678,10 @@ struct BattleState {
     // fighter's place, in the order the player chose them.
     std::deque<std::size_t> finalBattleReserve;
 
-    // What the battle's end changed: Gau has just turned up, Shadow has walked off.
+    // What the battle's end changed: Gau has just turned up, Shadow has walked off, Gau has leapt.
     bool gauJoining = false;
     bool shadowLeftParty = false;
+    bool gauLeftParty = false;   // Gau leapt: he leaves the party once the battle is handed back
     bool noVictoryFanfare = false;
 
     std::optional<BattleOutcome> outcome;

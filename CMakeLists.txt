@@ -71,6 +71,7 @@ add_library(ostinato-vi-lib STATIC
     src/battle/attacker_effects.cpp
     src/battle/automatic_actions.cpp
     src/battle/battle_clock.cpp
+    src/battle/battle_end.cpp
     src/battle/battle_hooks.cpp
     src/battle/battle_inventory.cpp
     src/battle/battle_layout.cpp
@@ -84,12 +85,14 @@ add_library(ostinato-vi-lib STATIC
     src/battle/commands.cpp
     src/battle/damage.cpp
     src/battle/item_attack.cpp
+    src/battle/items_obtained.cpp
     src/battle/leveling.cpp
     src/battle/links.cpp
     src/battle/morph.cpp
     src/battle/party_setup.cpp
     src/battle/player_intake.cpp
     src/battle/presentation.cpp
+    src/battle/rewards.cpp
     src/battle/spell_learning.cpp
     src/battle/spell_lists.cpp
     src/battle/status.cpp
@@ -765,3 +768,26 @@ target_compile_definitions(ostinato-vi-battle-ai-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-ai-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-ai-tests)
+
+# What a won battle gives the party: experience and gold, the levels reached, the abilities and
+# spells learned, the lores, the dance, the Morph supply and the rages, each worked out by hand from
+# the original and checked against the cartridge's own routines, run on the hosted cartridge over the
+# same party (tools/damage-trace/damage_oracle), and the cartridge's own battle ends, traced and
+# recorded, replayed against the port. Own binary so the other baselines stay frozen.
+add_executable(ostinato-vi-battle-rewards-tests
+    tests/test_rewards.cpp
+    tests/test_rewards_oracle.cpp
+    tests/test_items_obtained.cpp
+    tests/test_battle_end.cpp
+    tests/test_battle_end_oracle.cpp
+    tests/test_rewards_trace.cpp
+    tools/damage-trace/damage_oracle.cpp)
+target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-rewards-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-rewards-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
+target_link_libraries(ostinato-vi-battle-rewards-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-rewards-tests)

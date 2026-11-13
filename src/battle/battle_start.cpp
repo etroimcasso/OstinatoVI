@@ -505,6 +505,8 @@ struct StageCarry {
     // placed anew.
     BattlerSet partyFacingRight;
     BattlerSet animationTargets;
+    // A stage's start empties none of the items obtained and leaves both counts where they stood.
+    ItemsObtained itemsObtained;
 };
 
 BattleState assembleBattle(const BattleStart& start, game::Party party, game::BattleSwitches switches,
@@ -542,10 +544,12 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.morphCounter = carry->morphCounter;
         state.morphCounterSpeed = carry->morphCounterSpeed;
         state.finalBattleReserve = carry->finalBattleReserve;
+        state.itemsObtained = carry->itemsObtained;
     } else {
         state.finalBattleChain = start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
         state.finalBattleReserve.assign(start.finalBattleOrder.begin(), start.finalBattleOrder.end());
         state.mimic.last.command = BattleCommandId::MIMIC;
+        state.itemsObtained = itemsObtainedAtBattleStart(start.itemsObtainedTail);
     }
 
     state.rng = BattleRng(static_cast<std::uint8_t>(start.playTimeFrames * 4));
@@ -654,7 +658,8 @@ BattleState startBattle(const BattleStart& start, game::Party party, game::Battl
 BattleResult writeBack(const BattleState& state) {
     BattleResult result{.outcome = state.outcome.value_or(BattleOutcome{BattleWon{}}),
                         .party = state.party,
-                        .switches = state.switches};
+                        .switches = state.switches,
+                        .itemsObtainedTail = itemsObtainedTail(state.itemsObtained)};
     game::Party& party = result.party;
 
     for (int position = kPartySlots - 1; position >= 0; --position) {
@@ -664,8 +669,9 @@ BattleResult writeBack(const BattleState& state) {
             continue;
         }
         const bool ghost = *battler.actor == CharacterPropId::GHOST_1 || *battler.actor == CharacterPropId::GHOST_2;
+        // Taken out of the party, the record's whole party byte is cleared: its party, slot and row.
         if ((ghost && battler.status.hasAny(kFallen)) || state.takenFromTheParty.has(slot)) {
-            party.membership[*battler.record].party = 0;
+            party.membership[*battler.record] = game::PartyMembership{};
         }
         game::CharacterRecord& record = party.characters[*battler.record];
         record.status = unionOf(intersectionOf(battler.status, kFirstStatusByte),
@@ -687,12 +693,17 @@ BattleResult writeBack(const BattleState& state) {
     const auto* ended = std::get_if<BattleEnded>(&result.outcome);
     const bool ranOutOfTime = ended != nullptr && ended->reason == BattleEndReason::RanOutOfTime;
     if (state.colosseum && state.colosseumWager && *state.colosseumWager != ItemId::EMPTY && !ranOutOfTime) {
-        for (game::InventorySlot& held : party.inventory) {
-            if (held.item != *state.colosseumWager) {
+        // Last slot first, one off each slot holding the wager. LEGACY VERBATIM (docs/Bugs.md): a slot
+        // emptied leaves the search looking for an empty slot, so a later slot holding the wager keeps it.
+        ItemId lookingFor = *state.colosseumWager;
+        for (std::size_t slot = party.inventory.size(); slot-- > 0;) {
+            game::InventorySlot& held = party.inventory[slot];
+            if (held.item != lookingFor) {
                 continue;
             }
             if (--held.quantity == 0 || held.quantity >= 0x80) {
                 held = game::InventorySlot{};
+                lookingFor = ItemId::EMPTY;
             }
         }
     }
@@ -720,11 +731,12 @@ BattleResult writeBack(const BattleState& state) {
         }
     }
 
+    result.gauLeftParty = state.gauLeftParty;
     if (state.shadowLeftParty) {
         result.shadowLeftParty = true;
         for (std::size_t index = 0; index < party.characters.size(); ++index) {
             if (party.characters[index].actor == CharacterPropId::SHADOW) {
-                party.membership[index].party = 0;
+                party.membership[index] = game::PartyMembership{};
                 party.characters[index].esper.reset();
             }
         }
@@ -765,6 +777,7 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     carry.finalBattleReserve = finished.finalBattleReserve;
     carry.partyFacingRight = finished.facingRight.charactersOnly();
     carry.animationTargets = finished.animationTargets;
+    carry.itemsObtained = finished.itemsObtained;
     for (std::size_t stage = 0; stage + 1 < kFinalBattleFormations.size(); ++stage) {
         if (kFinalBattleFormations[stage + 1] == next) {
             carry.scroll = kFinalBattleScroll[2 * stage].scroll;

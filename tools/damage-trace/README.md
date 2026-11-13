@@ -1,8 +1,9 @@
 # ostinato-damage-trace
 
 Runs the cartridge on the engine's SNES machine and watches its damage, status and special-effect routines, the
-esper's spells learned and the level-up at a won battle's end, and a battler's AI script readied, run on its turn
-and run when it answers an attack, with the three commands only a script queues: what each one reads and writes
+esper's spells learned and the level-up at a won battle's end, a battler's AI script readied, run on its turn
+and run when it answers an attack, with the three commands only a script queues, and a battle's end — the
+win's steps on the party's records, and the win, the loss and the wrap-up whole: what each one reads and writes
 while the game is played, whether every call so recorded comes out the
 same from the port, or whether the port's rules give the same answers the cartridge's own code does.
 It is a developer tool and is not part of the game.
@@ -10,7 +11,7 @@ It is a developer tool and is not part of the game.
 ```sh
 cmake --build build --target ostinato-damage-trace
 ./build/ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
-./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...
+./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]... [--watch <address> <count>]...
 ./build/ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 ./build/ostinato-damage-trace <rom> <directory> --check-state <ticks>
 ./build/ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>] [--replay-traced]
@@ -32,6 +33,7 @@ cmake --build build --target ostinato-damage-trace
 | A fight by hand | `--from <state>`, then `--replay` |
 | Where a script has got to | `--headless --inputs <script> --frames <n> --picture-at <frame>` |
 | A fight set up by hand | `--headless --from <state> --frames <n> --write-at <frame> <address> <bytes>` |
+| What writes some cells, and when | `--headless --inputs <script> --frames <n> --watch <address> <count>` |
 
 ## Tracing
 
@@ -53,10 +55,10 @@ Close the window to quit, or pass `--quit-after-frames <n>` to have it close its
 frames. The machine keeps the cartridge's battery save between runs, so a game saved in the window is
 there to load the next time.
 
-Fifteen routines are traced. An escape on each one's entry and on each instruction its callers return
-to opens and closes a call; watches over every cell the routines read or write log each access made
-inside a call. A return is logged only while a call of its routine is open, so the command dispatch's
-return site, which every command passes, logs only the returns of the three AI commands:
+Nineteen routines are traced call by call. An escape on each one's entry and on each instruction its
+callers return to opens and closes a call; watches over every cell the routines read or write log each
+access made inside a call. A return is logged only while a call of its routine is open, so the command
+dispatch's return site, which every command passes, logs only the returns of the three AI commands:
 
 | Routine | Entry | Returns to | Works out |
 |---|---|---|---|
@@ -73,6 +75,13 @@ return site, which every command passes, logs only the returns of the three AI c
 | `ExecMonsterAction` | `$C2:02DC` | `$C2:013C` from a turn, `$C2:21A1` for a party member with a script whose gauge fills | a script's turn part read |
 | `ExecAIRetal` | `$C2:4BF4` | `$C2:4B9A` | a script's counterattack part read |
 | `Cmd_2e`, `Cmd_2f`, `Cmd_30` | `$C2:1DFA`, `$C2:1E1A`, `$C2:1E5E` | `$C2:1401`, the command dispatch | a battle variable, a switch, an effect changed |
+| `AddExp` | `$C2:6235` | `$C2:5E4F`, and `$C2:5E59` for an Exp. Egg's second share | at a won battle's end, a share of experience added to a record |
+| `LearnItemMagic` | `$C2:5FEF` | `$C2:5E6A` | at a won battle's end, the spells a record's equipment teaches, with the Cursed Shield's count |
+| `LearnAbilities` | `$C2:61B6` | `$C2:60BF` | at a level-up, the natural spell, SwdTech or Blitz the level teaches |
+| `LearnRage` | `$C2:4A07` | `$C2:48EE` | after a Leap, the rages of the six monster slots |
+
+`LearnItemMagic`'s only call in the battle program is the win's; three bytes at `$C2:7477` that read
+like a second call lie in the compressed cutscene program, which the battle never runs.
 
 Every call is logged to `damage-trace.log` under `<directory>`, nothing filtered, one line per event:
 
@@ -105,11 +114,48 @@ records' party bytes and the party played, the lores known and Strago's slot, th
 battle type and a pincer's two sides, the party's spell lists, each battler's gauge, advance wait, block
 graphics, script places, wait places, own timer and ATB rate, the counterattack line, the step being read, the battle's variables and
 switches, the names listed and the party slots' members (`kTracedRanges` in `damage_oracle.h`). Inside a
-call of `LearnGenjuMagic` or `DoLevelUp` the sixteen character records, the spells each character knows
-and the first two battle's-end cells in direct page (`$7E:00EE-00EF`) are logged as well
-(`kPartyRecordRanges`); inside any other call they are not. The rest of the battle's-end cells — the
-win's flags, Morph available, the place of the spells being learned, the magic points and the level-up's
-gains — are the script reader's cells and are logged in every call. The addresses are the US cartridges'.
+call of one of the six routines on the party's records — `LearnGenjuMagic`, `DoLevelUp` and the four
+above — the sixteen character records, the spells each character knows, the Morph supply with the
+SwdTechs and Blitzes known, the rages and dances known and the first two battle's-end cells in direct
+page (`$7E:00EE-00EF`) are logged as well (`kPartyRecordRanges`); inside any other call they are not.
+The rest of the battle's-end cells — the win's flags, whether the party has magicite, the place of the
+spells being learned, the magic points and the level-up's gains — are the script reader's cells and are
+logged in every call. The addresses are the US cartridges'.
+
+`LearnAbilities` works out a level for the actor and level its caller read from the record just before
+the call, so its `enter` is followed by the last actor byte and level byte read from any record:
+
+```
+f1355 enter LearnAbilities $C2:61B6
+f1355 params ...
+f1355 abilities actor 00 level 06
+```
+
+Three routines are traced whole, as what their cells hold, because each calls traced routines of its
+own: the win (`WinBattle`, `$C2:5D57`, returning to `$C2:488F`), the loss (`LoseBattle`, `$C2:5FCA`,
+returning to `$C2:4831` from the end check and `$C2:48F5` from Banon's ending) and the wrap-up
+(`_c24903`, `$C2:4903`, returning to `$C2:48A4`, `$C2:4A28`, and inside the win and the loss to
+`$C2:5D74` and `$C2:5FD3`). On entry and on return every range of `kEndingRanges` — the party, the
+inventory, the items obtained with their counts, the battlers' cells the ending reads, the battle's own
+cells and switches — is logged as one line of bytes, and inside them, as inside any open call, each
+battle message is logged as `ShowMsg` hands it to the graphics program (`$C2:5FEA`), with its four
+variables:
+
+```
+f1101 snapshot WinBattle enter $C2:5D57
+f1101 snapshot WinBattle $7E:00B0 0000DEFF061D838F0000024300000204
+...
+f1226 message 27 000020 000000 000000 000060
+...
+f1504 snapshot WinBattle return $C2:488F
+f1504 snapshot WinBattle $7E:00B0 0080DEFF061D838F0000024300000404
+...
+```
+
+A snapshot, a message and an `enter`'s context are what the cells hold at that moment: the machine
+answers a read with what its last step published, and the trace lays over it the last byte written to
+each cell it watches — by the cartridge, or by `--write-at`, which it is told of. It watches the cells of
+`kEndingRanges` too, logging none of their accesses.
 
 ## Starting at a battle
 
@@ -237,6 +283,53 @@ counterattack part runs at frame 1728 under the restriction a battler answering 
 under, and queues its Special at a party member; a second counterattack call for it in the same step
 runs nothing. `tests/fixtures/damage-trace/petrified-guard.log` is this run.
 
+This wins the same fight with Terra at level 5 (`$7E:1608`) and 666 experience (`$7E:1611`, `9A0200`), 6
+short of the 672 level 6 needs, and the battle's random-number position (`$7E:00BE`) set to 2 on the
+frame the win begins, so the first fallen guard's draw is 31, below 32, and gives its rare drop:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/rewards-win --headless --from build/first-fight/battle.state \
+    --inputs tools/damage-trace/press-a.inputs --frames 1600 --picture-at 1400 \
+    --write-at 10 '$7E:1608' 05 --write-at 10 '$7E:1611' 9A0200 --write-at 1101 '$7E:00BE' 02
+```
+
+The win runs from frame 1101 to 1504: 32 experience each, a level for Wedge, Vicks and Terra, Terra's
+Antdot, a Tonic (frame 1400 shows "Got Tonic × 1") and 96 GP. `tests/fixtures/damage-trace/rewards-win.log`
+is this run. And this loses it: the three party members' HP (`$7E:3BF4`, three words) set to 1, nothing
+pressed until the guards have felled them, then A to close "Annihilated":
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/rewards-loss --headless --from build/first-fight/battle.state \
+    --inputs tools/damage-trace/hold-then-press-a.inputs --frames 1600 --write-at 10 '$7E:3BF4' 010001000100
+```
+
+The loss begins at frame 1097 and returns at 1211. `tests/fixtures/damage-trace/rewards-loss.log` is this
+run. With nothing pressed at all the message waits for a button and the loss never returns.
+
+Each `--watch <address> <count>` watches `<count>` cells of work RAM from `<address>` (the same form as
+`--write-at`'s) and logs to `cells.log` under `<directory>`, one line each, every write the cartridge makes
+to them as it lands, their bytes after every frame, and every entry to the battle program:
+
+```
+battle entered <frame>
+write <frame> $BB:AAAA <byte>
+cells <frame> $BB:AAAA <the range's bytes>
+```
+
+A write made by a memory transfer rather than by an instruction shows only in the `cells` lines. A write
+to a cell the trace already watches is heard through the trace's own watch and logged the same way. This
+follows the list of items obtained and its two counts from power-on through the first fight, won, and on
+to the next battle (`first-two-battles.inputs`):
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/items-obtained --headless --frames 30000 \
+    --inputs tools/damage-trace/first-two-battles.inputs --watch '$7E:602D' 80 --watch '$7E:64DA' 2
+```
+
+The battles begin at frames 10216 and 12224. Both counts become 0 three frames into each; the list's first
+64 bytes become `$FF` at frames 10300 and 12274; and the list's last fifteen bytes are written only at
+frames 64 and 9039, by the title and cutscene program being laid over `$7E:5000-$7E:7C62`.
+
 ## Replaying
 
 With `--replay` nothing opens. Every call in `<directory>/damage-trace.log`, or the file `--log` names, is rebuilt as a battle —
@@ -266,9 +359,23 @@ are compared. A command is the action a script's step can hold whose bytes are t
 and is worked out for each battler the cartridge's own command, given the same reads, makes the same
 writes for. `SetStatus` and `ClearStatus` make an attack, whose own calls the log holds and replays;
 the command's call itself, with another traced call inside it, is not among the calls the log holds.
-The port's answer is compared with every cell the routine wrote.
-Each call is logged to `replay.log` with its differences; any difference is printed and fails the
-run:
+A step of a won battle is rebuilt as the party and the win's cells it read: the experience added and the
+spells equipment teaches take their record from the record cells the call touched, the spells learned
+being the list the win's spell-list place names; the abilities take the actor and level logged at the
+call's entry; the rages take the monsters read. The messages the call showed are compared with the
+port's. The port's answer is compared with every cell the routine wrote.
+
+An ending is rebuilt from its entry snapshot: its cells written, read back as the battle at its end
+(`DamageOracle::readEndingScenario()`) and played out by the port's own ending — `battle::playBattleEnd()`
+with `BattleWon`, `BattleLost` handed the message its caller hands (Banon fell from `$C2:48F5`; otherwise
+"Annihilated", or none in the colosseum), or the wrap-up alone. The port's party, inventory, items
+obtained, hands, meters, switches and random-number position are compared with the return snapshot, and
+its messages with the ones the ending showed, in order. What else an ending shows — menus closing, the
+wait, the celebration — is not in the log and is not compared here; the `wrap-up`, `win` and `loss`
+checks compare it. An ending with an equipment change pending cannot be rebuilt.
+
+Each call and each ending is logged to `replay.log` with its differences; any difference is printed and
+fails the run:
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --replay
@@ -289,7 +396,9 @@ traced through the oracle, are replayed by `tests/test_status_oracle.cpp`, of th
 `tests/test_espers_oracle.cpp`. `tests/test_ai_trace.cpp` replays the cartridge's own AI calls traced
 through the oracle — every script readied, every script's turns, every counterattack part on every path
 through its guard and the three commands — and checks what `guards-counter.log` and
-`petrified-guard.log` hold.
+`petrified-guard.log` hold. `tests/test_rewards_trace.cpp` replays the win's steps and the wrap-up, the
+win and the loss traced through the oracle, and checks and replays `rewards-win.log` and
+`rewards-loss.log`.
 
 ## Checking
 
@@ -330,14 +439,43 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `attack` | `ExecAttack`, every attack of a command's attack, a Fight's and a Capture's hand loaded at each swing among them, against `battle::runAttack()` | `tests/test_attack_oracle.cpp` |
 | `self-attack` | `ExecSelfAttack`, an attack aimed at its attacker, against `battle::runSelfAttack()` | `tests/test_attack_oracle.cpp` |
 | `own-actions` | `Cmd_22`, `Cmd_26`, `Cmd_29` and `Cmd_2d`, the battle's own damage over time, spell with no caster, status timers running out and Seize's drain, and `Cmd_30`'s `SetStatus` and `ClearStatus`, each run whole against `CommandExecutor::execute()` | `tests/test_own_actions_oracle.cpp` |
+| `add-exp` | `AddExp`, a share of a win's experience added to a record | `tests/test_rewards_oracle.cpp` |
+| `item-learning` | `LearnItemMagic`, the spells a record's equipment teaches, with the Cursed Shield's count | `tests/test_rewards_oracle.cpp` |
+| `level-ups` | `CheckLevelUp`, every level a record reaches with what each teaches and the messages told | `tests/test_rewards_oracle.cpp` |
+| `abilities` | `LearnAbilities`, what an actor learns at a level | `tests/test_rewards_oracle.cpp` |
+| `rages` | `LearnRage`, the rages of the six monster slots | `tests/test_rewards_oracle.cpp` |
+| `items-obtained` | graphics command `$05`, an item added to the items obtained, against `battle::obtainItem()` | `tests/test_battle_end_oracle.cpp` |
+| `items-merged` | graphics command `$0A`, the items obtained merged into the inventory, against `battle::mergeItemsObtained()` | `tests/test_battle_end_oracle.cpp` |
+| `wrap-up` | `_c24903`, the close every ending but two runs, against `battle::wrapUpBattle()`, with every cell it reads written first | `tests/test_battle_end_oracle.cpp` |
+| `win` | `WinBattle`, the win whole — the celebration, the wrap-up, the colosseum, experience, levels, spells, lores, the dance, drops and gold, every message — against `battle::playBattleEnd()` | `tests/test_battle_end_oracle.cpp` |
+| `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/test_battle_end_oracle.cpp` |
+| `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/test_battle_end_oracle.cpp` |
 
-`--replay-traced` also traces the traced routines' calls in each draw and replays them against the
-port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`, `tests/test_effects_oracle.cpp`
-and `tests/test_espers_oracle.cpp` do; a target-effect draw's calls are given the draw's target. On
+While one of the reward routines runs, its calls to the graphics program (`ExecBtlGfx`, `$C2:6411`) are
+answered by the oracle at the graphics program's entry (`$C1:0000`): each call is recorded with the cells
+the graphics program reads — the command, the party slot at `$7E:0010`, the battle script's first five
+bytes, the item record at `$7E:2E72` and the four message variables — and the commands that wait on the
+screen or the sound return at once. Command `$05` (an item added to the items obtained) and command `$0A`
+(those items merged into the inventory) run as the cartridge holds them, each found through the
+cartridge's own table of graphics commands at `$C1:0008`. A message is compared on the numbers its text
+shows.
+
+`--replay-traced` also traces the traced routines' calls and endings in each draw and replays them
+against the port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`,
+`tests/test_effects_oracle.cpp`, `tests/test_espers_oracle.cpp` and `tests/test_rewards_trace.cpp` do; a
+target-effect draw's calls are given the draw's target. The oracle tells the trace what it hands a
+routine itself: the actor and level of an `abilities` call and the message of a `loss` call, logged as
+`snapshot LoseBattle handed <message>`. On
 `attack`, `self-attack` and `own-actions` the traced routines are called by the frame itself, so each call closes at
 the frame's own return site (the return column above).
 
-Each `attack`, `self-attack` and `own-actions` call also watches the battle's work RAM, `$7E:0000-3FFF`, for a cell
+While the wrap-up, the win or the loss runs, its calls to the graphics program are answered the same way;
+a run of frame waits is compared as one wait of that many frames, a merge shows nothing, an item added and
+merged at once (a drop, the prize) shows only its message, and the win's celebration (command `$08`) is
+compared on whether the fanfare and battle event 1 play, as the formation's flags and the field's flags
+decide.
+
+Each `attack`, `self-attack`, `own-actions`, `wrap-up`, `win`, `loss` and `write-back` call also watches the battle's work RAM, `$7E:0000-3FFF`, for a cell
 the frame reads before anything wrote it. `DamageOracle::unwrittenReads()` lists them after a call;
 `kCellsLeftAsTheMachineHasThem` in `damage_oracle.h` holds the few the frame reads and nothing it shows
 or keeps depends on, each with its reason. Any other cell in the list is one the scenario must write.
@@ -346,9 +484,10 @@ or keeps depends on, each with its reason. Any other cell in the list is one the
 
 | File | What it holds |
 |---|---|
-| `main.cpp` | the command line, the window and the trace on it, the trace with no window, the scripted run to a battle, the state check, the replay run and the check run |
+| `main.cpp` | the command line, the window and the trace on it, the trace with no window and its watched cells (`CellLog`), the scripted run to a battle, the state check, the replay run and the check run |
 | `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
 | `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |
 | `hold-then-press-a.inputs` | nothing pressed for 1,200 frames, then A for 4 frames in every 16: the guards act first, then the party fights the first fight to a win |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; over an `AiScenario`: the battlers a monster's script names, the conditions it tests, a script readied, its turns and counterattacks, and the three commands only a script queues; the whole attack frame, `attack()` and `selfAttack()`, and the battle's own actions, `ownAction()`, with `unwrittenReads()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAttackScenario()`, `drawSelfAttackScenario()` and `drawOwnActionCase()`, the seeded draws; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()`, `portAttack()`, `portSelfAttack()`, `attackResult()`, `portOwnAction()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port, a battler's AI rebuilt by `readAiScenario()` |
+| `first-two-battles.inputs` | from power-on through the first fight, won as `press-a.inputs` wins it, and on through the town to the next battle |
+| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; over an `AiScenario`: the battlers a monster's script names, the conditions it tests, a script readied, its turns and counterattacks, and the three commands only a script queues; the whole attack frame, `attack()` and `selfAttack()`, and the battle's own actions, `ownAction()`, with `unwrittenReads()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAttackScenario()`, `drawSelfAttackScenario()`, `drawOwnActionCase()`, `drawEndingScenario()` and `drawItemsObtainedScenario()`, the seeded draws; over an `EndingScenario`: the wrap-up, `wrapUp()`, the win, `win()`, the loss, `loss()`, and what the game keeps, `writeBack()`, with `drawWinScenario()`; over an `ItemsObtainedScenario`: the graphics program's two commands for the items obtained; `itemsObtainedTailAtPowerOn()`, the title program laid out and the list's last three places read; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()`, `portAttack()`, `portSelfAttack()`, `attackResult()`, `portOwnAction()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port, a battler's AI rebuilt by `readAiScenario()`; `parseEndings()` and `DamageOracle::replayEnding()`, a recorded ending read back and replayed, rebuilt by `readEndingScenario()` |

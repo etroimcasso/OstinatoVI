@@ -31,6 +31,7 @@
 //   - damage numerals bounce for 64 frames each; one numeral at a time lets the script carry on
 //     after two frames, and every target's numeral at once holds the script until all are gone;
 //   - a ready stance, a step back or a pose reset changes a party member's waiting pose at once;
+//   - a wait holds the script for its frames, the frame it starts counting as the first;
 //   - attack animations, battle events and monster animations show nothing here.
 //
 // Between scripts, monsters that have fallen fade out together: one frame as they were, then 32
@@ -181,6 +182,7 @@ using MonsterNameList = std::array<std::optional<MonsterId>, kMonsterNameLines>;
 struct BattlePresentationState {
     bool sceneOpen = false;    // the battle's scene is on screen
     bool sceneClosed = false;  // the battle is over and its scene has closed
+    bool sceneClosing = false; // the battle is over: the scene closes once every script has played
 
     // The scripts waiting to play, oldest first, and how far the first has got.
     std::deque<std::vector<BattleScriptCommand>> scripts;
@@ -190,6 +192,7 @@ struct BattlePresentationState {
     // The command playing now, where it takes frames.
     std::optional<MessagePlayback> message;
     int waitLeft = 0;          // frames left of a numeral command's wait
+    int pauseLeft = 0;         // frames left of a Wait command
     bool waitingForNumerals = false;  // held until every numeral has gone
     std::deque<DamageNumber> numeralsToShow;  // numerals still to start, one at a time
 

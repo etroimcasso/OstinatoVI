@@ -111,6 +111,17 @@ TEST_F(BattlePresentationTest, OpeningTheSceneShowsTheMonstersStandingAndListsTh
     EXPECT_TRUE(shown_.sceneClosed);
 }
 
+TEST_F(BattlePresentationTest, TheSceneClosesOnlyOnceEveryScriptHasPlayed) {
+    // WinBattle's ShowMsg calls wait for each script (ExecBtlGfx $04) before the battle fades out
+    // (graphics command $09 after UpdateSRAM).
+    tick({RunBattleScript{.commands = {Wait{.frames = 3}}}, CloseBattleScene{}});
+    EXPECT_FALSE(shown_.sceneClosed);
+    tick({});
+    EXPECT_FALSE(shown_.sceneClosed);
+    tick({});
+    EXPECT_TRUE(shown_.sceneClosed);
+}
+
 // --- names in the narrow window ------------------------------------------------------------------
 
 // "Fire" past the spell's symbol, each letter 0x60 below its menu byte: F i r e = 85 a2 ab 9e.

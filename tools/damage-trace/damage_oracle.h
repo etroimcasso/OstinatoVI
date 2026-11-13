@@ -39,6 +39,7 @@
 #pragma once
 
 #include <array>
+#include <bitset>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -62,7 +63,9 @@
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
 #include "game/character_record.h"
+#include "game/battle_switches.h"
 #include "ostinato/character_prop_id.h"
+#include "ostinato/monster_id.h"
 #include "ostinato/status_set.h"
 
 namespace ostinato::trace {
@@ -92,8 +95,11 @@ struct TracedRoutine {
 // as a monster is loaded, 7313, and as a scripted battle seats a party member, 7840), its turn (447,
 // called from a turn, 223, and reached from a scripted party member's gauge filling, 512, which
 // returns to 5742's caller), its counterattack (12468 and 12424), and the three commands only a
-// script queues (5049, 5071 and 5132, each returning to the command dispatch, 3111).
-inline constexpr std::array<TracedRoutine, 15> kTracedRoutines{{
+// script queues (5049, 5071 and 5132, each returning to the command dispatch, 3111). Then the steps of
+// a won battle on the party's records: the experience added (16043, called at 15390 and again for an
+// Exp. Egg at 15394), the spells equipment teaches (15623, 15401), the abilities a level teaches
+// (15958, 15753) and the rages the fallen monsters teach (12185, 12035).
+inline constexpr std::array<TracedRoutine, 19> kTracedRoutines{{
     {"CalcDmg", 0xC22B9D, 0xC2322E, 0},
     {"CalcTargetDmg", 0xC20B83, 0xC2346C, 0xC23509},
     {"ApplyAndShowDamage", 0xC262EF, 0xC23473, 0xC23528},
@@ -109,6 +115,10 @@ inline constexpr std::array<TracedRoutine, 15> kTracedRoutines{{
     {"Cmd_2e", 0xC21DFA, 0xC21401, 0},
     {"Cmd_2f", 0xC21E1A, 0xC21401, 0},
     {"Cmd_30", 0xC21E5E, 0xC21401, 0},
+    {"AddExp", 0xC26235, 0xC25E4F, 0, {0xC25E59}, true},
+    {"LearnItemMagic", 0xC25FEF, 0xC25E6A, 0, {}, true},
+    {"LearnAbilities", 0xC261B6, 0xC260BF, 0, {}, true},
+    {"LearnRage", 0xC24A07, 0xC248EE, 0, {}, true},
 }};
 
 // The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
@@ -163,12 +173,59 @@ inline constexpr std::array<TracedRange, 56> kTracedRanges{{
 // first two battle's-end cells in direct page (the rest of them, the flags the win shows its messages
 // by, the magic points and the place of the spells being learned and the level-up's gains, are the
 // script reader's cells in kTracedRanges and logged inside every call), the sixteen character records
-// (37 bytes each) and the spells each of the first twelve characters knows (54 bytes each).
-inline constexpr std::array<TracedRange, 3> kPartyRecordRanges{{
+// (37 bytes each), the spells each of the first twelve characters knows (54 bytes each), the Morph
+// supply with the SwdTechs and Blitzes known, and the rages and dances known (the lores between them
+// are in kTracedRanges).
+inline constexpr std::array<TracedRange, 5> kPartyRecordRanges{{
     {"battle's-end cells", 0x7E00EE, 2},
     {"character records", 0x7E1600, 592},
     {"spells known", 0x7E1A6E, 648},
+    {"Morph supply, SwdTechs and Blitzes", 0x7E1CF6, 51},
+    {"rages and dances known", 0x7E1D2C, 33},
 }};
+
+// The routines the trace follows whole — a battle's ending, which calls traced routines of its own —
+// logged as what their cells hold on entry and on return rather than access by access: the win
+// (15282, called at 11960), the loss (15588, called at 11921 and 12044) and the wrap-up (12062, called
+// at 11984 and 12206 and inside the win, 15296, and the loss, 15592). Each names its return sites.
+struct SnapshotRoutine {
+    const char* name;
+    std::uint32_t entry;
+    std::array<std::uint32_t, 4> returns{};
+};
+inline constexpr std::array<SnapshotRoutine, 3> kSnapshotRoutines{{
+    {"WinBattle", 0xC25D57, {0xC2488F}},
+    {"LoseBattle", 0xC25FCA, {0xC24831, 0xC248F5}},
+    {"_c24903", 0xC24903, {0xC248A4, 0xC24A28, 0xC25D74, 0xC25FD3}},
+}};
+
+// The cells an ending's snapshot holds: everything a battle's end reads or leaves — the ending's
+// flags and the random-number position, the colosseum's wager and prize, the formation, background
+// and field flags, the party (records, party bytes, gil, spells, skills, lores, rages and dances
+// known), the monsters standing, the inventory, the equipment-changed flags with the message
+// variables and the formation's bytes, each actor's battler with the records' offsets and the
+// battlers' bits, the party's hands, Doom Gaze's battler, the party members' equipment bits with the
+// battle's own cells, the Morph meter shown, each battler's HP, MP, maxima and relic effects, the
+// monsters' experience and gold, the battle switches with the battle's number, the party slots,
+// the morphed party member and the statuses, Morph's meter, and in the graphics program's half of
+// work RAM the items obtained with their two counts.
+inline constexpr std::array<TracedRange, 22> kEndingRanges{{
+    {"ending's direct page", 0x7E00B0, 16},     {"wager and prize", 0x7E0205, 3},
+    {"formation and field", 0x7E11E0, 6},       {"character records", 0x7E1600, 592},
+    {"party bytes", 0x7E1850, 16},              {"gil", 0x7E1860, 3},
+    {"spells known", 0x7E1A6E, 648},            {"skills known", 0x7E1CF6, 87},
+    {"monster indexes", 0x7E2001, 12},          {"inventory", 0x7E2686, 1280},
+    {"message variables", 0x7E2F30, 28},        {"battlers", 0x7E3000, 44},
+    {"party's hands", 0x7E32F4, 8},             {"Doom Gaze", 0x7E33FA, 1},
+    {"battle cells", 0x7E3A20, 128},            {"Morph meter shown", 0x7E3B04, 8},
+    {"stats", 0x7E3BF4, 120},                   {"monster experience and gold", 0x7E3D8C, 32},
+    {"switches to statuses", 0x7E3EB4, 88},     {"Morph's meter", 0x7E3F30, 2},
+    {"items obtained", 0x7E602D, 80},           {"items obtained counts", 0x7E64DA, 2},
+}};
+
+// ShowMsg's call of the graphics program (battle/battle_main.asm:15613), where the message it shows
+// is in its cell and the message variables are set: the trace logs each message here.
+inline constexpr std::uint32_t kShowMessageCall = 0xC25FEA;
 
 // The trace on one machine: escapes on each traced routine's entry and return sites and watches over
 // kTracedRanges and kPartyRecordRanges, the second logged only inside the calls of the routines on
@@ -183,15 +240,32 @@ inline constexpr std::array<TracedRange, 3> kPartyRecordRanges{{
 //   f<frame> w $7E:<cell> <byte>              a write it made
 //   f<frame> return <routine> $<bank>:<address>
 //
+// The abilities a level teaches are worked out for the actor and level the caller read from the
+// record just before the call (battle/battle_main.asm:15750-15752); at that routine's entry the trace
+// logs the last actor byte and level byte read from any record:
+//
+//   f<frame> abilities actor <byte> level <byte>     or "abilities --" when none has been read
+//
+// The routines of kSnapshotRoutines log every range of kEndingRanges as it stands on entry and on
+// return, and inside them, as inside any open call, each battle message as ShowMsg hands it to the
+// graphics program:
+//
+//   f<frame> snapshot <routine> enter $<bank>:<address>
+//   f<frame> snapshot LoseBattle handed <message, or -- for none>   only when its caller said
+//   f<frame> snapshot <routine> $7E:<first cell> <the range's bytes, two hex digits each>
+//   f<frame> snapshot <routine> return $<bank>:<address>
+//   f<frame> message <message> <first> <second> <third> <fourth>   the four variables, six hex digits each
+//
 // A return is logged only while a call of its routine is open, so a site the game also passes on
 // other paths — the command dispatch's, after every command — logs only the returns of the calls
 // the trace follows.
 //
-// The context is what the cells hold at the routine's entry, on a running machine as on a parked one:
-// the trace keeps the last byte the guest wrote to each of them and lays those over what the machine
-// answers. Declares on the machine when constructed: host the cartridge first, and construct it before
-// the machine runs. `access`, when given, sees every access to a watched cell whether a call is open
-// or not.
+// The context, a snapshot and a message are what the cells hold at that moment, on a running machine
+// as on a parked one: the trace keeps the last byte the guest wrote to every cell it watches and lays
+// those over what the machine answers. It watches kEndingRanges' cells too, beyond kTracedRanges and
+// kPartyRecordRanges, logging none of their accesses. Declares on the machine when constructed: host
+// the cartridge first, and construct it before the machine runs. `access`, when given, sees every
+// access to a watched cell whether a call is open or not.
 class DamageTrace {
 public:
     using Line = std::function<void(const std::string&)>;
@@ -207,13 +281,34 @@ public:
     // itself rather than through the frame.
     void returnToFrame(const TracedRoutine& routine);
 
-    // Drop the context bytes kept from the guest's writes: for a caller that writes those cells itself
+    // Close the open snapshot of `routine` at its first return site: for a caller that called it itself.
+    void returnFromSnapshot(const SnapshotRoutine& routine);
+
+    // The actor and level the next abilities line names: for a caller that hands them to the routine
+    // itself rather than reading them from a record first.
+    void readForAbilities(std::uint8_t actor, std::uint8_t level);
+
+    // The message the next loss is handed, logged at its entry: for a caller that calls the loss
+    // itself rather than from one of the cartridge's two calls of it (none for no message).
+    void handOverLossMessage(std::optional<std::uint8_t> message);
+
+    // Drop the bytes kept from the guest's writes and reads: for a caller that writes cells itself
     // through the machine's own write verb, which the watches do not see, on a parked machine.
     void forgetContextWrites();
+
+    // A byte a caller wrote through the machine's own write verb on a running machine, which the
+    // watches do not see: kept as the guest's own writes are, so a later read shows it.
+    void noteWrite(std::uint32_t at, std::uint8_t value);
+
+    // Every range of work RAM the trace watches, in address order: kTracedRanges,
+    // kPartyRecordRanges and the parts of kEndingRanges neither covers. Another watch on the same
+    // machine stays clear of them, and hears of their accesses through `access`.
+    [[nodiscard]] static std::vector<std::pair<std::uint32_t, std::uint32_t>> watchedRanges();
 
 private:
     struct Places;
     std::unique_ptr<Places> places_;
+    retropp::Vm* vm_ = nullptr;
     Line line_;
     Frame frame_;
     int open_ = 0;
@@ -221,13 +316,25 @@ private:
     // a routine it serves only while one of its calls is open.
     std::map<std::string, int, std::less<>> openCalls_;
     bool partyRecordsOpen_ = false;
+    int openSnapshots_ = 0;
+    std::map<std::string, int, std::less<>> openSnapshotCalls_;
+    std::optional<std::optional<std::uint8_t>> lossMessage_;
+
+    void logSnapshot(retropp::Vm& vm, const std::string& routine, const char* how, std::uint32_t at);
+};
+
+// A battle message as the trace logged it: the message, and its four variables' twelve bytes.
+struct LoggedMessage {
+    std::uint8_t message = 0;
+    std::array<std::uint8_t, 12> variables{};
 };
 
 // One routine call as the trace logged it: the routine, the frame it ran on and the address it
 // returned to; each cell's value when the routine first read it, for every cell it read before it
 // wrote it; each cell's last value written; the attack's context at its entry; the attacker of the
-// last attacker effect before it; and, for an attack's special effect on one target, the target, where
-// the trace shows it.
+// last attacker effect before it; for an attack's special effect on one target, the target, where
+// the trace shows it; the actor and level the abilities a level teaches were worked out for; and each
+// battle message shown inside it, in order.
 struct TracedCall {
     std::string routine;
     std::uint64_t frame = 0;
@@ -241,7 +348,28 @@ struct TracedCall {
     // The attacker of the params block at the entry of the last attacker effect before this call.
     std::optional<std::uint8_t> attackerEffectMaker;
     std::optional<battle::BattlerSlot> target;
+    std::optional<std::uint8_t> abilitiesActor;
+    std::optional<std::uint8_t> abilitiesLevel;
+    std::vector<LoggedMessage> messages;
 };
+
+// One ending as the trace logged it: the routine, the frame it began on and the address it returned
+// to, the message a loss was handed where its caller said, every cell of kEndingRanges as it stood on
+// entry and as it was left, and each battle message shown between, in order.
+struct TracedEnding {
+    std::string routine;
+    std::uint64_t frame = 0;
+    std::uint32_t returnedTo = 0;
+    std::optional<std::optional<std::uint8_t>> handedMessage;
+    std::map<std::uint32_t, std::uint8_t> entry;
+    std::map<std::uint32_t, std::uint8_t> left;
+    std::vector<LoggedMessage> messages;
+};
+
+// Every ending in a trace that returned, in the order they returned — an ending inside another (the
+// wrap-up inside the win) before the one around it. Throws std::runtime_error naming the line for a
+// snapshot or message line that is not well formed.
+[[nodiscard]] std::vector<TracedEnding> parseEndings(std::istream& log);
 
 // Every call in a trace, in order. A call that never returns to one of its routine's return sites —
 // one none of the callers kTracedRoutines names made — is left out, and a return with no call open
@@ -554,6 +682,206 @@ struct SpellLearningResult {
 
 [[nodiscard]] std::string differences(const SpellLearningResult& port, const SpellLearningResult& guest);
 
+// --- what a won battle gives ---------------------------------------------------------------------
+
+// One call the battle program made to the graphics program (ExecBtlGfx, $C2:6411), as the call
+// found the cells the graphics program reads: the command, the party slot it is for ($7E:0010), the
+// first five bytes of the battle script ($7E:2D6E — a message is script command 2, the message, and
+// the script's end in the fifth), the item record an obtained item is handed over in ($7E:2E72) and
+// the four message variables, three bytes each ($7E:2F35).
+struct GraphicsCall {
+    std::uint8_t command = 0;
+    std::uint8_t slot = 0;
+    std::array<std::uint8_t, 5> script{};
+    std::array<std::uint8_t, 5> item{};
+    std::array<std::uint8_t, 12> messageVariables{};
+};
+
+// The graphics command that plays the battle script, and the script command that shows a message.
+inline constexpr std::uint8_t kPlayBattleScript = 0x04;
+inline constexpr std::uint8_t kShowMessageScriptCommand = 0x02;
+
+// A battle message as the player reads it: the message, and the numbers its text shows — its first
+// from the first variable and its second from the second, each only where the text reads it, and
+// as much of it as the text reads (a name or an item from the low byte, an amount from all three).
+struct MessageShown {
+    std::uint8_t message = 0;
+    std::optional<std::uint32_t> first;
+    std::optional<std::uint32_t> second;
+    friend bool operator==(const MessageShown&, const MessageShown&) = default;
+};
+
+// The message `call` shows, read as its text reads its variables; nothing for a call that is not a
+// message. Throws std::logic_error for a message whose variables this table does not name.
+[[nodiscard]] std::optional<MessageShown> messageShown(const GraphicsCall& call);
+
+// The message the trace logged, read the same way. Throws std::logic_error as messageShown() does.
+[[nodiscard]] MessageShown messageShownBy(const LoggedMessage& logged);
+
+// The party as the cartridge keeps it in its cells: game::Party, and the bits of those cells the
+// port keeps no field for — each record's two-bit HP and MP boosts (the top of its maximum HP and MP
+// words).
+struct PartyCells {
+    game::Party party;
+    std::array<std::uint8_t, game::kCharacterRecords> hpBoostBits{};
+    std::array<std::uint8_t, game::kCharacterRecords> mpBoostBits{};
+};
+
+// The win's flags, as the cells the win keeps them in: the curse dispelled, magic points earned, a
+// Cat Hood counted, a technique and a blitz told of, and whether the party has magicite (battle
+// switch 67, which the win copies before the first party member).
+struct WinFlags {
+    bool curseDispelled = false;
+    bool magicPointsEarned = false;
+    bool catHoodCounted = false;
+    bool techniqueMessageShown = false;
+    bool blitzMessageShown = false;
+    bool partyHasMagicite = false;
+    friend bool operator==(const WinFlags&, const WinFlags&) = default;
+};
+
+// One step of a win's rewards as the cartridge's routine for it reads them: the party and the battle
+// switches; the record whose turn it is and the party slot it sits in (what "gained a level" names);
+// the battle's magic points and the win's flags; the experience share; whether "gained a level" is
+// still to be told for this member; the actor and level an ability check is made for; and the
+// monster in each of the six monster slots, none for an empty one.
+struct RewardScenario {
+    PartyCells cells;
+    game::BattleSwitches switches;
+    std::size_t recordIndex = 0;
+    std::uint8_t partySlot = 0;
+    std::uint8_t magicPoints = 0;
+    WinFlags flags;
+    std::uint32_t share = 0;
+    bool levelMessageToTell = true;
+    CharacterPropId actor = CharacterPropId::TERRA;
+    std::uint8_t level = 1;
+    std::array<std::optional<MonsterId>, battle::kMonsterSlots> monsters{};
+};
+
+// What a step leaves, as the same fields on both sides: the party and switches read back, the win's
+// flags, whether "gained a level" is still to be told, and the messages shown in order — with every
+// other graphics call the cartridge made, which the port never makes.
+struct RewardResult {
+    PartyCells cells;
+    game::BattleSwitches switches;
+    WinFlags flags;
+    bool levelMessageToTell = false;
+    std::vector<MessageShown> messages;
+    std::vector<GraphicsCall> otherGraphicsCalls;
+};
+
+// The port's side of each step over the same scenario: the share added to the record's experience
+// (battle::addExperience); the spells the record's equipment teaches (battle::learnFromEquipment); the
+// levels the record reaches, each with the abilities it teaches and the messages the win shows for
+// them (battle::reachEarnedLevels); the abilities of the scenario's actor at the scenario's level, with
+// their messages (battle::learnLevelAbilities); and the rages of the six monster slots
+// (battle::learnRages).
+[[nodiscard]] RewardResult portAddExperience(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnFromEquipment(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLevelUps(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnAbilities(const RewardScenario& scenario);
+[[nodiscard]] RewardResult portLearnRages(const RewardScenario& scenario);
+
+// Every field where the two parted, one per line; empty when they agree. The party is compared cell
+// by cell as the cartridge holds it, each cell named.
+[[nodiscard]] std::string differences(const RewardResult& port, const RewardResult& guest);
+
+// --- a battle's end ------------------------------------------------------------------------------
+
+// A battle at its end as an ending reads it: the party (its game::Party is the battle's party) and
+// the battle.
+struct EndingScenario {
+    PartyCells cells;
+    battle::BattleState state;
+};
+
+// Something an ending shows, as both sides are compared: a party member's battle menu closing, a
+// wait of so many frames, an item a party member put away, a battle message, the acting battler
+// stepping back, or the party celebrating a win. On the cartridge a wait is that many calls to wait
+// for a frame, a merge of the items obtained shows nothing, an item added and merged at once (a drop,
+// the colosseum's prize) shows only its message, and the celebration is one call — read with whether
+// the fanfare plays and whether battle event 1 does, as the graphics program's command decides them
+// from the formation's flags and the field's music. The port's celebration is every menu closing,
+// then the fanfare and the event as it asks for them.
+struct EndingCall {
+    enum class Kind : std::uint8_t { CloseMenu, Wait, ItemObtained, Message, StepBack, Celebration, Other };
+    Kind kind = Kind::Other;
+    std::uint8_t slot = 0;       // CloseMenu: the party slot
+    int frames = 0;              // Wait
+    ItemId item = ItemId::EMPTY; // ItemObtained
+    MessageShown message;        // Message
+    bool fanfare = false;        // Celebration: the fanfare starts
+    bool victoryEvent = false;   // Celebration: battle event 1 plays
+    std::uint8_t command = 0;    // Other: the graphics command, or 0 for a request of the port's own
+    friend bool operator==(const EndingCall&, const EndingCall&) = default;
+};
+
+// What an ending leaves, as the same fields on both sides: the party read back, the battle switches,
+// the inventory, the items obtained with both counts, what each party member holds in hand and who
+// is marked as holding something, the Morph meter shown per party slot, whether battle menus may
+// open, the random-number position, and the calls in order.
+struct EndingResult {
+    PartyCells cells;
+    game::BattleSwitches switches;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+    battle::ItemsObtained itemsObtained;
+    std::array<std::optional<ItemId>, battle::kPartySlots> hands{};
+    std::uint8_t holdingItem = 0;
+    std::array<std::uint8_t, battle::kPartySlots> morphGauges{};
+    bool menusDisabled = false;
+    std::uint8_t rngPosition = 0;
+    std::vector<EndingCall> calls;
+};
+
+// The port's side of each ending over the scenario: the wrap-up (battle::wrapUpBattle), the win
+// (battle::playBattleEnd with BattleWon), and the loss with `message` (BattleLost, then the switches
+// as battle::writeBack() hands them back).
+[[nodiscard]] EndingResult portWrapUp(const EndingScenario& scenario);
+[[nodiscard]] EndingResult portWin(const EndingScenario& scenario);
+[[nodiscard]] EndingResult portLoss(const EndingScenario& scenario, std::optional<std::uint8_t> message);
+
+// What the game keeps from a battle, as the cartridge writes it to the party's cells: the party
+// (each record's statuses, HP and MP, and who is in the party), the inventory, the battle switches,
+// and the battles Gau can find on the Veldt (a bit per battle below 512).
+struct WriteBackResult {
+    PartyCells cells;
+    std::array<game::InventorySlot, game::kInventorySlots> inventory{};
+    game::BattleSwitches switches;
+    std::bitset<512> veldtBattles;
+};
+
+// The port's side: battle::writeBack() over the scenario, the Veldt's battles being the scenario's
+// with the result's veldtFormation added.
+[[nodiscard]] WriteBackResult portWriteBack(const EndingScenario& scenario);
+[[nodiscard]] std::string differences(const WriteBackResult& port, const WriteBackResult& guest);
+
+// Every field where the two parted, one per line; empty when they agree. An inventory slot or a place
+// of the list whose item is empty on both sides agrees whatever else it holds.
+[[nodiscard]] std::string differences(const EndingResult& port, const EndingResult& guest);
+
+// The items obtained and the inventory, as the graphics program's two commands for them read them:
+// the list with both counts, the inventory, and the item a command adds and how many — handed over as
+// the battle works its record out (battle::battleItem) with no one in the party.
+struct ItemsObtainedScenario {
+    battle::ItemsObtained list;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+    ItemId item = ItemId::EMPTY;
+    std::uint8_t quantity = 0;
+};
+
+struct ItemsObtainedResult {
+    battle::ItemsObtained list;
+    std::array<battle::BattleItem, game::kInventorySlots> inventory{};
+};
+
+// The port's side: the scenario's item put in the list as battle::obtainItem() puts it, and the list
+// merged (battle::mergeItemsObtained).
+[[nodiscard]] ItemsObtainedResult portAddItemObtained(const ItemsObtainedScenario& scenario);
+[[nodiscard]] ItemsObtainedResult portMergeItemsObtained(const ItemsObtainedScenario& scenario);
+
+[[nodiscard]] std::string differences(const ItemsObtainedResult& port, const ItemsObtainedResult& guest);
+
 // --- a monster's AI --------------------------------------------------------------------------------
 
 // One battle as a monster's AI script reads it: the state, the battler whose script it is, and what
@@ -672,10 +1000,6 @@ struct AiCommandResult {
     std::optional<battle::EndOfBattleEvent> endOfBattleEvent;
     bool gauRecruited = false;
     std::array<game::PartyMembership, game::kCharacterRecords> membership{};
-    // Each record's enabled and shown bits, which the port does not keep: the commands' scenario
-    // writes them in a fixed pattern, and recruiting Gau sets the enabled bit of the record it
-    // recruits.
-    std::array<std::uint8_t, game::kCharacterRecords> recordFlags{};
     std::uint8_t rngPosition = 0;
     // The cells of the battle an attack leaves and the script, as AttackResult names them: unchanged
     // on both sides for a command that makes no attack, and what SetStatus's and ClearStatus's
@@ -709,8 +1033,20 @@ struct CellsLeftAsTheMachineHasThem {
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 8> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 12> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
+    {.at = 0x7E01EE, .count = 8,
+     .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
+            "the command's rtl"},
+    {.at = 0x7E00F9,
+     .why = "the byte above the experience a level needs, rotated with it by a 16-bit rol and never compared; the "
+            "win zeroes it before it counts a drop there"},
+    {.at = 0x7E2F41,
+     .why = "the byte after the win's gold total, which the total's 16-bit increment of its third byte reads and puts "
+            "back; six monsters' gold never carries out of the third byte"},
+    {.at = 0x7E2E74,
+     .why = "an empty item's targeting, which the item record leaves as it was and the list copies; a place whose "
+            "item is empty is never read past its item"},
     {.at = 0x7E00EB,
      .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
     {.at = 0x7E00F3,
@@ -819,14 +1155,72 @@ public:
 
     // The spells the scenario record's esper teaches learned further (LearnGenjuMagic), called as a
     // won battle's end calls it for a party member with an esper: the record written at its place
-    // among the sixteen, the character's spells known at theirs, the battle's magic points, and Morph
-    // available so that a spell stored shows in the win's flags. The record must have an esper.
+    // among the sixteen, the character's spells known at theirs, the battle's magic points, and the
+    // party holding magicite so that a spell stored shows in the win's flags. The record must have an
+    // esper.
     [[nodiscard]] SpellLearningResult learnFromEsper(const RecordScenario& scenario);
 
     // One level-up of the scenario's record (DoLevelUp), called as a won battle's end calls it: the
     // record written at its place with the boosts in the top of its maximum HP and MP words. The
     // record's level must be below 99.
     [[nodiscard]] LevelUpResult levelUp(const RecordScenario& scenario);
+
+    // The steps of a win's rewards, each called as the win calls it, the party written into its cells
+    // (writeParty()), the switches, the win's flags, the magic points, the scenario record's actor's
+    // spells as the ones being learned and the message variables as the win leaves them:
+    //
+    // The share added to the scenario record's experience (AddExp): the record in X, the accumulator
+    // narrow and the index registers wide.
+    [[nodiscard]] RewardResult addExperience(const RewardScenario& scenario);
+
+    // The spells the scenario record's equipment teaches (LearnItemMagic), the same way. The record's
+    // actor must be one of the first twelve characters.
+    [[nodiscard]] RewardResult learnFromEquipment(const RewardScenario& scenario);
+
+    // The levels the scenario record reaches (CheckLevelUp), the same way, with "gained a level" still
+    // to be told or not and the scenario's party slot in the second message variable.
+    [[nodiscard]] RewardResult levelUps(const RewardScenario& scenario);
+
+    // The abilities of the scenario's actor at the scenario's level (LearnAbilities): the actor in the
+    // accumulator's low byte and the level in its high byte.
+    [[nodiscard]] RewardResult learnAbilities(const RewardScenario& scenario);
+
+    // The rages of the six monster slots (LearnRage), both register widths narrow.
+    [[nodiscard]] RewardResult learnRages(const RewardScenario& scenario);
+
+    // Every call the last of those made to the graphics program, in order. While one of them runs, a
+    // call to the graphics program is answered here: the commands that wait on the screen or the sound
+    // return at once, and the two that keep the items obtained ($05, which adds one to the list, and
+    // $0A, which merges the list into the inventory) run as the cartridge holds them, each found
+    // through the cartridge's own table of the commands.
+    [[nodiscard]] const std::vector<GraphicsCall>& graphicsCalls() const { return graphicsCalls_; }
+
+    // One call to the graphics program as the battle program makes it (ExecBtlGfx), the command in the
+    // accumulator, from the cells as they stand, answered as above. Returns the calls it made.
+    const std::vector<GraphicsCall>& graphicsCommand(std::uint8_t command);
+
+    // The battle's end as every ending but two begins it (_c24903), from the scenario's cells, both
+    // register widths narrow, with the graphics program answered as above.
+    [[nodiscard]] EndingResult wrapUp(const EndingScenario& scenario);
+
+    // The win, whole (WinBattle), the same way, the accumulator narrow.
+    [[nodiscard]] EndingResult win(const EndingScenario& scenario);
+
+    // The loss (LoseBattle), the message in the accumulator — $FF for none.
+    [[nodiscard]] EndingResult loss(const EndingScenario& scenario, std::optional<std::uint8_t> message);
+
+    // What the game keeps from the battle (UpdateSRAM), from the scenario's cells, both register widths
+    // narrow.
+    [[nodiscard]] WriteBackResult writeBack(const EndingScenario& scenario);
+
+    // The scenario's item added to the list (graphics command $05), and the list merged into the
+    // inventory ($0A), each through the battle program's call to the graphics program.
+    [[nodiscard]] ItemsObtainedResult addItemObtained(const ItemsObtainedScenario& scenario);
+    [[nodiscard]] ItemsObtainedResult mergeItemsObtained(const ItemsObtainedScenario& scenario);
+
+    // The cartridge's title program laid over work RAM as a console just switched on lays it
+    // (DecompCutsceneProg), and the last three places of the items obtained read back.
+    [[nodiscard]] battle::ItemsObtainedTail itemsObtainedTailAtPowerOn();
 
     // The battlers `target` names for the scenario's actor (CheckAITarget), with or without the cut
     // to the battlers an attack can reach, called as a script's target step and its conditions call
@@ -912,7 +1306,25 @@ public:
     // script's step can hold whose bytes are the ones the call read, and the battler is each one the
     // cartridge's own command, given the same reads, makes the same writes for. SetStatus and
     // ClearStatus make an attack, which the trace follows through the attack's own calls.
+    //
+    // A step of a won battle rebuilds as its RewardScenario the same way: the record is the one whose
+    // cells the call touched, the spells the ones the call's spell-list place names, the abilities
+    // the actor and level logged at its entry, the rages the monsters it read. The messages the call
+    // showed are compared with the port's.
     [[nodiscard]] std::string replay(const TracedCall& call);
+
+    // Replay one ending the trace logged against the port: the cells it found are written, read back
+    // as an EndingScenario and played out by the port's ending of the same name (a loss handed the
+    // message logged where its caller said, otherwise the one its caller hands: Banon fell from his
+    // own ending, "Annihilated" from the end check, or none in the colosseum); what the port leaves is compared
+    // with the cells the ending left, and the messages it shows with the ones the ending showed, in
+    // order. Returns every difference, one per line; empty when they agree. Throws
+    // std::runtime_error for an ending it cannot rebuild — one with an equipment change pending —
+    // naming why.
+    [[nodiscard]] std::string replayEnding(const TracedEnding& ending);
+
+    // The battle at its end as the cells now hold it, read the way writeEndingScenario() writes one.
+    [[nodiscard]] EndingScenario readEndingScenario();
 
     // Log every call the oracle's routines make to the traced routines in the trace's own lines; a
     // call the oracle makes itself is closed as the attack frame's.
@@ -974,6 +1386,23 @@ private:
     [[nodiscard]] LevelUpResult readLevelUpResult(std::size_t recordIndex);
     [[nodiscard]] SpellLearningResult readSpellLearningResult(CharacterPropId actor);
     [[nodiscard]] std::string replayRecordCall(const TracedCall& call, const TracedRoutine& routine);
+    void writeParty(const PartyCells& cells);
+    [[nodiscard]] PartyCells readParty();
+    void writeRewardScenario(const RewardScenario& scenario);
+    [[nodiscard]] RewardResult readRewardResult();
+    [[nodiscard]] RewardResult callReward(const std::function<void()>& routine);
+    [[nodiscard]] RewardScenario readRewardScenario();
+    [[nodiscard]] std::string replayRewardCall(const TracedCall& call, const TracedRoutine& routine);
+    void answerGraphics(const GraphicsCall& call);
+    void writeItemsObtained(const battle::ItemsObtained& list);
+    [[nodiscard]] battle::ItemsObtained readItemsObtained();
+    void writeInventory(const std::array<battle::BattleItem, game::kInventorySlots>& inventory);
+    [[nodiscard]] std::array<battle::BattleItem, game::kInventorySlots> readInventory();
+    [[nodiscard]] ItemsObtainedResult callItemsObtained(const ItemsObtainedScenario& scenario, std::uint8_t command);
+    void writeEndingScenario(const EndingScenario& scenario);
+    [[nodiscard]] EndingResult readEndingResult();
+    [[nodiscard]] EndingResult callEnding(const EndingScenario& scenario, const SnapshotRoutine& snapshot,
+                                          const std::function<void()>& routine);
     void writeAiCells(const AiScenario& scenario);
     void writeAiScriptCells(const battle::BattleState& state);
     void writeAiRunCells(const AiScenario& scenario, bool counter);
@@ -1033,6 +1462,25 @@ private:
     std::array<retropp::Routine<Call>, 4> ownActions_;
     retropp::Routine<Call> execSelfAttack_;
     retropp::Routine<Call> execAttack_;
+    // A win's rewards, and the two graphics commands that keep the items obtained.
+    retropp::Routine<Call> addExp_;
+    retropp::Routine<Call> learnItemMagic_;
+    retropp::Routine<Call> checkLevelUp_;
+    using AbilitiesCall = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);
+    retropp::Routine<AbilitiesCall> learnAbilities_;
+    retropp::Routine<Call> learnRage_;
+    retropp::Routine<AbilitiesCall> execBtlGfx_;
+    retropp::Routine<Call> addItemObtained_;
+    retropp::Routine<Call> mergeItemsObtained_;
+    // The battle's end, and the title program's laying out.
+    retropp::Routine<Call> wrapUp_;
+    retropp::Routine<Call> winBattle_;
+    retropp::Routine<AbilitiesCall> loseBattle_;
+    retropp::Routine<Call> updateSram_;
+    retropp::Routine<Call> decompCutsceneProg_;
+    std::vector<GraphicsCall> graphicsCalls_;
+    // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
+    std::optional<std::uint8_t> unansweredGraphics_;
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
     // guest during it), and the cells the guest read during the last call before any was written.
     std::set<std::uint32_t> gateWritten_;
@@ -1148,6 +1596,51 @@ struct TargetScenario {
 
 // One line naming a drawn record scenario's inputs, for a report.
 [[nodiscard]] std::string describe(const RecordScenario& scenario);
+
+// The scenarios the reward sweeps draw, from the same seed. Each draws the whole party: the sixteen
+// records with their two boosts, every character's spells (a percentage below 100, just learned or
+// learned), the SwdTechs, Blitzes, lores, dances and rages known, the gil and the Morph supply; the
+// battle switches; a record and the party slot it sits in; the battle's magic points; and every one
+// of the win's flags. Then:
+//
+// - drawExperienceScenario: the record's experience anywhere to 15,000,000, often within a share of
+//   the cap, and a share anywhere to 16,777,215, often small.
+// - drawEquipmentScenario: one of the first twelve characters, each of the six slots empty or any
+//   item, the Cursed Shield often, the shield's count often at 254 or 255, any magic points.
+// - drawLevelScenario: any of the sixteen actors at a level from 1 to 99, its experience from just
+//   under its next level to several levels past it, an esper or none, "gained a level" still to be
+//   told or not.
+// - drawRageScenario: each of the six monster slots empty, a monster numbered below 256 or one above.
+[[nodiscard]] RewardScenario drawExperienceScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawEquipmentScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawLevelScenario(std::mt19937& rng);
+[[nodiscard]] RewardScenario drawRageScenario(std::mt19937& rng);
+
+// One case of the ability walk, which takes every actor 0-15 at every level 1-99 over three spell
+// lists: `actor` at `level` with every spell below 100 % (`mix` 0), just learned (1) or learned (2),
+// and the rest of the party, the SwdTechs and Blitzes known and the win's flags drawn from `rng`.
+[[nodiscard]] RewardScenario abilityCase(CharacterPropId actor, std::uint8_t level, int mix, std::mt19937& rng);
+
+// One line naming a drawn reward scenario's inputs, for a report.
+[[nodiscard]] std::string describe(const RewardScenario& scenario);
+
+// A battle at its end, for the wrap-up: up to four party members, each holding an item in hand or
+// not and marked as holding one or not, someone morphed or not; an inventory with room, with items
+// the hands hold near 99, or full; and the items obtained empty, part-full or near the end of their
+// sixteen places, with both counts drawn so a merge often runs past place 12 into the last three.
+[[nodiscard]] EndingScenario drawEndingScenario(std::mt19937& rng);
+
+// A battle won or lost, for the win, the loss and the write-back: one to four party members with a mix
+// of actors (Terra, Mog, Gau, Gogo, Umaro and the guests often), alive or fallen, Cat Hoods and Exp.
+// Eggs, espers, experience near the next levels; one to six monsters fallen, fled or standing; on the
+// Veldt or not; the colosseum now and then; lores learned; every background; the fanfare on and off;
+// the wrap-up's own draws besides.
+[[nodiscard]] EndingScenario drawWinScenario(std::mt19937& rng);
+[[nodiscard]] std::string describe(const EndingScenario& scenario);
+
+// The list and the inventory for the graphics program's two commands, drawn the same way, with an
+// item and a quantity to add.
+[[nodiscard]] ItemsObtainedScenario drawItemsObtainedScenario(std::mt19937& rng);
 
 // A battle a script's targets are found in, the target asked for and whether the sides are cut to
 // the reachable.

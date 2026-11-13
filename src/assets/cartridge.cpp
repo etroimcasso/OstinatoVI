@@ -276,6 +276,7 @@ IngestedContent ingestCartridge(std::span<const std::uint8_t> rawImage) {
         .smallFont = artBytes(RomAsset::SMALL_FONT, "small font"),
         .smallFontColors = artBytes(RomAsset::BATTLE_FONT_PAL, "battle font palettes"),
         .statusArt = artBytes(RomAsset::STATUS, "status art"),
+        .titleProgram = artBytes(RomAsset::CUTSCENE, "title program"),
         .monsterDeathColors = monsterDeathColors,
         .routines = std::move(routines),
     };

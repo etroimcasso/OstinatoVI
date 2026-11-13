@@ -251,10 +251,12 @@ equally likely.
 ## Items obtained
 
 After every action, each party member marked in `state.holdingItem` with an item still in
-`Battler::itemInHand` puts it into the party's inventory — an `AddItemObtained` request, last party
-member first — and its hand is emptied (`putAwayItemsObtained()`). Item marks the user, so a rod or
-shield whose spell was cast without using it up goes back. Anything that puts an item in a party
-member's hand and marks it in `state.holdingItem` hands it over the same way.
+`Battler::itemInHand` puts one of it with the items obtained (`obtainItem()`,
+[rewards.md](rewards.md#items-obtained)) — with an `AddItemObtained` request, last party member first —
+and its hand is emptied (`putAwayItemsObtained()`). It reaches the inventory when the items obtained are
+merged: when a battle menu opens, or at the battle's end. Item marks the user, so a rod or shield whose
+spell was cast without using it up goes back. Anything that puts an item in a party member's hand and
+marks it in `state.holdingItem` hands it over the same way.
 
 ## The command menu
 

@@ -182,7 +182,7 @@ battle::changeBattleSwitch(state, monster,
 | `MakeInvincible`, `EndInvincible` | the target joins or leaves `BattleState::invincible` |
 | `MakeUntargetable`, `MakeTargetable` | the target's monsters join or leave `BattleState::aiUntargetable` |
 | `EndBattle`, `EndBattleLearningRages` | `BattleState::endOfBattleEvent` becomes `EndNow` or `RagesLearned` |
-| `RecruitGau` | Gau is recruited (`gauRecruited`), and the battler's character record joins the party being played at the battler's slot, its row kept |
+| `RecruitGau` | Gau is recruited (`gauRecruited`), and the battler's character record joins the party being played at the battler's slot, enabled, its row and its visibility kept |
 | `FillGauge` | if the target names anyone, the battler's own gauge fills at the next time update |
 | `SetStatus`, `ClearStatus` | an attack by the battler on itself that puts the status on or takes it off, showing nothing |
 | `HideSelf` | Hide goes straight onto the battler's statuses |

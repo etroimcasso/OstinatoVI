@@ -790,3 +790,107 @@ pin it, against the cartridge's routine as well.
 **If you want to change it.** Clearing `Battler::turnResume`, `counterResume`,
 `counterScript`, `aiVariable` and `turnTimer` when a monster is loaded starts
 each new monster's script afresh.
+
+---
+
+## Thirteen items obtained bring three more that were never obtained
+
+**What happens.** A battle's start empties the first 13 of the 16 places for items the party comes
+away with. The last three keep whatever was in them. When a thirteenth item is obtained in one battle,
+whatever those three places hold follows it into the inventory. On a console just switched on they hold
+part of the opening's Magitek armor animation, which reads as 108 Thief Knives, 112 Silk Robes and 136
+Excaliburs; an item the party does not already hold arrives in that number, past the usual 99. The
+fourteenth, fifteenth and sixteenth items obtained in that battle then wait in those places and stay out
+of the inventory until a twenty-ninth is obtained, or until a later battle's thirteenth.
+
+**Where the original does it.** The graphics program's start writes `$FF` over the list's first 64
+bytes, where 80 are the list (`btlgfx/btlgfx_main.asm:2475-2480`, marked "should be #$0050" in the
+disassembly), and zeroes the two counts (`:43456-43460`). The merge (`_c14445`, `:9448-9494`) runs on
+until it meets an empty place. The title and cutscene program, laid over `$7E:5000` at every power-on
+(`cutscene/cutscene_main.asm:81-122`), leaves `cutscene/opening.asm:1309-1314` in those places.
+
+**Where the port keeps it.** `itemsObtainedAtBattleStart()` in `src/battle/items_obtained.cpp` empties
+places 0-12 and lays `BattleStart::itemsObtainedTail` into places 13-15; `writeBack()` hands them back
+on `BattleResult::itemsObtainedTail`. `itemsObtainedTailAtPowerOn()` reads the power-on bytes out of
+the cartridge's own title program. `tests/test_items_obtained.cpp`
+(`ItemsObtained.TheThirteenthItemBringsTheLastThreePlacesIntoTheInventory`,
+`ItemsObtained.TheFourteenthToSixteenthWaitUntilTheTwentyNinth`) and `tests/test_battle_end_oracle.cpp`
+(`BattleEndOracleTest.TheLastThreePlacesAtPowerOnAreThreeItemsInNumbersPastTheMost`) pin it, against the
+cartridge as well.
+
+**If you want to change it.** Emptying all sixteen places in `itemsObtainedAtBattleStart()` ends both.
+
+---
+
+## A full inventory holds back every item obtained after the one that would not fit
+
+**What happens.** With no empty inventory slot, an obtained item the party does not already hold stays
+where it is, and every item obtained after it waits behind it, even ones the party holds.
+
+**Where the original does it.** `_c14445` (`btlgfx/btlgfx_main.asm:9448-9494`) returns at a full
+inventory (`bcs @44a1`, `:9469-9470`) without moving its count, so every later merge starts at the same
+place.
+
+**Where the port keeps it.** `mergeItemsObtained()` in `src/battle/items_obtained.cpp`.
+`tests/test_items_obtained.cpp` (`ItemsObtained.AFullInventoryStopsTheMergeAndEverythingBehindItWaits`) and
+`tests/test_battle_end_oracle.cpp` (`BattleEndOracleTest.TheListByHand`) pin it, against the cartridge as
+well.
+
+**If you want to change it.** Passing over a place that does not fit, instead of returning, lets the
+items behind it in.
+
+---
+
+## A Leap loses the items still on their way to the inventory
+
+**What happens.** When Gau leaps, or a battle ends by teaching its rages, the Morph supply is not saved,
+items still in a party member's hand are not put away and obtained items not yet in the inventory are
+lost.
+
+**Where the original does it.** `BattleEnd_02` and `BattleEnd_05` (`battle/battle_main.asm:12023-12036`)
+learn the rages and go straight to `UpdateSRAM` (`:11961`); every other ending runs `_c24903`
+(`:12062-12086`) first.
+
+**Where the port keeps it.** `playBattleEnd()` in `src/battle/battle_end.cpp` runs no wrap-up for
+`BattleEndReason::GauLeapt` and `RagesLearned`. `tests/test_battle_end.cpp`
+(`BattleEnd.ALeapAndTheRagesLearnedRunNoWrapUp`) pins it.
+
+**If you want to change it.** Calling `wrapUpBattle()` before the rages in those two cases saves the
+supply and puts the items away.
+
+---
+
+## Two SwdTechs learned in one win are told of once
+
+**What happens.** Cyan learning two SwdTechs, or Sabin two Blitzes, in one win is told of once: both are
+learned, and "Mastered a new technique!" or "Devised a new Blitz!" shows for the first only.
+
+**Where the original does it.** `LearnAbilities` (`battle/battle_main.asm:15967-15992`) shows its message
+only when its flag in `$f0` was not yet set (`tsb $f0; bne`), and the win sets `$f0` to 0 only once
+(`:15320`).
+
+**Where the port keeps it.** `levelEachMember()` in `src/battle/battle_end.cpp` keeps one flag for the
+technique message and one for the Blitz message per win. `tests/test_rewards_oracle.cpp`
+(`RewardsOracleTest.TwoTechniquesInOneWinAreToldOfOnce`) pins it against the cartridge.
+
+**If you want to change it.** Telling of every `AbilitiesLearned::swdtech` and `blitz` returned tells of
+each.
+
+---
+
+## A wager held in two slots is taken from one of them
+
+**What happens.** A colosseum match takes one of the wagered item from each inventory slot holding it,
+last slot first — until one slot runs out. From then on the search looks for empty slots instead, so a
+slot before it holding the same item keeps all of its count. Only an inventory holding one item in two
+slots shows it.
+
+**Where the original does it.** `UpdateSRAM` (`battle/battle_main.asm:12135-12150`) compares each slot
+with the accumulator, and empties a slot that runs out with `lda #$ff`, which replaces the wager in the
+accumulator.
+
+**Where the port keeps it.** `writeBack()` in `src/battle/battle_start.cpp`. `tests/test_battle_end.cpp`
+(`WriteBack.AWagerHeldInTwoSlotsIsTakenFromTheLastUntilItRunsOut`) and `tests/test_battle_end_oracle.cpp`
+(`BattleEndOracleTest.WriteBackSweep`) pin it, against the cartridge as well.
+
+**If you want to change it.** Keeping the wager as the item looked for takes one from every slot holding it.

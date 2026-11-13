@@ -100,6 +100,11 @@ struct IngestedContent {
     // the decompressor (data/damage_numerals.h). RomAsset::STATUS.
     std::span<const std::uint8_t> statusArt;
 
+    // The title and cutscene program, compressed: decoded through the decompressor, it holds what a
+    // console just switched on leaves in the battle's last three items-obtained places
+    // (itemsObtainedTailAtPowerOn() in battle/items_obtained.h). RomAsset::CUTSCENE.
+    std::span<const std::uint8_t> titleProgram;
+
     // The sixteen colors a dying monster fades out in. RomAsset::MONSTER_DEATH_PAL; empty on a
     // cartridge where it has no known place (the Japanese one).
     std::span<const std::uint8_t> monsterDeathColors;

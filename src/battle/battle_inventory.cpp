@@ -1,6 +1,7 @@
 #include "battle/battle_inventory.h"
 
 #include "battle/battle_state.h"
+#include "battle/items_obtained.h"
 #include "data/battle_tables.h"
 #include "data/item_properties.h"
 
@@ -96,6 +97,7 @@ void putAwayItemsObtained(BattleState& state) {
             continue;
         }
         state.requests.push_back(AddItemObtained{.character = slot, .item = *battler.itemInHand});
+        obtainItem(state, *battler.itemInHand, 1);
         battler.itemInHand.reset();
     }
 }

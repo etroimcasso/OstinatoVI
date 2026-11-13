@@ -207,6 +207,26 @@ inline constexpr std::uint8_t kMessageHp = 48;
 inline constexpr std::uint8_t kMessageMp = 49;
 inline constexpr std::uint8_t kMessageWeakAgainst = 21;
 
+// The messages a won battle shows. A name or an item is the first number's or second number's low
+// byte, as the message says; an amount is the whole number.
+inline constexpr std::uint8_t kMessageGotItem = 32;             // "Got {item} × 1": the item first
+inline constexpr std::uint8_t kMessageGotItems = 33;            // "Got {item} × {n}": the item, then n
+inline constexpr std::uint8_t kMessageGotGp = 38;               // "Got {n} GP": n second
+inline constexpr std::uint8_t kMessageGotExperience = 39;       // "Got {n} Exp. point(s)": n first
+inline constexpr std::uint8_t kMessageCurseDispelled = 42;      // "Dispelled curse on shield"
+inline constexpr std::uint8_t kMessageLearnedLore = 45;         // "Learned {lore}": the attack first
+inline constexpr std::uint8_t kMessageGainedALevel = 46;        // "{name} gained a level": the party slot second
+inline constexpr std::uint8_t kMessageLearnedSpell = 50;        // "{name} learned {spell}": the spell, then the slot
+inline constexpr std::uint8_t kMessageDevisedABlitz = 51;       // "Devised a new Blitz!"
+inline constexpr std::uint8_t kMessageGotMagicPoints = 53;      // "Got {n} Magic Point(s)": n first
+inline constexpr std::uint8_t kMessageMasteredADance = 64;      // "Mastered a new dance!"
+inline constexpr std::uint8_t kMessageMasteredATechnique = 66;  // "Mastered a new technique!"
+
+// Nothing new is shown for `frames` frames; the script goes on after them.
+struct Wait {
+    int frames = 0;
+};
+
 // A party member goes back to standing normally.
 struct PoseReset {
     BattlerSlot battler = BattlerSlot::character(0);
@@ -221,6 +241,9 @@ struct MonsterDialogShown {
 struct BattleEventPlays {
     std::uint8_t event = 0;
 };
+
+// The battle event a won battle plays as the party celebrates.
+inline constexpr std::uint8_t kVictoryEvent = 1;
 
 // Monsters leave the field or come back. With anyone in `revived`, they come in by `type`;
 // otherwise the monsters in `hidden` that are still on the field leave by it.
@@ -295,7 +318,7 @@ using BattleScriptCommand =
     std::variant<ReadyStance, StepBack, FormationChanges, AttackAnimation, AttackNameShown, BushidoNameShown,
                  ItemNameShown, EsperNameShown, CommandNameShown, MonsterSpecialAttackNameShown, BattleMessage,
                  PoseReset, MonsterDialogShown, BattleEventPlays, MonstersEnterOrLeave, MonsterAnimationPlays,
-                 DamageNumbersShown, ReflectedAttackShown, ScatteredHitsShown>;
+                 DamageNumbersShown, ReflectedAttackShown, ScatteredHitsShown, Wait>;
 
 // Builds one action's battle script.
 class BattleScriptBuilder {

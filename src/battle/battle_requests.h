@@ -57,15 +57,20 @@ struct ScrollFinalBattleBackground {};
 // The battle is over: the scene fades out and the game goes back to where the battle started.
 struct CloseBattleScene {};
 
-// A party member came away from an action holding an item — an item kept after using it, a stolen
-// or a metamorphed one: the item goes into the party's battle inventory, one of it.
+// A party member came away holding an item — one kept after using it, a stolen or a metamorphed
+// one, or one still in hand when the battle ends: one of it joins the items obtained
+// (BattleState::itemsObtained), which reach the party's battle inventory when they are merged.
 struct AddItemObtained {
     BattlerSlot character = BattlerSlot::character(0);
     ItemId item = ItemId::EMPTY;
 };
 
+// The battle is won: the victory fanfare starts. It is not asked for when the field's music plays on
+// through the battle, nor when the fanfare is off.
+struct VictoryFanfare {};
+
 using BattleRequest = std::variant<OpenBattleMenu, CloseBattleMenu, RefreshBattleMenu, RunBattleScript,
                                    RefreshMonsterNames, OpenBattleScene, ScrollFinalBattleBackground,
-                                   CloseBattleScene, AddItemObtained>;
+                                   CloseBattleScene, AddItemObtained, VictoryFanfare>;
 
 }  // namespace ostinato::battle

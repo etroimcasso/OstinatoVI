@@ -41,8 +41,10 @@ of the battle's end, and this contract states what it hands over.
   member with an esper (`$161e` not negative, `:15402-15403`) calls `LearnGenjuMagic` with the esper's
   place among the 27 in A (`:15404`). The battle's magic points are `$fb`: `BattleMagicPoints` at the
   battle's index, or 0 for an index of 512 or more (`:15313-15319`); `magicPointsForBattle()` holds the
-  table. `$f1` is Morph available (`$3ebc & $08`, `:15321-15323`) and `$f0` the win's flags, cleared
-  (`:15320`).
+  table. `$f1` is whether the party has magicite (`$3ebc & $08`, `:15321-15323`: battle switch 67,
+  `game::kMagicPointsEarnedSwitch`, which the event script sets with the party's first magicite) and
+  `$f0` the win's flags, cleared (`:15320`). The Morph command tests a different bit, `$3ebc & $04`,
+  switch 66 (`InitCmd_00 :13814-13816`).
 - **The level-ups.** For each party member alive, `CheckLevelUp :15711-15755` returns at level 99; it
   sums the experience steps below the level, times 8, and when the record's experience reaches that it
   calls `DoLevelUp` (`:15748`) with X the record, then `LearnAbilities`, and goes round again.
@@ -75,8 +77,9 @@ returned true — the bit `IncLearnMagic` leaves in `$f0` (B step 5).
 4. The percentage plus the amount (`clc; adc $ee`, `:15696-15697`). A carry out of the byte, or a sum of
    **100 or more** (`cmp #100; bcc`, `:15699-15700`), stores **`$80`**: learned, its message still to
    show (`:15701`). Otherwise the sum is stored (`:15702`).
-5. `lda $f1; tsb $f0` (`:15703-15704`): Morph available is OR-ed into the win's flags whenever step 4
-   stores — with 0 magic points too, when the amount is 0 and the percentage is stored unchanged.
+5. `lda $f1; tsb $f0` (`:15703-15704`): the magicite bit is OR-ed into the win's flags, as magic points
+   earned, whenever step 4 stores — with 0 magic points too, when the amount is 0 and the percentage is
+   stored unchanged. Without magicite the store sets nothing.
 
 The port: `addSpellProgress()` returns false for a rate of 0 and for a spell at
 `SpellProgress::kSpellLearned` (255); otherwise it adds the product's low byte, stores the sum, or

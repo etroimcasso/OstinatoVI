@@ -870,7 +870,8 @@ TEST(WriteBack, TheInventoryGoesBackWithEmptySlotsAtZero) {
 }
 
 TEST(WriteBack, TheColosseumWagerIsGivenUpUnlessTimeRanOut) {
-    // :12135-12150; BattleEnd_01 :11972-11976 forgets the wager.
+    // :12135-12150, last slot first: slot 6 runs out, and its `lda #$ff` leaves the search looking for
+    // empty slots, so slot 5 keeps both; BattleEnd_01 :11972-11976 forgets the wager.
     for (bool ranOut : {false, true}) {
         BattleState state = finishedBattle(ranOut ? battle::BattleOutcome{battle::BattleEnded{
                                                         .reason = battle::BattleEndReason::RanOutOfTime}}
@@ -880,7 +881,7 @@ TEST(WriteBack, TheColosseumWagerIsGivenUpUnlessTimeRanOut) {
         state.inventory.items[5] = battle::BattleItem{.item = ItemId::ELIXIR, .quantity = 2};
         state.inventory.items[6] = battle::BattleItem{.item = ItemId::ELIXIR, .quantity = 1};
         const battle::BattleResult result = battle::writeBack(state);
-        EXPECT_EQ(result.party.inventory[5].quantity, ranOut ? 2 : 1);
+        EXPECT_EQ(result.party.inventory[5].quantity, 2);
         EXPECT_EQ(result.party.inventory[6].item, ranOut ? ItemId::ELIXIR : ItemId::EMPTY);
     }
 }

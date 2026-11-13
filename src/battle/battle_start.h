@@ -29,6 +29,7 @@
 
 #include "battle/action_executor.h"
 #include "battle/battle_state.h"
+#include "battle/items_obtained.h"
 #include "data/formations.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
@@ -78,6 +79,11 @@ struct BattleStart {
     // The frames part of the play clock (0-59) when the battle starts: it decides where the
     // battle's random numbers begin.
     std::uint8_t playTimeFrames = 0;
+
+    // The last three places of the items the party comes away with, which no battle's start empties:
+    // what the last battle handed back (BattleResult::itemsObtainedTail), or on a console just
+    // switched on itemsObtainedTailAtPowerOn() (battle/items_obtained.h). Empty by default.
+    ItemsObtainedTail itemsObtainedTail{};
 };
 
 // What the game keeps from a battle.
@@ -96,6 +102,13 @@ struct BattleResult {
     std::optional<FormationId> veldtFormation;
 
     bool shadowLeftParty = false;  // Shadow walked off when the battle was won
+
+    // Gau leapt: he has left the party and is no longer one of the characters the party can field.
+    bool gauLeftParty = false;
+
+    // The last three places of the items the party comes away with, as the battle leaves them: the
+    // next battle starts with them (BattleStart::itemsObtainedTail).
+    ItemsObtainedTail itemsObtainedTail{};
 };
 
 // The battle the field asks for, ready for its first frame.

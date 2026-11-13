@@ -101,6 +101,7 @@ content.monsterImages;                 // every monster's picture and colors
 content.characterSheets;               // every party member's battle frames and colors
 content.smallFont, content.smallFontColors;  // the small font's glyphs and palettes
 content.statusArt;                     // the status art, compressed: the damage numerals among it
+content.titleProgram;                  // the title and cutscene program, compressed
 content.monsterDeathColors;            // the colors a dying monster fades out in
 content.routines;                      // the cartridge's decompressor, on a machine of its own
 ```
@@ -108,7 +109,9 @@ content.routines;                      // the cartridge's decompressor, on a mac
 `dialogFont` is described in [../text/font.md](../text/font.md), `windowArt` in
 [../text/window.md](../text/window.md), `monsterSprites` in
 [../data-layer/monster-sprites.md](../data-layer/monster-sprites.md), and the battle's art and
-the routine that unpacks it in [battle-art.md](battle-art.md). `IngestedContent` is move-only:
+the routine that unpacks it in [battle-art.md](battle-art.md). `titleProgram`, decoded, holds what a
+console just switched on leaves in the battle's list of items obtained
+([../battle/rewards.md](../battle/rewards.md#items-obtained)). `IngestedContent` is move-only:
 the routine machine stays where it is.
 
 Reading a cartridge needs no emulator. Final Fantasy VI is a HiROM cartridge, which maps

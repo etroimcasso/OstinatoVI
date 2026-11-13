@@ -9,7 +9,7 @@
 //     game::CharacterRecord& terra = party.characters[0];
 //     terra.actor = CharacterPropId::TERRA;
 //     terra.weapon = ItemId::MITHRILKNIFE;
-//     party.membership[0] = {.party = 1, .slot = 0, .backRow = false};
+//     party.membership[0] = {.party = 1, .slot = 0, .backRow = false, .enabled = true, .visible = true};
 //     party.currentParty = 1;
 #pragma once
 
@@ -88,12 +88,18 @@ struct CharacterRecord {
     }
 };
 
-// Which party a character record belongs to, the place it takes in that party's line-up and its
-// row. Party 0 is no party; the game's parties are 1 to 3.
+// Which party a character record belongs to, the place it takes in that party's line-up, its row,
+// and whether the character is enabled and visible. Party 0 is no party; the game's parties are 1
+// to 3.
+//
+// A member taken out of the party loses all five: a default PartyMembership. Gau joining the
+// party in battle enables him and keeps his row and his visibility as they were.
 struct PartyMembership {
     std::uint8_t party = 0;
     std::uint8_t slot = 0;  // 0-3
     bool backRow = false;
+    bool enabled = false;
+    bool visible = false;
 };
 
 // How far a character has learned each spell: a percentage (0-99), kSpellJustLearned, or

@@ -5,6 +5,7 @@
 
 #include "battle/ai.h"
 #include "battle/automatic_actions.h"
+#include "battle/battle_end.h"
 #include "battle/command_menu.h"
 #include "battle/commands.h"
 #include "battle/links.h"
@@ -176,6 +177,10 @@ AttackId CommandExecutor::chooseRageAttack(BattleState& state, BattlerSlot rager
 
 AttackId CommandExecutor::chooseRandomEsper(BattleState& state, BattlerSlot, AttackId) {
     return battle::chooseRandomEsper(state);
+}
+
+void CommandExecutor::playBattleEnd(BattleState& state, const BattleOutcome& outcome) {
+    battle::playBattleEnd(state, *this, outcome);
 }
 
 }  // namespace ostinato::battle

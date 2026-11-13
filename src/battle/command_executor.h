@@ -13,7 +13,8 @@
 // turn, except that a berserk, confused, charmed or colosseum monster picks its own attack instead;
 // runCounterAi() reads the script's counterattack part and initAi() readies the script
 // (battle/ai.h). refreshCommandList() decides which of a party member's commands can be chosen
-// (battle/command_menu.h).
+// (battle/command_menu.h). playBattleEnd() plays out the battle's outcome: the win and its rewards,
+// the loss, or a special ending (battle/battle_end.h).
 //
 // The level an action's attack is made at stays as BattleState::lastAttackLevel until an action makes
 // another attack with a level of its own; a condemned count that starts reads it.
@@ -79,6 +80,9 @@ public:
     AttackId chooseDanceStep(BattleState& state, BattlerSlot dancer, AttackId chosen) override;
     AttackId chooseRageAttack(BattleState& state, BattlerSlot rager, AttackId chosen) override;
     AttackId chooseRandomEsper(BattleState& state, BattlerSlot caster, AttackId chosen) override;
+
+    // The battle's end (playBattleEnd() in battle/battle_end.h).
+    void playBattleEnd(BattleState& state, const BattleOutcome& outcome) override;
 
 private:
     AttackHooks& hooks_;

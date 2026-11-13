@@ -479,6 +479,9 @@ bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& com
             } else if constexpr (std::is_same_v<T, StepBack>) {
                 shown.waitingPoses = {};
                 return false;
+            } else if constexpr (std::is_same_v<T, Wait>) {
+                shown.pauseLeft = c.frames;
+                return c.frames > 0;
             } else if constexpr (std::is_same_v<T, PoseReset>) {
                 if (c.battler.isCharacter()) {
                     shown.waitingPoses[static_cast<std::size_t>(c.battler.position())].reset();
@@ -551,6 +554,9 @@ bool playCommandFrame(BattlePresentationState& shown, const BattleState& battle,
         }
         return false;
     }
+    if (shown.pauseLeft > 0) {
+        return --shown.pauseLeft == 0;
+    }
     if (shown.waitingForNumerals) {
         if (anyNumeralShown(shown)) {
             return false;
@@ -578,7 +584,7 @@ bool playCommandFrame(BattlePresentationState& shown, const BattleState& battle,
 }
 
 bool commandPlaying(const BattlePresentationState& shown) {
-    return shown.message || shown.waitingForNumerals || !shown.numeralsToShow.empty();
+    return shown.message || shown.pauseLeft > 0 || shown.waitingForNumerals || !shown.numeralsToShow.empty();
 }
 
 // Move past the command just finished, and past any script it finished.
@@ -707,7 +713,7 @@ void tickBattlePresentation(BattlePresentationState& shown, const BattleState& b
         } else if (const auto* script = std::get_if<RunBattleScript>(&request)) {
             shown.scripts.push_back(script->commands);
         } else if (std::holds_alternative<CloseBattleScene>(request)) {
-            shown.sceneClosed = true;
+            shown.sceneClosing = true;
         }
     }
 
@@ -724,6 +730,10 @@ void tickBattlePresentation(BattlePresentationState& shown, const BattleState& b
 
     shown.idle = !commandPlaying(shown) && shown.scripts.empty() && !shown.deathFade;
     shown.timeRunning = true;
+    // The battle's end plays every message it asked for before the scene fades out.
+    if (shown.sceneClosing && !commandPlaying(shown) && shown.scripts.empty()) {
+        shown.sceneClosed = true;
+    }
 }
 
 BattleInput battleInput(const BattlePresentationState& shown) {
