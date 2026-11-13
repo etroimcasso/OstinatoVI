@@ -186,7 +186,8 @@ target_compile_options(ostinato-vi-lib PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-vi-lib PUBLIC retropp::engine)
 
 # ---------------------------------------------------------------------------
-# The game binary. Currently prints identity + engine version and exits 0.
+# The game binary: publishes its identity, installs a cartridge (--install-rom, or the first-start
+# flow), prints the port name and engine version and exits.
 # ---------------------------------------------------------------------------
 add_executable(ostinato-vi src/main.cpp)
 target_compile_features(ostinato-vi PRIVATE cxx_std_20)
@@ -217,7 +218,7 @@ endif()
 
 # ---------------------------------------------------------------------------
 # Developer previews: one small program per piece of the picture, each showing it running on the
-# installed cartridge in a window. Tools, not the game — nothing here ships, and each reads the
+# installed cartridge, in a window or captured to files. Tools, not the game — nothing here ships, and each reads the
 # cartridge the same way the game does.
 # ---------------------------------------------------------------------------
 
@@ -231,8 +232,9 @@ target_link_libraries(ostinato-preview-dialog PRIVATE ostinato-vi-lib)
 target_compile_definitions(ostinato-preview-dialog PRIVATE
     OSTINATO_PROJECT_ROOT="${CMAKE_CURRENT_SOURCE_DIR}")
 
-# ostinato-preview-battle <formation>...: a battle's standing scene — the background, the monsters
-# and the party where the battle puts them — from the installed cartridge.
+# ostinato-preview-battle <formation>...: each battle fought to its end by a scripted player — the
+# background, the monsters, the party, the windows, the numerals and the messages — from the
+# installed cartridge.
 add_executable(ostinato-preview-battle
     tools/previews/battle/main.cpp
     tools/previews/battle/battle_preview.cpp)
@@ -252,9 +254,10 @@ target_compile_options(ostinato-frames PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-frames PRIVATE retropp::engine)
 
 # ostinato-damage-trace: the cartridge run on the engine's SNES machine with escapes and watches on its
-# damage and status routines, logging every call as the game is played; the same with no window; a
-# scripted run to a battle; or those routines isolated and run over seeded scenarios and recordings
-# against the port. Its README lists every mode.
+# battle routines — damage, statuses, special effects, espers, AI and a battle's end — logging every
+# call as the game is played; the same with no window; a scripted run to a battle; or those routines
+# isolated and run over seeded scenarios and recordings against the port. Its README lists every
+# mode.
 add_executable(ostinato-damage-trace
     tools/damage-trace/main.cpp
     tools/damage-trace/damage_oracle.cpp
@@ -423,8 +426,8 @@ gtest_discover_tests(ostinato-vi-anim-tests)
 # runtime loader (the filesystem seam, the seam-free buffer path, the
 # fixed-length name accessors round-tripped against the real cartridge bytes,
 # and DTE expansion). The real-corpus tests read the cartridge FF6_VANILLA_ROM
-# names and skip visibly without one. Own binary so the other baselines stay
-# frozen.
+# names, and fail naming the path when it cannot be read. Own binary so the
+# other baselines stay frozen.
 add_executable(ostinato-vi-text-tests
     tests/test_text_corpus.cpp
     tests/test_text_offsets.cpp
@@ -470,8 +473,8 @@ gtest_discover_tests(ostinato-vi-event-tests)
 # ROM-ingestion tests: the region table and ROM identity (full-corpus against
 # their generated fixtures), the cartridge route (recognition, refusal, and the
 # install round-trip), and the first-start decision driven with fakes. The tests
-# that need a real cartridge find one via FF6_VANILLA_ROM and skip visibly
-# without it. Own binary so the other baselines stay frozen.
+# that need a real cartridge find one via FF6_VANILLA_ROM and fail naming the
+# path when it cannot be read. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-rom-tests
     tests/test_cartridge.cpp
     tests/test_first_start.cpp
@@ -580,8 +583,9 @@ gtest_discover_tests(ostinato-vi-dialog-window-tests)
 # bytes in both builds; the cartridge's decompressor placed and run, and every background, monster
 # and party sprite sheet decoded from the cartridge through it; where the battlers stand and the
 # order they are drawn in; the battle components read back from what they return; the color
-# gradient read back from its regions; the colors the battle's windows draw in; and the preview's
-# standing scene. Own binary so the other baselines stay frozen.
+# gradient read back from its regions; the colors the battle's windows draw in; the presentation
+# played script by script; and the preview's battles fought to their end. Own binary so the other
+# baselines stay frozen.
 add_executable(ostinato-vi-battle-preview-tests
     tests/test_battle_background_art.cpp
     tests/test_battle_components.cpp
