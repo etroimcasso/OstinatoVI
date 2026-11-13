@@ -5,7 +5,7 @@ One row per feature. Statuses: ⬜ planned · 🟡 in progress · ✅ complete �
 | Feature | Status | Doc | Notes |
 |---|---|---|---|
 | asset-acquisition | ✅ complete | `features/asset-acquisition.md` | The cartridge is copied once into the player's files and read in place on every launch |
-| build-system | ✅ complete | `features/build-system.md` | CMake + `add_subdirectory(engine)`; 7 targets (lib / binary / smoke + enum + data + spell + item test runners); GoogleTest 34/36/2; lean binary. Engine pin `7c3707a` |
+| build-system | ✅ complete | `features/build-system.md` | CMake + `add_subdirectory(engine)`; 36 targets — the `ostinato-vi-lib` library, the `ostinato-vi` binary, four developer tools (`ostinato-preview-dialog`, `ostinato-preview-battle`, `ostinato-frames`, `ostinato-damage-trace`) and 30 GoogleTest binaries (GoogleTest `v1.17.0`); C++ suite 2126/2134/8 on every platform, parser suite 1223; lean binary — Release by default, dead-stripped at link and symbol-stripped. Engine pin `bb0e3dec` |
 | ci | ✅ complete | `features/ci.md` | 6 self-hosted jobs (5 platform builds + parser unit tests; the ARM64 trio serialized on its shared host); `ci/**` push trigger; runner-local ROM staged + ripped for rip-product e2e; Unix jobs build in the workspace and stage the build dir to `/tmp` |
 | audio-engine (SNES) | ⬜ planned | `features/audio-engine.md` (at engine kickoff) | Engine-side: SPC700 + S-DSP backend designed against this consumer; dual-backend mandatory |
 | extraction-tool | ⬜ planned | (own doc when work starts) | Runtime ROM extraction; license determination first (GPL upstream reference) |
