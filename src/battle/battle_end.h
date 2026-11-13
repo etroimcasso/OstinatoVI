@@ -51,6 +51,8 @@
 
 #include "battle/action_executor.h"
 #include "battle/battle_state.h"
+#include "game/character_record.h"
+#include "ostinato/character_prop_id.h"
 
 namespace ostinato::battle {
 
@@ -61,6 +63,28 @@ inline constexpr int kWrapUpWaitFrames = 32;
 inline constexpr std::uint8_t kRareDropBelow = 32;
 
 void wrapUpBattle(BattleState& state, ActionExecutor& executor);
+
+// Which of the two messages a win tells only once it has told: "mastered a new technique" and
+// "devised a new blitz". A second technique or blitz learned in the same win is learned untold.
+struct AbilityMessagesShown {
+    bool swdtech = false;
+    bool blitz = false;
+};
+
+// The abilities `actor` learns on reaching `level` (learnAbilitiesAtLevel() in battle/rewards.h),
+// and the first technique and the first blitz of the win told of; `shown` records which have been.
+void learnLevelAbilities(BattleState& state, CharacterPropId actor, std::uint8_t level, AbilityMessagesShown& shown);
+
+// Every level `record` has earned, one at a time: each gained (levelUp() in battle/leveling.h) and its
+// abilities learned with learnLevelAbilities(). While `tellLevel` is set, the first level gained is
+// told of as "gained a level" naming party slot `partySlot` — the win sets it for each member, so
+// one message covers every level that member gains. Returns whether the message is still to tell:
+// `tellLevel` when no level was earned, false otherwise.
+//
+//     battle::AbilityMessagesShown shown;
+//     battle::reachEarnedLevels(state, state.party.characters[record], slot, true, shown);
+bool reachEarnedLevels(BattleState& state, game::CharacterRecord& record, std::uint32_t partySlot, bool tellLevel,
+                       AbilityMessagesShown& shown);
 
 // Play out `outcome`, the battle's outcome.
 void playBattleEnd(BattleState& state, ActionExecutor& executor, const BattleOutcome& outcome);

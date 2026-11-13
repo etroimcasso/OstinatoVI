@@ -56,8 +56,7 @@ struct WinFlags {
     bool catHoodCounted = false;
     bool magicPointsEarned = false;
     bool curseDispelled = false;
-    bool techniqueMessageShown = false;
-    bool blitzMessageShown = false;
+    AbilityMessagesShown abilityMessages;
 };
 
 void tell(BattleState& state, BattleMessage message) {
@@ -139,25 +138,7 @@ void levelEachMember(BattleState& state, WinFlags& flags) {
             continue;
         }
         const auto partySlot = static_cast<std::uint32_t>(position);
-        game::CharacterRecord& record = state.party.characters[*member.record];
-        bool levelToTell = true;
-        while (earnedNextLevel(record)) {
-            if (levelToTell) {
-                levelToTell = false;
-                tell(state, {.message = kMessageGainedALevel, .secondNumber = partySlot});
-            }
-            levelUp(record, state.version);
-            const AbilitiesLearned learned = learnAbilitiesAtLevel(state.party, record.actor, record.level);
-            // LEGACY VERBATIM (docs/Bugs.md): one technique message and one blitz message per win.
-            if (learned.swdtech && !flags.techniqueMessageShown) {
-                flags.techniqueMessageShown = true;
-                tell(state, {.message = kMessageMasteredATechnique});
-            }
-            if (learned.blitz && !flags.blitzMessageShown) {
-                flags.blitzMessageShown = true;
-                tell(state, {.message = kMessageDevisedABlitz});
-            }
-        }
+        reachEarnedLevels(state, state.party.characters[*member.record], partySlot, true, flags.abilityMessages);
         if (!learnsSpells(*member.actor)) {
             continue;
         }
@@ -284,6 +265,32 @@ void gauLeaves(BattleState& state) {
 }
 
 }  // namespace
+
+void learnLevelAbilities(BattleState& state, CharacterPropId actor, std::uint8_t level, AbilityMessagesShown& shown) {
+    const AbilitiesLearned learned = learnAbilitiesAtLevel(state.party, actor, level);
+    // LEGACY VERBATIM (docs/Bugs.md): one technique message and one blitz message per win.
+    if (learned.swdtech && !shown.swdtech) {
+        shown.swdtech = true;
+        tell(state, {.message = kMessageMasteredATechnique});
+    }
+    if (learned.blitz && !shown.blitz) {
+        shown.blitz = true;
+        tell(state, {.message = kMessageDevisedABlitz});
+    }
+}
+
+bool reachEarnedLevels(BattleState& state, game::CharacterRecord& record, std::uint32_t partySlot, bool tellLevel,
+                       AbilityMessagesShown& shown) {
+    while (earnedNextLevel(record)) {
+        if (tellLevel) {
+            tellLevel = false;
+            tell(state, {.message = kMessageGainedALevel, .secondNumber = partySlot});
+        }
+        levelUp(record, state.version);
+        learnLevelAbilities(state, record.actor, record.level, shown);
+    }
+    return tellLevel;
+}
 
 void wrapUpBattle(BattleState& state, ActionExecutor& executor) {
     saveMorphSupply(state);

@@ -17,6 +17,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -668,14 +669,7 @@ void DamageOracle::answerGraphics(const GraphicsCall& call) {
 void DamageOracle::registerGate() {
     // The trace's watches already answer for their ranges and hand every access to noteGuestAccess();
     // the gate watches the rest of the battle's work RAM, gap by gap.
-    std::vector<std::pair<std::uint32_t, std::uint32_t>> taken;
-    for (const TracedRange& range : kTracedRanges) {
-        taken.emplace_back(range.at, range.at + range.size);
-    }
-    for (const TracedRange& range : kPartyRecordRanges) {
-        taken.emplace_back(range.at, range.at + range.size);
-    }
-    std::sort(taken.begin(), taken.end());
+    const std::vector<std::pair<std::uint32_t, std::uint32_t>> taken = DamageTrace::watchedRanges();
     const auto handler = [this](bool write) {
         return [this, write](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
             noteGuestAccess(kWorkRam | (at & 0xFFFF), value, write);
@@ -1839,7 +1833,63 @@ struct ContextCells {
     retropp::MemoryRegion rules;
     retropp::MemoryRegion nextBlock;
     retropp::MemoryRegion blocks;
+    retropp::MemoryRegion message;
+    retropp::MemoryRegion messageVariables;
 };
+
+// The battle program's half of work RAM, whole, for a snapshot.
+struct TraceRam {
+    retropp::MemoryRegion bytes;
+};
+constexpr std::uint32_t kTraceRam = 0x7E0000;
+constexpr std::uint32_t kTraceRamSize = 0x10000;
+
+// The message ShowMsg shows, in the battle script's second byte, and the four message variables.
+constexpr std::uint32_t kShownMessage = 0x7E2D6F;
+constexpr std::uint32_t kShownVariables = 0x7E2F35;
+constexpr std::uint32_t kShownVariablesSize = 12;
+constexpr std::uint32_t kVariableBytes = 3;
+
+// A character record's first cell, its size, and where its actor and level are.
+constexpr std::uint32_t kTracedRecords = 0x7E1600;
+constexpr std::uint32_t kTracedRecordSize = 37;
+constexpr std::uint32_t kTracedRecordCount = 16;
+constexpr std::uint32_t kRecordActorByte = 0;
+constexpr std::uint32_t kRecordLevelByte = 8;
+
+// The routine whose entry logs the actor and level read before it.
+constexpr std::string_view kLearnAbilitiesName = "LearnAbilities";
+
+// The parts of kEndingRanges no range of kTracedRanges or kPartyRecordRanges covers, as [first, end).
+std::vector<std::pair<std::uint32_t, std::uint32_t>> endingGaps() {
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> covered;
+    for (const TracedRange& range : kTracedRanges) {
+        covered.emplace_back(range.at, range.at + range.size);
+    }
+    for (const TracedRange& range : kPartyRecordRanges) {
+        covered.emplace_back(range.at, range.at + range.size);
+    }
+    std::sort(covered.begin(), covered.end());
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> gaps;
+    for (const TracedRange& range : kEndingRanges) {
+        std::uint32_t from = range.at;
+        const std::uint32_t end = range.at + range.size;
+        for (const auto& [start, stop] : covered) {
+            if (stop <= from || start >= end) {
+                continue;
+            }
+            if (start > from) {
+                gaps.emplace_back(from, start);
+            }
+            from = std::max(from, stop);
+        }
+        if (from < end) {
+            gaps.emplace_back(from, end);
+        }
+    }
+    std::sort(gaps.begin(), gaps.end());
+    return gaps;
+}
 
 constexpr std::uint32_t kParamsCells = 0x7E00A0;
 // The script queue's whole span, and the aiming rule set while a spell bounces off Reflect.
@@ -1869,33 +1919,82 @@ std::string framePrefix(std::uint64_t frame) {
 }  // namespace
 
 // A running machine answers a read with what its last completed step published, which misses what the
-// step under way has written. `written` holds the last byte the guest wrote to each cell of the
-// context, and a read of the context lays those over the published bytes.
+// step under way has written. `written` holds the last byte the guest wrote to each cell the trace
+// watches, and a read lays those over the published bytes. `actorRead` and `levelRead` are the last
+// actor byte and level byte the guest read from a character record.
 struct DamageTrace::Places {
     retropp::RegionMapId<ContextCells> id;
+    retropp::RegionMapId<TraceRam> ram;
     std::map<std::uint32_t, std::uint8_t> written{};
+    std::optional<std::uint8_t> actorRead;
+    std::optional<std::uint8_t> levelRead;
 
-    std::vector<std::uint8_t> read(retropp::Vm& vm, retropp::MemoryRegion ContextCells::*key, std::uint32_t at) const {
-        std::vector<std::uint8_t> bytes = vm.read(id, key);
+    std::vector<std::uint8_t> overlay(std::vector<std::uint8_t> bytes, std::uint32_t at) const {
         const std::uint32_t end = at + static_cast<std::uint32_t>(bytes.size());
         for (auto cell = written.lower_bound(at); cell != written.end() && cell->first < end; ++cell) {
             bytes[cell->first - at] = cell->second;
         }
         return bytes;
     }
+
+    std::vector<std::uint8_t> read(retropp::Vm& vm, retropp::MemoryRegion ContextCells::*key, std::uint32_t at) const {
+        return overlay(vm.read(id, key), at);
+    }
+
+    std::vector<std::uint8_t> readRam(retropp::Vm& vm) const {
+        return overlay(vm.read(ram, &TraceRam::bytes), kTraceRam);
+    }
 };
 
+std::vector<std::pair<std::uint32_t, std::uint32_t>> DamageTrace::watchedRanges() {
+    std::vector<std::pair<std::uint32_t, std::uint32_t>> ranges = endingGaps();
+    for (const TracedRange& range : kTracedRanges) {
+        ranges.emplace_back(range.at, range.at + range.size);
+    }
+    for (const TracedRange& range : kPartyRecordRanges) {
+        ranges.emplace_back(range.at, range.at + range.size);
+    }
+    std::sort(ranges.begin(), ranges.end());
+    return ranges;
+}
+
+void DamageTrace::logSnapshot(retropp::Vm& vm, const std::string& routine, const char* how, std::uint32_t at) {
+    const std::string prefix = framePrefix(frame_()) + " snapshot " + routine;
+    line_(prefix + " " + how + " " + busAddress(at));
+    if (routine == kSnapshotRoutines[1].name && std::string_view{how} == "enter" && lossMessage_) {
+        line_(prefix + " handed " + (*lossMessage_ ? hexByte(**lossMessage_) : std::string{"--"}));
+        lossMessage_.reset();
+    }
+    const std::vector<std::uint8_t> ram = places_->readRam(vm);
+    for (const TracedRange& range : kEndingRanges) {
+        std::string text = prefix + " " + busAddress(range.at) + " ";
+        text.reserve(text.size() + 2 * range.size);
+        for (std::uint32_t i = 0; i < range.size; ++i) {
+            text += hexByte(ram[range.at - kTraceRam + i]);
+        }
+        line_(text);
+    }
+}
+
 DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access access)
-    : line_(std::move(line)), frame_(std::move(frame)) {
-    places_ = std::make_unique<Places>(Places{.id = machine.registerRegions(retropp::regions(
-        retropp::region(&ContextCells::params, retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize},
-                        "params block"),
-        retropp::region(&ContextCells::hits, retropp::MemoryRegion{.at = kExtraHits, .size = 1}, "hits to come"),
-        retropp::region(&ContextCells::rules, retropp::MemoryRegion{.at = kAimingRules, .size = 1}, "aiming rules"),
-        retropp::region(&ContextCells::nextBlock, retropp::MemoryRegion{.at = kNextParamsBlock, .size = 1},
-                        "next params block"),
-        retropp::region(&ContextCells::blocks, retropp::MemoryRegion{.at = kParamsBlocks, .size = kBlocksSize},
-                        "params blocks")))});
+    : vm_(&machine), line_(std::move(line)), frame_(std::move(frame)) {
+    places_ = std::make_unique<Places>(Places{
+        .id = machine.registerRegions(retropp::regions(
+            retropp::region(&ContextCells::params, retropp::MemoryRegion{.at = kParamsCells, .size = kParamsSize},
+                            "params block"),
+            retropp::region(&ContextCells::hits, retropp::MemoryRegion{.at = kExtraHits, .size = 1}, "hits to come"),
+            retropp::region(&ContextCells::rules, retropp::MemoryRegion{.at = kAimingRules, .size = 1}, "aiming rules"),
+            retropp::region(&ContextCells::nextBlock, retropp::MemoryRegion{.at = kNextParamsBlock, .size = 1},
+                            "next params block"),
+            retropp::region(&ContextCells::blocks, retropp::MemoryRegion{.at = kParamsBlocks, .size = kBlocksSize},
+                            "params blocks"),
+            retropp::region(&ContextCells::message, retropp::MemoryRegion{.at = kShownMessage, .size = 1},
+                            "message shown"),
+            retropp::region(&ContextCells::messageVariables,
+                            retropp::MemoryRegion{.at = kShownVariables, .size = kShownVariablesSize},
+                            "message variables"))),
+        .ram = machine.registerRegions(retropp::regions(retropp::region(
+            &TraceRam::bytes, retropp::MemoryRegion{.at = kTraceRam, .size = kTraceRamSize}, "battle's work RAM")))});
 
     retropp::EscapeMap escapes;
     // Each return site with the routines whose calls return there, in the order kTracedRoutines
@@ -1927,6 +2026,14 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                     context += "--";
                 }
                 line_(context);
+                if (routine.name == kLearnAbilitiesName) {
+                    if (places_->actorRead && places_->levelRead) {
+                        line_(prefix + " abilities actor " + hexByte(*places_->actorRead) + " level " +
+                              hexByte(*places_->levelRead));
+                    } else {
+                        line_(prefix + " abilities --");
+                    }
+                }
             }});
         for (const std::uint32_t site :
              {routine.frameReturn, routine.bounceReturn, routine.otherReturns[0], routine.otherReturns[1]}) {
@@ -1964,22 +2071,68 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                 }
             }});
     }
+    for (const SnapshotRoutine& routine : kSnapshotRoutines) {
+        const std::string name = routine.name;
+        escapes.declarations.push_back(retropp::GuestEscape{
+            .key = name + " snapshot entry",
+            .at = routine.entry,
+            .handler = [this, name](retropp::Vm& vm, std::uint32_t at) {
+                ++openSnapshots_;
+                ++openSnapshotCalls_[name];
+                logSnapshot(vm, name, "enter", at);
+            }});
+        for (std::size_t i = 0; i < routine.returns.size() && routine.returns[i] != 0; ++i) {
+            escapes.declarations.push_back(retropp::GuestEscape{
+                .key = name + " snapshot return " + std::to_string(i + 1),
+                .at = routine.returns[i],
+                .handler = [this, name](retropp::Vm& vm, std::uint32_t at) {
+                    const auto open = openSnapshotCalls_.find(name);
+                    if (open == openSnapshotCalls_.end() || open->second == 0) {
+                        return;
+                    }
+                    --open->second;
+                    --openSnapshots_;
+                    logSnapshot(vm, name, "return", at);
+                }});
+        }
+    }
+    escapes.declarations.push_back(retropp::GuestEscape{
+        .key = "message shown",
+        .at = kShowMessageCall,
+        .handler = [this](retropp::Vm& vm, std::uint32_t) {
+            if (open_ == 0 && openSnapshots_ == 0) {
+                return;
+            }
+            const std::uint8_t message = places_->read(vm, &ContextCells::message, kShownMessage)[0];
+            const std::vector<std::uint8_t> variables =
+                places_->read(vm, &ContextCells::messageVariables, kShownVariables);
+            std::string text = framePrefix(frame_()) + " message " + hexByte(message);
+            for (std::uint32_t v = 0; v < kShownVariablesSize; v += kVariableBytes) {
+                text += " " + hexByte(variables[v + 2]) + hexByte(variables[v + 1]) + hexByte(variables[v]);
+            }
+            line_(text);
+        }});
     machine.registerEscapes(escapes);
 
     // A watch names the address the access drove; a direct-page access drives $00:00xx, and the same
     // byte of work RAM is logged under its $7E address so every line names one cell one way.
-    const auto watched = [this, access](char how, bool partyRecords = false) {
-        return [this, access, how, partyRecords](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+    const auto watched = [this, access](char how, bool partyRecords = false, bool logged = true) {
+        return [this, access, how, partyRecords, logged](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
             const std::uint32_t cell = kWorkRam | (at & 0xFFFF);
-            if (how == 'w' && (cell == kExtraHits || cell == kAimingRules || cell == kNextParamsBlock ||
-                               (cell >= kParamsCells && cell < kParamsCells + kParamsSize) ||
-                               (cell >= kParamsBlocks && cell < kParamsBlocks + kBlocksSize))) {
+            if (how == 'w') {
                 places_->written[cell] = value;
+            } else if (cell >= kTracedRecords && cell < kTracedRecords + kTracedRecordSize * kTracedRecordCount) {
+                const std::uint32_t byte = (cell - kTracedRecords) % kTracedRecordSize;
+                if (byte == kRecordActorByte) {
+                    places_->actorRead = value;
+                } else if (byte == kRecordLevelByte) {
+                    places_->levelRead = value;
+                }
             }
             if (access) {
                 access(cell, value, how == 'w');
             }
-            if (open_ > 0 && (!partyRecords || partyRecordsOpen_)) {
+            if (logged && open_ > 0 && (!partyRecords || partyRecordsOpen_)) {
                 char text[48];
                 std::snprintf(text, sizeof text, " %c $7E:%04X %02X", how, cell & 0xFFFF, value);
                 line_(framePrefix(frame_()) + text);
@@ -2000,6 +2153,12 @@ DamageTrace::DamageTrace(retropp::Vm& machine, Line line, Frame frame, Access ac
                                                            .onRead = watched('r', true),
                                                            .onWrite = watched('w', true)});
     }
+    for (const auto& [first, end] : endingGaps()) {
+        watches.declarations.push_back(retropp::GuestWatch{.key = "ending cells " + busAddress(first),
+                                                           .at = retropp::MemoryRegion{.at = first, .size = end - first},
+                                                           .onRead = watched('r', false, false),
+                                                           .onWrite = watched('w', false, false)});
+    }
     machine.registerWatches(watches);
 }
 
@@ -2007,6 +2166,31 @@ DamageTrace::~DamageTrace() = default;
 
 void DamageTrace::forgetContextWrites() {
     places_->written.clear();
+    places_->actorRead.reset();
+    places_->levelRead.reset();
+}
+
+void DamageTrace::noteWrite(std::uint32_t at, std::uint8_t value) {
+    places_->written[at] = value;
+}
+
+void DamageTrace::handOverLossMessage(std::optional<std::uint8_t> message) {
+    lossMessage_ = message;
+}
+
+void DamageTrace::readForAbilities(std::uint8_t actor, std::uint8_t level) {
+    places_->actorRead = actor;
+    places_->levelRead = level;
+}
+
+void DamageTrace::returnFromSnapshot(const SnapshotRoutine& routine) {
+    const auto open = openSnapshotCalls_.find(routine.name);
+    if (open == openSnapshotCalls_.end() || open->second == 0) {
+        return;
+    }
+    --open->second;
+    --openSnapshots_;
+    logSnapshot(*vm_, routine.name, "return", routine.returns[0]);
 }
 
 void DamageTrace::returnToFrame(const TracedRoutine& routine) {
@@ -2135,11 +2319,170 @@ std::vector<TracedCall> parseTrace(std::istream& log) {
                 calls.push_back(std::move(*open));
                 open.reset();
             }
+        } else if (kind == "abilities") {
+            std::string actorWord;
+            in >> actorWord;
+            if (actorWord == "--") {
+                continue;
+            }
+            std::string actor, levelWord, level;
+            in >> actor >> levelWord >> level;
+            if (actorWord != "actor" || levelWord != "level") {
+                fail("not an abilities line");
+            }
+            if (open) {
+                open->abilitiesActor = static_cast<std::uint8_t>(hex(actor, 0xFF));
+                open->abilitiesLevel = static_cast<std::uint8_t>(hex(level, 0xFF));
+            }
+        } else if (kind == "message") {
+            std::string message;
+            in >> message;
+            LoggedMessage logged{.message = static_cast<std::uint8_t>(hex(message, 0xFF))};
+            for (std::size_t variable = 0; variable < 4; ++variable) {
+                std::string word;
+                in >> word;
+                if (word.size() != 6) {
+                    fail("not a message variable");
+                }
+                const std::uint32_t value = hex(word, 0xFFFFFF);
+                for (std::size_t i = 0; i < 3; ++i) {
+                    logged.variables[variable * 3 + i] = static_cast<std::uint8_t>(value >> (8 * i) & 0xFF);
+                }
+            }
+            if (open) {
+                open->messages.push_back(logged);
+            }
+        } else if (kind == "snapshot") {
+            continue;
         } else {
             fail("not a trace event");
         }
     }
     return calls;
+}
+
+std::vector<TracedEnding> parseEndings(std::istream& log) {
+    std::vector<TracedEnding> endings;
+    // The endings entered and not yet returned from, innermost last, and which of their two
+    // snapshots each range line fills.
+    std::vector<std::pair<TracedEnding, bool>> open;
+    std::string text;
+    int number = 0;
+    const auto fail = [&](const std::string& why) {
+        throw std::runtime_error("trace line " + std::to_string(number) + ": " + why + ": " + text);
+    };
+    const auto hex = [&](const std::string& word, std::uint32_t most) {
+        std::size_t used = 0;
+        unsigned long value = 0;
+        try {
+            value = std::stoul(word, &used, 16);
+        } catch (const std::exception&) {
+            fail("not a hex number");
+        }
+        if (used != word.size() || value > most) {
+            fail("not a hex number");
+        }
+        return static_cast<std::uint32_t>(value);
+    };
+    const auto address = [&](const std::string& word) {
+        if (word.size() != 8 || word[0] != '$' || word[3] != ':') {
+            fail("not an address");
+        }
+        return hex(word.substr(1, 2), 0xFF) << 16 | hex(word.substr(4), 0xFFFF);
+    };
+    while (std::getline(log, text)) {
+        ++number;
+        if (text.size() < 2 || text[0] != 'f' || !std::isdigit(static_cast<unsigned char>(text[1]))) {
+            continue;
+        }
+        std::istringstream in{text};
+        std::string frameWord;
+        std::string kind;
+        in >> frameWord >> kind;
+        std::uint64_t frame = 0;
+        try {
+            frame = std::stoull(frameWord.substr(1));
+        } catch (const std::exception&) {
+            fail("not a frame");
+        }
+        if (kind == "message") {
+            std::string message;
+            in >> message;
+            LoggedMessage logged{.message = static_cast<std::uint8_t>(hex(message, 0xFF))};
+            for (std::size_t variable = 0; variable < 4; ++variable) {
+                std::string word;
+                in >> word;
+                if (word.size() != 6) {
+                    fail("not a message variable");
+                }
+                const std::uint32_t value = hex(word, 0xFFFFFF);
+                for (std::size_t i = 0; i < 3; ++i) {
+                    logged.variables[variable * 3 + i] = static_cast<std::uint8_t>(value >> (8 * i) & 0xFF);
+                }
+            }
+            for (auto& [ending, returned] : open) {
+                ending.messages.push_back(logged);
+            }
+            continue;
+        }
+        if (kind != "snapshot") {
+            continue;
+        }
+        std::string name;
+        std::string word;
+        in >> name >> word;
+        if (word == "enter") {
+            std::string at;
+            in >> at;
+            address(at);
+            open.emplace_back(TracedEnding{.routine = name, .frame = frame}, false);
+            continue;
+        }
+        if (open.empty() || open.back().first.routine != name) {
+            continue;
+        }
+        if (word == "return") {
+            std::string at;
+            in >> at;
+            open.back().first.returnedTo = address(at);
+            open.back().second = true;
+            continue;
+        }
+        if (word == "handed") {
+            std::string message;
+            in >> message;
+            open.back().first.handedMessage =
+                message == "--" ? std::optional<std::uint8_t>{}
+                                : std::optional<std::uint8_t>{static_cast<std::uint8_t>(hex(message, 0xFF))};
+            continue;
+        }
+        const std::uint32_t first = address(word);
+        std::string bytes;
+        in >> bytes;
+        if (bytes.size() % 2 != 0) {
+            fail("not a range's bytes");
+        }
+        auto& [ending, returned] = open.back();
+        std::map<std::uint32_t, std::uint8_t>& cells = returned ? ending.left : ending.entry;
+        for (std::size_t i = 0; i < bytes.size(); i += 2) {
+            cells[first + static_cast<std::uint32_t>(i / 2)] = static_cast<std::uint8_t>(hex(bytes.substr(i, 2), 0xFF));
+        }
+        // The return's last range closes the ending.
+        const TracedRange& last = kEndingRanges.back();
+        if (returned && first == last.at) {
+            endings.push_back(std::move(ending));
+            open.pop_back();
+        }
+    }
+    return endings;
+}
+
+MessageShown messageShownBy(const LoggedMessage& logged) {
+    GraphicsCall call{.command = kPlayBattleScript};
+    call.script[0] = kShowMessageScriptCommand;
+    call.script[1] = logged.message;
+    call.messageVariables = logged.variables;
+    return *messageShown(call);
 }
 
 // --- replaying a traced call ---------------------------------------------------------------------
@@ -2386,6 +2729,10 @@ std::string DamageOracle::replay(const TracedCall& call) {
     }
     if (routine.entry == kDoAttackerEffect || routine.entry == kDoTargetEffect) {
         return replayEffectCall(call, routine, bounce);
+    }
+    if (routine.entry == kAddExp || routine.entry == kLearnItemMagic || routine.entry == kLearnAbilities ||
+        routine.entry == kLearnRage) {
+        return replayRewardCall(call, routine);
     }
     if (routine.partyRecords) {
         return replayRecordCall(call, routine);
@@ -6211,17 +6558,35 @@ RewardResult startingResult(const RewardScenario& scenario) {
                         .levelMessageToTell = scenario.levelMessageToTell};
 }
 
-// The abilities a level teaches and what the win tells of them: a technique or a blitz told of the
-// first time in the win.
-void tellAbilities(RewardResult& result, CharacterPropId actor, std::uint8_t level) {
-    const battle::AbilitiesLearned learned = battle::learnAbilitiesAtLevel(result.cells.party, actor, level);
-    if (learned.swdtech && !result.flags.techniqueMessageShown) {
-        result.flags.techniqueMessageShown = true;
-        result.messages.push_back({.message = battle::kMessageMasteredATechnique});
-    }
-    if (learned.blitz && !result.flags.blitzMessageShown) {
-        result.flags.blitzMessageShown = true;
-        result.messages.push_back({.message = battle::kMessageDevisedABlitz});
+// A battle holding `result`'s party, for the win's own steps to work on.
+battle::BattleState battleHolding(const RewardResult& result) {
+    battle::BattleState state;
+    state.party = result.cells.party;
+    state.version = GameVersion::US_1_1;
+    return state;
+}
+
+// The win's two once-only messages as `result` keeps them.
+battle::AbilityMessagesShown abilityMessagesOf(const RewardResult& result) {
+    return {.swdtech = result.flags.techniqueMessageShown, .blitz = result.flags.blitzMessageShown};
+}
+
+// `state`'s party, the once-only messages and every message the steps told, put back into `result`.
+void takeBack(RewardResult& result, const battle::BattleState& state, const battle::AbilityMessagesShown& shown) {
+    result.cells.party = state.party;
+    result.flags.techniqueMessageShown = shown.swdtech;
+    result.flags.blitzMessageShown = shown.blitz;
+    for (const battle::BattleRequest& request : state.requests) {
+        const auto* script = std::get_if<battle::RunBattleScript>(&request);
+        if (script == nullptr) {
+            continue;
+        }
+        for (const battle::BattleScriptCommand& command : script->commands) {
+            if (const auto* message = std::get_if<battle::BattleMessage>(&command)) {
+                result.messages.push_back(
+                    {.message = message->message, .first = message->firstNumber, .second = message->secondNumber});
+            }
+        }
     }
 }
 
@@ -6363,10 +6728,25 @@ const std::vector<GraphicsCall>& DamageOracle::graphicsCommand(std::uint8_t comm
     return graphicsCalls_;
 }
 
+namespace {
+
+// The win's steps among kTracedRoutines, closed by the oracle when it calls one itself.
+const TracedRoutine& kTracedAddExp = kTracedRoutines[15];
+const TracedRoutine& kTracedLearnItemMagic = kTracedRoutines[16];
+const TracedRoutine& kTracedLearnAbilities = kTracedRoutines[17];
+const TracedRoutine& kTracedLearnRage = kTracedRoutines[18];
+static_assert(kTracedRoutines[15].entry == kAddExp && kTracedRoutines[16].entry == kLearnItemMagic &&
+              kTracedRoutines[17].entry == kLearnAbilities && kTracedRoutines[18].entry == kLearnRage);
+
+}  // namespace
+
 RewardResult DamageOracle::addExperience(const RewardScenario& scenario) {
     writeRewardScenario(scenario);
     const auto record = static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords);
-    return callReward( [&] { addExp_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+    return callReward([&] {
+        addExp_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+        trace_->returnToFrame(kTracedAddExp);
+    });
 }
 
 RewardResult DamageOracle::learnFromEquipment(const RewardScenario& scenario) {
@@ -6377,8 +6757,10 @@ RewardResult DamageOracle::learnFromEquipment(const RewardScenario& scenario) {
     writeRewardScenario(scenario);
     writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(actor) & 0xFFFF));
     const auto record = static_cast<std::uint16_t>(recordAt(scenario.recordIndex) - kCharacterRecords);
-    return callReward(
-                      [&] { learnItemMagic_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+    return callReward([&] {
+        learnItemMagic_(record, kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+        trace_->returnToFrame(kTracedLearnItemMagic);
+    });
 }
 
 RewardResult DamageOracle::levelUps(const RewardScenario& scenario) {
@@ -6398,13 +6780,130 @@ RewardResult DamageOracle::learnAbilities(const RewardScenario& scenario) {
     writeWord(kSpellListPlace, static_cast<std::uint16_t>(spellListAt(scenario.actor) & 0xFFFF));
     const auto actorAndLevel =
         static_cast<std::uint16_t>(static_cast<std::uint8_t>(scenario.actor) | scenario.level << 8);
-    return callReward(
-                      [&] { learnAbilities_(actorAndLevel, kWideIndexStatus, kBattleDataBank, kBattleDirectPage); });
+    return callReward([&] {
+        trace_->readForAbilities(static_cast<std::uint8_t>(scenario.actor), scenario.level);
+        learnAbilities_(actorAndLevel, kWideIndexStatus, kBattleDataBank, kBattleDirectPage);
+        trace_->returnToFrame(kTracedLearnAbilities);
+    });
 }
 
 RewardResult DamageOracle::learnRages(const RewardScenario& scenario) {
     writeRewardScenario(scenario);
-    return callReward( [&] { learnRage_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return callReward([&] {
+        learnRage_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+        trace_->returnToFrame(kTracedLearnRage);
+    });
+}
+
+RewardScenario DamageOracle::readRewardScenario() {
+    RewardScenario s;
+    s.cells = readParty();
+    const std::vector<std::uint8_t> switches =
+        machine_.read(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables});
+    std::copy(switches.begin(), switches.end(), s.switches.variables.begin());
+    const std::uint8_t flags = readByte(kWinFlags);
+    s.flags = WinFlags{.curseDispelled = (flags & kCurseDispelledBit) != 0,
+                       .magicPointsEarned = (flags & kMagicPointsEarnedBit) != 0,
+                       .catHoodCounted = (flags & kCatHoodCountedBit) != 0,
+                       .techniqueMessageShown = (flags & kTechniqueToldBit) != 0,
+                       .blitzMessageShown = (flags & kBlitzToldBit) != 0,
+                       .partyHasMagicite = (readByte(kPartyHasMagicite) & kMagiciteBit) != 0};
+    s.levelMessageToTell = readByte(kLevelMessage) != 0;
+    s.magicPoints = readByte(kMagicPoints);
+    s.share = 0;
+    for (std::uint32_t i = 0; i < kMessageVariableSize; ++i) {
+        s.share |= static_cast<std::uint32_t>(readByte(kMessageVariables + i)) << (8 * i);
+    }
+    s.partySlot = readByte(kMessageVariables + kMessageVariableSize);
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        const std::uint16_t monster = readWord(kMonsterIndex + slotIndex(battle::BattlerSlot::monster(position)));
+        s.monsters[static_cast<std::size_t>(position)] =
+            monster == kEmptyMonsterSlot ? std::nullopt : std::optional<MonsterId>(static_cast<MonsterId>(monster));
+    }
+    return s;
+}
+
+namespace {
+
+// The one character record whose cells `call` read or wrote, or nothing when it touched none.
+std::optional<std::size_t> recordTouched(const TracedCall& call) {
+    std::optional<std::size_t> index;
+    for (const auto* cells : {&call.inputs, &call.writes}) {
+        for (const auto& [cell, value] : *cells) {
+            if (cell < kCharacterRecords || cell >= recordAt(game::kCharacterRecords)) {
+                continue;
+            }
+            const std::size_t in = (cell - kCharacterRecords) / kRecordSize;
+            if (index && *index != in) {
+                throw std::runtime_error(call.routine + " touched more than one character record");
+            }
+            index = in;
+        }
+    }
+    return index;
+}
+
+}  // namespace
+
+std::string DamageOracle::replayRewardCall(const TracedCall& call, const TracedRoutine& routine) {
+    // The step as a plain scenario, then every cell the routine read as it read it.
+    RewardScenario plain;
+    const bool onARecord = routine.entry == kAddExp || routine.entry == kLearnItemMagic;
+    if (onARecord) {
+        const std::optional<std::size_t> record = recordTouched(call);
+        if (!record) {
+            throw std::runtime_error(call.routine + " touched no character record");
+        }
+        plain.recordIndex = *record;
+    }
+    writeRewardScenario(plain);
+    for (const auto& [cell, value] : call.inputs) {
+        writeByte(cell, value);
+    }
+    RewardScenario s = readRewardScenario();
+    s.recordIndex = plain.recordIndex;
+
+    RewardResult port;
+    if (routine.entry == kAddExp) {
+        port = portAddExperience(s);
+    } else if (routine.entry == kLearnItemMagic) {
+        // The spells learned are the list the win's place for them names, whoever the record says it
+        // is; a call that never read the place taught nothing, and the list it names does not matter.
+        game::CharacterRecord& record = s.cells.party.characters[s.recordIndex];
+        const CharacterPropId actor = record.actor;
+        if (call.inputs.contains(kSpellListPlace)) {
+            const std::uint32_t place = kWorkRam | readWord(kSpellListPlace);
+            if (place < kSpellsKnown || (place - kSpellsKnown) % game::kLearnableSpells != 0 ||
+                (place - kSpellsKnown) / game::kLearnableSpells >= game::kSpellLearners) {
+                throw std::runtime_error("LearnItemMagic's spell list place names no character's spells");
+            }
+            record.actor = static_cast<CharacterPropId>((place - kSpellsKnown) / game::kLearnableSpells);
+        } else if (static_cast<std::size_t>(record.actor) >= game::kSpellLearners) {
+            record.actor = CharacterPropId::TERRA;
+        }
+        port = portLearnFromEquipment(s);
+        port.cells.party.characters[s.recordIndex].actor = actor;
+    } else if (routine.entry == kLearnAbilities) {
+        if (!call.abilitiesActor || !call.abilitiesLevel) {
+            throw std::runtime_error("LearnAbilities was entered with no actor and level read before it");
+        }
+        s.actor = static_cast<CharacterPropId>(*call.abilitiesActor);
+        s.level = *call.abilitiesLevel;
+        port = portLearnAbilities(s);
+    } else {
+        port = portLearnRages(s);
+    }
+
+    // The cartridge's side: the cells as the call left them, and the messages it showed.
+    for (const auto& [cell, value] : call.writes) {
+        writeByte(cell, value);
+    }
+    graphicsCalls_.clear();
+    RewardResult guest = readRewardResult();
+    for (const LoggedMessage& message : call.messages) {
+        guest.messages.push_back(messageShownBy(message));
+    }
+    return differences(port, guest);
 }
 
 RewardResult portAddExperience(const RewardScenario& scenario) {
@@ -6426,21 +6925,20 @@ RewardResult portLearnFromEquipment(const RewardScenario& scenario) {
 
 RewardResult portLevelUps(const RewardScenario& scenario) {
     RewardResult result = startingResult(scenario);
-    game::CharacterRecord& record = result.cells.party.characters[scenario.recordIndex];
-    while (battle::earnedNextLevel(record)) {
-        if (result.levelMessageToTell) {
-            result.levelMessageToTell = false;
-            result.messages.push_back({.message = battle::kMessageGainedALevel, .second = scenario.partySlot});
-        }
-        battle::levelUp(record, GameVersion::US_1_1);
-        tellAbilities(result, record.actor, record.level);
-    }
+    battle::BattleState state = battleHolding(result);
+    battle::AbilityMessagesShown shown = abilityMessagesOf(result);
+    result.levelMessageToTell = battle::reachEarnedLevels(state, state.party.characters[scenario.recordIndex],
+                                                          scenario.partySlot, scenario.levelMessageToTell, shown);
+    takeBack(result, state, shown);
     return result;
 }
 
 RewardResult portLearnAbilities(const RewardScenario& scenario) {
     RewardResult result = startingResult(scenario);
-    tellAbilities(result, scenario.actor, scenario.level);
+    battle::BattleState state = battleHolding(result);
+    battle::AbilityMessagesShown shown = abilityMessagesOf(result);
+    battle::learnLevelAbilities(state, scenario.actor, scenario.level, shown);
+    takeBack(result, state, shown);
     return result;
 }
 
@@ -6759,10 +7257,11 @@ constexpr std::uint32_t kBattlersAlive = kWorkRam + 0x3A74;
 constexpr std::uint32_t kEnemiesAlive = kWorkRam + 0x3A77;
 constexpr std::uint32_t kActorsBattler = kWorkRam + 0x3000;
 constexpr std::size_t kActorsWithABattler = 16;
-// The battle's: the colosseum (nonzero), the wager and the prize; the battle's number (a word); the
+// The battle's: the formation (a word); the colosseum (nonzero), the wager and the prize; the battle's number (a word); the
 // field's flags (bit 1 the Veldt, bit 3 the field's music playing on, a word) and the background (a
 // word); the formation's four bytes; Doom Gaze's battler; the battles Gau can find on the Veldt, a
 // bit each; the message variables.
+constexpr std::uint32_t kFormationCell = kWorkRam + 0x11E0;
 constexpr std::uint32_t kColosseumCell = kWorkRam + 0x3A97;
 constexpr std::uint8_t kInTheColosseum = 0xFF;
 constexpr std::uint32_t kWagerCell = kWorkRam + 0x0205;
@@ -6929,6 +7428,13 @@ std::vector<EndingCall> portCalls(std::span<const battle::BattleRequest> request
     }
     return calls;
 }
+
+// The endings among kSnapshotRoutines, closed by the oracle when it calls one itself.
+const SnapshotRoutine& kSnapshotWin = kSnapshotRoutines[0];
+const SnapshotRoutine& kSnapshotLoss = kSnapshotRoutines[1];
+const SnapshotRoutine& kSnapshotWrapUp = kSnapshotRoutines[2];
+static_assert(kSnapshotRoutines[0].entry == kWinBattle && kSnapshotRoutines[1].entry == kLoseBattle &&
+              kSnapshotRoutines[2].entry == kWrapUp);
 
 // The graphics command that celebrates a win, and the battle script command a step back is.
 constexpr std::uint8_t kVictoryCommand = 0x08;
@@ -7144,6 +7650,7 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
     writeByte(kWagerCell, static_cast<std::uint8_t>(state.colosseumWager.value_or(ItemId::EMPTY)));
     writeByte(kPrizeCell, static_cast<std::uint8_t>(state.colosseumPrize.value_or(ItemId::EMPTY)));
     writeWord(kBattleNumber, static_cast<std::uint16_t>(state.startingFormation));
+    writeWord(kFormationCell, static_cast<std::uint16_t>(state.formation));
     writeWord(kFieldFlags, static_cast<std::uint16_t>((state.onTheVeldt ? kOnTheVeldtBit : 0) |
                                                       (state.keepFieldMusic ? kFieldMusicPlaysOnBit : 0)));
     writeWord(kBackgroundCell, static_cast<std::uint16_t>(state.background));
@@ -7184,12 +7691,16 @@ EndingResult DamageOracle::readEndingResult() {
     return result;
 }
 
-EndingResult DamageOracle::callEnding(const EndingScenario& scenario, const std::function<void()>& routine) {
+EndingResult DamageOracle::callEnding(const EndingScenario& scenario, const SnapshotRoutine& snapshot,
+                                      const std::function<void()>& routine) {
     writeEndingScenario(scenario);
     graphicsCalls_.clear();
     unansweredGraphics_.reset();
     machine_.escapes()[kGraphicsKey].armed(true);
-    call(routine);
+    call([&] {
+        routine();
+        trace_->returnFromSnapshot(snapshot);
+    });
     machine_.escapes()[kGraphicsKey].armed(false);
     if (unansweredGraphics_) {
         throw std::runtime_error("the ending called graphics command " + std::to_string(*unansweredGraphics_) +
@@ -7199,17 +7710,157 @@ EndingResult DamageOracle::callEnding(const EndingScenario& scenario, const std:
 }
 
 EndingResult DamageOracle::wrapUp(const EndingScenario& scenario) {
-    return callEnding(scenario, [&] { wrapUp_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return callEnding(scenario, kSnapshotWrapUp,
+                      [&] { wrapUp_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
 }
 
 EndingResult DamageOracle::win(const EndingScenario& scenario) {
-    return callEnding(scenario, [&] { winBattle_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return callEnding(scenario, kSnapshotWin,
+                      [&] { winBattle_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
 }
 
 EndingResult DamageOracle::loss(const EndingScenario& scenario, std::optional<std::uint8_t> message) {
-    return callEnding(scenario, [&] {
+    return callEnding(scenario, kSnapshotLoss, [&] {
+        trace_->handOverLossMessage(message);
         loseBattle_(message.value_or(kNoOne), kByteWideStatus, kBattleDataBank, kBattleDirectPage);
     });
+}
+
+EndingScenario DamageOracle::readEndingScenario() {
+    EndingScenario s;
+    s.cells = readParty();
+    battle::BattleState& state = s.state;
+    state.version = GameVersion::US_1_1;
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        battle::Battler& battler = state.battlers[i];
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        const std::uint32_t at = slotIndex(slot);
+        battler.status = StatusSet{{readByte(kStatus12 + at), readByte(kStatus12 + at + 1), readByte(kStatus34 + at),
+                                    readByte(kStatus34 + at + 1)}};
+        battler.relicEffects4.bits = readByte(kRelicEffects4And5 + at);
+        battler.relicEffects5.bits = readByte(kRelicEffects4And5 + at + 1);
+        battler.hp = readWord(kHp + at);
+        battler.mp = readWord(kMp + at);
+        battler.maxMp = readWord(kMaxMp + at);
+        if (slot.isCharacter()) {
+            const std::size_t position = static_cast<std::size_t>(slot.position());
+            const std::uint8_t actor = readByte(kPartyActor + at);
+            const std::uint8_t record = readByte(kPartyRecord + at);
+            if (actor != kNoOne) {
+                battler.actor = static_cast<CharacterPropId>(actor);
+            }
+            if (record != kNoOne) {
+                battler.record = record;
+            }
+            battler.present = battler.actor.has_value();
+            const std::uint16_t equipsAs = readWord(kPartyMemberBit + at);
+            battler.equipsAs.lo = static_cast<std::uint8_t>(equipsAs & 0xFF);
+            battler.equipsAs.hi = static_cast<std::uint8_t>(equipsAs >> 8);
+            const std::uint8_t held = readByte(kItemInHand + at);
+            if (held != kNoOne) {
+                battler.itemInHand = static_cast<ItemId>(held);
+            }
+            battler.morphGauge = readByte(kMorphMeterShown + at);
+            if (readByte(kEquipmentChanged + static_cast<std::uint32_t>(position)) != 0) {
+                throw std::runtime_error("party slot " + std::to_string(position) +
+                                         " has an equipment change pending, which the ending's replay does not rebuild");
+            }
+        } else {
+            const auto monster = static_cast<std::uint32_t>(slot.position() * 2);
+            const std::uint16_t index = readWord(kMonsterIndex + at);
+            if (index != kEmptyMonsterSlot) {
+                battler.monster = static_cast<MonsterId>(index);
+            }
+            battler.present = battler.monster.has_value();
+            battler.experience = readWord(kMonsterExperience + monster);
+            battler.gold = readWord(kMonsterGold + monster);
+        }
+    }
+    state.alive = setOf(readWord(kBattlersAlive));
+    state.allyCount = readByte(kAllyCount);
+    state.enemyCount = readByte(kEnemiesAlive);
+    for (std::size_t lore = 0; lore < state.loresLearned.size(); ++lore) {
+        state.loresLearned.set(lore, (readByte(kLoresLearned + static_cast<std::uint32_t>(lore / 8)) >> (lore % 8) & 1) != 0);
+    }
+    state.colosseum = readByte(kColosseumCell) != 0;
+    if (state.colosseum) {
+        state.colosseumWager = static_cast<ItemId>(readByte(kWagerCell));
+        state.colosseumPrize = static_cast<ItemId>(readByte(kPrizeCell));
+    }
+    state.startingFormation = static_cast<FormationId>(readWord(kBattleNumber));
+    state.formation = static_cast<FormationId>(readWord(kFormationCell));
+    const std::uint16_t field = readWord(kFieldFlags);
+    state.onTheVeldt = (field & kOnTheVeldtBit) != 0;
+    state.keepFieldMusic = (field & kFieldMusicPlaysOnBit) != 0;
+    state.background = static_cast<BattleBackgroundId>(readWord(kBackgroundCell));
+    // The fanfare is off by the formation, or by the battle once Shadow has left.
+    state.noVictoryFanfare = (readByte(kFormationBytes + 1) & kFanfareOffBit) != 0 &&
+                             (getFormationAux(state.formation).flags & kFanfareOffBit) == 0;
+    state.takenFromTheParty = battle::BattlerSet{BattleSlotMask(readByte(kTakenFromTheParty)), BattleSlotMask{}};
+    const std::uint8_t doomGaze = readByte(kDoomGazeBattler);
+    if (doomGaze != kNoOne) {
+        state.doomGaze = battle::BattlerSlot::fromIndex(doomGaze / 2);
+    }
+    const std::vector<std::uint8_t> switches =
+        machine_.read(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables});
+    std::copy(switches.begin(), switches.end(), state.switches.variables.begin());
+    state.rng = battle::BattleRng{readByte(kRngPosition)};
+    state.holdingItem = battle::BattlerSet{BattleSlotMask(readByte(kHoldingItem)), BattleSlotMask{}};
+    const std::uint8_t morphed = readByte(kMorphedPartyMember);
+    if (morphed != kNoOne) {
+        state.morphedBattler = battle::BattlerSlot::fromIndex(morphed / 2);
+    }
+    state.morphCounter = readWord(kMorphMeter);
+    state.menusDisabled = (readByte(kEndingFlags) & kMenusClosedBit) != 0;
+    state.inventory.items = readInventory();
+    state.itemsObtained = readItemsObtained();
+    state.party = s.cells.party;
+    return s;
+}
+
+std::string DamageOracle::replayEnding(const TracedEnding& ending) {
+    const auto routine = std::find_if(kSnapshotRoutines.begin(), kSnapshotRoutines.end(),
+                                      [&](const SnapshotRoutine& r) { return ending.routine == r.name; });
+    if (routine == kSnapshotRoutines.end()) {
+        throw std::runtime_error("the trace names an ending it does not follow: " + ending.routine);
+    }
+    if (ending.entry.empty() || ending.left.empty()) {
+        throw std::runtime_error(ending.routine + "'s snapshots are not both in the trace");
+    }
+    for (const auto& [cell, value] : ending.entry) {
+        writeByte(cell, value);
+    }
+    const EndingScenario s = readEndingScenario();
+    EndingResult port;
+    if (routine->entry == kWinBattle) {
+        port = portWin(s);
+    } else if (routine->entry == kLoseBattle) {
+        // The message its caller hands over: the one logged where the caller said, otherwise as the
+        // cartridge's two calls hand it — Banon fell, from his own ending; the party annihilated from
+        // the end check, or none in the colosseum.
+        const bool banon = ending.returnedTo == routine->returns[1];
+        const std::optional<std::uint8_t> handed =
+            ending.handedMessage ? *ending.handedMessage
+            : banon              ? std::optional<std::uint8_t>{battle::kMessageBanonFell}
+            : s.state.colosseum  ? std::nullopt
+                                 : std::optional<std::uint8_t>{battle::kMessageAnnihilated};
+        port = portLoss(s, handed);
+    } else {
+        port = portWrapUp(s);
+    }
+
+    for (const auto& [cell, value] : ending.left) {
+        writeByte(cell, value);
+    }
+    graphicsCalls_.clear();
+    EndingResult guest = readEndingResult();
+    // The trace logs what an ending shows as its messages alone, so both sides are compared on those.
+    std::erase_if(port.calls, [](const EndingCall& call) { return call.kind != EndingCall::Kind::Message; });
+    guest.calls.clear();
+    for (const LoggedMessage& message : ending.messages) {
+        guest.calls.push_back(EndingCall{.kind = EndingCall::Kind::Message, .message = messageShownBy(message)});
+    }
+    return differences(port, guest);
 }
 
 WriteBackResult DamageOracle::writeBack(const EndingScenario& scenario) {

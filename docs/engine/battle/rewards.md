@@ -25,7 +25,7 @@ The rules, and the line of the original each is read from, are in
 |---|---|
 | `src/battle/rewards.h` | `spoilsOf()`, `experienceShare()`, `addExperience()`, `earnedNextLevel()`, `learnAbilitiesAtLevel()`, `learnFromEquipment()`, `learnLores()`, `learnDance()`, `gainMorphSupply()`, `learnRages()`; `BattleSpoils`, `AbilitiesLearned`, `EquipmentLearning` |
 | `src/battle/rewards.cpp` | the three-byte mask, the fallen statuses, the level scale, the Morph supply's limit and the rage bound as named constants; the console's divide |
-| `src/battle/battle_end.h` | `playBattleEnd()`, what each ending runs: the win whole, the loss, the special endings; `wrapUpBattle()`, the close every ending but two runs; `kWrapUpWaitFrames`, `kRareDropBelow` |
+| `src/battle/battle_end.h` | `playBattleEnd()`, what each ending runs: the win whole, the loss, the special endings; `wrapUpBattle()`, the close every ending but two runs; `reachEarnedLevels()` and `learnLevelAbilities()`, a member's levels and what they teach with the win's messages for them, and `AbilityMessagesShown`; `kWrapUpWaitFrames`, `kRareDropBelow` |
 | `src/battle/command_executor.h` | `CommandExecutor::playBattleEnd()`, which calls `playBattleEnd()` |
 | `src/battle/battle_requests.h` | `VictoryFanfare`, the fanfare a win asks for |
 | `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `battleItemFromRecord()` and `recordOf()`, an item's five-byte form on the cartridge; `kMostOfOneItem` |
@@ -39,7 +39,8 @@ The rules, and the line of the original each is read from, are in
 | `src/data/item_properties.h` | `getItemProperties()`: each item's spell and learn rate |
 | `src/data/battle_tables.h` | `backgroundDance()`: the dance each battle background teaches |
 | `include/ostinato/game_limits.h` | `kMaxExperience` (15,000,000), `kMaxGil` (9,999,999) |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; `wrapUp()` over an `EndingScenario`; `addItemObtained()` and `mergeItemsObtained()` over an `ItemsObtainedScenario`; `itemsObtainedTailAtPowerOn()`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them |
+| `tools/damage-trace/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; `wrapUp()`, `win()`, `loss()` and `writeBack()` over an `EndingScenario`; `addItemObtained()` and `mergeItemsObtained()` over an `ItemsObtainedScenario`; `itemsObtainedTailAtPowerOn()`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them; `DamageTrace`, `parseTrace()`, `parseEndings()`, `replay()` and `replayEnding()`, the cartridge's own battle ends traced and replayed |
+| `tests/fixtures/damage-trace/rewards-win.log`, `rewards-loss.log` | the first fight in Narshe won and lost on the cartridge, traced |
 
 ## Experience and gold
 
@@ -67,26 +68,28 @@ A character at 99 still gains experience; only the levels stop.
 ## Levels and what they teach
 
 `earnedNextLevel()` says whether a record has the experience for its next level: 8 times the sum of the
-steps up to it. A win levels a record up for as long as it does, and each level teaches what it
-teaches:
+steps up to it. `reachEarnedLevels()` levels a record up for as long as it does — `levelUp()`, then
+`learnLevelAbilities()` for the new level — and tells of it as the win does:
 
 ```cpp
-#include "battle/leveling.h"
+#include "battle/battle_end.h"
 
-bool toldOfALevel = false;
-bool toldOfATechnique = false;
-while (battle::earnedNextLevel(record)) {
-    if (!toldOfALevel) {
-        toldOfALevel = true;   // "Terra gained a level", once however many levels
-    }
-    battle::levelUp(record, state.version);
-    const battle::AbilitiesLearned learned =
-        battle::learnAbilitiesAtLevel(state.party, record.actor, record.level);
-    if (learned.swdtech && !toldOfATechnique) {
-        toldOfATechnique = true;   // "Mastered a new technique!", once in the win
+battle::AbilityMessagesShown shown;   // one for the whole win, shared by every member
+for (int position = battle::kPartySlots - 1; position >= 0; --position) {
+    const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+    const battle::Battler& member = state.at(slot);
+    if (state.alive.has(slot) && member.record) {   // each living member, last slot first
+        battle::reachEarnedLevels(state, state.party.characters[*member.record],
+                                  static_cast<std::uint32_t>(position), true, shown);
     }
 }
 ```
+
+"Gained a level" is told once per member, naming its party slot, however many levels it gains; it is
+told only while the fourth argument is set, and the call returns whether it still is. "Mastered a new
+technique!" and "Devised a new blitz!" are told once per win: `AbilityMessagesShown` records which have
+been. `learnLevelAbilities()` is the step on its own — `learnAbilitiesAtLevel()` and those two messages
+— and `learnAbilitiesAtLevel()` learns with no messages at all.
 
 | Actor | At a level |
 |---|---|
@@ -268,6 +271,30 @@ compared on the numbers its text shows and the celebration on whether the fanfar
 `writeBack()` runs what the game keeps against `battle::writeBack()`. `--check` runs these as
 `items-obtained`, `items-merged`, `wrap-up`, `win`, `loss` and `write-back`.
 
+The trace (`DamageTrace`) follows the same routines in a running game. `AddExp`, `LearnItemMagic`,
+`LearnAbilities` and `LearnRage` are logged call by call — every cell read and written — and the win, the
+loss and the wrap-up whole: every cell of `kEndingRanges` as the ending found it and as it left it,
+with each battle message shown between. `parseTrace()` and `parseEndings()` read a log back;
+`replay()` rebuilds a step as a `RewardScenario` and `replayEnding()` an ending as an `EndingScenario`,
+run the port over it and compare:
+
+```cpp
+std::ifstream log{"tests/fixtures/damage-trace/rewards-win.log"};
+const std::vector<trace::TracedEnding> endings = trace::parseEndings(log);
+
+trace::runOnLoop([&] {
+    trace::DamageOracle oracle{image};
+    oracle.start();
+    for (const trace::TracedEnding& ending : endings) {
+        const std::string apart = oracle.replayEnding(ending);   // ""
+    }
+});
+```
+
+`rewards-win.log` is the first fight in Narshe won with Terra one share short of level 6, which teaches
+her Antdot, and a guard dropping a Tonic; `rewards-loss.log` is the same fight lost.
+`tools/damage-trace/README.md` has the runs that made them.
+
 ## Gotchas
 
 - **The share drops its remainder.** 301 experience between 4 allies is 75 each.
@@ -321,6 +348,7 @@ compared on the numbers its text shows and the celebration on whether the fanfar
 | The experience cap | `kMaxExperience` in `include/ostinato/game_limits.h` (generated from `include/const.inc` by `tools/asm_parser/parse_const_enums.py`) |
 | The experience a level needs | `kLevelExperienceScale` in `src/battle/rewards.cpp`; the steps in `src/data/generated/level_up_data.inc` |
 | What a level teaches | `learnAbilitiesAtLevel()` in `src/battle/rewards.cpp`; the tables in `src/data/generated/natural_magic_data.inc` and `level_up_data.inc` |
+| How the levels are told of | `reachEarnedLevels()` and `learnLevelAbilities()` in `src/battle/battle_end.cpp` |
 | The Cursed Shield | `learnFromEquipment()` in `src/battle/rewards.cpp` |
 | The Morph supply's limit | `kMostMorphSupply` in `src/battle/rewards.cpp` |
 | Which monsters have rages | `kMonstersWithRages` in `src/battle/rewards.cpp` |
@@ -338,3 +366,5 @@ compared on the numbers its text shows and the celebration on whether the fanfar
 | The party's cells the oracle writes and reads | `partyImage()`, `writeParty()` and `readParty()` in `tools/damage-trace/damage_oracle.cpp` |
 | How the oracle answers the graphics program | `answerGraphics()` in `tools/damage-trace/damage_oracle.cpp` |
 | What text reads which message variable | `kMessageVariableReads` in `tools/damage-trace/damage_oracle.cpp` |
+| The routines the trace follows, and the cells an ending's snapshot holds | `kTracedRoutines`, `kSnapshotRoutines` and `kEndingRanges` in `tools/damage-trace/damage_oracle.h` |
+| How a traced ending is rebuilt | `readEndingScenario()` and `replayEnding()` in `tools/damage-trace/damage_oracle.cpp` |

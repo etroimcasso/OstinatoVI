@@ -772,13 +772,15 @@ gtest_discover_tests(ostinato-vi-battle-ai-tests)
 # What a won battle gives the party: experience and gold, the levels reached, the abilities and
 # spells learned, the lores, the dance, the Morph supply and the rages, each worked out by hand from
 # the original and checked against the cartridge's own routines, run on the hosted cartridge over the
-# same party (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+# same party (tools/damage-trace/damage_oracle), and the cartridge's own battle ends, traced and
+# recorded, replayed against the port. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-rewards-tests
     tests/test_rewards.cpp
     tests/test_rewards_oracle.cpp
     tests/test_items_obtained.cpp
     tests/test_battle_end.cpp
     tests/test_battle_end_oracle.cpp
+    tests/test_rewards_trace.cpp
     tools/damage-trace/damage_oracle.cpp)
 target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})

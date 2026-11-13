@@ -13,10 +13,12 @@
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and fifteen of its battle routines are traced (trace::DamageTrace): escapes on each
+// keyboard or a gamepad, and nineteen of its battle routines are traced (trace::DamageTrace): escapes on each
 // routine's entry and on the instructions its callers return to open and close a call, the attack's
 // context logged at each entry, and watches over every cell the routines read or write log each
-// access made inside a call, in order, with its address and byte. Every call is logged — nothing is
+// access made inside a call, in order, with its address and byte. The win, the loss and the wrap-up are
+// traced whole, as every cell of their ranges on entry and on return, and every battle message shown
+// inside a traced call or ending is logged with its variables. Every call is logged — nothing is
 // filtered — to `damage-trace.log` under <directory>, in the lines damage_oracle.h names.
 //
 // The routines: the base damage (`CalcDmg`, $C2:2B9D, returning to $C2:322E), the damage to one
@@ -33,8 +35,11 @@
 // battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to $C2:013C and, for a
 // party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`, $C2:4BF4, returning to
 // $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`, `Cmd_30`, $C2:1DFA,
-// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401). The addresses are the US
-// cartridges'. --quit-after-frames closes the window after that many frames;
+// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401); and at a won battle's end, the
+// experience added (`AddExp`, $C2:6235, returning to $C2:5E4F and $C2:5E59), the spells equipment
+// teaches (`LearnItemMagic`, $C2:5FEF, returning to $C2:5E6A), the abilities a level teaches
+// (`LearnAbilities`, $C2:61B6, returning to $C2:60BF) and the rages (`LearnRage`, $C2:4A07, returning to
+// $C2:48EE). The addresses are the US cartridges'. --quit-after-frames closes the window after that many frames;
 // otherwise close it to quit.
 //
 // With --from the trace starts at a state written by --to-battle instead of at power-on, on a machine
@@ -50,8 +55,9 @@
 // With --headless nothing opens. The trace runs for --frames frames from power-on or --from, holding
 // the buttons --inputs names, on a machine with no battery file, and writes the picture of each
 // --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before its frame
-// runs (machine_state.h has the form). Each --watch logs the cartridge's every write to <count> cells of
-// work RAM from <address> on, and their bytes after every frame, to `cells.log` (CellLog has the lines).
+// runs (machine_state.h has the form), and the trace is told of them. Each --watch logs the cartridge's
+// every write to <count> cells of work RAM from <address> on, and their bytes after every frame, to
+// `cells.log` (CellLog has the lines).
 //
 // With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its state
 // is written, read back and restored on a second machine; both run on, and their memory and pictures
@@ -59,14 +65,15 @@
 //
 // With --replay nothing opens. Every call in <directory>/damage-trace.log, or the file --log names, is
 // rebuilt as a battle and worked out by the port, and the port's answer is compared with every cell the
-// cartridge wrote; each call is logged to `replay.log` with its differences, and any difference fails
-// the run.
+// cartridge wrote; every ending is rebuilt from the cells it found and played out by the port, compared
+// with the cells it left and the messages it showed. Each is logged to `replay.log` with its
+// differences, and any difference fails the run.
 //
 // With --check nothing opens. The cartridge is started as far as its reset code, its routines are bound
 // where it holds them, and <draws> scenarios drawn from a fixed seed (or --seed) are run through each
 // routine (or those --only names) and through the port. Every scenario is logged to `check.log`; a
-// disagreement is printed and fails the run. --replay-traced also traces the cartridge's calls in each
-// draw and replays them against the port.
+// disagreement is printed and fails the run. --replay-traced also traces the cartridge's calls and
+// endings in each draw and replays them against the port.
 //
 // Keys: arrows = d-pad, X = A, Z = B, S = X, A = Y, Q/W = L/R, Enter = Start, Right Shift = Select.
 
@@ -380,35 +387,23 @@ public:
             return;
         }
         log_.open(directory / "cells.log", std::ios::app);
-        // A range the trace already watches cannot be watched twice: its writes go unlogged, and its
-        // bytes are still logged every frame.
+        // A range the trace already watches cannot be watched twice: its writes come from the trace
+        // (traceWrite()), and its bytes are logged every frame like any other.
+        const std::vector<std::pair<std::uint32_t, std::uint32_t>> traced = trace::DamageTrace::watchedRanges();
         WatchMap map;
         for (std::size_t i = 0; i < watched_.size(); ++i) {
-            const bool tracedAlready = std::any_of(trace::kTracedRanges.begin(), trace::kTracedRanges.end(),
-                                                   [&](const trace::TracedRange& range) {
-                                                       return watched_[i].at < range.at + range.size &&
-                                                              range.at < watched_[i].at + watched_[i].size;
-                                                   }) ||
-                                       std::any_of(trace::kPartyRecordRanges.begin(), trace::kPartyRecordRanges.end(),
-                                                   [&](const trace::TracedRange& range) {
-                                                       return watched_[i].at < range.at + range.size &&
-                                                              range.at < watched_[i].at + watched_[i].size;
-                                                   });
+            const bool tracedAlready = std::any_of(traced.begin(), traced.end(), [&](const auto& range) {
+                return watched_[i].at < range.second && range.first < watched_[i].at + watched_[i].size;
+            });
             if (tracedAlready) {
-                char text[64];
-                std::snprintf(text, sizeof text, "writes not watched: $%02X:%04X, which the trace watches",
-                              (watched_[i].at >> 16) & 0xFF, watched_[i].at & 0xFFFF);
-                log_ << text << '\n';
+                fromTheTrace_.push_back(watched_[i]);
                 continue;
             }
             map.declarations.push_back(GuestWatch{
                 .key = "watched cells " + std::to_string(i),
                 .at = MemoryRegion{.at = watched_[i].at, .size = watched_[i].size},
                 .onWrite = [this](Vm&, std::uint32_t at, std::uint8_t value) {
-                    char text[64];
-                    std::snprintf(text, sizeof text, "write %llu $%02X:%04X %02X",
-                                  static_cast<unsigned long long>(frame_), (at >> 16) & 0xFF, at & 0xFFFF, value);
-                    log_ << text << '\n';
+                    logWrite(at, value);
                     return AccessVerdict::proceed();
                 }});
         }
@@ -439,10 +434,28 @@ public:
         }
     }
 
+    // A write the trace's own watches saw: logged when it lands in a watched range the trace covers.
+    void traceWrite(std::uint32_t at, std::uint8_t value) {
+        for (const WatchedCells& range : fromTheTrace_) {
+            if (at >= range.at && at < range.at + range.size) {
+                logWrite(at, value);
+                return;
+            }
+        }
+    }
+
 private:
     std::vector<WatchedCells> watched_;
+    std::vector<WatchedCells> fromTheTrace_;
     const std::uint64_t& frame_;
     std::ofstream log_;
+
+    void logWrite(std::uint32_t at, std::uint8_t value) {
+        char text[64];
+        std::snprintf(text, sizeof text, "write %llu $%02X:%04X %02X", static_cast<unsigned long long>(frame_),
+                      (at >> 16) & 0xFF, at & 0xFFFF, value);
+        log_ << text << '\n';
+    }
 };
 
 int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path& directory, std::uint64_t frames,
@@ -456,14 +469,19 @@ int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path
         machine.hostRom(image);
         std::uint64_t frame = 0;
         CellLog cells{machine, directory, watched, frame};
-        const trace::DamageTrace traced{machine,
+        trace::DamageTrace traced{machine,
                                         [&](const std::string& line) {
                                             log << line << '\n';
                                             if (line.find(" enter ") != std::string::npos) {
                                                 std::printf("%s\n", line.c_str());
                                             }
                                         },
-                                        [&] { return frame; }};
+                                        [&] { return frame; },
+                                        [&](std::uint32_t at, std::uint8_t value, bool write) {
+                                            if (write) {
+                                                cells.traceWrite(at, value);
+                                            }
+                                        }};
         if (from) {
             if (!machine.restore(from->state.bytes)) {
                 std::fprintf(stderr, "%s is not a state this machine takes\n", from->file.string().c_str());
@@ -476,6 +494,15 @@ int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path
         machine.run(Vm::Advance::OnTick);
         for (; frame < frames; ++frame) {
             trace::writeCells(machine, ram, writes, frame);
+            // The trace's watches do not see these writes, so it is told of them.
+            for (const trace::CellWrite& write : writes) {
+                if (write.frame != frame) {
+                    continue;
+                }
+                for (std::size_t i = 0; i < write.bytes.size(); ++i) {
+                    traced.noteWrite(write.at + static_cast<std::uint32_t>(i), write.bytes[i]);
+                }
+            }
             machine.buttons(snes::Ports{.one = trace::buttonsAt(script, frame), .two = std::nullopt});
             machine.advanceTick();
             if (!watched.empty()) {
@@ -860,10 +887,11 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
             for (int draw = 0; draw < options.draws; ++draw) {
                 DrawResult result = sweep.draw(oracle, rng);
                 if (options.replayTraced) {
-                    std::stringstream traced;
+                    std::string text;
                     for (const std::string& line : oracle.takeTrace()) {
-                        traced << line << '\n';
+                        text += line + '\n';
                     }
+                    std::istringstream traced{text};
                     for (trace::TracedCall call : trace::parseTrace(traced)) {
                         if (!call.target) {
                             call.target = result.target;
@@ -871,6 +899,13 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                         const std::string parted = oracle.replay(call);
                         if (!parted.empty()) {
                             result.differences += "replayed " + call.routine + ":\n" + parted;
+                        }
+                    }
+                    std::istringstream endings{text};
+                    for (const trace::TracedEnding& ending : trace::parseEndings(endings)) {
+                        const std::string parted = oracle.replayEnding(ending);
+                        if (!parted.empty()) {
+                            result.differences += "replayed " + ending.routine + ":\n" + parted;
                         }
                     }
                 }
@@ -900,8 +935,19 @@ int runReplay(std::span<const std::uint8_t> image, const std::filesystem::path& 
         return 1;
     }
     const std::vector<trace::TracedCall> calls = trace::parseTrace(recorded);
+    recorded.clear();
+    recorded.seekg(0);
+    const std::vector<trace::TracedEnding> endings = trace::parseEndings(recorded);
     std::ofstream log{directory / "replay.log"};
     int parted = 0;
+    const auto logOne = [&](std::uint64_t frame, const std::string& routine, const std::string& differences) {
+        log << "f" << frame << ' ' << routine << (differences.empty() ? " agrees\n" : " PARTS\n") << differences;
+        if (!differences.empty()) {
+            ++parted;
+            std::printf("frame %llu, %s:\n%s", static_cast<unsigned long long>(frame), routine.c_str(),
+                        differences.c_str());
+        }
+    };
     trace::runOnLoop([&] {
         trace::DamageOracle oracle{image};
         oracle.start();
@@ -912,16 +958,20 @@ int runReplay(std::span<const std::uint8_t> image, const std::filesystem::path& 
             } catch (const std::runtime_error& error) {
                 differences = std::string{"could not be rebuilt: "} + error.what() + "\n";
             }
-            log << "f" << call.frame << ' ' << call.routine << (differences.empty() ? " agrees\n" : " PARTS\n") << differences;
-            if (!differences.empty()) {
-                ++parted;
-                std::printf("frame %llu, %s:\n%s", static_cast<unsigned long long>(call.frame), call.routine.c_str(),
-                            differences.c_str());
+            logOne(call.frame, call.routine, differences);
+        }
+        for (const trace::TracedEnding& ending : endings) {
+            std::string differences;
+            try {
+                differences = oracle.replayEnding(ending);
+            } catch (const std::runtime_error& error) {
+                differences = std::string{"could not be rebuilt: "} + error.what() + "\n";
             }
+            logOne(ending.frame, ending.routine, differences);
         }
     });
-    std::printf("%zu calls replayed, %d differing from the cartridge; %s\n", calls.size(), parted,
-                (directory / "replay.log").string().c_str());
+    std::printf("%zu calls and %zu endings replayed, %d differing from the cartridge; %s\n", calls.size(),
+                endings.size(), parted, (directory / "replay.log").string().c_str());
     return parted == 0 ? 0 : 1;
 }
 
