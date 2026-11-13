@@ -795,3 +795,20 @@ target_compile_definitions(ostinato-vi-battle-rewards-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-rewards-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-rewards-tests)
+
+# The battle whole: the cartridge's battle program called as the field calls it, its start compared with
+# the port's at the loop's first frame wait (tools/damage-trace/damage_oracle). Own binary so the other
+# baselines stay frozen.
+add_executable(ostinato-vi-battle-whole-tests
+    tests/test_battle_start_oracle.cpp
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/machine_state.cpp)
+target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)
+target_compile_options(ostinato-vi-battle-whole-tests PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-vi-battle-whole-tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/tests
+    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_compile_definitions(ostinato-vi-battle-whole-tests PRIVATE
+    OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
+target_link_libraries(ostinato-vi-battle-whole-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+gtest_discover_tests(ostinato-vi-battle-whole-tests)

@@ -35,6 +35,7 @@ What the checks cover so far, as each part of the game is built:
   - [x] **Espers** — the spells an equipped esper teaches and its bonus at each level-up, each checked against the cartridge
   - [x] **Monster AI** — every monster's script: its turns, its counterattacks, who it aims at and what it tests, each checked against the cartridge
   - [x] **Rewards and experience** — how a battle ends and what a win gives: experience, levels and what they teach, spells from equipment, lores, dances, rages, drops and gold, every message in the cartridge's order, and the items obtained, each checked against the cartridge
+  - [ ] **The battle whole** *(in progress)* — whole battles, from their start to their end, checked against the cartridge's own battle program
 - [ ] **Battle presentation** *(in progress)*
   - [x] **The battle scene** — the background, the monsters and the party drawn where the battle stands them, the windows, the damage numerals and the death fade, from the cartridge's own art, with a self-playing preview
   - [ ] **Attack animations**

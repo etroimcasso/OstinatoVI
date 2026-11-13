@@ -826,6 +826,30 @@ runs. A won final-battle stage instead requests `ScrollFinalBattleBackground` (`
 the next stage starts in its place. Requests come out of `takeRequests()` in the order they were
 made.
 
+## What the graphics program hands the battle program
+
+The battle program asks the graphics program for a frame, a script or a menu (`ExecBtlGfx`
+`:16369-16387` → `ExecBtlGfx_ext` `btlgfx:76-82`), and the graphics program, with its interrupt
+(`BattleNMI` `btlgfx:1629-1790`), writes cells the battle program then reads. Measured over fights played
+on the cartridge, those cells are these, and no others besides the stack:
+
+| Cells | Written by | Read by the battle program | The port |
+|---|---|---|---|
+| `$0E` the frame counter | the interrupt, each frame (`btlgfx:1615-1617`) | the clock (`:2677`, `:2717`) | the tick |
+| `$2BAE-$2BCD` the player's records | the graphics program and the interrupt (`UpdateMenuState` runs in it) | `GetPlayerAction` (`:12620-12653`) | `BattleState::chosenActions` |
+| `$2F41` a sub-menu is open | the graphics program and the interrupt | the clock (`:2672`) | `BattleState::timeStoppedByMenu` |
+| `$2F45` the run buttons are held | the interrupt (`btlgfx:1603`, `:1614`) | the clock (`:2699`) and `CheckRunAway` | `BattleState::partyRunning` |
+| `$2F30-$2F33` a party member's equipment changed | the graphics program: cleared by the opening, set by the Item menu | `UpdateCharProp` (`:5595-5636`) | `Battler::equipmentChanged` |
+| the inventory (`$2686-$2B85`) | the graphics program, merging the items obtained (command `$0A`) and the Item menu | `UpdateSRAM` and the commands | `BattleState::inventory` |
+| `$1DD1` the field's timer flags | the interrupt, each unpaused frame (`btlgfx:1622` → the field's timers), and the opening (`btlgfx:2219`) | `CheckBattleEnd` (`:11900`, bit 5: a story countdown ran out) | `BattleState::eventTimerExpired` |
+| `$2F2F` the monsters standing | the opening: the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`); a formation change (`btlgfx:22142`, `:22157`) | the loop (`:100-103`), the monsters' names (`:15185-15188`) | `BattleState::monstersStanding` |
+| `$2F46` the monsters that can be aimed at | the opening: every one, or the scripted setup's own when the formation has one (`btlgfx:2197-2198`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
+
+The opening, graphics command `$00`, is not one frame: from the call at the end of `InitBattle`
+(`:6193`) to its return it runs about 160 frames on the first fight in Narshe, and the graphics program
+calls the battle's clock (`UpdateBattleTime`, with `GetPlayerAction`) on its last 38 or so, so the
+gauges and the timer jobs move during the monsters' entrance, before the loop's first frame wait.
+
 ## The battle switches
 
 `game::BattleSwitches` are the numbered switches and small counters the battle shares with event

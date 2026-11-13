@@ -34,8 +34,9 @@
 // tests/test_control_menu.cpp against its special effects, tests/test_cover_and_params.cpp
 // against its cover and its setting up of the attack's animation, tests/test_espers_oracle.cpp
 // against an esper's spells learned and a level-up at a battle's end,
-// tests/test_attack_oracle.cpp against the whole attack frame, and tests/test_own_actions_oracle.cpp
-// against the battle's own actions.
+// tests/test_attack_oracle.cpp against the whole attack frame, tests/test_own_actions_oracle.cpp
+// against the battle's own actions, and tests/test_battle_start_oracle.cpp calls the battle program
+// whole (DamageOracle::battleStart()).
 #pragma once
 
 #include <array>
@@ -60,6 +61,7 @@
 
 #include "battle/ai_targets.h"
 #include "battle/attack.h"
+#include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
 #include "game/character_record.h"
@@ -1025,6 +1027,35 @@ struct UnwrittenRead {
     std::uint8_t value = 0;
 };
 
+// --- a whole battle ------------------------------------------------------------------------------
+
+// Everything a battle's start reads that the field sets before it calls the battle program: what
+// battle::startBattle() takes, with the party as the cartridge keeps it in its cells.
+struct StartScenario {
+    battle::BattleStart start;
+    PartyCells cells;
+    game::BattleSwitches switches;
+};
+
+// The battle's cells, $7E:0000-3FFF, one byte per cell.
+using BattleCells = std::array<std::uint8_t, 0x4000>;
+
+// The battle program's start as the cartridge made it: its cells at the loop's first frame wait, the
+// graphics calls up to there, and whether the call reached that wait and then returned.
+struct StartResult {
+    BattleCells cells{};
+    std::vector<GraphicsCall> calls;
+    bool reachedTheLoop = false;
+    bool returned = false;
+    // Every cell the start read before anything wrote it, up to the loop's first frame wait (as
+    // DamageOracle::unwrittenReads() lists them).
+    std::vector<UnwrittenRead> unwrittenReads;
+};
+
+// Every field where two start scenarios differ, one per line naming it and both values; empty when
+// they agree.
+[[nodiscard]] std::string differences(const StartScenario& a, const StartScenario& b);
+
 // Cells the attack frame reads that no scenario writes, left as the machine has them: `count` cells
 // from `at`, `stride` apart. Each is a cell whose value reaches nothing the game shows or keeps.
 struct CellsLeftAsTheMachineHasThem {
@@ -1276,6 +1307,24 @@ public:
     // The same aimed at the attacker itself (ExecSelfAttack).
     [[nodiscard]] AttackResult selfAttack(const DamageScenario& scenario);
 
+    // The battle program whole (Battle_ext, $C2:0000), called as the field calls it, from the
+    // scenario's cells. Its calls to the graphics program are answered as above, each with no frame
+    // and the battle's time stopped. At the loop's first frame wait (BattleLoop's graphics command $01,
+    // battle/battle_main.asm:72-73) the battle's cells are read, and the battle is then ended by the
+    // cartridge's own end-of-battle event 4, "end the battle now" (:11892-11897, :11983-11985): the
+    // wrap-up, what the game keeps and the close run, and the call returns.
+    [[nodiscard]] StartResult battleStart(const StartScenario& scenario);
+
+    // The same from the cells as they stand: for a machine restored to the tick before a battle.
+    [[nodiscard]] StartResult battleStartAsItStands();
+
+    // The scenario's cells as battleStart() writes them, with nothing called: the field's cells the
+    // start reads.
+    void writeStartScenario(const StartScenario& scenario);
+
+    // The start as the cells hold it, read the way writeStartScenario() writes one: for a machine
+    // restored to the tick before a battle, or one a scenario was written into.
+    [[nodiscard]] StartScenario readStartScenario();
     // Every cell of the battle's work RAM ($7E:0000-3FFF) the last call read before anything wrote
     // it — the oracle's own writes since the call before, or the guest's during the call — with the
     // byte its first such read found, in address order. Empty when every cell the routine read came
@@ -1394,6 +1443,8 @@ private:
     [[nodiscard]] RewardScenario readRewardScenario();
     [[nodiscard]] std::string replayRewardCall(const TracedCall& call, const TracedRoutine& routine);
     void answerGraphics(const GraphicsCall& call);
+    // What the graphics program does for the battle program in a whole battle, beyond answering.
+    void answerInBattle(const GraphicsCall& call);
     void writeItemsObtained(const battle::ItemsObtained& list);
     [[nodiscard]] battle::ItemsObtained readItemsObtained();
     void writeInventory(const std::array<battle::BattleItem, game::kInventorySlots>& inventory);
@@ -1478,9 +1529,14 @@ private:
     retropp::Routine<AbilitiesCall> loseBattle_;
     retropp::Routine<Call> updateSram_;
     retropp::Routine<Call> decompCutsceneProg_;
+    // The battle program's entry, called as the field calls it (a JSL, returning by RTL).
+    retropp::Routine<Call> battleMain_;
     std::vector<GraphicsCall> graphicsCalls_;
     // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
     std::optional<std::uint8_t> unansweredGraphics_;
+    // A start being run (battleStart()): what it has reached, and the cells read at the loop's first
+    // frame wait.
+    std::optional<StartResult> start_;
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
     // guest during it), and the cells the guest read during the last call before any was written.
     std::set<std::uint32_t> gateWritten_;

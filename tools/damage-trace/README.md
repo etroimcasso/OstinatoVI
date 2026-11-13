@@ -11,7 +11,7 @@ It is a developer tool and is not part of the game.
 ```sh
 cmake --build build --target ostinato-damage-trace
 ./build/ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
-./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]... [--watch <address> <count>]...
+./build/ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>] [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]... [--watch <address> <count>]... [--seam]
 ./build/ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 ./build/ostinato-damage-trace <rom> <directory> --check-state <ticks>
 ./build/ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>] [--replay-traced]
@@ -34,6 +34,7 @@ cmake --build build --target ostinato-damage-trace
 | Where a script has got to | `--headless --inputs <script> --frames <n> --picture-at <frame>` |
 | A fight set up by hand | `--headless --from <state> --frames <n> --write-at <frame> <address> <bytes>` |
 | What writes some cells, and when | `--headless --inputs <script> --frames <n> --watch <address> <count>` |
+| What the graphics program hands the battle program in a fight | `--headless --from <state> --inputs <script> --frames <n> --seam` |
 
 ## Tracing
 
@@ -330,6 +331,43 @@ The battles begin at frames 10216 and 12224. Both counts become 0 three frames i
 64 bytes become `$FF` at frames 10300 and 12274; and the list's last fifteen bytes are written only at
 frames 64 and 9039, by the title and cutscene program being laid over `$7E:5000-$7E:7C62`.
 
+`--seam` logs, in place of the trace, what the graphics program hands the battle program: every write the
+graphics program or the interrupt makes to the battle's cells (`$7E:0000-3FFF`), and every read the battle
+program makes of a cell whose last write was one of theirs, with the code that wrote it. The log is
+`seam.log` under `<directory>`, one line each:
+
+```
+battle entered <frame>
+graphics <frame> <command>
+write <frame> <writer> $7E:AAAA <byte>
+read <frame> <reader> $7E:AAAA <byte> <writer>
+battle returned <frame>
+```
+
+The code running is told apart by where it is entered. The battle program runs from its entry
+(`$C2:0000`) to `TerminateBattle`'s return (`$C2:00CB`), and nothing outside it is logged. The graphics
+program runs from its entry (`$C1:0000`) to the battle program's instruction after the call to it
+(`$C2:6429`); inside a graphics call, the battle program's clock runs from its entry (`$C2:0003`) to the
+graphics program's instruction after either call of it (`$C1:0223`, `$C1:0249`) and is logged as `clock`;
+the interrupt runs from `BattleNMI` (`$C1:0BA7`) to its return (`$C1:0D4A`) and is logged as
+`interrupt-in-graphics`, `interrupt-in-battle` or `interrupt-in-clock`, by what it interrupted. A
+`graphics` line names the command a call asks for, the first of the graphics program's handlers entered
+after its entry. A write the battle program makes is not logged; it makes the cell the battle program's
+again. A write made by a memory transfer rather than by an instruction is not seen. `--seam` and
+`--watch` go apart, since the seam watches every cell `--watch` would. This runs it over the first fight:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/seam --headless --from build/first-fight/battle.state \
+    --inputs tools/damage-trace/press-a.inputs --frames 1600 --seam
+```
+
+Over the seven recordings' fights the battle program reads, of what the graphics side writes: the frame
+counter `$0E`; the player's records `$2BAE-$2BCD`; the menu's time stop `$2F41`; the run buttons
+`$2F45`; the four equipment-changed flags `$2F30-$2F33`; the inventory, after an obtained item is merged
+into it; the field's timer flags `$1DD1`, from the interrupt; the monsters standing `$2F2F` and the
+monsters that can be aimed at `$2F46`, from the opening command `$00`; the multiply's scratch `$00EB`;
+and the stack. The opening `$00` runs for about 160 frames, and the clock runs on its last 38 or so.
+
 ## Replaying
 
 With `--replay` nothing opens. Every call in `<directory>/damage-trace.log`, or the file `--log` names, is rebuilt as a battle —
@@ -480,11 +518,40 @@ the frame reads before anything wrote it. `DamageOracle::unwrittenReads()` lists
 `kCellsLeftAsTheMachineHasThem` in `damage_oracle.h` holds the few the frame reads and nothing it shows
 or keeps depends on, each with its reason. Any other cell in the list is one the scenario must write.
 
+## The battle whole
+
+`DamageOracle::battleStart(scenario)` calls the battle program whole, as the field calls it
+(`Battle_ext`, `$C2:0000`, a long call that returns once the battle closes). A `StartScenario` is what a
+battle's start reads that the field sets first — the `battle::BattleStart` the port's own start takes,
+the party with the HP and MP boost bits the port keeps no field for, and the battle switches — and
+`writeStartScenario()` lays it into those cells: the formation, the background and the field's flags, the
+play clock's frames, the battle settings and the spell order, the switches, the story's flags for
+Shadow and Gau, the party played, the inventory, the play time at the last save, and a colosseum match
+or the final battle's line of fighters. `readStartScenario()` reads them back, from a written machine or
+from one restored to the tick before a battle; `trace::differences()` names every field two scenarios
+part on. `battleStartAsItStands()` makes the same call from the cells as they stand.
+
+While the battle program runs, its calls to the graphics program are answered as the reward routines'
+are, each with no frame and the battle's time stopped. The answer to the opening command, `$00`, also
+lays what the graphics program's own opening lays for the battle program: the monsters standing
+(`$2F2F`), the formation's monsters present; the monsters that can be aimed at (`$2F46`), every one, or
+the scripted setup's own when the formation has one; and the four equipment-changed flags, cleared. At
+the loop's first frame wait — the first command `$01` — the battle's cells, `$7E:0000-3FFF`, are read into
+`StartResult::cells`, with every cell the start read before anything wrote it
+(`StartResult::unwrittenReads`). The battle is then ended by the cartridge's own end-of-battle event 4,
+"end the battle now", so the wrap-up, what the game keeps and the close run, and the call returns:
+`StartResult::returned` is true when the last command asked for is the close, `$09`.
+
+`tests/test_battle_start_oracle.cpp` checks that the battle program's entry is where the US cartridges
+hold it and that an image without it is refused; calls it from the first fight as `first-fight.inputs`
+leaves the machine and from that fight's scenario written into a machine fresh from its reset code, each
+opening, reaching the loop and returning; and checks that a scenario written reads back the same.
+
 ## Files
 
 | File | What it holds |
 |---|---|
-| `main.cpp` | the command line, the window and the trace on it, the trace with no window and its watched cells (`CellLog`), the scripted run to a battle, the state check, the replay run and the check run |
+| `main.cpp` | the command line, the window and the trace on it, the trace with no window and its watched cells (`CellLog`), what the graphics program hands the battle program (`SeamLog`), the scripted run to a battle, the state check, the replay run and the check run |
 | `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
 | `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |

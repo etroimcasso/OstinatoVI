@@ -57,6 +57,8 @@
 #include "data/attack_properties.h"
 #include "data/battle_commands.h"
 #include "data/esper_properties.h"
+#include "data/battle_tables.h"
+#include "data/char_ai.h"
 #include "data/formations.h"
 #include "data/level_up.h"
 #include "data/monster_attacks.h"
@@ -138,6 +140,9 @@ constexpr std::uint32_t kUpdateSram = 0xC24936;
 constexpr std::uint32_t kDecompCutsceneProg = 0xC26828;
 constexpr std::uint32_t kExecBtlGfx = 0xC26411;
 constexpr std::uint32_t kExecBtlGfxExt = 0xC10000;
+// The battle program's entry for the field (Battle_ext, `jmp BattleMain`) and BattleMain itself.
+constexpr std::uint32_t kBattleExt = 0xC20000;
+constexpr std::uint32_t kBattleMain = 0xC2000C;
 constexpr std::uint32_t kGraphicsCommandTable = 0xC10008;
 constexpr std::uint32_t kGraphicsProgramBank = 0xC10000;
 // Where each command's handler sits on the US cartridges (BtlGfx_00 to BtlGfx_0d); the table must
@@ -199,7 +204,9 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-constexpr std::array<RoutineOpening, 49> kOpenings{{
+constexpr std::array<RoutineOpening, 51> kOpenings{{
+    {"Battle_ext", kBattleExt, {0x4C, 0x0C, 0x00, 0x00}, 3},                         // jmp BattleMain
+    {"BattleMain", kBattleMain, {0x08, 0xE2, 0x30, 0x00}, 3},                        // php; shortai
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4
@@ -614,6 +621,7 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
                       .isa = retropp::Isa::Wdc65816});
     updateSram_ = machine_.bindRoutine<Call>(kUpdateSram, byteWide);
     decompCutsceneProg_ = machine_.bindRoutine<Call>(kDecompCutsceneProg, byteWide);
+    battleMain_ = machine_.bindRoutine<Call>(retropp::snes::rtl(kBattleExt), byteWide);
 
     // While a reward routine runs, the graphics program's entry answers here: the command in the
     // accumulator, the cells the graphics program reads at their places.
@@ -647,6 +655,9 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
 }
 
 void DamageOracle::answerGraphics(const GraphicsCall& call) {
+    if (start_) {
+        answerInBattle(call);
+    }
     // The handlers are entered as the graphics program's entry leaves them: the command's place in its
     // table in X, the accumulator narrow and the index registers wide.
     const auto tableIndex = static_cast<std::uint16_t>(call.command * 2);
@@ -10304,6 +10315,283 @@ std::string describe(const OwnActionCase& drawn) {
         },
         drawn.action);
     return describe(drawn.scenario) + " enemies " + std::to_string(drawn.scenario.state.enemyCount) + "; " + action;
+}
+
+// --- a whole battle ------------------------------------------------------------------------------
+
+namespace {
+
+// The graphics commands a whole battle's answers act on: the battle's opening (BtlGfx_00) and one
+// frame (BtlGfx_01).
+constexpr std::uint8_t kOpenBattleScene = 0x00;
+constexpr std::uint8_t kOneFrame = 0x01;
+
+// What the graphics program's opening lays into the battle's cells for the battle program to read
+// (BtlGfx_00 → InitBattleGfx → _c10fe0, btlgfx_main.asm:2180-2211): the monsters standing, from the
+// formation's monsters present (_c10e86 :2011-2013); the monsters that can be aimed at, every one,
+// or the scripted setup's own when the formation has one (_c2bd43 :41253-41267); and the four
+// equipment-changed flags, cleared.
+constexpr std::uint32_t kMonstersTargetable = kWorkRam + 0x2F46;
+constexpr std::uint32_t kEquipmentChangedFlagCells = kWorkRam + 0x2F30;
+constexpr std::uint32_t kEquipmentChangedFlagCount = 4;
+// The formation's flags LoadBattleProp copies (:7973-7977): the third byte's top bit turns on the
+// scripted setup, and the fourth byte names it.
+constexpr std::uint32_t kFormationScriptFlags = kWorkRam + 0x2F49;
+constexpr std::uint32_t kFormationScript = kWorkRam + 0x2F4A;
+constexpr std::uint8_t kFormationScriptOn = 0x80;
+constexpr std::uint8_t kPresentMonsters = 0x3F;
+constexpr std::uint8_t kEveryMonster = 0xFF;
+
+// The end-of-battle event CheckBattleEnd jumps through (:11892-11897, kEndOfBattleEvent), event 4
+// "end the battle now" (BattleEnd_04 :11983-11985) at twice its number, and the cell that turns the
+// events on.
+constexpr std::uint32_t kEndOfBattleEventsOn = kWorkRam + 0x3EE0;
+constexpr std::uint8_t kEndTheBattleNow = 2 * 4;
+constexpr std::uint8_t kEventsOn = 0xFF;
+
+// The graphics command that closes the battle (TerminateBattle :150-152): the last one a battle
+// that returned asks for.
+constexpr std::uint8_t kCloseBattle = 0x09;
+
+}  // namespace
+
+void DamageOracle::answerInBattle(const GraphicsCall& call) {
+    StartResult& start = *start_;
+    if (call.command == kOpenBattleScene) {
+        const auto formation = static_cast<FormationId>(readWord(kFormationCell));
+        writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
+        std::uint8_t targetable = kEveryMonster;
+        if ((readByte(kFormationScriptFlags) & kFormationScriptOn) != 0) {
+            targetable = charAiSetup(static_cast<CharAiId>(readByte(kFormationScript))).validMonsterTargets.bits;
+        }
+        writeByte(kMonstersTargetable, targetable);
+        const std::array<std::uint8_t, kEquipmentChangedFlagCount> unchanged{};
+        writeBytes(retropp::MemoryRegion{.at = kEquipmentChangedFlagCells, .size = kEquipmentChangedFlagCount}, unchanged);
+        return;
+    }
+    if (call.command == kOneFrame && !start.reachedTheLoop) {
+        start.reachedTheLoop = true;
+        const std::vector<std::uint8_t> cells =
+            machine_.read(retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(start.cells.size())});
+        std::copy(cells.begin(), cells.end(), start.cells.begin());
+        start.unwrittenReads = unwrittenReads();
+        writeByte(kEndOfBattleEventsOn, kEventsOn);
+        writeByte(kEndOfBattleEvent, kEndTheBattleNow);
+    }
+}
+
+StartResult DamageOracle::battleStart(const StartScenario& scenario) {
+    writeStartScenario(scenario);
+    return battleStartAsItStands();
+}
+
+StartResult DamageOracle::battleStartAsItStands() {
+    start_.emplace();
+    graphicsCalls_.clear();
+    unansweredGraphics_.reset();
+    machine_.escapes()[kGraphicsKey].armed(true);
+    call([&] { battleMain_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    machine_.escapes()[kGraphicsKey].armed(false);
+    StartResult result = std::move(*start_);
+    start_.reset();
+    result.calls = graphicsCalls_;
+    result.returned = !result.calls.empty() && result.calls.back().command == kCloseBattle;
+    if (unansweredGraphics_) {
+        throw std::runtime_error("the battle called graphics command " + std::to_string(*unansweredGraphics_) +
+                                 ", which the oracle has no answer for");
+    }
+    return result;
+}
+
+namespace {
+
+// The field's cells a battle's start reads (battle/battle_main.asm InitBattle :6053-6195 and the
+// routines it calls): the formation asked for, the background and the field's flags (:6078,
+// LoadBattleProp :7940-7992); the play clock's frames (:6088); the battle settings — wait mode and
+// speed, the gauge, the spell order (:6108-6123, :14101); the battle switches (:6083-6087); the story's
+// flags for Shadow and Gau (:7775, :11958); the party played (:7761); the inventory (InitInventory
+// :13911-13956); the play time at the last save (:14189-14191); and a colosseum match or the final
+// battle's line of fighters (InitParty :7724-7756, InitMonsters :7697).
+constexpr std::uint32_t kFieldFormation = kWorkRam + 0x11E0;
+constexpr std::uint32_t kFieldBackground = kWorkRam + 0x11E2;
+constexpr std::uint32_t kFieldBattleFlags = kWorkRam + 0x11E4;
+constexpr std::uint8_t kGauMayAppearBit = 0x01;
+constexpr std::uint32_t kPlayClockFrames = kWorkRam + 0x021E;
+constexpr std::uint32_t kBattleSettings = kWorkRam + 0x1D4D;
+constexpr std::uint8_t kWaitModeBit = 0x08;
+constexpr std::uint8_t kSpeedBits = 0x07;
+constexpr std::uint32_t kGaugeSetting = kWorkRam + 0x1D4E;
+constexpr std::uint8_t kGaugeHiddenBit = 0x80;
+constexpr std::uint32_t kSpellOrder = kWorkRam + 0x1D54;
+constexpr std::uint8_t kSpellOrderBits = 0x07;
+constexpr std::uint32_t kFieldSwitches = kWorkRam + 0x1DC9;
+constexpr std::uint32_t kAvailableCharacters = kWorkRam + 0x1EDE;
+constexpr std::uint8_t kShadowAvailableBit = 0x08;
+constexpr std::uint32_t kFieldItems = kWorkRam + 0x1869;
+constexpr std::uint32_t kFieldQuantities = kWorkRam + 0x1969;
+constexpr std::uint32_t kSaveHours = kWorkRam + 0x1863;
+constexpr std::uint32_t kSaveMinutes = kWorkRam + 0x1864;
+constexpr std::uint32_t kColosseumWager = kWorkRam + 0x0205;
+constexpr std::uint32_t kColosseumOpponent = kWorkRam + 0x0206;
+constexpr std::uint32_t kColosseumPrize = kWorkRam + 0x0207;
+constexpr std::uint32_t kColosseumFighter = kWorkRam + 0x0208;
+constexpr std::uint32_t kFinalBattleLine = kWorkRam + 0x0205;
+constexpr std::uint32_t kFinalBattleLineSize = 12;
+constexpr std::uint8_t kEndOfLine = 0xFF;
+// The colosseum's two formations, the last two (InitParty :7748-7750).
+constexpr std::uint16_t kFirstColosseumFormation = 0x023E;
+
+bool colosseumFormation(FormationRef formation) {
+    return static_cast<std::uint16_t>(formation.formationId()) >= kFirstColosseumFormation;
+}
+
+}  // namespace
+
+void DamageOracle::writeStartScenario(const StartScenario& scenario) {
+    const battle::BattleStart& start = scenario.start;
+    const game::Party& party = scenario.cells.party;
+    writeParty(scenario.cells);
+    writeByte(kPartyPlayed, party.currentParty);
+    for (std::size_t slot = 0; slot < game::kInventorySlots; ++slot) {
+        writeByte(kFieldItems + static_cast<std::uint32_t>(slot), static_cast<std::uint8_t>(party.inventory[slot].item));
+        writeByte(kFieldQuantities + static_cast<std::uint32_t>(slot), party.inventory[slot].quantity);
+    }
+    writeByte(kSaveHours, party.playTimeAtLastSave.hours);
+    writeByte(kSaveMinutes, party.playTimeAtLastSave.minutes);
+    writeBytes(retropp::MemoryRegion{.at = kFieldSwitches, .size = game::kBattleVariables}, scenario.switches.variables);
+
+    writeWord(kFieldFormation, start.formation.raw);
+    writeWord(kFieldBackground, static_cast<std::uint16_t>(start.background));
+    writeByte(kFieldBattleFlags, static_cast<std::uint8_t>((start.gauMayAppear ? kGauMayAppearBit : 0) |
+                                                           (start.onTheVeldt ? kOnTheVeldtBit : 0) |
+                                                           (start.keepFieldMusic ? kFieldMusicPlaysOnBit : 0)));
+    const std::uint8_t story = readByte(kStoryFlags);
+    writeByte(kStoryFlags, static_cast<std::uint8_t>(start.gauRecruited ? story | kGauRecruitedBit
+                                                                        : story & ~kGauRecruitedBit));
+    const std::uint8_t available = readByte(kAvailableCharacters);
+    writeByte(kAvailableCharacters, static_cast<std::uint8_t>(start.shadowAvailable ? available | kShadowAvailableBit
+                                                                                    : available & ~kShadowAvailableBit));
+    writeByte(kPlayClockFrames, start.playTimeFrames);
+    writeByte(kBattleSettings, static_cast<std::uint8_t>((start.config.waitMode ? kWaitModeBit : 0) |
+                                                         (start.config.speedSetting & kSpeedBits)));
+    writeByte(kGaugeSetting, start.config.gaugeShown ? 0 : kGaugeHiddenBit);
+    writeByte(kSpellOrder, static_cast<std::uint8_t>(start.config.magicOrder & kSpellOrderBits));
+
+    if (start.colosseum) {
+        writeByte(kColosseumWager, static_cast<std::uint8_t>(start.colosseum->wager));
+        writeByte(kColosseumOpponent, static_cast<std::uint8_t>(start.colosseum->opponent));
+        writeByte(kColosseumPrize, static_cast<std::uint8_t>(start.colosseum->prize));
+        writeByte(kColosseumFighter, static_cast<std::uint8_t>(start.colosseum->fighter));
+    } else {
+        std::array<std::uint8_t, kFinalBattleLineSize> line{};
+        line.fill(kEndOfLine);
+        for (std::size_t i = 0; i < start.finalBattleOrder.size() && i < line.size(); ++i) {
+            line[i] = static_cast<std::uint8_t>(start.finalBattleOrder[i]);
+        }
+        writeBytes(retropp::MemoryRegion{.at = kFinalBattleLine, .size = kFinalBattleLineSize}, line);
+    }
+}
+
+StartScenario DamageOracle::readStartScenario() {
+    StartScenario s;
+    s.cells = readParty();
+    game::Party& party = s.cells.party;
+    party.currentParty = readByte(kPartyPlayed);
+    for (std::size_t slot = 0; slot < game::kInventorySlots; ++slot) {
+        party.inventory[slot] = game::InventorySlot{
+            .item = static_cast<ItemId>(readByte(kFieldItems + static_cast<std::uint32_t>(slot))),
+            .quantity = readByte(kFieldQuantities + static_cast<std::uint32_t>(slot))};
+    }
+    party.playTimeAtLastSave = game::PlayTime{.hours = readByte(kSaveHours), .minutes = readByte(kSaveMinutes)};
+    const std::vector<std::uint8_t> switches =
+        machine_.read(retropp::MemoryRegion{.at = kFieldSwitches, .size = game::kBattleVariables});
+    std::copy(switches.begin(), switches.end(), s.switches.variables.begin());
+
+    battle::BattleStart& start = s.start;
+    start.formation = FormationRef{.raw = readWord(kFieldFormation)};
+    start.background = static_cast<BattleBackgroundId>(readByte(kFieldBackground));
+    const std::uint8_t flags = readByte(kFieldBattleFlags);
+    start.gauMayAppear = (flags & kGauMayAppearBit) != 0;
+    start.onTheVeldt = (flags & kOnTheVeldtBit) != 0;
+    start.keepFieldMusic = (flags & kFieldMusicPlaysOnBit) != 0;
+    start.gauRecruited = (readByte(kStoryFlags) & kGauRecruitedBit) != 0;
+    start.shadowAvailable = (readByte(kAvailableCharacters) & kShadowAvailableBit) != 0;
+    start.playTimeFrames = readByte(kPlayClockFrames);
+    const std::uint8_t settings = readByte(kBattleSettings);
+    start.config = battle::BattleConfig{.waitMode = (settings & kWaitModeBit) != 0,
+                                        .speedSetting = static_cast<std::uint8_t>(settings & kSpeedBits),
+                                        .gaugeShown = (readByte(kGaugeSetting) & kGaugeHiddenBit) == 0,
+                                        .magicOrder = static_cast<std::uint8_t>(readByte(kSpellOrder) & kSpellOrderBits)};
+    start.version = GameVersion::US_1_1;
+    if (colosseumFormation(start.formation)) {
+        start.colosseum = battle::ColosseumMatch{.wager = static_cast<ItemId>(readByte(kColosseumWager)),
+                                                 .prize = static_cast<ItemId>(readByte(kColosseumPrize)),
+                                                 .opponent = static_cast<MonsterId>(readByte(kColosseumOpponent)),
+                                                 .fighter = static_cast<CharacterPropId>(readByte(kColosseumFighter))};
+    } else if (start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw) {
+        for (std::uint32_t i = 0; i < kFinalBattleLineSize; ++i) {
+            const std::uint8_t record = readByte(kFinalBattleLine + i);
+            if (record != kEndOfLine) {
+                start.finalBattleOrder.push_back(record);
+            }
+        }
+    }
+    return s;
+}
+
+std::string differences(const StartScenario& a, const StartScenario& b) {
+    std::string lines;
+    const auto field = [&](const char* name, long ours, long theirs) {
+        if (ours != theirs) {
+            lines += std::string{name} + " " + std::to_string(ours) + " / " + std::to_string(theirs) + "\n";
+        }
+    };
+    const battle::BattleStart& x = a.start;
+    const battle::BattleStart& y = b.start;
+    field("formation", x.formation.raw, y.formation.raw);
+    field("background", static_cast<long>(x.background), static_cast<long>(y.background));
+    field("Gau may appear", x.gauMayAppear, y.gauMayAppear);
+    field("on the Veldt", x.onTheVeldt, y.onTheVeldt);
+    field("field music plays on", x.keepFieldMusic, y.keepFieldMusic);
+    field("Gau recruited", x.gauRecruited, y.gauRecruited);
+    field("Shadow available", x.shadowAvailable, y.shadowAvailable);
+    field("play clock's frames", x.playTimeFrames, y.playTimeFrames);
+    field("wait mode", x.config.waitMode, y.config.waitMode);
+    field("battle speed", x.config.speedSetting, y.config.speedSetting);
+    field("gauge shown", x.config.gaugeShown, y.config.gaugeShown);
+    field("spell order", x.config.magicOrder, y.config.magicOrder);
+    field("a colosseum match", x.colosseum.has_value(), y.colosseum.has_value());
+    if (x.colosseum && y.colosseum) {
+        field("wager", static_cast<long>(x.colosseum->wager), static_cast<long>(y.colosseum->wager));
+        field("prize", static_cast<long>(x.colosseum->prize), static_cast<long>(y.colosseum->prize));
+        field("opponent", static_cast<long>(x.colosseum->opponent), static_cast<long>(y.colosseum->opponent));
+        field("fighter", static_cast<long>(x.colosseum->fighter), static_cast<long>(y.colosseum->fighter));
+    }
+    field("final battle's line", static_cast<long>(x.finalBattleOrder.size()), static_cast<long>(y.finalBattleOrder.size()));
+    for (std::size_t i = 0; i < std::min(x.finalBattleOrder.size(), y.finalBattleOrder.size()); ++i) {
+        field("final battle's line place", static_cast<long>(x.finalBattleOrder[i]), static_cast<long>(y.finalBattleOrder[i]));
+    }
+    for (std::size_t i = 0; i < game::kBattleVariables; ++i) {
+        field("battle switches byte", a.switches.variables[i], b.switches.variables[i]);
+    }
+    const std::vector<PartyCell> ours = partyImage(a.cells);
+    const std::vector<PartyCell> theirs = partyImage(b.cells);
+    for (std::size_t i = 0; i < std::min(ours.size(), theirs.size()); ++i) {
+        if (ours[i].value != theirs[i].value) {
+            lines += partyCellName(ours[i].at) + " " + std::to_string(ours[i].value) + " / " +
+                     std::to_string(theirs[i].value) + "\n";
+        }
+    }
+    const game::Party& p = a.cells.party;
+    const game::Party& q = b.cells.party;
+    field("party played", p.currentParty, q.currentParty);
+    for (std::size_t slot = 0; slot < game::kInventorySlots; ++slot) {
+        field("inventory item", static_cast<long>(p.inventory[slot].item), static_cast<long>(q.inventory[slot].item));
+        field("inventory quantity", p.inventory[slot].quantity, q.inventory[slot].quantity);
+    }
+    field("hours at the last save", p.playTimeAtLastSave.hours, q.playTimeAtLastSave.hours);
+    field("minutes at the last save", p.playTimeAtLastSave.minutes, q.playTimeAtLastSave.minutes);
+    return lines;
 }
 
 }  // namespace ostinato::trace

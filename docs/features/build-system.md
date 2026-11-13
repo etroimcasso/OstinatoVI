@@ -31,7 +31,7 @@ when that area does.
 
 ### Target topology
 
-Thirty-six targets:
+Thirty-seven targets:
 
 | Target | Kind | Links | Purpose |
 |---|---|---|---|
@@ -41,7 +41,7 @@ Thirty-six targets:
 | `ostinato-preview-battle` | executable | `ostinato-vi-lib` | Battles fought to their end by a scripted player, in a window or captured to files. |
 | `ostinato-frames` | executable | `retropp::engine` | The cartridge on the engine's SNES machine, its frames and spans recorded between marked moments — the reference the previews are measured against. |
 | `ostinato-damage-trace` | executable | `ostinato-vi-lib` | The cartridge's battle routines traced as the game is played, checked against the port over seeded scenarios, and recordings replayed ([`tools/damage-trace/README.md`](../../tools/damage-trace/README.md)). |
-| 30 test binaries | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Below. |
+| 31 test binaries | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Below. |
 
 The test binaries, one per area:
 
@@ -77,6 +77,7 @@ The test binaries, one per area:
 | `ostinato-vi-battle-espers-tests` | An esper's spells learned and its level-up bonus. |
 | `ostinato-vi-battle-ai-tests` | Monster AI: targets, conditions, turns, counterattacks and the script-only commands. |
 | `ostinato-vi-battle-rewards-tests` | What a battle's end gives: experience, levels, spells, items obtained, every ending, and the traced recordings. |
+| `ostinato-vi-battle-whole-tests` | The cartridge's battle program called whole, as the field calls it: its entry, its start and the scenario it starts from. |
 
 Every data table is tested over its whole corpus against a fixture generated from the original. The
 battle binaries check each rule three ways — the port, the value worked out from the original, and the

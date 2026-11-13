@@ -5,7 +5,7 @@
 //     ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
 //     ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]
 //                                             [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...
-//                                             [--watch <address> <count>]...
+//                                             [--watch <address> <count>]... [--seam]
 //     ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 //     ostinato-damage-trace <rom> <directory> --check-state <ticks>
 //     ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]
@@ -57,7 +57,8 @@
 // --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before its frame
 // runs (machine_state.h has the form), and the trace is told of them. Each --watch logs the cartridge's
 // every write to <count> cells of work RAM from <address> on, and their bytes after every frame, to
-// `cells.log` (CellLog has the lines).
+// `cells.log` (CellLog has the lines). With --seam the run logs, in place of the trace, what the
+// graphics program hands the battle program to `seam.log` (SeamLog has the lines).
 //
 // With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its state
 // is written, read back and restored on a second machine; both run on, and their memory and pictures
@@ -458,30 +459,227 @@ private:
     }
 };
 
+// What the graphics program hands the battle program: which of the battle's cells it writes, and which
+// of those the battle program then reads. Logged to `seam.log`, one line each:
+//
+//     battle entered <frame>
+//     graphics <frame> <command>
+//     write <frame> <writer> $7E:AAAA <byte>
+//     read <frame> <reader> $7E:AAAA <byte> <writer>
+//     battle returned <frame>
+//
+// The code running is told apart by where it is entered. The battle program runs from its entry
+// ($C2:0000) to TerminateBattle's RTL ($C2:00CB); nothing outside it is logged. The graphics program runs from its entry
+// ($C1:0000, ExecBtlGfx_ext) to the battle program's instruction after the call ($C2:6429); inside it,
+// the battle program runs again from its clock's entry ($C2:0003, UpdateBattleTime_ext) to the graphics
+// program's instruction after either call of it ($C1:0223 in BtlGfx_01, $C1:0249 in WaitFrame); the
+// interrupt runs from BattleNMI ($C1:0BA7) to its RTI ($C1:0D4A). The command a call asks for is the
+// first of the graphics program's handlers entered after its entry.
+//
+// A `write` is any write by the graphics program (`graphics`) or by the interrupt, named with the code
+// it interrupted (`interrupt-in-graphics`, `interrupt-in-battle`, `interrupt-in-clock`), to
+// $7E:0000-3FFF. A `read` is a read by the battle program (`battle`, or `clock` inside a graphics call)
+// of a cell whose last write was one of those, named with that writer. Writes the battle program makes
+// itself are not logged; they only mark a cell as the battle program's again. A write made by a memory
+// transfer rather than by an instruction is not seen.
+class SeamLog {
+public:
+    SeamLog(Vm& machine, const std::filesystem::path& directory, const std::uint64_t& frame)
+        : log_(directory / "seam.log", std::ios::app), frame_(frame) {
+        lastWriter_.fill(Who::Outside);
+        const auto mark = [](const char* key, std::uint32_t at, auto handler) {
+            return GuestEscape{.key = key, .at = at, .handler = [handler](Vm&, std::uint32_t) { handler(); }};
+        };
+        EscapeMap marks;
+        marks.declarations.push_back(mark("seam: battle entry", kBattleEntry, [this] {
+            log_ << "battle entered " << frame_ << '\n';
+            running_.assign(1, Who::Battle);
+            interrupted_.clear();
+        }));
+        marks.declarations.push_back(mark("seam: battle return", kBattleReturn, [this] {
+            log_ << "battle returned " << frame_ << '\n';
+            running_.assign(1, Who::Outside);
+            interrupted_.clear();
+        }));
+        marks.declarations.push_back(mark("seam: graphics entry", kGraphicsEntry, [this] {
+            running_.push_back(Who::Graphics);
+            commandPending_ = true;
+        }));
+        marks.declarations.push_back(mark("seam: graphics return", kGraphicsReturn, [this] {
+            if (top() == Who::Graphics) {
+                running_.pop_back();
+            }
+        }));
+        marks.declarations.push_back(mark("seam: clock entry", kClockEntry, [this] {
+            if (top() == Who::Graphics) {
+                running_.push_back(Who::Clock);
+            }
+        }));
+        for (const std::uint32_t at : kClockReturns) {
+            marks.declarations.push_back(mark(at == kClockReturns[0] ? "seam: clock return 1" : "seam: clock return 2", at,
+                                              [this] {
+                                                  if (top() == Who::Clock) {
+                                                      running_.pop_back();
+                                                  }
+                                              }));
+        }
+        marks.declarations.push_back(mark("seam: interrupt entry", kInterruptEntry, [this] {
+            interrupted_.push_back(top());
+            running_.push_back(Who::Interrupt);
+        }));
+        marks.declarations.push_back(mark("seam: interrupt return", kInterruptReturn, [this] {
+            if (top() == Who::Interrupt) {
+                running_.pop_back();
+                interrupted_.pop_back();
+            }
+        }));
+        for (std::size_t command = 0; command < kGraphicsHandlers.size(); ++command) {
+            handlerKeys_.push_back("seam: graphics command " + std::to_string(command));
+            marks.declarations.push_back(GuestEscape{
+                .key = handlerKeys_.back(),
+                .at = kGraphicsEntry | std::uint32_t{kGraphicsHandlers[command]},
+                .handler = [this, command](Vm&, std::uint32_t) {
+                    if (commandPending_) {
+                        commandPending_ = false;
+                        char text[48];
+                        std::snprintf(text, sizeof text, "graphics %llu %02zX", static_cast<unsigned long long>(frame_),
+                                      command);
+                        log_ << text << '\n';
+                    }
+                }});
+        }
+        machine.registerEscapes(marks);
+        machine.registerWatches(watches(GuestWatch{
+            .key = "seam: the battle's cells",
+            .at = MemoryRegion{.at = 0x7E0000, .size = kCells},
+            .onRead = [this](Vm&, std::uint32_t at, std::uint8_t value) {
+                noteRead(at & 0xFFFF, value);
+                return AccessVerdict::proceed();
+            },
+            .onWrite = [this](Vm&, std::uint32_t at, std::uint8_t value) {
+                noteWrite(at & 0xFFFF, value);
+                return AccessVerdict::proceed();
+            }}));
+    }
+
+private:
+    // The code running: whatever runs outside a battle, the battle program, the graphics program, the
+    // battle program's clock inside a graphics call, and the interrupt — each interrupt write written
+    // as what it interrupted.
+    enum class Who : std::uint8_t {
+        Outside, Battle, Graphics, Clock, Interrupt, InterruptInGraphics, InterruptInBattle, InterruptInClock,
+    };
+
+    static constexpr std::uint32_t kCells = 0x4000;
+    // TerminateBattle's RTL (battle/battle_main.asm:154), the battle program's one way out.
+    static constexpr std::uint32_t kBattleReturn = 0xC200CB;
+    static constexpr std::uint32_t kGraphicsEntry = 0xC10000;
+    static constexpr std::uint32_t kGraphicsReturn = 0xC26429;
+    static constexpr std::uint32_t kClockEntry = 0xC20003;
+    static constexpr std::array<std::uint32_t, 2> kClockReturns{0xC10223, 0xC10249};
+    static constexpr std::uint32_t kInterruptEntry = 0xC10BA7;
+    static constexpr std::uint32_t kInterruptReturn = 0xC10D4A;
+    // BtlGfx_00 to BtlGfx_0d, as the graphics program's table at $C1:0008 points.
+    static constexpr std::array<std::uint16_t, 14> kGraphicsHandlers{{
+        0x01EC, 0x01FB, 0x0257, 0x024C, 0x950F, 0x01CC, 0x0197, 0x0170, 0x0117, 0x00AF, 0x00AB, 0x0171, 0x002D, 0x0024,
+    }};
+
+    std::ofstream log_;
+    const std::uint64_t& frame_;
+    std::vector<Who> running_{Who::Outside};
+    std::vector<Who> interrupted_;
+    bool commandPending_ = false;
+    std::vector<std::string> handlerKeys_;
+    std::array<Who, kCells> lastWriter_{};
+
+    [[nodiscard]] Who top() const { return running_.back(); }
+
+    // Who a write is made by: the interrupt's as what it interrupted.
+    [[nodiscard]] Who writer() const {
+        if (top() != Who::Interrupt) {
+            return top();
+        }
+        switch (interrupted_.back()) {
+            case Who::Graphics: return Who::InterruptInGraphics;
+            case Who::Clock: return Who::InterruptInClock;
+            default: return Who::InterruptInBattle;
+        }
+    }
+
+    static const char* name(Who who) {
+        switch (who) {
+            case Who::Outside: return "outside";
+            case Who::Battle: return "battle";
+            case Who::Graphics: return "graphics";
+            case Who::Clock: return "clock";
+            case Who::Interrupt: return "interrupt";
+            case Who::InterruptInGraphics: return "interrupt-in-graphics";
+            case Who::InterruptInBattle: return "interrupt-in-battle";
+            case Who::InterruptInClock: return "interrupt-in-clock";
+        }
+        return "?";
+    }
+
+    static bool battleProgram(Who who) { return who == Who::Battle || who == Who::Clock; }
+    static bool graphicsSide(Who who) { return who != Who::Outside && !battleProgram(who); }
+
+    void noteWrite(std::uint32_t cell, std::uint8_t value) {
+        if (cell >= kCells) {
+            return;
+        }
+        const Who who = writer();
+        lastWriter_[cell] = who;
+        if (graphicsSide(who)) {
+            char text[80];
+            std::snprintf(text, sizeof text, "write %llu %s $7E:%04X %02X", static_cast<unsigned long long>(frame_),
+                          name(who), cell, value);
+            log_ << text << '\n';
+        }
+    }
+
+    void noteRead(std::uint32_t cell, std::uint8_t value) {
+        if (cell >= kCells || !battleProgram(top()) || !graphicsSide(lastWriter_[cell])) {
+            return;
+        }
+        char text[96];
+        std::snprintf(text, sizeof text, "read %llu %s $7E:%04X %02X %s", static_cast<unsigned long long>(frame_),
+                      name(top()), cell, value, name(lastWriter_[cell]));
+        log_ << text << '\n';
+    }
+};
+
 int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path& directory, std::uint64_t frames,
                 const std::optional<StartingState>& from, std::span<const trace::InputStep> script,
                 std::span<const std::uint64_t> pictureFrames, std::span<const trace::CellWrite> writes,
-                std::span<const WatchedCells> watched) {
+                std::span<const WatchedCells> watched, bool seam) {
     std::ofstream log{directory / "damage-trace.log", std::ios::app};
     int result = 0;
     trace::runOnLoop([&] {
         Vm::SNES machine{VmConfig{.video = true}};
         machine.hostRom(image);
         std::uint64_t frame = 0;
-        CellLog cells{machine, directory, watched, frame};
-        trace::DamageTrace traced{machine,
-                                        [&](const std::string& line) {
-                                            log << line << '\n';
-                                            if (line.find(" enter ") != std::string::npos) {
-                                                std::printf("%s\n", line.c_str());
-                                            }
-                                        },
-                                        [&] { return frame; },
-                                        [&](std::uint32_t at, std::uint8_t value, bool write) {
-                                            if (write) {
-                                                cells.traceWrite(at, value);
-                                            }
-                                        }};
+        // The seam's watch covers the cells the trace watches, so a run logs one or the other.
+        std::optional<SeamLog> seamLog;
+        std::optional<CellLog> cells;
+        std::optional<trace::DamageTrace> traced;
+        if (seam) {
+            seamLog.emplace(machine, directory, frame);
+        } else {
+            cells.emplace(machine, directory, watched, frame);
+            traced.emplace(machine,
+                           [&](const std::string& line) {
+                               log << line << '\n';
+                               if (line.find(" enter ") != std::string::npos) {
+                                   std::printf("%s\n", line.c_str());
+                               }
+                           },
+                           [&] { return frame; },
+                           [&](std::uint32_t at, std::uint8_t value, bool write) {
+                               if (write) {
+                                   cells->traceWrite(at, value);
+                               }
+                           });
+        }
         if (from) {
             if (!machine.restore(from->state.bytes)) {
                 std::fprintf(stderr, "%s is not a state this machine takes\n", from->file.string().c_str());
@@ -496,17 +694,17 @@ int runHeadless(std::span<const std::uint8_t> image, const std::filesystem::path
             trace::writeCells(machine, ram, writes, frame);
             // The trace's watches do not see these writes, so it is told of them.
             for (const trace::CellWrite& write : writes) {
-                if (write.frame != frame) {
+                if (write.frame != frame || !traced) {
                     continue;
                 }
                 for (std::size_t i = 0; i < write.bytes.size(); ++i) {
-                    traced.noteWrite(write.at + static_cast<std::uint32_t>(i), write.bytes[i]);
+                    traced->noteWrite(write.at + static_cast<std::uint32_t>(i), write.bytes[i]);
                 }
             }
             machine.buttons(snes::Ports{.one = trace::buttonsAt(script, frame), .two = std::nullopt});
             machine.advanceTick();
-            if (!watched.empty()) {
-                cells.logFrame(machine, ram);
+            if (cells && !watched.empty()) {
+                cells->logFrame(machine, ram);
             }
             if (std::find(pictureFrames.begin(), pictureFrames.end(), frame) != pictureFrames.end()) {
                 const std::filesystem::path file = directory / ("frame-" + std::to_string(frame) + ".ppm");
@@ -1012,6 +1210,7 @@ struct Options {
     std::vector<std::uint64_t> pictureFrames;            // --headless
     std::vector<trace::CellWrite> writes;                // --headless
     std::vector<WatchedCells> watched;                   // --headless
+    bool seam = false;                                   // --headless
     std::optional<std::filesystem::path> recording;      // --replay
     bool twice = false;                                  // --to-battle
     std::uint32_t seed = trace::kSweepSeed;              // --check
@@ -1024,7 +1223,7 @@ constexpr const char* kUsage =
     "usage: ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]\n"
     "       ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]\n"
     "                                               [--picture-at <frame>]... [--write-at <frame> <address> <bytes>]...\n"
-    "                                               [--watch <address> <count>]...\n"
+    "                                               [--watch <address> <count>]... [--seam]\n"
     "       ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]\n"
     "       ostinato-damage-trace <rom> <directory> --check-state <ticks>\n"
     "       ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]\n"
@@ -1047,8 +1246,11 @@ std::optional<std::string> refusal(const Options& o) {
     if (o.headless != o.frames.has_value()) {
         return "--headless and --frames go together";
     }
-    if (!o.headless && (o.inputs || !o.pictureFrames.empty() || !o.writes.empty() || !o.watched.empty())) {
-        return "--inputs, --picture-at, --write-at and --watch go with --headless";
+    if (!o.headless && (o.inputs || !o.pictureFrames.empty() || !o.writes.empty() || !o.watched.empty() || o.seam)) {
+        return "--inputs, --picture-at, --write-at, --watch and --seam go with --headless";
+    }
+    if (o.seam && !o.watched.empty()) {
+        return "--seam watches every cell --watch would, so they go apart";
     }
     if (o.recording && !o.replay) {
         return "--log goes with --replay";
@@ -1141,7 +1343,7 @@ int runMode(const Options& options, std::span<const std::uint8_t> image, const s
         script = std::move(*read);
     }
     return runHeadless(image, directory, *options.frames, from, script, options.pictureFrames, options.writes,
-                       options.watched);
+                       options.watched, options.seam);
 }
 
 }  // namespace
@@ -1167,6 +1369,8 @@ int main(int argc, char** argv) {
             options.headless = true;
         } else if (flag == "--twice") {
             options.twice = true;
+        } else if (flag == "--seam") {
+            options.seam = true;
         } else if (flag == "--replay-traced") {
             options.replayTraced = true;
         } else if (flag == "--quit-after-frames") {
