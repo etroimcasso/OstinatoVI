@@ -1,5 +1,8 @@
 // The party's records as the cartridge keeps them: the sixteen character records, each field's
-// offset in a record, the espers, the spells known and the battle's magic points, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// offset in a record, the espers, the spells known and the battle's magic points.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstddef>

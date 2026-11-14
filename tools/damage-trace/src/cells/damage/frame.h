@@ -1,6 +1,9 @@
 // The work-RAM cells the attack frame reads beyond the damage routines' own: the attack queued, the
-// battlers' facing, the lores known and learned, the special attack, the monster named and the hands'
-// items, as $7E:xxxx addresses in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// battlers' facing, the lores known and learned, the special attack, the monster named and the
+// hands' items.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

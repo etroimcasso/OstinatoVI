@@ -1,7 +1,9 @@
 // The work-RAM cells the damage routines read and write: the per-target pass, the damage taken and
-// shown, and the reflected attack's aim and hit check, as $7E:xxxx addresses in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace. The class keeps
-// the work-RAM base and the relic-effect cells as members too (DamageOracle::kWorkRam); the copies
-// here, with the same values, are for files that do not include the class.
+// shown, and the reflected attack's aim and hit check. The work-RAM base and the relic-effect cells
+// are defined here only; DamageOracle's members of the same names are these.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstddef>

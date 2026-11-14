@@ -1,5 +1,5 @@
-// The cartridge's battle program called whole, as the field calls it, and its start written and read
-// back as a scenario.
+// The cartridge's battle program called whole, as the field calls it, and its start written and
+// read back as a scenario.
 
 #include "oracle/damage_oracle.h"
 

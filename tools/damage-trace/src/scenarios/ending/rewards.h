@@ -1,6 +1,6 @@
-// What a won battle gives: the graphics program's calls and the messages they show, the party as the
-// cartridge keeps it, the win's flags, each reward step's scenario and result, the port's side of
-// each step, the comparison and the reward sweeps' draws.
+// What a won battle gives: the graphics program's calls and the messages they show, the party as
+// the cartridge keeps it, the win's flags, each reward step's scenario and result, the port's side
+// of each step, the comparison and the reward sweeps' draws.
 #pragma once
 
 #include <array>

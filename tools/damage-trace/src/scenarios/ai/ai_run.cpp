@@ -1,5 +1,5 @@
-// The port's runs of a script read back as the cartridge's lists hold them, the script's places, the
-// differences between two results, and the run sweep's draw.
+// The port's runs of a script read back as the cartridge's lists hold them, the script's places,
+// the differences between two results, and the run sweep's draw.
 
 #include "scenarios/ai/ai_run.h"
 

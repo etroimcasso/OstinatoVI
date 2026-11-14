@@ -1,6 +1,9 @@
-// The work-RAM cells the special effects read and write, on the attacker and on a target: the params
-// block's flags, the command's cells, Quick, the end-of-battle event, the battlers leaving, the links
-// between battlers, the hands, gold and gil, the actions waiting and the control menus, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// The work-RAM cells the special effects read and write, on the attacker and on a target: the
+// params block's flags, the command's cells, Quick, the end-of-battle event, the battlers leaving,
+// the links between battlers, the hands, gold and gil, the actions waiting and the control menus.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

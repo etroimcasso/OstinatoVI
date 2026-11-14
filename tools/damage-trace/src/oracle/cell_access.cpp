@@ -1,5 +1,5 @@
-// The oracle's reads and writes of the machine's cells, and its records of the guest's accesses: the
-// cells read before anything wrote them, and the accesses past the battle's own cells.
+// The oracle's reads and writes of the machine's cells, and its records of the guest's accesses:
+// the cells read before anything wrote them, and the accesses past the battle's own cells.
 
 #include "oracle/damage_oracle.h"
 

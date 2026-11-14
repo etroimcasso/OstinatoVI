@@ -1,6 +1,7 @@
-// The text a report shows a value as: a battler's slot, a set of battlers, statuses, a params block,
-// the numerals shown, a bounce, a last-attacker mark, a work-RAM address, and one line per cell that
-// differs. differences() and describe() build their lines with these, in namespace detail.
+// The text a report shows a value as: a battler's slot, a set of battlers, statuses, a params
+// block, the numerals shown, a bounce, a last-attacker mark, a work-RAM address, and one line per
+// cell that differs. differences() and describe() build their lines with these, in namespace
+// detail.
 #pragma once
 
 #include <cstdint>

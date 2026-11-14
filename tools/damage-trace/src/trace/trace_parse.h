@@ -1,5 +1,5 @@
-// A trace read back: the calls and endings it logged and the messages shown inside them, parsed from
-// the lines DamageTrace writes (trace_log.h).
+// A trace read back: the calls and endings it logged and the messages shown inside them, parsed
+// from the lines DamageTrace writes (trace_log.h).
 #pragma once
 
 #include <array>

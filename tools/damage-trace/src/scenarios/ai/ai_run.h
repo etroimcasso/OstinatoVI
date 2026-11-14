@@ -1,6 +1,6 @@
-// A battler's script as the cartridge keeps it and a turn's or a counterattack's run of it: what each
-// leaves, the port's answer, the comparison, the paths a counterattack's guard takes and the run
-// sweep's draw.
+// A battler's script as the cartridge keeps it and a turn's or a counterattack's run of it: what
+// each leaves, the port's answer, the comparison, the paths a counterattack's guard takes and the
+// run sweep's draw.
 #pragma once
 
 #include <cstdint>

@@ -1,5 +1,8 @@
 // The cells the trace and its parsers both read: the params block, the script queue, the reflected
-// attack's aiming rule and the blocks' attacker, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// attack's aiming rule and the blocks' attacker.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

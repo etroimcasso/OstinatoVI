@@ -1,5 +1,5 @@
-// What taking and showing the damage leaves on the port's side, read back as the cells the cartridge
-// holds: shared with the whole attack's comparison, in namespace detail.
+// What taking and showing the damage leaves on the port's side, read back as the cells the
+// cartridge holds: shared with the whole attack's comparison, in namespace detail.
 #pragma once
 
 #include "battle/attack.h"

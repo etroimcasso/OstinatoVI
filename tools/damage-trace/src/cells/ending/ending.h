@@ -1,5 +1,8 @@
-// The cells and bits a battle's end reads and writes: the battle menus, the inventory's records, the
-// formation's bytes, the colosseum's wager and prize, the Veldt and the field's music, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// The cells and bits a battle's end reads and writes: the battle menus, the inventory's records,
+// the formation's bytes, the colosseum's wager and prize, the Veldt and the field's music.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

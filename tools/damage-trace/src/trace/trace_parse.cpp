@@ -1,5 +1,5 @@
-// parseTrace(), parseEndings() and messageShownBy(): a trace's lines read back as calls, endings and
-// the messages shown.
+// parseTrace(), parseEndings() and messageShownBy(): a trace's lines read back as calls, endings
+// and the messages shown.
 
 #include "trace/trace_parse.h"
 

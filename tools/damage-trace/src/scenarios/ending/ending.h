@@ -1,5 +1,6 @@
 // A battle's end: the wrap-up, the win and the loss, the write-back of what the game keeps, and the
-// items obtained, each with what it leaves, the port's answer, the comparison and the sweeps' draws.
+// items obtained, each with what it leaves, the port's answer, the comparison and the sweeps'
+// draws.
 #pragma once
 
 #include <array>

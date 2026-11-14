@@ -1,6 +1,6 @@
 // ostinato-damage-trace — the cartridge's damage routines watched as the game runs them, or checked
-// against the port's formulas. A developer tool for seeing exactly what the game's damage code reads
-// and writes, and for proving the port's numbers are the game's; it is not part of the game.
+// against the port's formulas. A developer tool for seeing exactly what the game's damage code
+// reads and writes, and for proving the port's numbers are the game's; it is not part of the game.
 //
 //     ostinato-damage-trace <rom> <directory> [--from <state>] [--quit-after-frames <n>]
 //     ostinato-damage-trace <rom> <directory> --headless --frames <n> [--from <state>] [--inputs <script>]
@@ -12,73 +12,75 @@
 //                                             [--replay-traced]
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
-// Without another mode the cartridge is run on the engine's SNES machine in a window, played from the
-// keyboard or a gamepad, and nineteen of its battle routines are traced (trace::DamageTrace): escapes on each
-// routine's entry and on the instructions its callers return to open and close a call, the attack's
-// context logged at each entry, and watches over every cell the routines read or write log each
-// access made inside a call, in order, with its address and byte. The win, the loss and the wrap-up are
-// traced whole, as every cell of their ranges on entry and on return, and every battle message shown
-// inside a traced call or ending is logged with its variables. Every call is logged — nothing is
-// filtered — to `damage-trace.log` under <directory>, in the lines trace/trace_log.h names.
+// Without another mode the cartridge is run on the engine's SNES machine in a window, played from
+// the keyboard or a gamepad, and nineteen of its battle routines are traced (trace::DamageTrace):
+// escapes on each routine's entry and on the instructions its callers return to open and close a
+// call, the attack's context logged at each entry, and watches over every cell the routines read or
+// write log each access made inside a call, in order, with its address and byte. The win, the loss
+// and the wrap-up are traced whole, as every cell of their ranges on entry and on return, and every
+// battle message shown inside a traced call or ending is logged with its variables. Every call is
+// logged — nothing is filtered — to `damage-trace.log` under <directory>, in the lines
+// trace/trace_log.h names.
 //
 // The routines: the base damage (`CalcDmg`, $C2:2B9D, returning to $C2:322E), the damage to one
 // target (`CalcTargetDmg`, $C2:0B83, returning to $C2:346C from the attack and $C2:3509 from a
 // bounce), taking and showing it (`_c262ef`, $C2:62EF, returning to $C2:3473 and $C2:3528), the
 // statuses taking effect (`UpdateStatus`, $C2:4391, returning to $C2:324D from the attack, $C2:24A7
 // from the battle's start and $C2:50AA from a formation change) and an attack's statuses on one
-// target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9), and an attack's special
-// effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one target
-// (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC); and at a won battle's end, the
-// spells an equipped esper teaches learned further (`LearnGenjuMagic`, $C2:602A, returning to
-// $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4); and a battler's AI: its script
-// readied (`InitAI`, $C2:2D71, returning to $C2:2C3D as a monster is loaded and $C2:3041 as a scripted
-// battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to $C2:013C and, for a
-// party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`, $C2:4BF4, returning to
-// $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`, `Cmd_30`, $C2:1DFA,
-// $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401); and at a won battle's end, the
-// experience added (`AddExp`, $C2:6235, returning to $C2:5E4F and $C2:5E59), the spells equipment
-// teaches (`LearnItemMagic`, $C2:5FEF, returning to $C2:5E6A), the abilities a level teaches
-// (`LearnAbilities`, $C2:61B6, returning to $C2:60BF) and the rages (`LearnRage`, $C2:4A07, returning to
-// $C2:48EE). The addresses are the US cartridges'. --quit-after-frames closes the window after that many frames;
-// otherwise close it to quit.
+// target (`MagicStatusEffect`, $C2:4406, returning to $C2:345C and $C2:34F9), and an attack's
+// special effect on its attacker (`DoAttackerEffect`, $C2:3E7D, returning to $C2:33A9) and on one
+// target (`DoTargetEffect`, $C2:387E, returning to $C2:345F and $C2:34FC); and at a won battle's
+// end, the spells an equipped esper teaches learned further (`LearnGenjuMagic`, $C2:602A, returning
+// to $C2:5E72) and a level-up (`DoLevelUp`, $C2:60C2, returning to $C2:60B4); and a battler's AI:
+// its script readied (`InitAI`, $C2:2D71, returning to $C2:2C3D as a monster is loaded and $C2:3041
+// as a scripted battle seats a party member), its turn (`ExecMonsterAction`, $C2:02DC, returning to
+// $C2:013C and, for a party member with a script, $C2:21A1), its counterattack (`ExecAIRetal`,
+// $C2:4BF4, returning to $C2:4B9A) and the three commands only a script queues (`Cmd_2e`, `Cmd_2f`,
+// `Cmd_30`, $C2:1DFA, $C2:1E1A and $C2:1E5E, returning to the command dispatch at $C2:1401); and at
+// a won battle's end, the experience added (`AddExp`, $C2:6235, returning to $C2:5E4F and
+// $C2:5E59), the spells equipment teaches (`LearnItemMagic`, $C2:5FEF, returning to $C2:5E6A), the
+// abilities a level teaches (`LearnAbilities`, $C2:61B6, returning to $C2:60BF) and the rages
+// (`LearnRage`, $C2:4A07, returning to $C2:48EE). The addresses are the US cartridges'.
+// --quit-after-frames closes the window after that many frames; otherwise close it to quit.
 //
-// With --from the trace starts at a state written by --to-battle instead of at power-on, on a machine
-// with no battery file. A state from another cartridge revision is refused.
+// With --from the trace starts at a state written by --to-battle instead of at power-on, on a
+// machine with no battery file. A state from another cartridge revision is refused.
 //
 // With --to-battle nothing opens. The cartridge runs from power-on holding the buttons <inputs>
-// names (machine/machine_state.h has the format), and the machine as it stood on the tick before the battle
-// program was entered is written to `battle.state` under <directory>, so a trace started from it sees
-// the whole battle. A run that passes the script's last line by kRunOutFrames with no battle writes
-// the picture it last finished to `to-battle-end.ppm` and fails. --twice runs it again and fails if the
-// two states differ by a byte.
+// names (machine/machine_state.h has the format), and the machine as it stood on the tick before
+// the battle program was entered is written to `battle.state` under <directory>, so a trace started
+// from it sees the whole battle. A run that passes the script's last line by kRunOutFrames with no
+// battle writes the picture it last finished to `to-battle-end.ppm` and fails. --twice runs it
+// again and fails if the two states differ by a byte.
 //
-// With --headless nothing opens. The trace runs for --frames frames from power-on or --from, holding
-// the buttons --inputs names, on a machine with no battery file, and writes the picture of each
-// --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before its frame
-// runs (machine/machine_state.h has the form), and the trace is told of them. Each --watch logs the cartridge's
-// every write to <count> cells of work RAM from <address> on, and their bytes after every frame, to
-// `cells.log` (CellLog, tool/cell_log.h, has the lines). With --seam the run logs, in place of the trace, what the
-// graphics program hands the battle program to `seam.log` (SeamLog, tool/seam_log.cpp, has the lines).
+// With --headless nothing opens. The trace runs for --frames frames from power-on or --from,
+// holding the buttons --inputs names, on a machine with no battery file, and writes the picture of
+// each --picture-at frame to `frame-<n>.ppm`. Each --write-at writes its bytes into work RAM before
+// its frame runs (machine/machine_state.h has the form), and the trace is told of them. Each
+// --watch logs the cartridge's every write to <count> cells of work RAM from <address> on, and
+// their bytes after every frame, to `cells.log` (CellLog, tool/cell_log.h, has the lines). With
+// --seam the run logs, in place of the trace, what the graphics program hands the battle program to
+// `seam.log` (SeamLog, tool/seam_log.cpp, has the lines).
 //
-// With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its state
-// is written, read back and restored on a second machine; both run on, and their memory and pictures
-// are compared.
+// With --check-state nothing opens. A machine is run --check-state ticks from power-on, and its
+// state is written, read back and restored on a second machine; both run on, and their memory and
+// pictures are compared.
 //
-// With --replay nothing opens. Every call in <directory>/damage-trace.log, or the file --log names, is
-// rebuilt as a battle and worked out by the port, and the port's answer is compared with every cell the
-// cartridge wrote; every ending is rebuilt from the cells it found and played out by the port, compared
-// with the cells it left and the messages it showed. Each is logged to `replay.log` with its
-// differences, and any difference fails the run.
+// With --replay nothing opens. Every call in <directory>/damage-trace.log, or the file --log names,
+// is rebuilt as a battle and worked out by the port, and the port's answer is compared with every
+// cell the cartridge wrote; every ending is rebuilt from the cells it found and played out by the
+// port, compared with the cells it left and the messages it showed. Each is logged to `replay.log`
+// with its differences, and any difference fails the run.
 //
-// With --check nothing opens. The cartridge is started as far as its reset code, its routines are bound
-// where it holds them, and <draws> scenarios drawn from a fixed seed (or --seed) are run through each
-// routine (or those --only names) and through the port. Every scenario is logged to `check.log`; a
-// disagreement is printed and fails the run. --replay-traced also traces the cartridge's calls and
-// endings in each draw and replays them against the port.
+// With --check nothing opens. The cartridge is started as far as its reset code, its routines are
+// bound where it holds them, and <draws> scenarios drawn from a fixed seed (or --seed) are run
+// through each routine (or those --only names) and through the port. Every scenario is logged to
+// `check.log`; a disagreement is printed and fails the run. --replay-traced also traces the
+// cartridge's calls and endings in each draw and replays them against the port.
 //
 // This file reads the command line and runs the mode it names: the trace in a window is in
-// starting_state.cpp, --to-battle in pictures.cpp, --headless and --check-state in seam_log.cpp, and
-// --check and --replay in check.cpp.
+// starting_state.cpp, --to-battle in pictures.cpp, --headless and --check-state in seam_log.cpp,
+// and --check and --replay in check.cpp.
 //
 // Keys: arrows = d-pad, X = A, Z = B, S = X, A = Y, Q/W = L/R, Enter = Start, Right Shift = Select.
 

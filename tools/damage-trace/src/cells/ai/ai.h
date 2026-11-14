@@ -1,6 +1,9 @@
 // The work-RAM cells a battler's AI reads and writes: the run's targets and restriction, the actor,
 // the battle's timer, variables and switches, the names listed, the formation, the scripts' places,
-// the counterattack line and the party slots, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// the counterattack line and the party slots.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

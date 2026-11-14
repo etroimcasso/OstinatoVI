@@ -1,6 +1,9 @@
 // The work-RAM cells and bits the status routines read and write: the statuses each battler can be
 // given, its triggers, the equipment to work out again, the monsters standing and fallen, and the
-// bits of each battler's flags, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// bits of each battler's flags.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstdint>

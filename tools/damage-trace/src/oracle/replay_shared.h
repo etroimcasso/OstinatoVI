@@ -1,5 +1,5 @@
-// The attacker of a traced call that came from a bounce: shared with the special effects' replay, in
-// namespace detail.
+// The attacker of a traced call that came from a bounce: shared with the special effects' replay,
+// in namespace detail.
 #pragma once
 
 #include "battle/battler_set.h"

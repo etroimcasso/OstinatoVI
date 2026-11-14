@@ -6,9 +6,9 @@
 // emulation mode, ends the start: the processor is in the mode the game's code is written for and
 // nothing of the game has run yet. Each damage routine is bound where the cartridge holds it and
 // called in that context. A caller builds one DamageScenario from the port's own types; the oracle
-// writes it into the machine's work RAM at the cells the routine reads, calls the routine, and gives
-// back what it wrote — read back from the cells, with watches on them recording each write as the
-// routine makes it.
+// writes it into the machine's work RAM at the cells the routine reads, calls the routine, and
+// gives back what it wrote — read back from the cells, with watches on them recording each write as
+// the routine makes it.
 //
 //     trace::runOnLoop([&] {
 //         trace::DamageOracle oracle{image};
@@ -24,13 +24,13 @@
 // allows, whose one tick runs the work and whose run ends through the loop's exit; a tool with a
 // loop of its own starts and calls the oracle from its own tick instead.
 //
-// Every cell the oracle writes is filled from a field of the port's state, so the guest never sees a
-// value the port has no name for; cells a routine does not read are left as the machine has them. The
-// routines are at the addresses both US cartridges hold them; the oracle checks each one's opening
-// bytes and refuses an image that does not have them. This header gives the scenarios, results and
-// port answers of every concern (scenarios/) and the trace (trace/) with the class. The members are
-// defined across oracle/ by concern; `ostinato-damage-trace --check` runs the oracle from the command
-// line, and tools/damage-trace/README.md lists the tests that run it.
+// Every cell the oracle writes is filled from a field of the port's state, so the guest never sees
+// a value the port has no name for; cells a routine does not read are left as the machine has them.
+// The routines are at the addresses both US cartridges hold them; the oracle checks each one's
+// opening bytes and refuses an image that does not have them. This header gives the scenarios,
+// results and port answers of every concern (scenarios/) and the trace (trace/) with the class. The
+// members are defined across oracle/ by concern; `ostinato-damage-trace --check` runs the oracle
+// from the command line, and tools/damage-trace/README.md lists the tests that run it.
 #pragma once
 
 #include <array>
@@ -74,6 +74,7 @@
 #include "game/character_record.h"
 #include "ostinato/character_prop_id.h"
 
+#include "cells/damage/per_target.h"
 #include "scenarios/ai/ai_commands.h"
 #include "scenarios/ai/ai_run.h"
 #include "scenarios/ai/ai_targets.h"
@@ -417,7 +418,7 @@ public:
     [[nodiscard]] retropp::Vm& machine() { return machine_; }
 
     // The cells, for callers that read them back.
-    static constexpr std::uint32_t kWorkRam = 0x7E0000;
+    static constexpr std::uint32_t kWorkRam = cells::kWorkRam;
     static constexpr std::uint32_t kRecord = kWorkRam + 0x11A0;  // the attack's 14-byte record
     static constexpr std::uint32_t kPower = kWorkRam + 0x11A6;   // the record's power
     static constexpr std::uint32_t kAttackerStat = kWorkRam + 0x11AE;
@@ -426,8 +427,8 @@ public:
     static constexpr std::uint32_t kAttackFlags = kWorkRam + 0x00B3;  // the second attack-flags byte
     static constexpr std::uint32_t kMultiplier = kWorkRam + 0x00BC;
     // Per battler, a word at twice the battler's index.
-    static constexpr std::uint32_t kRelicEffects1And3 = kWorkRam + 0x3C44;
-    static constexpr std::uint32_t kRelicEffects4And5 = kWorkRam + 0x3C58;
+    static constexpr std::uint32_t kRelicEffects1And3 = cells::kRelicEffects1And3;
+    static constexpr std::uint32_t kRelicEffects4And5 = cells::kRelicEffects4And5;
 
 private:
     using Call = void(std::uint16_t, std::uint8_t, std::uint8_t, std::uint16_t);

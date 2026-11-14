@@ -1,5 +1,5 @@
-// A params block read back from the cartridge's bytes: shared with the target effect, the cover, the
-// whole attack and the special effects' replay, in namespace detail.
+// A params block read back from the cartridge's bytes: shared with the target effect, the cover,
+// the whole attack and the special effects' replay, in namespace detail.
 #pragma once
 
 #include <cstdint>

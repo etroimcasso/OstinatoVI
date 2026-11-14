@@ -1,6 +1,9 @@
 // The cells a won battle's rewards read and write besides the records: the win's flags, the message
 // variables, the party bytes and slots, the Morph supply, the SwdTechs, Blitzes, rages and dances
-// known, the gil and the monster slots, in namespace cells. A file that names them says `using namespace cells;` inside ostinato::trace.
+// known, the gil and the monster slots.
+//
+// The addresses are $7E:xxxx cells in namespace cells: a file that names them says
+// `using namespace cells;` inside ostinato::trace.
 #pragma once
 
 #include <cstddef>

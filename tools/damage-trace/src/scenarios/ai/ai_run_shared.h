@@ -1,5 +1,5 @@
-// Every script step's place in the cartridge's script block, an action's cells as text, and the bytes
-// a script holds for an action of its own: shared with the cartridge's side of the AI's runs,
+// Every script step's place in the cartridge's script block, an action's cells as text, and the
+// bytes a script holds for an action of its own: shared with the cartridge's side of the AI's runs,
 // commands and replays, in namespace detail.
 #pragma once
 

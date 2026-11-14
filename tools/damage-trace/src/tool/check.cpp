@@ -1,5 +1,5 @@
-// runCheck() and runReplay(): the sweeps run and logged to check.log, and a trace's calls and endings
-// replayed against the port and logged to replay.log.
+// runCheck() and runReplay(): the sweeps run and logged to check.log, and a trace's calls and
+// endings replayed against the port and logged to replay.log.
 
 #include "tool/check.h"
 

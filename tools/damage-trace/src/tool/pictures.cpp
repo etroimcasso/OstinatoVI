@@ -1,5 +1,5 @@
-// writePicture() and runToBattle(): pictures written to files, and a scripted run from power-on to a
-// battle's entry.
+// writePicture() and runToBattle(): pictures written to files, and a scripted run from power-on to
+// a battle's entry.
 
 #include "tool/pictures.h"
 
