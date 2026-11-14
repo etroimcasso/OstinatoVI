@@ -277,8 +277,9 @@ constexpr std::uint8_t kCarryBit = 0x01;
 // The read-set gate watches the battle's work RAM below the graphics buffers, the stack among it.
 constexpr std::uint32_t kGateStart = DamageOracle::kWorkRam;
 constexpr std::uint32_t kGateEnd = DamageOracle::kWorkRam + 0x4000;
-// The end of work RAM's second bank, $7F:FFFF.
+// The end of work RAM's second bank, $7F:FFFF, and the watch over the cells past the battle's.
 constexpr std::uint32_t kSecondWorkRamBankEnd = 0x800000;
+constexpr const char* kBeyondKey = "beyond the battle's cells";
 
 // --- the cells the per-target pass reads and writes ----------------------------------------------
 
@@ -714,8 +715,10 @@ void DamageOracle::registerGate() {
     // they and the trace's own watches hand every access to noteGuestAccess().
     const std::uint32_t past = std::max(from, kGateEnd);
     if (past < kSecondWorkRamBankEnd) {
+        // Switched on for a whole battle only (battleStartAsItStands()): every other call leaves the
+        // machine unwatched there.
         gaps.declarations.push_back(retropp::GuestWatch{
-            .key = "beyond the battle's cells",
+            .key = kBeyondKey,
             .at = retropp::MemoryRegion{.at = past, .size = kSecondWorkRamBankEnd - past},
             .onRead = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
                 noteAccessBeyond(at, value, false);
@@ -724,7 +727,8 @@ void DamageOracle::registerGate() {
             .onWrite = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
                 noteAccessBeyond(at, value, true);
                 return retropp::AccessVerdict::proceed();
-            }});
+            },
+            .armed = false});
     }
     machine_.registerWatches(gaps);
 }
@@ -10503,7 +10507,9 @@ StartResult DamageOracle::battleStartAsItStands() {
     graphicsCalls_.clear();
     unansweredGraphics_.reset();
     machine_.escapes()[kGraphicsKey].armed(true);
+    machine_.watches()[kBeyondKey].armed(true);
     call([&] { battleMain_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    machine_.watches()[kBeyondKey].armed(false);
     machine_.escapes()[kGraphicsKey].armed(false);
     StartResult result = std::move(*start_);
     start_.reset();
