@@ -23,7 +23,7 @@
 #include "battle/battle_script.h"
 #include "battle/battle_state.h"
 #include "battle_test_support.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/attack_id.h"

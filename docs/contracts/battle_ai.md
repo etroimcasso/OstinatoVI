@@ -14,7 +14,7 @@ The scripts themselves are data: `src/data/ai_scripts.h`, described in
 here are `src/battle/ai.h`, `src/battle/ai_targets.h`, `src/battle/ai_conditions.h` and the three
 commands in `src/battle/system_commands.h`. Every claim about the routines named below is also checked
 against the cartridge itself: each routine is run on the cartridge, hosted on the engine's SNES
-machine, over the same battle the port is given (`tools/damage-trace/damage_oracle.h`), and the
+machine, over the same battle the port is given (`tools/damage-trace/src/oracle/damage_oracle.h`), and the
 routines' calls in recorded games are replayed against the port.
 
 The cells the script reader keeps: `$f0` the place it is at, `$f2` the place to go on from after a

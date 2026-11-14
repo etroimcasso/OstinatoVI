@@ -23,8 +23,8 @@
 #include "battle/battle_state.h"
 #include "data/char_ai.h"
 #include "data/formations.h"
-#include "damage_oracle.h"
-#include "machine_state.h"
+#include "machine/machine_state.h"
+#include "oracle/damage_oracle.h"
 #include "retropp/guest_escape.h"
 #include "retropp/snes.h"
 #include "retropp/vm.h"
@@ -80,7 +80,7 @@ protected:
     // power-on by first-fight.inputs.
     static const std::vector<std::uint8_t>& firstFight() {
         if (firstFight_ == nullptr) {
-            std::ifstream inputs{fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "../../../tools/damage-trace/first-fight.inputs"};
+            std::ifstream inputs{fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "../../../tools/damage-trace/inputs/first-fight.inputs"};
             if (!inputs) {
                 throw std::runtime_error("first-fight.inputs could not be read");
             }

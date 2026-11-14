@@ -17,7 +17,7 @@
 #include <vector>
 
 #include "assets/cartridge.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/ai_scripts.h"
 #include "vanilla_rom.h"
 

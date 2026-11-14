@@ -14,7 +14,7 @@ Both rules are pure functions over the party's records (`game::CharacterRecord`,
 in `src/game/character_record.h`): `src/battle/spell_learning.h` and `src/battle/leveling.h`. Every claim
 about `LearnGenjuMagic` and `DoLevelUp` is also checked against the cartridge itself: the routine is run
 on the cartridge, hosted on the engine's SNES machine, over the same records the port is given
-(`tools/damage-trace/damage_oracle.h`). `IncLearnMagic` and the seventeen bonus handlers are checked
+(`tools/damage-trace/src/oracle/damage_oracle.h`). `IncLearnMagic` and the seventeen bonus handlers are checked
 through the two routines that call them.
 
 ## Sources

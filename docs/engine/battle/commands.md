@@ -25,7 +25,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_script.h` | `BattleScriptCommand` and its alternatives, `AttackAnimationParams`, `SpecialAnimation`, `MonsterAnimation`, `BlockShown`, `BattleScriptBuilder`, the battle messages the commands show |
 | `src/battle/battle_inventory.h` | `putAwayItemsObtained()` ([below](#items-obtained)) |
 | `src/battle/targeting.h` | aiming ([targeting.md](targeting.md)) |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attack()`, `selfAttack()` and `unwrittenReads()`, the cartridge's attack frame over a `DamageScenario`; `portAttack()`, `portSelfAttack()`, `attackResult()` and `differences()`; `drawAttackScenario()`, `drawSelfAttackScenario()` ([below](#checking-an-attack-against-the-cartridge)) |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::attack()`, `selfAttack()` and `unwrittenReads()`, the cartridge's attack frame over a `DamageScenario`; `portAttack()`, `portSelfAttack()`, `attackResult()` and `differences()`; `drawAttackScenario()`, `drawSelfAttackScenario()` ([below](#checking-an-attack-against-the-cartridge)) |
 
 ## Running commands
 
@@ -404,7 +404,7 @@ with `BattleHooks`. `attackResult()` reads the port's run back as the cartridge'
 `runSelfAttack()`:
 
 ```cpp
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};

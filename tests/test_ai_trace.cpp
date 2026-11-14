@@ -29,7 +29,7 @@
 #include "battle/battle_hooks.h"
 #include "battle/battle_start.h"
 #include "battle/command_executor.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/ai_scripts.h"
 #include "data/formations.h"
 #include "data/monster_sprites.h"

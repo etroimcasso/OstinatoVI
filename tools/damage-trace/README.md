@@ -27,7 +27,7 @@ cmake --build build --target ostinato-damage-trace
 | One routine, another seed | `--check 2000 --only status-effect --seed 7` |
 | The replay itself, on the cartridge's own calls | `--check 200 --replay-traced` |
 | A recording against the port | `--replay --log tests/fixtures/damage-trace/first-fight.log` |
-| That the script reaches its fight, the same every run | `--to-battle tools/damage-trace/first-fight.inputs --twice` |
+| That the script reaches its fight, the same every run | `--to-battle tools/damage-trace/inputs/first-fight.inputs --twice` |
 | That a restored machine carries on where it stood | `--check-state 300` |
 | A fight with scripted buttons, with no window | `--headless --from <state> --inputs <script> --frames 3000`, then `--replay` |
 | A fight by hand | `--from <state>`, then `--replay` |
@@ -114,7 +114,7 @@ besides — the script reader's cells in direct page (`$7E:00F0-00FF`), the form
 records' party bytes and the party played, the lores known and Strago's slot, the story's flags, the
 battle type and a pincer's two sides, the party's spell lists, each battler's gauge, advance wait, block
 graphics, script places, wait places, own timer and ATB rate, the counterattack line, the step being read, the battle's variables and
-switches, the names listed and the party slots' members (`kTracedRanges` in `damage_oracle.h`). Inside a
+switches, the names listed and the party slots' members (`kTracedRanges` in `src/trace/trace_log.h`). Inside a
 call of one of the six routines on the party's records — `LearnGenjuMagic`, `DoLevelUp` and the four
 above — the sixteen character records, the spells each character knows, the Morph supply with the
 SwdTechs and Blitzes known, the rages and dances known and the first two battle's-end cells in direct
@@ -164,7 +164,7 @@ each cell it watches — by the cartridge, or by `--write-at`, which it is told 
 fight is played without playing up to it:
 
 ```sh
-./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --to-battle tools/damage-trace/first-fight.inputs
+./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --to-battle tools/damage-trace/inputs/first-fight.inputs
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/opening --from ~/traces/opening/battle.state
 ```
 
@@ -247,7 +247,7 @@ frames in every 16, which fights with each party member's first command at its f
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/esper-win --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/press-a.inputs --frames 1500 \
+    --inputs tools/damage-trace/inputs/press-a.inputs --frames 1500 \
     --write-at 10 '$7E:161E' 04 --write-at 10 '$7E:1608' 03 --write-at 10 '$7E:1611' D00000
 ```
 
@@ -262,7 +262,7 @@ which starts at place 3410 (`$0D52`) of the cartridge's script block:
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/guards-counter --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/hold-then-press-a.inputs --frames 2600 --write-at 10 '$7E:3274' 520D
+    --inputs tools/damage-trace/inputs/hold-then-press-a.inputs --frames 2600 --write-at 10 '$7E:3274' 520D
 ```
 
 The guards take four turns between them, each a Fight with their Battle or Special attack, and when one
@@ -275,7 +275,7 @@ that guard's counterattack place, and Petrify written into the guard's statuses 
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/petrified-guard --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/hold-then-press-a.inputs --frames 3000 \
+    --inputs tools/damage-trace/inputs/hold-then-press-a.inputs --frames 3000 \
     --write-at 10 '$7E:3274' E315 --write-at 1180 '$7E:3DE0' 40
 ```
 
@@ -290,7 +290,7 @@ frame the win begins, so the first fallen guard's draw is 31, below 32, and give
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/rewards-win --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/press-a.inputs --frames 1600 --picture-at 1400 \
+    --inputs tools/damage-trace/inputs/press-a.inputs --frames 1600 --picture-at 1400 \
     --write-at 10 '$7E:1608' 05 --write-at 10 '$7E:1611' 9A0200 --write-at 1101 '$7E:00BE' 02
 ```
 
@@ -301,7 +301,7 @@ pressed until the guards have felled them, then A to close "Annihilated":
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/rewards-loss --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/hold-then-press-a.inputs --frames 1600 --write-at 10 '$7E:3BF4' 010001000100
+    --inputs tools/damage-trace/inputs/hold-then-press-a.inputs --frames 1600 --write-at 10 '$7E:3BF4' 010001000100
 ```
 
 The loss begins at frame 1097 and returns at 1211. `tests/fixtures/damage-trace/rewards-loss.log` is this
@@ -324,7 +324,7 @@ to the next battle (`first-two-battles.inputs`):
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/items-obtained --headless --frames 30000 \
-    --inputs tools/damage-trace/first-two-battles.inputs --watch '$7E:602D' 80 --watch '$7E:64DA' 2
+    --inputs tools/damage-trace/inputs/first-two-battles.inputs --watch '$7E:602D' 80 --watch '$7E:64DA' 2
 ```
 
 The battles begin at frames 10216 and 12224. Both counts become 0 three frames into each; the list's first
@@ -358,7 +358,7 @@ again. A write made by a memory transfer rather than by an instruction is not se
 
 ```sh
 ./build/ostinato-damage-trace rom/cartridge.sfc ~/traces/seam --headless --from build/first-fight/battle.state \
-    --inputs tools/damage-trace/press-a.inputs --frames 1600 --seam
+    --inputs tools/damage-trace/inputs/press-a.inputs --frames 1600 --seam
 ```
 
 Over the seven recordings' fights the battle program reads, of what the graphics side writes: the frame
@@ -518,7 +518,7 @@ decide.
 
 Each `attack`, `self-attack`, `own-actions`, `wrap-up`, `win`, `loss` and `write-back` call also watches the battle's work RAM, `$7E:0000-3FFF`, for a cell
 the frame reads before anything wrote it. `DamageOracle::unwrittenReads()` lists them after a call;
-`kCellsLeftAsTheMachineHasThem` in `damage_oracle.h` holds the few the frame reads and nothing it shows
+`kCellsLeftAsTheMachineHasThem` in `src/scenarios/battle/battle_cells.h` holds the few the frame reads and nothing it shows
 or keeps depends on, each with its reason. Any other cell in the list is one the scenario must write.
 
 ## The battle whole
@@ -584,13 +584,122 @@ handed but the listed cells; and checks each gate on cells whose answer is known
 
 ## Files
 
+The tool is `inputs/`, the input scripts, and `src/`, the sources, laid out by concern. Where a concern
+has a port side, a cartridge side and cells, the three sit at the same path under `scenarios/`, `oracle/`
+and `cells/`. `src/` is the include root: a file names another from there (`#include
+"oracle/damage_oracle.h"`). The build makes two libraries of it, `ostinato-battle-scenarios` (`scenarios/`
+and the trace's parser, with no machine in any file) and `ostinato-damage-oracle` (`oracle/`, the trace
+log and `machine/`), and the tool and the test binaries link them.
+
+A file's `_shared.h` declares the helpers it defines that files of other concerns use, in namespace
+`detail`; the cells headers hold `$7E:xxxx` addresses in namespace `cells`, and `oracle/routines.h` the
+routines' addresses in namespace `routines`.
+
+**`inputs/`**
+
 | File | What it holds |
 |---|---|
-| `main.cpp` | the command line, the window and the trace on it, the trace with no window and its watched cells (`CellLog`), what the graphics program hands the battle program (`SeamLog`), the scripted run to a battle, the state check, the replay run and the check run |
-| `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
 | `first-fight.inputs` | the buttons from power-on to the first fight in Narshe |
 | `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |
 | `hold-then-press-a.inputs` | nothing pressed for 1,200 frames, then A for 4 frames in every 16: the guards act first, then the party fights the first fight to a win |
 | `first-two-battles.inputs` | from power-on through the first fight, won as `press-a.inputs` wins it, and on through the town to the next battle |
-| `battle_whole.cpp` | the whole state compared: `writeBattleState()`, `compareBattleState()`, the two gates `uncoveredWrites()` and `carriedReads()`, the tables `cellMeanings()` and `cellsNotCompared()`, and `portStart()` |
-| `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; over an `AiScenario`: the battlers a monster's script names, the conditions it tests, a script readied, its turns and counterattacks, and the three commands only a script queues; the whole attack frame, `attack()` and `selfAttack()`, and the battle's own actions, `ownAction()`, with `unwrittenReads()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAttackScenario()`, `drawSelfAttackScenario()`, `drawOwnActionCase()`, `drawEndingScenario()` and `drawItemsObtainedScenario()`, the seeded draws; over an `EndingScenario`: the wrap-up, `wrapUp()`, the win, `win()`, the loss, `loss()`, and what the game keeps, `writeBack()`, with `drawWinScenario()`; over an `ItemsObtainedScenario`: the graphics program's two commands for the items obtained; `itemsObtainedTailAtPowerOn()`, the title program laid out and the list's last three places read; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()`, `portAttack()`, `portSelfAttack()`, `attackResult()`, `portOwnAction()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port, a battler's AI rebuilt by `readAiScenario()`; `parseEndings()` and `DamageOracle::replayEnding()`, a recorded ending read back and replayed, rebuilt by `readEndingScenario()` |
+
+**`src/tool/`, the command line**
+
+| File | What it holds |
+|---|---|
+| `main.cpp` | the command line read, and the mode it names run |
+| `starting_state.{h,cpp}` | the cartridge image read from a file, the state a run carries on from, and the trace in a window |
+| `pictures.{h,cpp}` | a picture written as a PPM file, and the scripted run to a battle |
+| `cell_log.{h,cpp}` | the cells a `--watch` logs, and `CellLog`, which logs them to `cells.log` |
+| `seam_log.{h,cpp}` | the run with no window, `SeamLog` (what the graphics program hands the battle program, to `seam.log`), and the state check |
+| `check.{h,cpp}` | the `--check` sweeps and the `--replay` of a recorded trace |
+
+**`src/machine/`**
+
+| File | What it holds |
+|---|---|
+| `machine_state.{h,cpp}` | `MachineState`, `writeMachineState()`, `readMachineState()`, `stateIsOf()` and `cartridgeName()`, a state's file; `InputStep`, `readInputScript()` and `buttonsAt()`, an input script; `CellWrite`, `readCellWrite()`, `declareWorkRamBytes()` and `writeCells()`, the bytes `--write-at` writes |
+
+**`src/trace/`**
+
+| File | What it holds |
+|---|---|
+| `trace_log.{h,cpp}` | the routines the trace follows, the ranges it watches, and `DamageTrace`, the trace's escapes, watches and lines, on any machine |
+| `trace_parse.{h,cpp}` | `parseTrace()`, `parseEndings()` and `messageShownBy()`: a trace read back as calls, endings and the messages shown |
+| `cells.h` | the cells the trace and its parsers both read |
+
+**`src/oracle/`, the cartridge's side**
+
+| File | What it holds |
+|---|---|
+| `damage_oracle.h` | `DamageOracle`, `TickClock` and `runOnLoop()`, with every concern's scenarios and results: what a test includes |
+| `routines.h` | each routine's address, the calls that return to it, its opening bytes and the frame it is called in |
+| `machine.cpp` | the oracle hosting the cartridge, starting it, calling a routine, the read-set gate and the graphics program's answers; `runOnLoop()` |
+| `cell_access.cpp` | the oracle's reads and writes of cells, `unwrittenReads()` and the accesses past the battle's own cells |
+| `replay.cpp`, `replay_shared.h` | `replay()`: a recorded call read back and replayed against the port |
+| `damage/damage.cpp` | the formulas, the damage to one target, the damage taken and shown, and a spell bounced off Reflect |
+| `damage/cover.cpp` | the cover and the attack's animation set up |
+| `damage/attack.cpp` | the whole attack frame, `attack()` and `selfAttack()` |
+| `status/status.cpp` | the statuses taking effect and an attack's statuses on one target, with their replay |
+| `status/attacker_effects.cpp`, `attacker_effects_shared.h` | an attack's special effect on its attacker |
+| `status/target_effects.cpp` | an attack's special effect on one target |
+| `status/effects_replay.cpp` | a recorded special effect rebuilt and replayed |
+| `ending/records.cpp`, `records_shared.h` | over a `RecordScenario`: the esper's spells learned and the level-up, with their replay |
+| `ending/rewards.cpp` | the steps of a win's rewards, the graphics commands they call, and their replay |
+| `ending/ending.cpp` | over an `EndingScenario`: `wrapUp()`, `win()`, `loss()` and `writeBack()`; over an `ItemsObtainedScenario`: the graphics program's two commands for the items obtained; `itemsObtainedTailAtPowerOn()`; `replayEnding()` and `readEndingScenario()` |
+| `ai/ai_targets.cpp` | over an `AiScenario`: the battlers a monster's script names and the conditions it tests |
+| `ai/ai_run.cpp` | a script readied, its turns and its counterattacks |
+| `ai/ai_commands.cpp` | the three commands only a script queues |
+| `ai/own_actions.cpp` | the battle's own actions, `ownAction()` |
+| `ai/ai_replay.cpp` | `readAiScenario()`: a battler's AI rebuilt from a recorded call, and replayed |
+| `battle/start.cpp` | the battle program called whole, `battleStart()`, and a start scenario written and read back |
+| `battle/battle_state.cpp` | the whole state compared: `writeBattleState()`, `compareBattleState()` and the two gates `uncoveredWrites()` and `carriedReads()` |
+
+**`src/scenarios/`, the port's side**
+
+| File | What it holds |
+|---|---|
+| `common/bytes.{h,cpp}` | the port's values as the bytes the cartridge keeps them in |
+| `common/report_text.{h,cpp}` | the text a report shows a value as |
+| `common/draws.{h,cpp}` | the random draws every sweep makes its scenarios from |
+| `damage/damage.{h,cpp}`, `damage_shared.h` | `DamageScenario` and the damage results; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()` |
+| `damage/cover.{h,cpp}` | `portInitParams()` and `portCoverTarget()`; `drawCoverScenario()` |
+| `damage/attack.{h,cpp}`, `attack_shared.h` | `portAttack()`, `portSelfAttack()` and `attackResult()`; `drawAttackScenario()` and `drawSelfAttackScenario()` |
+| `status/status.{h,cpp}`, `status_shared.h` | `portStatusChanges()` and `portStatusEffect()`; `drawStatusChangesScenario()` and `drawStatusEffectScenario()` |
+| `status/attacker_effects.{h,cpp}`, `attacker_effects_shared.h` | `runAttackerEffect()`; `drawAttackerEffectScenario()` |
+| `status/target_effects.{h,cpp}`, `target_effects_shared.h` | `runTargetEffect()`; `drawTargetEffectScenario()` |
+| `ending/records.{h,cpp}`, `records_shared.h` | `RecordScenario`; `portLevelUp()` and `portLearnFromEsper()`; `drawLevelUpScenario()` and `drawLearningScenario()` |
+| `ending/rewards.{h,cpp}`, `rewards_shared.h` | the graphics program's calls and the messages they show, `PartyCells`, `RewardScenario`; the port's reward steps; the reward sweeps' draws |
+| `ending/ending.{h,cpp}` | `EndingScenario` and `ItemsObtainedScenario`; the port's endings, write-back and items obtained; `drawEndingScenario()`, `drawWinScenario()` and `drawItemsObtainedScenario()` |
+| `ai/ai_targets.{h,cpp}`, `ai_targets_shared.h` | `AiScenario`; `portAiTargets()` and `portAiCondition()`; `drawAiScenario()`, `drawAiTargetsCase()` and `drawAiConditionCase()` |
+| `ai/ai_run.{h,cpp}`, `ai_run_shared.h` | a script as the cartridge keeps it; `portAiTurn()` and `portAiCounter()`; `drawAiRunScenario()` |
+| `ai/ai_commands.{h,cpp}` | `portAiCommand()`; `drawAiCommandCase()` |
+| `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
+| `battle/start.{h,cpp}` | `StartScenario` and `StartResult`; `portStart()` |
+| `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables, `cellMeanings()` and `cellsNotCompared()`, and the cells left as the machine has them |
+
+Every result has a `differences()` beside it, which compares two of them cell by cell, and every
+drawn scenario a `describe()`.
+
+**`src/cells/`**
+
+| File | What it holds |
+|---|---|
+| `damage/per_target.h` | the cells of the per-target pass, the damage taken and shown, and the reflected attack |
+| `damage/frame.h` | the attack frame's own cells |
+| `status/status.h` | the statuses' cells and bits |
+| `status/effects.h` | the special effects' cells |
+| `ending/records.h` | the character records and the spells known |
+| `ending/party.h` | the rewards' cells besides the records |
+| `ending/ending.h` | a battle's end's cells |
+| `ai/ai.h` | a battler's AI's cells |
+
+**The tests that run the oracle.** `tests/test_damage_formulas.cpp` and `tests/test_target_damage.cpp`
+run it against the port's formulas, `tests/test_status_changes.cpp` and `tests/test_status_effect.cpp`
+against its status rules, `tests/test_attacker_effects.cpp`, `tests/test_target_effects.cpp` and
+`tests/test_control_menu.cpp` against its special effects, `tests/test_cover_and_params.cpp` against its
+cover and its setting up of the attack's animation, `tests/test_espers_oracle.cpp` against an esper's
+spells learned and a level-up at a battle's end, `tests/test_attack_oracle.cpp` against the whole attack
+frame, `tests/test_own_actions_oracle.cpp` against the battle's own actions, and
+`tests/test_battle_start_oracle.cpp` calls the battle program whole (`DamageOracle::battleStart()`).

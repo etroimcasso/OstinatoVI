@@ -21,7 +21,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_hooks.h` | `BattleHooks`: `statusEffect` and `applyPendingStatuses` one call each into `status.h` |
 | `src/battle/command_executor.h` | `CommandExecutor`: `applyStatusChanges` and `checkNearFatal` one call each into `status.h` |
 | `src/battle/battle_state.h` | `Battler::status`, `statusesToSet`, `statusesToClear`, `inflictableStatuses`, `statusForCounter`, `nearFatalSpellAvailable`, `relicEffects5` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::statusChanges()` and `statusEffect()`, the cartridge's routines over a `DamageScenario`; `portStatusChanges()`, `portStatusEffect()`, `differences()`; `drawStatusChangesScenario()`, `drawStatusEffectScenario()`; `DamageOracle::replay()` for a recorded call of either |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::statusChanges()` and `statusEffect()`, the cartridge's routines over a `DamageScenario`; `portStatusChanges()`, `portStatusEffect()`, `differences()`; `drawStatusChangesScenario()`, `drawStatusEffectScenario()`; `DamageOracle::replay()` for a recorded call of either |
 
 ## Using the battle's statuses
 
@@ -191,7 +191,7 @@ The damage oracle ([damage.md](damage.md#checking-a-formula-against-the-cartridg
 cartridge's own two status routines over a `DamageScenario`:
 
 ```cpp
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};
@@ -273,5 +273,5 @@ on both guards ([tools/damage-trace/README.md](../../../tools/damage-trace/READM
 | What Petrify, Dead and a Zombie take off | `kStatusesPetrifyTakesOff`, `kStatusesDeadTakesOff`, `kStatusesAZombieCannotHave` in `src/battle/status.h` |
 | The statuses a party member or a monster starts with | `loadPartyMember()` and `buildCommandList()` in `src/battle/party_setup.cpp`; `loadMonsterTraits()` in `src/battle/battle_start.cpp` |
 | What the near-fatal relics cast, and when | `nearFatalRelicSpells()` in `src/battle/status.cpp` |
-| The cells the oracle writes for the status routines | `writeStatusCells()` in `tools/damage-trace/damage_oracle.cpp` |
-| How a recorded status call is rebuilt | `readStatusScenario()` and `replayStatusCall()` in `tools/damage-trace/damage_oracle.cpp` |
+| The cells the oracle writes for the status routines | `writeStatusCells()` in `tools/damage-trace/src/oracle/status/status.cpp` |
+| How a recorded status call is rebuilt | `readStatusScenario()` and `replayStatusCall()` in `tools/damage-trace/src/oracle/status/status.cpp` |

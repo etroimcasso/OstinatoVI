@@ -253,21 +253,83 @@ target_compile_features(ostinato-frames PRIVATE cxx_std_20)
 target_compile_options(ostinato-frames PRIVATE ${_ostinato_warn})
 target_link_libraries(ostinato-frames PRIVATE retropp::engine)
 
+# The damage oracle's port side: the scenarios the oracle runs, the port's answer to each, the
+# comparisons, the seeded draws, the reports and the trace's parsers. Nothing in it names the
+# engine's machine, so it builds without one. Its include root is tools/damage-trace/src.
+add_library(ostinato-battle-scenarios STATIC
+    tools/damage-trace/src/scenarios/ai/ai_commands.cpp
+    tools/damage-trace/src/scenarios/ai/ai_run.cpp
+    tools/damage-trace/src/scenarios/ai/ai_targets.cpp
+    tools/damage-trace/src/scenarios/ai/own_actions.cpp
+    tools/damage-trace/src/scenarios/battle/battle_cells.cpp
+    tools/damage-trace/src/scenarios/battle/start.cpp
+    tools/damage-trace/src/scenarios/common/bytes.cpp
+    tools/damage-trace/src/scenarios/common/draws.cpp
+    tools/damage-trace/src/scenarios/common/report_text.cpp
+    tools/damage-trace/src/scenarios/damage/attack.cpp
+    tools/damage-trace/src/scenarios/damage/cover.cpp
+    tools/damage-trace/src/scenarios/damage/damage.cpp
+    tools/damage-trace/src/scenarios/ending/ending.cpp
+    tools/damage-trace/src/scenarios/ending/records.cpp
+    tools/damage-trace/src/scenarios/ending/rewards.cpp
+    tools/damage-trace/src/scenarios/status/attacker_effects.cpp
+    tools/damage-trace/src/scenarios/status/status.cpp
+    tools/damage-trace/src/scenarios/status/target_effects.cpp
+    tools/damage-trace/src/trace/trace_parse.cpp)
+target_compile_features(ostinato-battle-scenarios PUBLIC cxx_std_20)
+target_compile_options(ostinato-battle-scenarios PRIVATE ${_ostinato_warn})
+# The AI's scenarios turn a script's steps into the bytes the cartridge reads with the tests' encoder.
+target_include_directories(ostinato-battle-scenarios
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace/src
+    PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-battle-scenarios PUBLIC ostinato-vi-lib)
+
+# The damage oracle's cartridge side: DamageOracle, which hosts the cartridge on the engine's SNES
+# machine and runs its battle routines over a scenario, the trace of those routines as the game runs
+# them, and a machine's state written and restored.
+add_library(ostinato-damage-oracle STATIC
+    tools/damage-trace/src/machine/machine_state.cpp
+    tools/damage-trace/src/oracle/ai/ai_commands.cpp
+    tools/damage-trace/src/oracle/ai/ai_replay.cpp
+    tools/damage-trace/src/oracle/ai/ai_run.cpp
+    tools/damage-trace/src/oracle/ai/ai_targets.cpp
+    tools/damage-trace/src/oracle/ai/own_actions.cpp
+    tools/damage-trace/src/oracle/battle/battle_state.cpp
+    tools/damage-trace/src/oracle/battle/start.cpp
+    tools/damage-trace/src/oracle/cell_access.cpp
+    tools/damage-trace/src/oracle/damage/attack.cpp
+    tools/damage-trace/src/oracle/damage/cover.cpp
+    tools/damage-trace/src/oracle/damage/damage.cpp
+    tools/damage-trace/src/oracle/ending/ending.cpp
+    tools/damage-trace/src/oracle/ending/records.cpp
+    tools/damage-trace/src/oracle/ending/rewards.cpp
+    tools/damage-trace/src/oracle/machine.cpp
+    tools/damage-trace/src/oracle/replay.cpp
+    tools/damage-trace/src/oracle/status/attacker_effects.cpp
+    tools/damage-trace/src/oracle/status/effects_replay.cpp
+    tools/damage-trace/src/oracle/status/status.cpp
+    tools/damage-trace/src/oracle/status/target_effects.cpp
+    tools/damage-trace/src/trace/trace_log.cpp)
+target_compile_features(ostinato-damage-oracle PUBLIC cxx_std_20)
+target_compile_options(ostinato-damage-oracle PRIVATE ${_ostinato_warn})
+target_include_directories(ostinato-damage-oracle PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-damage-oracle PUBLIC ostinato-battle-scenarios)
+
 # ostinato-damage-trace: the cartridge run on the engine's SNES machine with escapes and watches on its
 # battle routines — damage, statuses, special effects, espers, AI and a battle's end — logging every
 # call as the game is played; the same with no window; a scripted run to a battle; or those routines
 # isolated and run over seeded scenarios and recordings against the port. Its README lists every
 # mode.
 add_executable(ostinato-damage-trace
-    tools/damage-trace/main.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp
-    tools/damage-trace/machine_state.cpp)
+    tools/damage-trace/src/tool/cell_log.cpp
+    tools/damage-trace/src/tool/check.cpp
+    tools/damage-trace/src/tool/main.cpp
+    tools/damage-trace/src/tool/pictures.cpp
+    tools/damage-trace/src/tool/seam_log.cpp
+    tools/damage-trace/src/tool/starting_state.cpp)
 target_compile_features(ostinato-damage-trace PRIVATE cxx_std_20)
 target_compile_options(ostinato-damage-trace PRIVATE ${_ostinato_warn})
-# The oracle turns a script's steps into the bytes the cartridge reads with the tests' encoder.
-target_include_directories(ostinato-damage-trace PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
-target_link_libraries(ostinato-damage-trace PRIVATE ostinato-vi-lib)
+target_link_libraries(ostinato-damage-trace PRIVATE ostinato-damage-oracle)
 
 # ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
@@ -652,44 +714,36 @@ add_executable(ostinato-vi-battle-commands-tests
     tests/test_item_attack.cpp
     tests/test_own_actions_oracle.cpp
     tests/test_system_commands.cpp
-    tests/test_targeting.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_targeting.cpp)
 target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-commands-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
-target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_include_directories(ostinato-vi-battle-commands-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-commands-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-commands-tests)
 
 # The damage formulas: an attack's base damage, the relic bonus, the multiplier and the damage to one
 # target, each worked out by hand from the original and checked against the cartridge's own
 # routines, isolated and run on the hosted cartridge over the same battle
-# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+# (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-damage-tests
     tests/test_apply_damage.cpp
     tests/test_damage_formulas.cpp
     tests/test_damage_oracle.cpp
     tests/test_reflected_attack.cpp
     tests/test_target_damage.cpp
-    tests/test_trace_replay.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_trace_replay.cpp)
 target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-damage-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-damage-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-damage-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-damage-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-damage-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-damage-tests)
 
 # The battle's statuses: an attack's statuses on each target it hits and every battler's waiting
 # statuses taking effect, each worked out by hand from the original and checked against the
 # cartridge's own routines, run on the hosted cartridge over the same battle
-# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+# (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-status-tests
     tests/test_cell_writes.cpp
     tests/test_near_fatal.cpp
@@ -697,26 +751,21 @@ add_executable(ostinato-vi-battle-status-tests
     tests/test_status_effect.cpp
     tests/test_status_oracle.cpp
     tests/test_status_start.cpp
-    tests/test_trace_state.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp
-    tools/damage-trace/machine_state.cpp)
+    tests/test_trace_state.cpp)
 target_compile_features(ostinato-vi-battle-status-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-status-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-status-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-status-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-status-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-status-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-status-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-status-tests)
 
 # The special effects: what an attack's effect does to the attack and its attacker before the hit
 # check and to each target it hits, and a controller's menu of its monster's attacks, each worked out
 # by hand from the original and checked against the cartridge's own routine, run on the hosted
-# cartridge over the same battle (tools/damage-trace/damage_oracle); the links between battlers let
-# go, and Morph's meter, each worked out by hand from the original. Own binary so the other
-# baselines stay frozen.
+# cartridge over the same battle (tools/damage-trace/src/oracle/damage_oracle.h); the links between
+# battlers let go, and Morph's meter, each worked out by hand from the original. Own binary so the
+# other baselines stay frozen.
 add_executable(ostinato-vi-battle-effects-tests
     tests/test_attacker_effects.cpp
     tests/test_control_menu.cpp
@@ -724,42 +773,34 @@ add_executable(ostinato-vi-battle-effects-tests
     tests/test_effects_oracle.cpp
     tests/test_links.cpp
     tests/test_morph.cpp
-    tests/test_target_effects.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_target_effects.cpp)
 target_compile_features(ostinato-vi-battle-effects-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-effects-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-effects-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
-target_link_libraries(ostinato-vi-battle-effects-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_include_directories(ostinato-vi-battle-effects-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+target_link_libraries(ostinato-vi-battle-effects-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-effects-tests)
 
 # The espers at a battle's end: the spells an equipped esper teaches learned further, and a
 # character's level-up with the esper's bonus, each worked out by hand from the original and checked
 # against the cartridge's own routines, run on the hosted cartridge over the same records
-# (tools/damage-trace/damage_oracle). Own binary so the other baselines stay frozen.
+# (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-espers-tests
     tests/test_espers_oracle.cpp
     tests/test_leveling.cpp
-    tests/test_spell_learning.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_spell_learning.cpp)
 target_compile_features(ostinato-vi-battle-espers-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-espers-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-espers-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-espers-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-espers-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-espers-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-espers-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-espers-tests)
 
 # Monster AI: who a script aims at, what it tests, how a turn and a counterattack read it and the
 # three commands only a script queues, each worked out by hand from the original and checked against
 # the cartridge's own routines, run on the hosted cartridge over the same battle
-# (tools/damage-trace/damage_oracle); the script wired into the battle; and the AI's calls in the
-# recorded fights replayed. Own binary so the other baselines stay frozen.
+# (tools/damage-trace/src/oracle/damage_oracle.h); the script wired into the battle; and the AI's
+# calls in the recorded fights replayed. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_commands.cpp
     tests/test_ai_conditions.cpp
@@ -767,57 +808,44 @@ add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_run.cpp
     tests/test_ai_run_oracle.cpp
     tests/test_ai_targets.cpp
-    tests/test_ai_trace.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_ai_trace.cpp)
 target_compile_features(ostinato-vi-battle-ai-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-ai-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-ai-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-ai-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-ai-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-ai-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-ai-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-ai-tests)
 
 # What a won battle gives the party: experience and gold, the levels reached, the abilities and
 # spells learned, the lores, the dance, the Morph supply and the rages, each worked out by hand from
 # the original and checked against the cartridge's own routines, run on the hosted cartridge over the
-# same party (tools/damage-trace/damage_oracle), and the cartridge's own battle ends, traced and
-# recorded, replayed against the port. Own binary so the other baselines stay frozen.
+# same party (tools/damage-trace/src/oracle/damage_oracle.h), and the cartridge's own battle ends,
+# traced and recorded, replayed against the port. Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-rewards-tests
     tests/test_rewards.cpp
     tests/test_rewards_oracle.cpp
     tests/test_items_obtained.cpp
     tests/test_battle_end.cpp
     tests/test_battle_end_oracle.cpp
-    tests/test_rewards_trace.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp)
+    tests/test_rewards_trace.cpp)
 target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-rewards-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-rewards-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-rewards-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-rewards-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-rewards-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-rewards-tests)
 
 # The battle whole: the cartridge's battle program called as the field calls it, its start compared with
-# the port's at the loop's first frame wait (tools/damage-trace/damage_oracle). Own binary so the other
-# baselines stay frozen.
+# the port's at the loop's first frame wait (tools/damage-trace/src/oracle/damage_oracle.h). Own binary
+# so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-whole-tests
-    tests/test_battle_start_oracle.cpp
-    tools/damage-trace/damage_oracle.cpp
-    tools/damage-trace/battle_whole.cpp
-    tools/damage-trace/machine_state.cpp)
+    tests/test_battle_start_oracle.cpp)
 target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-whole-tests PRIVATE ${_ostinato_warn})
-target_include_directories(ostinato-vi-battle-whole-tests PRIVATE
-    ${CMAKE_CURRENT_SOURCE_DIR}/tests
-    ${CMAKE_CURRENT_SOURCE_DIR}/tools/damage-trace)
+target_include_directories(ostinato-vi-battle-whole-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
 target_compile_definitions(ostinato-vi-battle-whole-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
-target_link_libraries(ostinato-vi-battle-whole-tests PRIVATE ostinato-vi-lib GTest::gtest_main)
+target_link_libraries(ostinato-vi-battle-whole-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-whole-tests)

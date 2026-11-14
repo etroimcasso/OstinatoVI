@@ -23,7 +23,7 @@
 #include "assets/cartridge_routines.h"
 #include "battle/battle_inventory.h"
 #include "battle/items_obtained.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "game/character_record.h"
 #include "ostinato/character_prop_id.h"
 #include "ostinato/status_id.h"

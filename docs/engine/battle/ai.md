@@ -48,7 +48,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_state.h` | `AiResume`, `kNoResume`; `BattleState::battleVariables`, `monsterNamesListed`, `awayFromTheFieldUnreachable`; `Battler::turnScript`, `counterScript`, `turnResume`, `counterResume`, `aiVariable`, `turnTimer`, `targetingTarget`, `lastHit`, `lastAttacker`, `lastDamagedBy` |
 | `src/data/ai_scripts.h` | `AiTarget`, `AiMonsters`, `AiVariable`, `AiSwitch`, `AiCondition` and the `ai::` condition types |
 | `include/ostinato/ai_target_selector.h` | `AiTargetSelector`, the thirty selectors |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::aiTargets()`, `aiCondition()`, `readyAi()`, `aiTurn()`, `nextAiTurn()`, `aiCounter()` and `aiCommand()`, the cartridge's routines over an `AiScenario`; the `port…` functions and `differences()`; `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAiRunScenario()`, `drawAiCommandCase()` |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::aiTargets()`, `aiCondition()`, `readyAi()`, `aiTurn()`, `nextAiTurn()`, `aiCounter()` and `aiCommand()`, the cartridge's routines over an `AiScenario`; the `port…` functions and `differences()`; `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAiRunScenario()`, `drawAiCommandCase()` |
 
 ## Readying a script
 
@@ -314,7 +314,7 @@ it, whatever their answer; no other condition touches it.
 part:
 
 ```cpp
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};
@@ -423,5 +423,5 @@ the guards taking their turns before the party acts and one guard answering atta
 | What a condition tests | its `operator()` in `ConditionRules` in `src/battle/ai_conditions.cpp` |
 | The target test | `ConditionRules::testTarget()` in `src/battle/ai_conditions.cpp` |
 | The names counted | `refreshRunDifficulty()` in `src/battle/battle_loop.cpp` |
-| The cells the oracle writes and reads for a script | `writeAiCells()`, `writeAiRunCells()`, `readAiRunResult()` and `DamageOracle::aiCommand()` in `tools/damage-trace/damage_oracle.cpp` |
-| How a recorded AI call is rebuilt | `readAiScenario()` and `DamageOracle::replayAiCall()` in `tools/damage-trace/damage_oracle.cpp` |
+| The cells the oracle writes and reads for a script | `writeAiCells()` in `tools/damage-trace/src/oracle/ai/ai_targets.cpp`, `writeAiRunCells()` and `readAiRunResult()` in `tools/damage-trace/src/oracle/ai/ai_run.cpp`, and `DamageOracle::aiCommand()` in `tools/damage-trace/src/oracle/ai/ai_commands.cpp` |
+| How a recorded AI call is rebuilt | `readAiScenario()` and `DamageOracle::replayAiCall()` in `tools/damage-trace/src/oracle/ai/ai_replay.cpp` |

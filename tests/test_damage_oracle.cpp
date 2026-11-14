@@ -11,7 +11,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/damage.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/item_effects.h"
 #include "vanilla_rom.h"

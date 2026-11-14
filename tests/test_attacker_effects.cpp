@@ -22,7 +22,7 @@
 #include "battle/attack.h"
 #include "battle/attacker_effects.h"
 #include "battle/battle_script.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
 #include "data/item_properties.h"
 #include "data/rng_table.h"

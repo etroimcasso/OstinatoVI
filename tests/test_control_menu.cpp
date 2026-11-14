@@ -13,7 +13,7 @@
 #include "assets/cartridge.h"
 #include "battle/battle_hooks.h"
 #include "battle/links.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
 #include "data/monster_attacks.h"
 #include "data/monster_properties.h"

@@ -39,7 +39,7 @@ The rules, and the line of the original each is read from, are in
 | `src/data/item_properties.h` | `getItemProperties()`: each item's spell and learn rate |
 | `src/data/battle_tables.h` | `backgroundDance()`: the dance each battle background teaches |
 | `include/ostinato/game_limits.h` | `kMaxExperience` (15,000,000), `kMaxGil` (9,999,999) |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; `wrapUp()`, `win()`, `loss()` and `writeBack()` over an `EndingScenario`; `addItemObtained()` and `mergeItemsObtained()` over an `ItemsObtainedScenario`; `itemsObtainedTailAtPowerOn()`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them; `DamageTrace`, `parseTrace()`, `parseEndings()`, `replay()` and `replayEnding()`, the cartridge's own battle ends traced and replayed |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::addExperience()`, `learnFromEquipment()`, `levelUps()`, `learnAbilities()`, `learnRages()` over a `RewardScenario`; `wrapUp()`, `win()`, `loss()` and `writeBack()` over an `EndingScenario`; `addItemObtained()` and `mergeItemsObtained()` over an `ItemsObtainedScenario`; `itemsObtainedTailAtPowerOn()`; the port's side of each and `differences()`; the draws; `graphicsCommand()` and `GraphicsCall`, the graphics program's calls as the oracle answers them; `DamageTrace`, `parseTrace()`, `parseEndings()`, `replay()` and `replayEnding()`, the cartridge's own battle ends traced and replayed |
 | `tests/fixtures/damage-trace/rewards-win.log`, `rewards-loss.log` | the first fight in Narshe won and lost on the cartridge, traced |
 
 ## Experience and gold
@@ -237,7 +237,7 @@ its cells, the battle switches, the record whose turn it is, the magic points an
 `differences()` names every cell where the port's answer and the cartridge's part:
 
 ```cpp
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};
@@ -362,9 +362,9 @@ her Antdot, and a guard dropping a Tonic; `rewards-loss.log` is the same fight l
 | Which places a battle's start empties | `itemsObtainedAtBattleStart()` and `kItemsObtainedTailPlaces` in `src/battle/items_obtained.h`/`.cpp` |
 | Where the power-on tail is read from | `kItemsObtainedTailInTitleProgram` in `src/battle/items_obtained.cpp` |
 | How long a `Wait` holds the script | `playCommandFrame()` in `src/battle/presentation.cpp` |
-| The ending's cells the oracle writes and reads | `writeEndingScenario()`, `readEndingResult()`, `writeItemsObtained()` and `writeInventory()` in `tools/damage-trace/damage_oracle.cpp` |
-| The party's cells the oracle writes and reads | `partyImage()`, `writeParty()` and `readParty()` in `tools/damage-trace/damage_oracle.cpp` |
-| How the oracle answers the graphics program | `answerGraphics()` in `tools/damage-trace/damage_oracle.cpp` |
-| What text reads which message variable | `kMessageVariableReads` in `tools/damage-trace/damage_oracle.cpp` |
-| The routines the trace follows, and the cells an ending's snapshot holds | `kTracedRoutines`, `kSnapshotRoutines` and `kEndingRanges` in `tools/damage-trace/damage_oracle.h` |
-| How a traced ending is rebuilt | `readEndingScenario()` and `replayEnding()` in `tools/damage-trace/damage_oracle.cpp` |
+| The ending's cells the oracle writes and reads | `writeEndingScenario()`, `readEndingResult()`, `writeItemsObtained()` and `writeInventory()` in `tools/damage-trace/src/oracle/ending/ending.cpp` |
+| The party's cells the oracle writes and reads | `partyImage()` in `tools/damage-trace/src/scenarios/ending/rewards.cpp`; `writeParty()` and `readParty()` in `tools/damage-trace/src/oracle/ending/rewards.cpp` |
+| How the oracle answers the graphics program | `answerGraphics()` in `tools/damage-trace/src/oracle/machine.cpp` |
+| What text reads which message variable | `kMessageVariableReads` in `tools/damage-trace/src/scenarios/ending/rewards.cpp` |
+| The routines the trace follows, and the cells an ending's snapshot holds | `kTracedRoutines`, `kSnapshotRoutines` and `kEndingRanges` in `tools/damage-trace/src/trace/trace_log.h` |
+| How a traced ending is rebuilt | `readEndingScenario()` and `replayEnding()` in `tools/damage-trace/src/oracle/ending/ending.cpp` |

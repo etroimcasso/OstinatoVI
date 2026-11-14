@@ -24,7 +24,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/battle_script.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
 #include "vanilla_rom.h"

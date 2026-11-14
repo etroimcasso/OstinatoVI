@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "assets/cartridge.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/esper_properties.h"
 #include "game/character_record.h"
 #include "ostinato/attack_id.h"

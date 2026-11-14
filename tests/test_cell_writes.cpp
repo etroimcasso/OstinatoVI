@@ -11,8 +11,8 @@
 #include <vector>
 
 #include "assets/cartridge.h"
-#include "damage_oracle.h"
-#include "machine_state.h"
+#include "machine/machine_state.h"
+#include "oracle/damage_oracle.h"
 #include "retropp/memory_region.h"
 #include "retropp/vm.h"
 #include "vanilla_rom.h"

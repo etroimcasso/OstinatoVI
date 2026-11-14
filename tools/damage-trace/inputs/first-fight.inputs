@@ -1,6 +1,6 @@
 # From power-on to the first fight in Narshe, on Final Fantasy III 1.1 with no battery save:
 #
-#     ostinato-damage-trace <rom> <directory> --to-battle first-fight.inputs
+#     ostinato-damage-trace <rom> <directory> --to-battle inputs/first-fight.inputs
 #
 # The format is in machine_state.h.
 

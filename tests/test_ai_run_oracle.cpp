@@ -14,7 +14,7 @@
 #include "ai_battle.h"
 #include "battle/ai.h"
 #include "battle/battle_state.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/ai_scripts.h"
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"

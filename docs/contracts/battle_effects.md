@@ -19,7 +19,7 @@ attacker, one into `src/battle/target_effects.h` for the effect on each target, 
 
 Every claim about `DoAttackerEffect` and `DoTargetEffect` is also checked against the cartridge
 itself: the routine is run on the cartridge, hosted on the engine's SNES machine, over the same inputs
-the port is given (`tools/damage-trace/damage_oracle.h`). `CheckSketchHit`, `TakeGil` and
+the port is given (`tools/damage-trace/src/oracle/damage_oracle.h`). `CheckSketchHit`, `TakeGil` and
 `SetControlCmd` are checked through the effects that call them.
 
 ## Sources

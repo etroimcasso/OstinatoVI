@@ -15,7 +15,7 @@ this contract starts at those calls. The battle's own hooks are `BattleHooks`
 
 The claims about `MagicStatusEffect` and `UpdateStatus` are also checked against the cartridge
 itself: the two routines are run on the cartridge, hosted on the engine's SNES machine, over the same
-inputs the port is given (`tools/damage-trace/damage_oracle.h`), and every call of either that the
+inputs the port is given (`tools/damage-trace/src/oracle/damage_oracle.h`), and every call of either that the
 trace tool records replays against the port.
 
 ## Sources

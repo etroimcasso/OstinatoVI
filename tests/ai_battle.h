@@ -24,7 +24,7 @@
 #include "assets/cartridge.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/character_prop_id.h"
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"

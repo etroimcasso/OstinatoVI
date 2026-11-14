@@ -17,7 +17,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/status.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
 #include "vanilla_rom.h"

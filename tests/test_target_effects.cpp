@@ -25,7 +25,7 @@
 #include "battle/attack.h"
 #include "battle/battle_script.h"
 #include "battle/target_effects.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
 #include "data/formations.h"
 #include "data/item_properties.h"

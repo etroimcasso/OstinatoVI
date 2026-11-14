@@ -20,7 +20,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/damage.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "vanilla_rom.h"
 
 namespace ostinato::test {

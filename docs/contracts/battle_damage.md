@@ -16,7 +16,7 @@ into `src/battle/damage.h`.
 
 Every claim here is also checked against the cartridge itself: the routines named below are run on
 the cartridge, hosted on the engine's SNES machine, over the same inputs the port is given
-(`tools/damage-trace/damage_oracle.h`, § The oracle).
+(`tools/damage-trace/src/oracle/damage_oracle.h`, § The oracle).
 
 ## Sources
 
@@ -566,7 +566,7 @@ that path is never taken here.)
 
 ## The oracle
 
-`tools/damage-trace/damage_oracle.h` runs the seven routines on the cartridge. The cartridge is
+`tools/damage-trace/src/oracle/damage_oracle.h` runs the seven routines on the cartridge. The cartridge is
 hosted on the engine's SNES machine and started from a tick of the run loop as far as `Reset`
 (`field/reset.asm`, `$C0:0019`), the first instruction after its `clc; xce`: the processor is in
 native mode and nothing of the game has run. Each routine is bound at its address and called with the

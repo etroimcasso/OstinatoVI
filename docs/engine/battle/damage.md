@@ -20,8 +20,8 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_hooks.h` | `BattleHooks`, the battle's `AttackHooks`: each damage hook one call into `damage.h`, each status hook one call into `status.h` |
 | `src/battle/attack.h` | `DamageLedger`, kept as `AttackScratch::ledger`; `resolveReflectedAttack()`, a spell bounced off Reflect |
 | `src/battle/battle_script.h` | `DamageNumbersShown`, `ReflectedAttackShown`, `ScatteredHitsShown` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle`, the cartridge's routines run over a `DamageScenario`; `runOnLoop()`; the seeded draws; the results and `differences()` for the per-target pass, taking and showing, and the bounce; `DamageTrace`, `parseTrace()` and `DamageOracle::replay()`, a game's damage calls recorded and replayed against the port |
-| `tools/damage-trace/main.cpp` | `ostinato-damage-trace`, the routines watched in a window or checked against the port |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle`, the cartridge's routines run over a `DamageScenario`; `runOnLoop()`; the seeded draws; the results and `differences()` for the per-target pass, taking and showing, and the bounce; `DamageTrace`, `parseTrace()` and `DamageOracle::replay()`, a game's damage calls recorded and replayed against the port |
+| `tools/damage-trace/src/tool/main.cpp` | `ostinato-damage-trace`, the routines watched in a window or checked against the port |
 
 ## Using the battle's damage
 
@@ -163,7 +163,7 @@ the routines read. It runs from a tick of a run loop; `runOnLoop()` is one with 
 as fast as the host allows:
 
 ```cpp
-#include "damage_oracle.h"   // tools/damage-trace
+#include "oracle/damage_oracle.h"   // tools/damage-trace/src
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};   // a cartridge image, copier header stripped
@@ -303,6 +303,6 @@ and writes every scenario to `check.log`; `--only` and `--seed` narrow it
 | The numerals: which show, in what order, one at a time or all at once | `applyDamage()` and `kNumeralsShownTogether` in `src/battle/damage.*` |
 | How a bounce is aimed, checked and shown | `resolveReflectedAttack()` in `src/battle/attack.cpp` |
 | Which hooks the battle plugs in | `BattleHooks` in `src/battle/battle_hooks.*` |
-| The cells the oracle writes or watches | `writeScenario()`, `writeTargetCells()`, `writeApplyCells()`, `writeAimCells()` and the watches in `tools/damage-trace/damage_oracle.cpp` |
-| What the trace watches, or the routines it spans | `kTracedRanges` and `kTracedRoutines` in `tools/damage-trace/damage_oracle.h` |
-| How a recorded call is rebuilt and compared | `readScenario()` and `replay()` in `tools/damage-trace/damage_oracle.cpp` |
+| The cells the oracle writes or watches | `writeScenario()`, `writeTargetCells()`, `writeApplyCells()`, `writeAimCells()` in `tools/damage-trace/src/oracle/damage/damage.cpp`, and the watches in `tools/damage-trace/src/oracle/machine.cpp` |
+| What the trace watches, or the routines it spans | `kTracedRanges` and `kTracedRoutines` in `tools/damage-trace/src/trace/trace_log.h` |
+| How a recorded call is rebuilt and compared | `readScenario()` and `replay()` in `tools/damage-trace/src/oracle/replay.cpp` |

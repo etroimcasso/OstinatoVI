@@ -16,7 +16,7 @@ document is the test authority for `tests/test_rewards.cpp`, `tests/test_rewards
 The rules are functions over the party (`game::Party`, `src/game/character_record.h`) and the battle
 (`battle::BattleState`) in `src/battle/rewards.h`. Every rule with a routine of its own is also checked
 against the cartridge itself: the routine is run on the cartridge, hosted on the engine's SNES machine,
-over the same party the port is given (`tools/damage-trace/damage_oracle.h`).
+over the same party the port is given (`tools/damage-trace/src/oracle/damage_oracle.h`).
 
 ## Sources
 

@@ -20,8 +20,8 @@
 #include <vector>
 
 #include "assets/cartridge.h"
-#include "damage_oracle.h"
-#include "machine_state.h"
+#include "machine/machine_state.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/game_version.h"
 #include "retropp/memory_region.h"
 #include "retropp/raster_content.h"
@@ -333,7 +333,7 @@ TEST(TraceRunningMachine, TheScriptReachesTheFightAndTheContextIsTheAttacksOwn) 
 
     const std::vector<std::uint8_t> rom = vanillaRom();
     const std::span<const std::uint8_t> image = assets::stripCopierHeader(rom);
-    std::ifstream inputs{fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "../../../tools/damage-trace/first-fight.inputs"};
+    std::ifstream inputs{fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "../../../tools/damage-trace/inputs/first-fight.inputs"};
     ASSERT_TRUE(inputs) << "first-fight.inputs could not be read";
     const std::vector<InputStep> script = trace::readInputScript(inputs);
 

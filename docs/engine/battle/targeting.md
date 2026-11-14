@@ -15,7 +15,7 @@ The rules, and the line of the original each is read from, are in
 | `include/ostinato/command_targeting_init.h` | `CommandTargetingInit`, `CommandAttackLoad`: a command's aiming byte |
 | `src/battle/attack.h` | `AimingRules`, and the attack in flight that carries them |
 | `src/battle/targeting.h` | `initTargeting()`, `chooseTargets()`, `removeAbsentTargets()`, `coverTarget()`, `kFirstItemUsedAsItself` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::coverEffect()` and `initParams()`, the cartridge's cover and its setting up of the attack's animation over a `DamageScenario`; `portCoverTarget()`, `portInitParams()` and `differences()`; `drawCoverScenario()` |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::coverEffect()` and `initParams()`, the cartridge's cover and its setting up of the attack's animation over a `DamageScenario`; `portCoverTarget()`, `portInitParams()` and `differences()`; `drawCoverScenario()` |
 
 ## The two bytes
 

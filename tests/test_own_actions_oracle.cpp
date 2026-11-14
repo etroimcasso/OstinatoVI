@@ -22,7 +22,7 @@
 #include "battle/action_queue.h"
 #include "battle/attack.h"
 #include "battle/battle_state.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"

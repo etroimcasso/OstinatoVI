@@ -21,7 +21,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/battle_script.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "data/item_properties.h"
 #include "data/level_up.h"
 #include "game/character_record.h"

@@ -23,7 +23,7 @@
 #include "assets/cartridge.h"
 #include "battle/attack.h"
 #include "battle/targeting.h"
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/item_effects.h"
 #include "ostinato/status_id.h"

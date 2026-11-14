@@ -37,7 +37,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_state.h` | the links (`Battler::controlling`, `controlEnding`, `charming`, `guarding`, `targetingTarget`), `Battler::aiVariable` and `controlMenu`, `ControlMenuEntry`, `BattleState::swallowedByZinger`, `flippedByControl`, `playClockFrames`, `takenFromTheParty`, Morph's `morphCounter`, `morphCounterSpeed`, `morphLastsTwiceAsLong`, and the cells the effects write |
 | `src/game/character_record.h` | `Party::gil`, `Party::steps`, `Party::morphSupply` |
 | `src/game/battle_switches.h` | `kMorphLastsTwiceAsLongSwitch`, `kPermanentMorphSwitch` |
-| `tools/damage-trace/damage_oracle.h` | `DamageOracle::attackerEffect()` and `targetEffect()`, the cartridge's routines over a `DamageScenario`; `runAttackerEffect()`, `runTargetEffect()`, the two result readers and `differences()`; `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`; `DamageOracle::replay()` for a traced call of either routine |
+| `tools/damage-trace/src/oracle/damage_oracle.h` | `DamageOracle::attackerEffect()` and `targetEffect()`, the cartridge's routines over a `DamageScenario`; `runAttackerEffect()`, `runTargetEffect()`, the two result readers and `differences()`; `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`; `DamageOracle::replay()` for a traced call of either routine |
 
 ## Using the effects
 
@@ -237,7 +237,7 @@ routines over a `DamageScenario` and read back every cell the effects write; `ru
 and `runTargetEffect()` run the port's, and `differences()` names each cell where they part:
 
 ```cpp
-#include "damage_oracle.h"
+#include "oracle/damage_oracle.h"
 
 trace::runOnLoop([&] {
     trace::DamageOracle oracle{image};
@@ -353,5 +353,5 @@ call before them; a caller replaying them sets `TracedCall::target` itself.
 | The meter's speed, what a revert keeps | `morphMenuChanged()`, `runDownMorph()` and `saveMorphSupply()` in `src/battle/morph.cpp` |
 | The messages the effects show | the `kMessage…` constants in `src/battle/battle_script.h` |
 | How the play clock's frames step | `tickBattleTime()` in `src/battle/battle_clock.cpp` |
-| The cells the oracle writes and reads for the effects | `writeEffectCells()`, `writeTargetEffectCells()`, `readAttackerEffectResult()` and `readTargetEffectResult()` in `tools/damage-trace/damage_oracle.cpp` |
-| How a traced effect call is rebuilt | `readEffectScenario()` and `replayEffectCall()` in `tools/damage-trace/damage_oracle.cpp` |
+| The cells the oracle writes and reads for the effects | `writeEffectCells()` and `readAttackerEffectResult()` in `tools/damage-trace/src/oracle/status/attacker_effects.cpp`; `writeTargetEffectCells()` and `readTargetEffectResult()` in `tools/damage-trace/src/oracle/status/target_effects.cpp` |
+| How a traced effect call is rebuilt | `readEffectScenario()` and `replayEffectCall()` in `tools/damage-trace/src/oracle/status/effects_replay.cpp` |
