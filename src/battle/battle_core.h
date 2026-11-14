@@ -31,7 +31,8 @@ namespace ostinato::battle {
 
 // Advance battle time by one displayed frame. `timeRunning` is false while the presentation has
 // stopped time (a battle event, the entry animation). Time also stops while a command's sub-menu
-// is open in wait mode (BattleState::timeStoppedByMenu).
+// is open in wait mode (BattleState::timeStoppedByMenu). The play clock's frames
+// (BattleState::playClockFrames) step on every frame, time running or not.
 void tickBattleTime(BattleState& state, bool timeRunning, ActionExecutor& executor);
 
 // Run the battle loop for one frame: from where it is waiting until it next waits — for the next

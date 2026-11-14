@@ -261,6 +261,7 @@ target_link_libraries(ostinato-frames PRIVATE retropp::engine)
 add_executable(ostinato-damage-trace
     tools/damage-trace/main.cpp
     tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp
     tools/damage-trace/machine_state.cpp)
 target_compile_features(ostinato-damage-trace PRIVATE cxx_std_20)
 target_compile_options(ostinato-damage-trace PRIVATE ${_ostinato_warn})
@@ -652,7 +653,8 @@ add_executable(ostinato-vi-battle-commands-tests
     tests/test_own_actions_oracle.cpp
     tests/test_system_commands.cpp
     tests/test_targeting.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-commands-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-commands-tests PRIVATE
@@ -672,7 +674,8 @@ add_executable(ostinato-vi-battle-damage-tests
     tests/test_reflected_attack.cpp
     tests/test_target_damage.cpp
     tests/test_trace_replay.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-damage-tests PRIVATE
@@ -696,6 +699,7 @@ add_executable(ostinato-vi-battle-status-tests
     tests/test_status_start.cpp
     tests/test_trace_state.cpp
     tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp
     tools/damage-trace/machine_state.cpp)
 target_compile_features(ostinato-vi-battle-status-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-status-tests PRIVATE ${_ostinato_warn})
@@ -721,7 +725,8 @@ add_executable(ostinato-vi-battle-effects-tests
     tests/test_links.cpp
     tests/test_morph.cpp
     tests/test_target_effects.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-effects-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-effects-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-effects-tests PRIVATE
@@ -738,7 +743,8 @@ add_executable(ostinato-vi-battle-espers-tests
     tests/test_espers_oracle.cpp
     tests/test_leveling.cpp
     tests/test_spell_learning.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-espers-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-espers-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-espers-tests PRIVATE
@@ -762,7 +768,8 @@ add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_run_oracle.cpp
     tests/test_ai_targets.cpp
     tests/test_ai_trace.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-ai-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-ai-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-ai-tests PRIVATE
@@ -785,7 +792,8 @@ add_executable(ostinato-vi-battle-rewards-tests
     tests/test_battle_end.cpp
     tests/test_battle_end_oracle.cpp
     tests/test_rewards_trace.cpp
-    tools/damage-trace/damage_oracle.cpp)
+    tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp)
 target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-rewards-tests PRIVATE
@@ -802,6 +810,7 @@ gtest_discover_tests(ostinato-vi-battle-rewards-tests)
 add_executable(ostinato-vi-battle-whole-tests
     tests/test_battle_start_oracle.cpp
     tools/damage-trace/damage_oracle.cpp
+    tools/damage-trace/battle_whole.cpp
     tools/damage-trace/machine_state.cpp)
 target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-whole-tests PRIVATE ${_ostinato_warn})

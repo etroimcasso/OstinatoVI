@@ -77,7 +77,7 @@ The test binaries, one per area:
 | `ostinato-vi-battle-espers-tests` | An esper's spells learned and its level-up bonus. |
 | `ostinato-vi-battle-ai-tests` | Monster AI: targets, conditions, turns, counterattacks and the script-only commands. |
 | `ostinato-vi-battle-rewards-tests` | What a battle's end gives: experience, levels, spells, items obtained, every ending, and the traced recordings. |
-| `ostinato-vi-battle-whole-tests` | The cartridge's battle program called whole, as the field calls it: its entry, its start and the scenario it starts from. |
+| `ostinato-vi-battle-whole-tests` | The cartridge's battle program called whole, as the field calls it: its entry, the scenario it starts from, and its start compared cell by cell with the port's. |
 
 Every data table is tested over its whole corpus against a fixture generated from the original. The
 battle binaries check each rule three ways — the port, the value worked out from the original, and the

@@ -4,6 +4,8 @@
 
 #include <gtest/gtest.h>
 
+#include <cstdint>
+#include <utility>
 #include <variant>
 
 #include "battle/actions.h"
@@ -39,6 +41,21 @@ TEST(BattleTime, AdvancesOnEverySecondFrame) {
     for (int frame = 1; frame <= 10; ++frame) {
         battle::tickBattleTime(state, true, executor);
         EXPECT_EQ(state.turnCounter, frame / 2) << "frame " << frame;
+    }
+}
+
+TEST(BattleTime, ThePlayClocksFramesStepOnEveryFrameAndGoRoundAtSixty) {
+    // IncGameTime, menu_common.asm:3488-3519, from the graphics program's interrupt on every frame:
+    // a cell at 60 goes to 0, then the cell steps by one. Only 60 goes round; a cell above it counts
+    // on to 255 and round to 0.
+    battle::NullExecutor executor;
+    for (const auto [before, after] : {std::pair<int, int>{1, 2}, {59, 60}, {60, 1}, {61, 62}, {255, 0}}) {
+        for (const bool timeRunning : {true, false}) {
+            BattleState state = makeBattle();
+            state.playClockFrames = static_cast<std::uint8_t>(before);
+            battle::tickBattleTime(state, timeRunning, executor);
+            EXPECT_EQ(state.playClockFrames, after) << "from " << before << (timeRunning ? ", time running" : "");
+        }
     }
 }
 

@@ -19,7 +19,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_start.h` | `startBattle()`, `writeBack()`, `startNextFinalBattleStage()`, the start's steps (`chooseFormation()`, `loadMonster()` with `MonsterHp`, `loadMonsterTraits()`, `chooseBattleType()`, `applyBattleType()`, `fillStartingGauges()`), `changeFormation()`, `BattleStart`, `ColosseumMatch`, `BattleResult` |
 | `src/game/battle_switches.h` | `game::BattleSwitches` and the switch numbers the battle uses |
 | `src/game/character_record.h` | `game::CharacterRecord`, `game::Party`, `PartyMembership`, `SpellProgress`, `InventorySlot`, `PlayTime` |
-| `src/battle/party_setup.h` | `placeParty()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `hitCheckFactor()`, `applyDeathAndPoisonImmunity()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
+| `src/battle/party_setup.h` | `placeParty()`, `setupInForce()`, `loadParty()`, `loadPartyMember()`, `buildCommandList()`, `deriveEquipment()`, `applyDerivedStats()`, `hitCheckFactor()`, `applyDeathAndPoisonImmunity()`, `refreshStatusImmunity()`, `applyEquipmentChanges()`, `DerivedStats`, `MaxBoost`, `PartyLineup` |
 | `src/battle/spell_lists.h` | `SpellList`, `SpellListEntry`, `buildSpellLists()`, `loadSpellList()`, `refreshCastableSpells()` |
 | `src/battle/battle_inventory.h` | `BattleInventory`, `BattleItem`, `ToolSet`, `battleItem()`, `loadBattleInventory()`, `loadKnownSkills()` |
 | `src/battle/battle_state.h` | the battler's party-member fields: `Hand`, `MenuCommand`, `BlockGraphicSet` |
@@ -36,7 +36,7 @@ BattleStart start;
 start.formation = FormationRef::of(FormationId::LOBO);
 start.background = BattleBackgroundId::FIELD_WOB;
 start.config = playerSettings;
-start.playTimeFrames = playClock.frames;   // 0-59
+start.playTimeFrames = playClock.frames;   // 1-60
 
 BattleState state = startBattle(start, party, switches, cartridge.text, cartridge.monsterSprites,
                                 executor);
@@ -59,7 +59,7 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `finalBattleOrder` | the final battle: the character records in the order the player lined them up |
 | `config` | the player's battle settings (`BattleConfig`) |
 | `version` | the cartridge's `GameVersion` |
-| `playTimeFrames` | the frames part of the play clock; the battle's random numbers start at four times it |
+| `playTimeFrames` | the play clock's frames, 1 to 60; the battle's random numbers start at four times it, and `BattleState::playClockFrames` counts on from it |
 | `itemsObtainedTail` | the last three places of the items obtained, which a battle's start does not empty: the last battle's `BattleResult::itemsObtainedTail` ([rewards.md](rewards.md#items-obtained)); empty when left as it is |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
@@ -72,7 +72,10 @@ inventory and known skills; the monsters; the statuses waiting to be set
 (`executor.applyStatusChanges` — on `CommandExecutor`, the battle's own pass, [status.md](status.md));
 the after-command checks once, near-fatal relics included; the battle type; status immunity; the
 starting gauges; the opening message; whether the party can run; everyone placed on the field and
-facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`.
+facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`, and
+with it what the opening lays out: the monsters standing (`monstersStanding`) become the formation's
+monsters present, and the monsters the scripted setup in force leaves out of its reach are out of the
+AI's reach (`aiUntargetable`).
 
 The run check comes before the battlers are placed, so at that moment a pincer reads every monster
 as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](../../Bugs.md)).
@@ -145,7 +148,9 @@ loading read them. `startBattle()` sets them from the `BattleStart` and the batt
 member they match, or the first empty slot, or sits out when none is empty. A cast member brings
 their flags, their sprite and their AI script (`Battler::aiScript`, script 256 + *n*). With
 `CurrentParty` and `gauMayAppear` set, the Veldt setup is staged instead when Gau can come back now;
-when he cannot, `gauMayAppear` is cleared.
+when he cannot, `gauMayAppear` is cleared. `setupInForce(state, lineup)` names the setup a placed
+battle runs with: the Veldt setup when the current party fights and `gauMayAppear` is still set, else
+the lineup's own, if any.
 
 `placeParty()` sets the script but does not ready it. `startBattle()` calls `executor.initAi()` for
 each party slot with a script straight after placing the party, before any monster is loaded; when
@@ -326,6 +331,12 @@ A back attack, a pincer, a side attack or a preemptive strike opens with its bat
 `BattleMessageAction` that interrupts the line; a formation that forbids preemptive strikes opens
 with none.
 
+The opening also decides two sets. Until it, every monster stands (the run check above reads them
+so); from it, `monstersStanding` holds the formation's monsters present, and a monster held back for
+later is not among them. A scripted setup's reach byte (`CharAiSetup::validMonsterTargets`) keeps every
+monster it leaves out in `aiUntargetable` from the start: with a byte of `$FE`, monster slot 0 cannot
+be aimed at until its AI says it can.
+
 ## The final battle's stages
 
 The final battle is recognized when its first stage is asked for; its party is
@@ -403,7 +414,8 @@ is bit *n* mod 8 of variable *n* / 8. The numbers the battle reads and writes ar
 | What the game keeps | `writeBack()` in `battle_start.cpp` |
 | What carries into a final-battle stage | `startNextFinalBattleStage()` in `battle_start.cpp` |
 | What a mid-battle formation change redoes | `changeFormation()` in `battle_start.cpp` |
-| Who stands where, scripted setups, the Gau rule | `currentParty()`, `stageScriptedSetup()`, `seat()` in `party_setup.cpp` |
+| Who stands where, scripted setups, the Gau rule | `currentParty()`, `setupInForce()`, `stageScriptedSetup()`, `seat()` in `party_setup.cpp` |
+| What the opening lays out | the end of `assembleBattle()` in `battle_start.cpp` |
 | How equipment adds up | `addItem()` and `settleHands()` in `party_setup.cpp` |
 | What reaches the battler | `applyDerivedStats()` in `party_setup.cpp` |
 | HP and MP caps, a joining character's heal | `loadPartyMember()` in `party_setup.cpp` |

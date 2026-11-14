@@ -76,8 +76,8 @@ struct BattleStart {
     BattleConfig config;
     GameVersion version = GameVersion::US_1_1;
 
-    // The frames part of the play clock (0-59) when the battle starts: it decides where the
-    // battle's random numbers begin.
+    // The play clock's frames (1-60) when the battle starts: it decides where the battle's random
+    // numbers begin, and BattleState::playClockFrames counts on from it.
     std::uint8_t playTimeFrames = 0;
 
     // The last three places of the items the party comes away with, which no battle's start empties:

@@ -102,7 +102,7 @@ routine was entered: the params block (`$7E:00A0-00AF`, its second byte the atta
 Launcher's or Super Ball's hits to come (`$7E:3405`), the aiming rules (`$7E:00BA`) and the attacker of
 the params block before this one in the script's buffer (`--` when there is none). `r` and `w` are a
 read and a write of the cell named, with the byte read or written. The cells watched are the
-console's frame count, the direct-page params block, attack flags and multiplier, the party's gil and
+play clock's frames, the direct-page params block, attack flags and multiplier, the party's gil and
 steps, the attack's record and damage, each monster's index, the party's control menus and hands, each
 battler's bit, the numeral buffer, the script queue, the monsters standing and the cells beside them,
 the battle's list of actions, what is to be worked out again for each battler, the links between
@@ -367,6 +367,9 @@ counter `$0E`; the player's records `$2BAE-$2BCD`; the menu's time stop `$2F41`;
 into it; the field's timer flags `$1DD1`, from the interrupt; the monsters standing `$2F2F` and the
 monsters that can be aimed at `$2F46`, from the opening command `$00`; the multiply's scratch `$00EB`;
 and the stack. The opening `$00` runs for about 160 frames, and the clock runs on its last 38 or so.
+Two more cells the graphics side writes for the battle program are read only where none of the seven
+fights goes: the play clock's frames `$021E`, which its interrupt steps and the Fixed Dice read, and
+the monsters on each side of a pincer `$2EAC-$2EAD`, which its opening lays out.
 
 ## Replaying
 
@@ -535,17 +538,49 @@ While the battle program runs, its calls to the graphics program are answered as
 are, each with no frame and the battle's time stopped. The answer to the opening command, `$00`, also
 lays what the graphics program's own opening lays for the battle program: the monsters standing
 (`$2F2F`), the formation's monsters present; the monsters that can be aimed at (`$2F46`), every one, or
-the scripted setup's own when the formation has one; and the four equipment-changed flags, cleared. At
+the reach byte of the scripted setup the start turned on; the four equipment-changed flags, cleared;
+and the monsters on each side of a pincer (`$2EAC-$2EAD`), from the port's own `layOutMonsters()` with the
+monsters' sprites handed over by `useMonsterSprites()`, which a whole battle needs before its call. At
 the loop's first frame wait — the first command `$01` — the battle's cells, `$7E:0000-3FFF`, are read into
 `StartResult::cells`, with every cell the start read before anything wrote it
 (`StartResult::unwrittenReads`). The battle is then ended by the cartridge's own end-of-battle event 4,
 "end the battle now", so the wrap-up, what the game keeps and the close run, and the call returns:
 `StartResult::returned` is true when the last command asked for is the close, `$09`.
 
+### The whole state compared
+
+`compareBattleState(state, boosts, cells)` lays a `battle::BattleState` into the battle's cells and
+compares them with a cartridge's, cell by cell, one line per cell where they part. `writeBattleState()`
+does the laying, through the writers every routine's scenario is written by — the attack frame's, the
+AI's, the scripts' and the ending's — with what those writers also lay of an attack, a command, a
+script or a message left out: a writer lays those through `writeInFlightByte()` and its kin, and only
+`writeByte()` and its kin lay the state. A last pass, `writeStateAsTheCartridgeHoldsIt()`, lays the
+cells where the cartridge holds the state its own way — an empty inventory record, an empty party
+slot's record offset, the formation's first byte with its top four bits turned over, the battle's flags
+at `$B1`, the field flags at `$3AA0` and `$3205`, the reach cells — and leaves out the cells no field
+decides: the hands and control menus of a slot with none, what a battler was last hit with before it
+has been hit, the special attack of a battler with no monster, which way the battlers face. A cell
+two writers lay differently at a bit with meaning is a line of its own.
+
+A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
+bits 7, 2 and 1, a battler mask by the bits that name a battler. Every other bit of a cell the battle
+program writes must be on `cellsNotCompared()` with its reason.
+
+Two gates keep the comparison whole. `uncoveredWrites(state, boosts, StartResult::battleWrites)` names
+every cell the battle program wrote up to the loop's first frame wait that the comparison does not cover
+in full. `carriedReads(state, boosts, StartResult::readsAfterThePoint)` names every read the battle
+program made after that wait of a cell, or bit, the comparison does not hold and nothing had written
+since. `StartResult::readsBeyondTheBattlesCells` holds every read of `$7E:4000-$7F:FFFF` not listed — an
+empty party slot's hands, read through its record offset `$FFFF` from bank `$7F`, are listed.
+`portStart(scenario, text, sprites)` is the port's start over the same scenario.
+
 `tests/test_battle_start_oracle.cpp` checks that the battle program's entry is where the US cartridges
 hold it and that an image without it is refused; calls it from the first fight as `first-fight.inputs`
 leaves the machine and from that fight's scenario written into a machine fresh from its reset code, each
-opening, reaching the loop and returning; and checks that a scenario written reads back the same.
+opening, reaching the loop and returning; checks that a scenario written reads back the same; compares
+the first fight's start with the port's, from the machine and from its written scenario, and a scripted
+setup's start that keeps monster slot 0 out of reach; checks that the start reads nothing it was not
+handed but the listed cells; and checks each gate on cells whose answer is known.
 
 ## Files
 
@@ -557,4 +592,5 @@ opening, reaching the loop and returning; and checks that a scenario written rea
 | `press-a.inputs` | A pressed for 4 frames in every 16, which fights the first fight to a win from its state |
 | `hold-then-press-a.inputs` | nothing pressed for 1,200 frames, then A for 4 frames in every 16: the guards act first, then the party fights the first fight to a win |
 | `first-two-battles.inputs` | from power-on through the first fight, won as `press-a.inputs` wins it, and on through the town to the next battle |
+| `battle_whole.cpp` | the whole state compared: `writeBattleState()`, `compareBattleState()`, the two gates `uncoveredWrites()` and `carriedReads()`, the tables `cellMeanings()` and `cellsNotCompared()`, and `portStart()` |
 | `damage_oracle.{h,cpp}` | `DamageOracle`, the cartridge's routines isolated and called over a `DamageScenario`: the formulas, the damage to one target, the damage taken and shown, a spell bounced off Reflect, the statuses taking effect, an attack's statuses on one target, its special effect on its attacker and on one target, the cover and the attack's animation set up; over a `RecordScenario`: the esper's spells learned and the level-up; over an `AiScenario`: the battlers a monster's script names, the conditions it tests, a script readied, its turns and counterattacks, and the three commands only a script queues; the whole attack frame, `attack()` and `selfAttack()`, and the battle's own actions, `ownAction()`, with `unwrittenReads()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()`, `drawStatusChangesScenario()`, `drawStatusEffectScenario()`, `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`, `drawCoverScenario()`, `drawLearningScenario()`, `drawLevelUpScenario()`, `drawAiScenario()`, `drawAiTargetsCase()`, `drawAiConditionCase()`, `drawAttackScenario()`, `drawSelfAttackScenario()`, `drawOwnActionCase()`, `drawEndingScenario()` and `drawItemsObtainedScenario()`, the seeded draws; over an `EndingScenario`: the wrap-up, `wrapUp()`, the win, `win()`, the loss, `loss()`, and what the game keeps, `writeBack()`, with `drawWinScenario()`; over an `ItemsObtainedScenario`: the graphics program's two commands for the items obtained; `itemsObtainedTailAtPowerOn()`, the title program laid out and the list's last three places read; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`, `portStatusChanges()`, `portStatusEffect()`, `runAttackerEffect()`, `runTargetEffect()`, `portInitParams()`, `portCoverTarget()`, `portLearnFromEsper()`, `portLevelUp()`, `portAiTargets()`, `portAiCondition()`, `portAttack()`, `portSelfAttack()`, `attackResult()`, `portOwnAction()` and `differences()`, the port read back the same way and compared cell by cell; `DamageTrace`, the trace's escapes, watches and lines, on any machine; `parseTrace()` and `DamageOracle::replay()`, a recorded call read back and replayed against the port, a battler's AI rebuilt by `readAiScenario()`; `parseEndings()` and `DamageOracle::replayEnding()`, a recorded ending read back and replayed, rebuilt by `readEndingScenario()` |

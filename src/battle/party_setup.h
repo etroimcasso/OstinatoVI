@@ -131,6 +131,11 @@ struct PartyLineup {
 // full.
 BattlerSet placeParty(BattleState& state, const PartyLineup& lineup);
 
+// The scripted setup a battle runs with: Gau's return (CharAiId::GAU_VELDT) when the current party
+// fights and Gau may appear, else the formation's own, if it has one. placeParty() stages it; the
+// battle's opening reads which monsters it leaves in reach.
+std::optional<CharAiId> setupInForce(const BattleState& state, const PartyLineup& lineup);
+
 // Load every placed party member: the party's spell list, then for each, their equipment, HP, MP
 // and statuses, their own spell list and their battle commands.
 void loadParty(BattleState& state, BattlerSet joinedFromSetup, game::PlayTime savedPlayTime);

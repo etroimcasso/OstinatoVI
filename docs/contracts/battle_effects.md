@@ -138,7 +138,7 @@ the effect space ends at `$57`.
 | `$3d98` a monster's gold | `Battler::gold` |
 | `$3bf4`, `$3c1c`, `$3c08` HP, maximum HP, MP; `$3b18` level | `Battler::hp`, `maxHp`, `mp`, `level` |
 | `$1860-$1862` the party's gil, `$1866-$1868` its steps (`field-ram:934-936`) | `state.party.gil`, `state.party.steps` |
-| `$021e` the console's frame count, low byte | `state.frameCount` |
+| `$021e` the play clock's frames, 1 to 60, stepped by the graphics program's interrupt (`IncGameTime` `menu_common.asm:3488-3519`) | `state.playClockFrames` |
 | `$11aa-$11ad` the attack's statuses | `attack.record.statuses` |
 | `$3a48` the effect missed the target; `$3a4e` the command's earlier targets | `targetEffect()`'s result; `scratch.earlierTargets` |
 | `$341a` negative: counterattacks on; `$341d` negative: an attack with no one left is shown | `state.scratch.countersEnabled`; `scratch.hideWithoutTargets` false |
@@ -184,7 +184,7 @@ Y is the attacker throughout.
 | `$05` | Drainer | `:10299-10304` | Inverts on the undead; drains. |
 | `$06` | Soul Sabre | `:10289-10292` | Works on MP, then the Drainer's rule. |
 | `$07` | Rune Edge, Illumina, Ragnarok, Punisher | `:10229-10251` | Only an attack that may be a critical hit and was aimed at someone: the cost is 12 plus a draw's low three bits. With that much MP the attacker pays it and the attack is a critical hit; without, nothing — the one-in-32 critical stands. |
-| `$09` | Dice, Fixed Dice | `:10673-10744` | No damage modification; cannot be dodged. One draw *r*: the first die is (*r* & 15) mod 6 + 1, the second (*r* mod 96) / 16 + 1. A hit rate of 3 or more (Fixed Dice) rolls a third die from the console's frame count, its low byte mod 6, plus 1. The damage is the faces multiplied, by twice the attacker's level taken in a byte (`asl` of `$11af` into an 8-by-8 multiply, `:10724-10726`; from level 128 on it wraps), and — with three dice all showing one face — by that face again, each addition stopping at 65,535. The animation's attack is the third face less one (15 for two dice); its second value holds the second face less one in the high four bits and the first face less one in the low four. An attack shown as Fight is shown as the dice roll. |
+| `$09` | Dice, Fixed Dice | `:10673-10744` | No damage modification; cannot be dodged. One draw *r*: the first die is (*r* & 15) mod 6 + 1, the second (*r* mod 96) / 16 + 1. A hit rate of 3 or more (Fixed Dice) rolls a third die from the play clock's frames (`$021e`, 1 to 60), mod 6, plus 1. The damage is the faces multiplied, by twice the attacker's level taken in a byte (`asl` of `$11af` into an 8-by-8 multiply, `:10724-10726`; from level 128 on it wraps), and — with three dice all showing one face — by that face again, each addition stopping at 65,535. The animation's attack is the third face less one (15 for two dice); its second value holds the second face less one in the high four bits and the first face less one in the low four. An attack shown as Fight is shown as the dice roll. |
 | `$0a` | Valiant Knife | `:10323-10333` | Ignores defense; the damage gains what the attacker has lost of its HP, its maximum less its HP. The damage word wraps past 65,535. |
 | `$0b` | Tempest | `:10339-10346` | On a draw below 128: power 0, Wind Slash cast next, one more attack. |
 | `$0c` | Heal Rod | `:10310-10315` | Ignores defense; restores. |

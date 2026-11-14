@@ -239,7 +239,7 @@ TEST_F(AttackerEffectTest, TheDiceRollTwoDiceFromOneDraw) {
 TEST_F(AttackerEffectTest, TheFixedDiceThirdDieReadsTheFrameCount) {
     DamageScenario s = scenarioWith(SpecialEffect::of(WeaponSpecialEffect::DICE));
     s.attack.record.hitRate = 3;
-    s.state.frameCount = 200;
+    s.state.playClockFrames = 200;
     s.state.rng = battle::BattleRng{70};
     const std::uint8_t draw = drawAfter(70);
     const int first = (draw & 0x0F) % 6 + 1;
@@ -252,13 +252,13 @@ TEST_F(AttackerEffectTest, TheFixedDiceThirdDieReadsTheFrameCount) {
 }
 
 TEST_F(AttackerEffectTest, ThreeMatchingDiceMultiplyByTheirFace) {
-    // A draw whose two dice both show 2, and a frame count whose die shows 2 too.
+    // A draw whose two dice both show 2, and play clock frames whose die shows 2 too.
     DamageScenario s = scenarioWith(SpecialEffect::of(WeaponSpecialEffect::DICE));
     s.attack.record.hitRate = 3;
     s.state.rng = battle::BattleRng{positionWhere([](std::uint8_t r) {
         return (r & 0x0F) % 6 + 1 == 2 && (r % 96) / 16 + 1 == 2;
     })};
-    s.state.frameCount = 1;
+    s.state.playClockFrames = 1;
     const auto run = checked(s);
     EXPECT_EQ(run.after.attack.secondary, 0x11);
     EXPECT_EQ(run.after.attack.damage, 2 * 2 * 2 * 60 * 2);
@@ -271,7 +271,7 @@ TEST_F(AttackerEffectTest, TheDiceDamageStopsAtTheDamageWord) {
     s.state.rng = battle::BattleRng{positionWhere([](std::uint8_t r) {
         return (r & 0x0F) % 6 + 1 == 6 && (r % 96) / 16 + 1 == 6;
     })};
-    s.state.frameCount = 5;
+    s.state.playClockFrames = 5;
     const auto run = checked(s);
     EXPECT_EQ(run.after.attack.damage, 65535);
 }

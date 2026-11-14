@@ -20,6 +20,7 @@
 #include "battle/party_setup.h"
 #include "battle_test_support.h"
 #include "data/battle_tables.h"
+#include "data/char_ai.h"
 #include "data/formations.h"
 #include "data/monster_items.h"
 #include "data/monster_properties.h"
@@ -610,6 +611,54 @@ TEST(StartBattle, TheRandomNumbersBeginAtFourTimesThePlayClocksFrames) {
         EXPECT_EQ(static_cast<int>(state.formation),
                   static_cast<int>(FormationId::LOBO) + (rngByte(static_cast<std::uint8_t>(frames * 4 + 1)) & 3));
     }
+}
+
+TEST(StartBattle, ThePlayClockCountsOnFromTheFramesTheBattleStartsAt) {
+    // :6088 reads the play clock's frames for the seed; the cell goes on being stepped by the
+    // graphics program's interrupt (IncGameTime, menu_common.asm:3488-3519).
+    battle::NullExecutor executor;
+    battle::BattleStart start = startFor(findFormation(ordinary));
+    start.playTimeFrames = 41;
+    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.playClockFrames, 41);
+}
+
+TEST(StartBattle, TheOpeningStandsTheFormationsMonstersPresent) {
+    // The opening lays the formation's monsters present, its second byte's low six bits, as the
+    // monsters standing (btlgfx_main.asm:2011-2013, :2203-2205); a monster held back for later is not
+    // one of them.
+    const FormationId formation = findFormation([](FormationId id, const Formation& record, const FormationAux& aux) {
+        bool heldBack = false;
+        for (std::size_t slot = 0; slot < 6; ++slot) {
+            heldBack = heldBack || (!record.slotEmpty(slot) && !record.isPresent(slot));
+        }
+        return heldBack && ordinary(id, record, aux);
+    });
+    battle::NullExecutor executor;
+    const BattleState state = battle::startBattle(startFor(formation), threeMembers(), {}, noNames(), noSprites(), executor);
+    const Formation& record = getFormation(formation);
+    for (int position = 0; position < 6; ++position) {
+        EXPECT_EQ(state.monstersStanding.has(BattlerSlot::monster(position)), record.isPresent(static_cast<std::size_t>(position)))
+            << "monster slot " << position;
+    }
+}
+
+TEST(StartBattle, AScriptedSetupKeepsTheMonstersItLeavesOutOutOfReach) {
+    // The opening lays $FF into $2F46, then the scripted setup's own reach byte when the formation has
+    // one (btlgfx_main.asm:2197-2201, :41253-41267); the aim reads it as the monsters in reach
+    // (_c25917 :14635-14642). A setup whose byte is $FE leaves monster slot 0 out.
+    const FormationId scripted = findFormation([](FormationId, const Formation&, const FormationAux& aux) {
+        return aux.characterAiEnabled() &&
+               charAiSetup(static_cast<CharAiId>(aux.characterAiIndex())).validMonsterTargets.bits == 0xFE;
+    });
+    battle::NullExecutor executor;
+    const BattleState state = battle::startBattle(startFor(scripted), threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.aiUntargetable.monsters.bits, 0x01);
+    EXPECT_TRUE(state.aiUntargetable.charactersOnly().empty());
+
+    const BattleState plain =
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_TRUE(plain.aiUntargetable.empty());
 }
 
 TEST(StartBattle, TheSwitchesTheBattleClearsAsItStarts) {

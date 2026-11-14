@@ -156,7 +156,7 @@ void diceRoll(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleScr
     attack.secondary = static_cast<std::uint8_t>((second - 1) << kFaceShift | (first - 1));
     int product = first * second;
     if (attack.record.hitRate >= kThreeDiceHitRate) {
-        const int third = state.frameCount % kDieFaces + 1;
+        const int third = state.playClockFrames % kDieFaces + 1;
         thirdShown = static_cast<std::uint8_t>(third - 1);
         product *= third;
     }

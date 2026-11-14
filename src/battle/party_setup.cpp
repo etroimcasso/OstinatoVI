@@ -481,15 +481,18 @@ void refreshStatusImmunity(BattleState& state, BattlerSlot slot) {
 
 // --- the party -----------------------------------------------------------------------------------
 
+std::optional<CharAiId> setupInForce(const BattleState& state, const PartyLineup& lineup) {
+    if (std::holds_alternative<CurrentParty>(lineup.fighters) && state.gauMayAppear) {
+        return CharAiId::GAU_VELDT;
+    }
+    return lineup.scriptedSetup;
+}
+
 BattlerSet placeParty(BattleState& state, const PartyLineup& lineup) {
     Placements placed{};
     BattlerSet fromSetup;
-    std::optional<CharAiId> setup = lineup.scriptedSetup;
     if (std::holds_alternative<CurrentParty>(lineup.fighters)) {
         placed = currentParty(state);
-        if (state.gauMayAppear) {
-            setup = CharAiId::GAU_VELDT;
-        }
     } else if (const auto* colosseum = std::get_if<ColosseumFighter>(&lineup.fighters)) {
         // The colosseum fighter, like a scripted setup's cast, enters at full strength.
         placed[0] = Placement{.actor = colosseum->fighter};
@@ -498,7 +501,7 @@ BattlerSet placeParty(BattleState& state, const PartyLineup& lineup) {
     } else {
         placed = finalBattleParty(state, std::get<FinalBattleStage>(lineup.fighters));
     }
-    if (setup) {
+    if (const std::optional<CharAiId> setup = setupInForce(state, lineup)) {
         stageScriptedSetup(placed, fromSetup, *setup);
     }
 

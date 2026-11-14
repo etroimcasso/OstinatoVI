@@ -625,7 +625,9 @@ allows), the party, the battle switches and the game's text, in the original's o
 
 1. Mimic's memory starts as Mimic (`InitRAM` `:6329-6331`); the final battle is recognized when the
    formation asked for is its first stage (`:6078-6082`).
-2. The random numbers start at **four times the frames part of the play clock** (`:6088-6090`).
+2. The random numbers start at **four times the play clock's frames** (`:6088-6090`), the cell the
+   graphics program's interrupt steps from 1 to 60 (below, "What the graphics program hands the
+   battle program"); `BattleState::playClockFrames` starts at it.
 3. The formation (below).
 4. The party is placed (above, "Placing the party"): a final-battle stage, a colosseum match when
    the formation is one of the last two, or the current party; the formation's scripted setup, if
@@ -649,7 +651,12 @@ allows), the party, the battle switches and the game's text, in the original's o
 11. A fighter still away from the field from the final battle's last stage comes down as the stage
     opens: its gauge full and stopped, in the action line with a Jump (`:6166-6179`).
 12. The opening: `OpenBattleScene`, and the random numbers move on one entry — the loop's own once-a-
-    pass advance, which comes before its first wait (`:67-68`). A final-battle stage after the first
+    pass advance, which comes before its first wait (`:67-68`). What the opening lays for the battle
+    program is the start's too: the **monsters standing** become the formation's monsters present
+    (`btlgfx:2011-2013`, `:2203-2205`) — until then every monster stands, which is what the run check
+    above reads — and the monsters the scripted setup in force leaves out of its reach byte are **out
+    of the AI's reach** (`aiUntargetable`; `btlgfx:2197-2201`, `:41253-41267`). The setup in force is
+    Gau's return (`setupInForce()`), when Gau may appear, or the formation's own. A final-battle stage after the first
     instead plays `FormationChanges` from the stage's byte of `kFinalBattleScroll` — bit 7 scrolls the
     background on, the low bits are the departing monsters' exit (`GfxCmd_12 btlgfx:22118-22167`) — with
     the stage's monsters still fighting, and the loop waits for it (`:6180-6193`).
@@ -830,8 +837,9 @@ made.
 
 The battle program asks the graphics program for a frame, a script or a menu (`ExecBtlGfx`
 `:16369-16387` → `ExecBtlGfx_ext` `btlgfx:76-82`), and the graphics program, with its interrupt
-(`BattleNMI` `btlgfx:1629-1790`), writes cells the battle program then reads. Measured over fights played
-on the cartridge, those cells are these, and no others besides the stack:
+(`BattleNMI` `btlgfx:1629-1790`), writes cells the battle program then reads. Measured over seven fights
+played on the cartridge, those cells are the first nine rows, and no others besides the stack. The last
+two are read from the listing: none of the seven fights is a pincer or throws the Fixed Dice.
 
 | Cells | Written by | Read by the battle program | The port |
 |---|---|---|---|
@@ -843,7 +851,9 @@ on the cartridge, those cells are these, and no others besides the stack:
 | the inventory (`$2686-$2B85`) | the graphics program, merging the items obtained (command `$0A`) and the Item menu | `UpdateSRAM` and the commands | `BattleState::inventory` |
 | `$1DD1` the field's timer flags | the interrupt, each unpaused frame (`btlgfx:1622` → the field's timers), and the opening (`btlgfx:2219`) | `CheckBattleEnd` (`:11900`, bit 5: a story countdown ran out) | `BattleState::eventTimerExpired` |
 | `$2F2F` the monsters standing | the opening: the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`); a formation change (`btlgfx:22142`, `:22157`) | the loop (`:100-103`), the monsters' names (`:15185-15188`) | `BattleState::monstersStanding` |
-| `$2F46` the monsters that can be aimed at | the opening: every one, or the scripted setup's own when the formation has one (`btlgfx:2197-2198`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
+| `$2F46` the monsters that can be aimed at | the opening: every one, or the reach byte of the scripted setup in force — the formation's own, or Gau's return, which `InitParty` turns on when Gau may appear (`:7786-7792`) — (`btlgfx:2197-2201`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
+| `$021E` the play clock's frames | the interrupt, each frame its body runs — not while one is in progress (`btlgfx:1642-1643`) nor while the battle is paused (`btlgfx:1717-1718`) — through `IncGameTime` (`btlgfx:1751`, `menu_common.asm:3488-3519`): a cell at 60 goes to 0 and the seconds step, then the cell steps by one, so it reads 1 to 60 in turn | the start's seed (`:6088`), the Fixed Dice's third die (`:10705-10710`) | `BattleState::playClockFrames`, stepped by `tickBattleTime()` on every frame |
+| `$2EAC`, `$2EAD` the monsters on each side of a pincer | the opening and a formation change (`InitMonsterPos` `btlgfx:2854-2857`, from `btlgfx:2310` and `:22149`) | `CheckTargetsBattleType` (`:14748-14753`) and the run check (`:15181-15189`), both only in a pincer (`$201F` = 2) | `BattleState::pincerSides`, from `layOutMonsters()` |
 
 The opening, graphics command `$00`, is not one frame: from the call at the end of `InitBattle`
 (`:6193`) to its return it runs about 160 frames on the first fight in Narshe, and the graphics program

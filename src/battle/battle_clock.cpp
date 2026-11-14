@@ -15,6 +15,9 @@ namespace {
 
 constexpr int kFramesPerTimeUpdate = 2;
 
+// The play clock's frames in one second: the count that goes to 0 before its next step.
+constexpr std::uint8_t kPlayClockFramesPerSecond = 60;
+
 // The status-timer steps: a battler's status timers take a step each time the timer passes 255.
 constexpr std::uint8_t kSlowTimerStep = 32;
 constexpr std::uint8_t kNormalTimerStep = 64;
@@ -258,7 +261,10 @@ void updateBattleTime(BattleState& state, ActionExecutor& executor) {
 }  // namespace
 
 void tickBattleTime(BattleState& state, bool timeRunning, ActionExecutor& executor) {
-    ++state.frameCount;
+    if (state.playClockFrames == kPlayClockFramesPerSecond) {
+        state.playClockFrames = 0;
+    }
+    ++state.playClockFrames;
     ++state.framesSinceTimeUpdate;
     if (!timeRunning) {
         return;

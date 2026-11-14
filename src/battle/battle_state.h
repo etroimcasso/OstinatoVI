@@ -527,9 +527,10 @@ struct BattleState {
 
     // --- the clocks --------------------------------------------------------------------------
     int framesSinceTimeUpdate = 0;  // frames since the ATB last advanced
-    // Frames shown since the battle started, counting on past 255 from 0. The Fixed Dice read their
-    // third die from it.
-    std::uint8_t frameCount = 0;
+    // The play clock's frames: 1 to 60, stepped every frame, a 60 going to 0 before the step; a value
+    // above 60 counts on to 255 and round. It starts at BattleStart::playTimeFrames. The Fixed Dice read
+    // their third die from it.
+    std::uint8_t playClockFrames = 0;
     bool timeStoppedByMenu = false; // a command's sub-menu is open (stops time in wait mode)
     std::uint16_t turnCounter = 0;  // time updates so far
     std::uint16_t battleCounter = 0;  // once every 16 time updates

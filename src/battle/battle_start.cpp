@@ -16,6 +16,7 @@
 #include "battle/battle_layout.h"
 #include "battle/party_setup.h"
 #include "data/battle_tables.h"
+#include "data/char_ai.h"
 #include "data/formations.h"
 #include "data/monster_items.h"
 #include "data/monster_properties.h"
@@ -553,13 +554,14 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     }
 
     state.rng = BattleRng(static_cast<std::uint8_t>(start.playTimeFrames * 4));
+    state.playClockFrames = start.playTimeFrames;
     state.formation = chooseFormation(state, start.formation);
     state.startingFormation = carry != nullptr ? carry->startingFormation : state.formation;
     const FormationAux& aux = getFormationAux(state.formation);
 
     state.gauMayAppear = start.gauMayAppear;
-    const BattlerSet fromSetup =
-        placeParty(state, lineupFor(state, start, aux, carry != nullptr ? carry->standing : FinalBattleStage{}));
+    const PartyLineup lineup = lineupFor(state, start, aux, carry != nullptr ? carry->standing : FinalBattleStage{});
+    const BattlerSet fromSetup = placeParty(state, lineup);
     // A party member a scripted battle gives a script has it readied as soon as it is seated, before
     // any monster is loaded.
     for (int position = 0; position < kPartySlots; ++position) {
@@ -643,6 +645,20 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.waitingForScript = ScriptWait{.resume = ScriptResume::NextStep};
     } else {
         state.requests.push_back(OpenBattleScene{});
+        // The opening lays out the formation's monsters present as the monsters standing, and keeps
+        // out of the AI's reach every monster the scripted setup in force leaves out.
+        const Formation& formation = getFormation(state.formation);
+        BattlerSet present;
+        for (int position = 0; position < kMonsterSlots; ++position) {
+            if (formation.isPresent(static_cast<std::size_t>(position))) {
+                present.add(BattlerSlot::monster(position));
+            }
+        }
+        state.monstersStanding = present;
+        if (const std::optional<CharAiId> setup = setupInForce(state, lineup)) {
+            state.aiUntargetable =
+                BattlerSet::allMonsters().without(BattlerSet{BattleSlotMask(), charAiSetup(*setup).validMonsterTargets});
+        }
         state.rng.advance();
     }
     return state;

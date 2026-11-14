@@ -44,6 +44,7 @@
 #include "battle/battle_end.h"
 #include "battle/battle_hooks.h"
 #include "battle/battle_inventory.h"
+#include "battle/battle_layout.h"
 #include "battle/battle_start.h"
 #include "battle/battle_script.h"
 #include "battle/damage.h"
@@ -276,6 +277,8 @@ constexpr std::uint8_t kCarryBit = 0x01;
 // The read-set gate watches the battle's work RAM below the graphics buffers, the stack among it.
 constexpr std::uint32_t kGateStart = DamageOracle::kWorkRam;
 constexpr std::uint32_t kGateEnd = DamageOracle::kWorkRam + 0x4000;
+// The end of work RAM's second bank, $7F:FFFF.
+constexpr std::uint32_t kSecondWorkRamBankEnd = 0x800000;
 
 // --- the cells the per-target pass reads and writes ----------------------------------------------
 
@@ -655,6 +658,7 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
 }
 
 void DamageOracle::answerGraphics(const GraphicsCall& call) {
+    answering_ = true;
     if (start_) {
         answerInBattle(call);
     }
@@ -675,6 +679,7 @@ void DamageOracle::answerGraphics(const GraphicsCall& call) {
             // Every other command waits on the screen or the sound, or does nothing on a parked machine.
             break;
     }
+    answering_ = false;
 }
 
 void DamageOracle::registerGate() {
@@ -703,6 +708,23 @@ void DamageOracle::registerGate() {
                                                         .at = retropp::MemoryRegion{.at = from, .size = kGateEnd - from},
                                                         .onRead = handler(false),
                                                         .onWrite = handler(true)});
+    }
+    // A whole battle's accesses beyond the battle's cells, from past the trace's last watch to the end
+    // of the second bank of work RAM. The gaps above walk on past $7E:3FFF to the trace's last watch, and
+    // they and the trace's own watches hand every access to noteGuestAccess().
+    const std::uint32_t past = std::max(from, kGateEnd);
+    if (past < kSecondWorkRamBankEnd) {
+        gaps.declarations.push_back(retropp::GuestWatch{
+            .key = "beyond the battle's cells",
+            .at = retropp::MemoryRegion{.at = past, .size = kSecondWorkRamBankEnd - past},
+            .onRead = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+                noteAccessBeyond(at, value, false);
+                return retropp::AccessVerdict::proceed();
+            },
+            .onWrite = [this](retropp::Vm&, std::uint32_t at, std::uint8_t value) {
+                noteAccessBeyond(at, value, true);
+                return retropp::AccessVerdict::proceed();
+            }});
     }
     machine_.registerWatches(gaps);
 }
@@ -825,13 +847,13 @@ ApplyDamageResult DamageOracle::applyDamage(const DamageScenario& scenario) {
 void DamageOracle::writeApplyCells(const DamageScenario& scenario) {
     const battle::BattleState& state = scenario.state;
     const battle::AttackInFlight& attack = scenario.attack;
-    writeWord(kMissed, maskOf(attack.scratch.missed));
+    writeInFlightWord(kMissed, maskOf(attack.scratch.missed));
     writeWord(kInvincible, maskOf(state.invincible));
     writeWord(kGolemHp, state.golemHp);
-    writeByte(kWeaponSpellcast, attack.scratch.weaponSpellcast.raw);
+    writeInFlightByte(kWeaponSpellcast, attack.scratch.weaponSpellcast.raw);
     writeByte(kBlackBeltTargets, static_cast<std::uint8_t>(~state.scratch.blackBeltEligible.characters.bits));
-    writeByte(kQueueEnd, 0);
-    writeByte(kNumeralBufferCount, 0);
+    writeInFlightByte(kQueueEnd, 0);
+    writeInFlightByte(kNumeralBufferCount, 0);
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
         const auto at = static_cast<std::uint32_t>(i * 2);
@@ -1085,10 +1107,10 @@ void DamageOracle::writeAimCells(const DamageScenario& scenario) {
     aiming |= rules.keepTargetsThatAreGone ? 0x04 : 0;
     aiming |= rules.opposingSideOnly ? 0x02 : 0;
     aiming |= rules.excludeAttacker ? 0x01 : 0;
-    writeByte(kAimingRules, aiming);
-    writeWord(kTargets, maskOf(attack.targets));
-    writeByte(kAimFlags, attack.scratch.aimExactly ? kAimExactlyBit : 0);
-    writeWord(kEarlierTargets, maskOf(attack.scratch.earlierTargets));
+    writeInFlightByte(kAimingRules, aiming);
+    writeInFlightWord(kTargets, maskOf(attack.targets));
+    writeInFlightByte(kAimFlags, attack.scratch.aimExactly ? kAimExactlyBit : 0);
+    writeInFlightWord(kEarlierTargets, maskOf(attack.scratch.earlierTargets));
     battle::BattlerSet enemies;
     for (int position = 0; position < battle::kPartySlots; ++position) {
         if (state.at(battle::BattlerSlot::character(position)).actsAsEnemy) {
@@ -1114,19 +1136,19 @@ void DamageOracle::writeAimCells(const DamageScenario& scenario) {
     writeWord(kReachFirst, maskOf(state.targetableOrPresent & state.countedInBattle));
     writeWord(kReachSecond, static_cast<std::uint16_t>(~maskOf(state.aiUntargetable)));
     writeByte(kCountersEnabled, state.scratch.countersEnabled ? kCountersOn : 0);
-    writeByte(kReachKeepsAway, attack.scratch.awayFromTheFieldUnreachable ? kAwayUnreachable : 0);
+    writeInFlightByte(kReachKeepsAway, attack.scratch.awayFromTheFieldUnreachable ? kAwayUnreachable : 0);
     writeWord(kAwayFromTheField, maskOf(state.awayFromTheField));
 
-    writeByte(kTargetCount, static_cast<std::uint8_t>(attack.scratch.targetCount));
-    writeByte(kQuietMisses, attack.scratch.quietMisses ? 0 : kNotQuiet);
-    writeWord(kHitInTheBack, maskOf(attack.scratch.hitInTheBack));
-    writeByte(kQueuedCommand, static_cast<std::uint8_t>(attack.queuedCommand));
-    writeByte(kLastSpell, attack.scratch.lastSpell ? static_cast<std::uint8_t>(*attack.scratch.lastSpell) : kNoOne);
-    writeByte(kLastItem, attack.scratch.lastItem ? static_cast<std::uint8_t>(*attack.scratch.lastItem) : kNoOne);
+    writeInFlightByte(kTargetCount, static_cast<std::uint8_t>(attack.scratch.targetCount));
+    writeInFlightByte(kQuietMisses, attack.scratch.quietMisses ? 0 : kNotQuiet);
+    writeInFlightWord(kHitInTheBack, maskOf(attack.scratch.hitInTheBack));
+    writeInFlightByte(kQueuedCommand, static_cast<std::uint8_t>(attack.queuedCommand));
+    writeInFlightByte(kLastSpell, attack.scratch.lastSpell ? static_cast<std::uint8_t>(*attack.scratch.lastSpell) : kNoOne);
+    writeInFlightByte(kLastItem, attack.scratch.lastItem ? static_cast<std::uint8_t>(*attack.scratch.lastItem) : kNoOne);
     writeByte(kExtraHits, state.extraHits ? static_cast<std::uint8_t>(*state.extraHits - 1) : kNoHitsToCome);
     // The block before the bounce's: the frame's own, whose attacker is the caster.
-    writeByte(kNextParamsBlock, kParamsBlockSize);
-    writeByte(kParamsBlocks + 1, static_cast<std::uint8_t>(scenario.attacker.index()));
+    writeInFlightByte(kNextParamsBlock, kParamsBlockSize);
+    writeInFlightByte(kParamsBlocks + 1, static_cast<std::uint8_t>(scenario.attacker.index()));
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -1268,7 +1290,7 @@ std::string differences(const ApplyDamageResult& port, const ApplyDamageResult& 
 void DamageOracle::writeTargetCells(const DamageScenario& scenario) {
     const battle::AttackInFlight& attack = scenario.attack;
     const battle::BattleState& state = scenario.state;
-    writeByte(kEffect, static_cast<std::uint8_t>(attack.effect.index() * 2));
+    writeInFlightByte(kEffect, static_cast<std::uint8_t>(attack.effect.index() * 2));
     std::uint8_t first = kAttackFlagsAtStart;
     if (!attack.drainCapped) {
         first &= static_cast<std::uint8_t>(~kDrainCappedBit);
@@ -1276,23 +1298,23 @@ void DamageOracle::writeTargetCells(const DamageScenario& scenario) {
     if (attack.canBeCritical) {
         first &= static_cast<std::uint8_t>(~kCannotBeCriticalBit);
     }
-    writeByte(kFirstAttackFlags, first);
-    writeByte(kAnimationCommand, kShowAnimationCommand);
-    writeByte(kCommand, static_cast<std::uint8_t>(attack.command));
-    writeByte(kAttackIndex, static_cast<std::uint8_t>(attack.attack));
-    writeByte(kSecondary, attack.secondary);
+    writeInFlightByte(kFirstAttackFlags, first);
+    writeInFlightByte(kAnimationCommand, kShowAnimationCommand);
+    writeInFlightByte(kCommand, static_cast<std::uint8_t>(attack.command));
+    writeInFlightByte(kAttackIndex, static_cast<std::uint8_t>(attack.attack));
+    writeInFlightByte(kSecondary, attack.secondary);
     writeByte(kRngPosition, state.rng.position());
-    writeByte(kDamageModification, attack.scratch.damageModification ? kOn : 0);
+    writeInFlightByte(kDamageModification, attack.scratch.damageModification ? kOn : 0);
     const auto blockByte = [](const std::optional<battle::BattlerSlot>& slot) {
         return slot ? static_cast<std::uint8_t>(slotIndex(*slot)) : kNoOne;
     };
-    writeByte(kGolemBlock, blockByte(attack.scratch.golemBlocked));
-    writeByte(kInterceptorBlock, blockByte(attack.scratch.interceptorBlocked));
+    writeInFlightByte(kGolemBlock, blockByte(attack.scratch.golemBlocked));
+    writeInFlightByte(kInterceptorBlock, blockByte(attack.scratch.interceptorBlocked));
     writeByte(kForcefield, state.elementsNullifiedByForcefield.bits);
-    writeByte(kAnimationPlace, 0);
-    writeByte(kQueueEnd, kQueueCommandSize);
+    writeInFlightByte(kAnimationPlace, 0);
+    writeInFlightByte(kQueueEnd, kQueueCommandSize);
     const std::array<std::uint8_t, kQueueCommandSize> unwritten{kUnwritten, kUnwritten, kUnwritten, kUnwritten};
-    writeBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
+    writeInFlightBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -1335,8 +1357,8 @@ void DamageOracle::writeTargetCells(const DamageScenario& scenario) {
                                                          : kNoOne);
         const std::uint8_t mark = markByte(battler);
         writeByte(kLastAttacker + at, mark);
-        writeWord(kTaken + at, attack.scratch.ledger.taken[i].value_or(kNoDamage));
-        writeWord(kHealed + at, attack.scratch.ledger.healed[i].value_or(kNoDamage));
+        writeInFlightWord(kTaken + at, attack.scratch.ledger.taken[i].value_or(kNoDamage));
+        writeInFlightWord(kHealed + at, attack.scratch.ledger.healed[i].value_or(kNoDamage));
     }
 }
 
@@ -1432,10 +1454,10 @@ void DamageOracle::writeScenario(const DamageScenario& scenario) {
     const battle::AttackInFlight& attack = scenario.attack;
     std::array<std::uint8_t, sizeof(AttackProperties)> record{};
     std::memcpy(record.data(), &attack.record, record.size());
-    writeBytes(retropp::MemoryRegion{.at = kRecord, .size = static_cast<std::uint32_t>(record.size())}, record);
-    writeByte(kAttackerStat, attack.attackerStat);
-    writeByte(kAttackerLevel, attack.attackerLevel);
-    writeWord(kDamage, static_cast<std::uint16_t>(attack.damage));
+    writeInFlightBytes(retropp::MemoryRegion{.at = kRecord, .size = static_cast<std::uint32_t>(record.size())}, record);
+    writeInFlightByte(kAttackerStat, attack.attackerStat);
+    writeInFlightByte(kAttackerLevel, attack.attackerLevel);
+    writeInFlightWord(kDamage, static_cast<std::uint16_t>(attack.damage));
     std::uint8_t flags = kAttackFlagsAtStart;
     if (attack.twoHanded) {
         flags &= static_cast<std::uint8_t>(~kNotTwoHanded);
@@ -1446,8 +1468,8 @@ void DamageOracle::writeScenario(const DamageScenario& scenario) {
     if (!attack.vanishApplies) {
         flags &= static_cast<std::uint8_t>(~kVanishAppliesBit);
     }
-    writeByte(kAttackFlags, flags);
-    writeByte(kMultiplier, static_cast<std::uint8_t>(attack.multiplier));
+    writeInFlightByte(kAttackFlags, flags);
+    writeInFlightByte(kMultiplier, static_cast<std::uint8_t>(attack.multiplier));
 
     for (std::size_t i = 0; i < scenario.state.battlers.size(); ++i) {
         const battle::Battler& battler = scenario.state.battlers[i];
@@ -1462,7 +1484,47 @@ void DamageOracle::writeScenario(const DamageScenario& scenario) {
 }
 
 void DamageOracle::writeBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes) {
+    writeCells(place, bytes, CellWrite::State);
+}
+
+void DamageOracle::writeInFlightBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes) {
+    writeCells(place, bytes, CellWrite::InFlight);
+}
+
+void DamageOracle::writeInFlightByte(std::uint32_t at, std::uint8_t value) {
+    const std::array<std::uint8_t, 1> bytes{value};
+    writeCells(retropp::MemoryRegion{.at = at, .size = 1}, bytes, CellWrite::InFlight);
+}
+
+void DamageOracle::writeInFlightWord(std::uint32_t at, std::uint16_t value) {
+    const std::array<std::uint8_t, 2> bytes{static_cast<std::uint8_t>(value & 0xFF),
+                                            static_cast<std::uint8_t>(value >> 8)};
+    writeCells(retropp::MemoryRegion{.at = at, .size = 2}, bytes, CellWrite::InFlight);
+}
+
+void DamageOracle::writeCells(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes,
+                              CellWrite kind) {
+    if (capture_ != nullptr) {
+        if (kind == CellWrite::InFlight) {
+            return;
+        }
+        for (std::uint32_t i = 0; i < place.size; ++i) {
+            const auto [cell, laid] = capture_->cells.emplace(place.at + i, bytes[i]);
+            if (kind == CellWrite::AsTheCartridgeHoldsIt) {
+                capture_->disagreements.erase(place.at + i);
+            } else if (!laid && cell->second != bytes[i]) {
+                capture_->disagreements[place.at + i] |= static_cast<std::uint8_t>(cell->second ^ bytes[i]);
+            }
+            cell->second = bytes[i];
+        }
+        return;
+    }
     machine_.write(place, bytes);
+    if (start_ && start_->reachedTheLoop) {
+        for (std::uint32_t cell = place.at; cell < place.at + place.size; ++cell) {
+            writtenSincePoint_.insert(cell);
+        }
+    }
     // The first write after a call starts the next scenario's cells afresh.
     if (gateFresh_) {
         gateWritten_.clear();
@@ -1473,9 +1535,38 @@ void DamageOracle::writeBytes(const retropp::MemoryRegion& place, std::span<cons
     }
 }
 
+void DamageOracle::noteAccessBeyond(std::uint32_t cell, std::uint8_t value, bool write) {
+    if (!start_ || !gateCalling_ || answering_) {
+        return;
+    }
+    if (write) {
+        writtenBeyond_.insert(cell);
+    } else if (!writtenBeyond_.contains(cell) && notComparedBits(cell) == 0) {
+        start_->readsBeyondTheBattlesCells.push_back(UnwrittenRead{.at = cell, .value = value});
+    }
+}
+
 void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool write) {
+    if (cell >= kGateEnd) {
+        noteAccessBeyond(cell, value, write);
+    }
     if (!gateCalling_) {
         return;
+    }
+    // A whole battle's gates: the battle program's writes up to the comparison point, and its reads
+    // after it of a cell nothing has written since. The graphics
+    // program's writes inside an answer count as writes since the point; its reads are its own.
+    if (start_ && cell < kGateEnd) {
+        StartResult& start = *start_;
+        if (!start.reachedTheLoop) {
+            if (write && !answering_) {
+                start.battleWrites.insert(cell);
+            }
+        } else if (write) {
+            writtenSincePoint_.insert(cell);
+        } else if (!answering_ && !writtenSincePoint_.contains(cell)) {
+            start.readsAfterThePoint.push_back(UnwrittenRead{.at = cell, .value = value});
+        }
     }
     if (write) {
         gateWritten_.insert(cell);
@@ -2957,8 +3048,8 @@ void DamageOracle::writeStatusCells(const DamageScenario& scenario) {
     writeByte(kMonstersFallen, state.monstersFallen.monsters.bits);
     writeWord(kDiedThisAction, maskOf(state.diedAwaitingCounter));
     writeWord(kStatusChanged, maskOf(state.statusChanged));
-    writeWord(kMissed, maskOf(scenario.attack.scratch.missed));
-    writeWord(kMissedByEffect, 0);
+    writeInFlightWord(kMissed, maskOf(scenario.attack.scratch.missed));
+    writeInFlightWord(kMissedByEffect, 0);
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
         const auto at = static_cast<std::uint32_t>(i * 2);
@@ -3400,10 +3491,11 @@ constexpr std::uint32_t kWeaponHands = kWorkRam + 0x2B86;
 constexpr std::uint32_t kShieldHands = kWorkRam + 0x2B9A;
 constexpr std::uint32_t kHandItemSize = 5;
 constexpr std::uint32_t kHandQuantity = 3;
-// The party's gil and steps, three bytes each, and the console's frame count.
+// The party's gil and steps, three bytes each, and the play clock's frames (1-60, stepped by the
+// graphics program's interrupt, IncGameTime menu_common.asm:3488-3519).
 constexpr std::uint32_t kGil = kWorkRam + 0x1860;
 constexpr std::uint32_t kSteps = kWorkRam + 0x1866;
-constexpr std::uint32_t kFrameCount = kWorkRam + 0x021E;
+constexpr std::uint32_t kPlayClockFrames = kWorkRam + 0x021E;
 
 constexpr std::uint8_t kParamsMonsterBit = 0x80;
 constexpr std::uint8_t kParamsNoCharacterTargetsBit = 0x40;
@@ -3466,12 +3558,12 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
     paramsFlags |= params.noCharacterTargets ? kParamsNoCharacterTargetsBit : 0;
     paramsFlags |= params.castingSwirl ? kParamsSwirlBit : 0;
     paramsFlags |= params.dragonHorn ? kParamsDragonHornBit : 0;
-    writeByte(kParamsFlags, paramsFlags);
-    writeByte(kParamsAttacker, static_cast<std::uint8_t>(params.attacker.index()));
-    writeWord(kParamsTargets, maskOf(params.targets));
-    writeWord(kParamsHit, maskOf(params.targetsHit));
-    writeWord(kParamsReflectedOff, maskOf(params.reflectedOff));
-    writeByte(kSwirlCell, attack.castingSwirlSuppressed ? kSwirlSuppressedBit : 0);
+    writeInFlightByte(kParamsFlags, paramsFlags);
+    writeInFlightByte(kParamsAttacker, static_cast<std::uint8_t>(params.attacker.index()));
+    writeInFlightWord(kParamsTargets, maskOf(params.targets));
+    writeInFlightWord(kParamsHit, maskOf(params.targetsHit));
+    writeInFlightWord(kParamsReflectedOff, maskOf(params.reflectedOff));
+    writeInFlightByte(kSwirlCell, attack.castingSwirlSuppressed ? kSwirlSuppressedBit : 0);
     std::uint8_t running = state.counterattackRunning ? kCounterattackBit : 0;
     running |= state.cannotRun ? kCannotRunBit : 0;
     writeByte(kRunningCell, running);
@@ -3479,18 +3571,18 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
     if (attack.automaticCritical) {
         second &= static_cast<std::uint8_t>(~kAutomaticCriticalClearBit);
     }
-    writeByte(kAttackFlags, second);
+    writeInFlightByte(kAttackFlags, second);
     std::uint8_t aimFlags = attack.scratch.aimExactly ? kAimExactlyBit : 0;
     aimFlags |= state.endTurnAfterAction ? kEndTurnBit : 0;
     writeByte(kAimFlags, aimFlags);
 
-    writeByte(kFollowUpSpell, attack.scratch.followUpSpell ? static_cast<std::uint8_t>(*attack.scratch.followUpSpell) : kNoOne);
-    writeByte(kMessage, attack.scratch.message.value_or(kNoOne));
-    writeByte(kAttacksLeft, static_cast<std::uint8_t>(attack.scratch.attacksLeft));
-    writeByte(kDragonHorn, attack.scratch.dragonHorn ? kDragonHornOn : 0);
+    writeInFlightByte(kFollowUpSpell, attack.scratch.followUpSpell ? static_cast<std::uint8_t>(*attack.scratch.followUpSpell) : kNoOne);
+    writeInFlightByte(kMessage, attack.scratch.message.value_or(kNoOne));
+    writeInFlightByte(kAttacksLeft, static_cast<std::uint8_t>(attack.scratch.attacksLeft));
+    writeInFlightByte(kDragonHorn, attack.scratch.dragonHorn ? kDragonHornOn : 0);
     for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
         const auto& pick = attack.scratch.mindBlastPicks[position];
-        writeWord(kMindBlastPicks + static_cast<std::uint32_t>(position * 2), pick ? maskOf(battle::BattlerSet::of(*pick)) : 0);
+        writeInFlightWord(kMindBlastPicks + static_cast<std::uint32_t>(position * 2), pick ? maskOf(battle::BattlerSet::of(*pick)) : 0);
     }
     writeByte(kQuickTurns, state.quickTurnsLeft.value_or(kNoQuick));
     writeByte(kQuickTarget, state.quickTarget ? static_cast<std::uint8_t>(slotIndex(*state.quickTarget)) : kNoOne);
@@ -3499,17 +3591,17 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
     writeWord(kLeaving, maskOf(state.leavingAfterAction));
     writeByte(kAllyCount, static_cast<std::uint8_t>(state.allyCount));
     writeWord(kGolemHp, state.golemHp);
-    writeWord(kMissed, maskOf(attack.scratch.missed));
+    writeInFlightWord(kMissed, maskOf(attack.scratch.missed));
     // The script's queue starts empty, and the params blocks after the frame's own.
-    writeByte(kQueueEnd, 0);
-    writeByte(kAnimationPlace, 0);
+    writeInFlightByte(kQueueEnd, 0);
+    writeInFlightByte(kAnimationPlace, 0);
 
     std::array<std::uint8_t, 3> three{};
     writeThreeBytes(three, state.party.gil);
     writeBytes(retropp::MemoryRegion{.at = kGil, .size = 3}, three);
     writeThreeBytes(three, state.party.steps);
     writeBytes(retropp::MemoryRegion{.at = kSteps, .size = 3}, three);
-    writeByte(kFrameCount, state.frameCount);
+    writeByte(kPlayClockFrames, state.playClockFrames);
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -3801,7 +3893,7 @@ DamageScenario drawAttackerEffectScenario(std::mt19937& rng) {
     state.party.gil = oneIn(rng, 4) ? static_cast<std::uint32_t>(upTo(rng, 5000))
                                     : static_cast<std::uint32_t>(upTo(rng, static_cast<int>(kMaxGil)));
     state.party.steps = static_cast<std::uint32_t>(upTo(rng, static_cast<int>(kMaxSteps)));
-    state.frameCount = byte(rng);
+    state.playClockFrames = byte(rng);
     state.counterattackRunning = oneIn(rng, 4);
     state.cannotRun = oneIn(rng, 2);
     state.allyCount = upTo(rng, battle::kPartySlots);
@@ -4029,19 +4121,19 @@ void DamageOracle::writeTargetEffectCells(const DamageScenario& scenario) {
     writeWord(kFlippedSet, maskOf(state.flippedByControl));
     writeByte(kZingerMonster, slotByte(state.heldByZinger));
     writeByte(kZingerSwallowed, slotByte(state.swallowedByZinger));
-    writeByte(kSketched, attack.scratch.sketch ? static_cast<std::uint8_t>(slotIndex(attack.scratch.sketch->monster)) : kNoOne);
-    writeByte(kMessageItem, attack.scratch.messageItem ? static_cast<std::uint8_t>(*attack.scratch.messageItem) : kNoOne);
+    writeInFlightByte(kSketched, attack.scratch.sketch ? static_cast<std::uint8_t>(slotIndex(attack.scratch.sketch->monster)) : kNoOne);
+    writeInFlightByte(kMessageItem, attack.scratch.messageItem ? static_cast<std::uint8_t>(*attack.scratch.messageItem) : kNoOne);
     std::array<std::uint8_t, 3> amount{};
     writeThreeBytes(amount, attack.scratch.messageAmount.value_or(0));
-    writeBytes(retropp::MemoryRegion{.at = kMessageAmount, .size = 3}, amount);
-    writeByte(kShownWithoutTargets, attack.scratch.hideWithoutTargets ? 0 : kShownBit);
+    writeInFlightBytes(retropp::MemoryRegion{.at = kMessageAmount, .size = 3}, amount);
+    writeInFlightByte(kShownWithoutTargets, attack.scratch.hideWithoutTargets ? 0 : kShownBit);
 
     // The script's queue holds the attack's own animation, put there by the frame; a rewrite of it
     // shows on either side.
-    writeByte(kAnimationPlace, 0);
-    writeByte(kQueueEnd, kQueueCommandSize);
+    writeInFlightByte(kAnimationPlace, 0);
+    writeInFlightByte(kQueueEnd, kQueueCommandSize);
     const std::array<std::uint8_t, kQueueCommandSize> unwritten{kUnwritten, kUnwritten, kUnwritten, kUnwritten};
-    writeBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
+    writeInFlightBytes(retropp::MemoryRegion{.at = kQueue, .size = kQueueCommandSize}, unwritten);
 
     // Every list empty; then each battler's waiting commands, handed slots from the top down as the
     // battle hands them out.
@@ -4639,7 +4731,7 @@ DamageScenario DamageOracle::readEffectScenario() {
     state.party.gil = static_cast<std::uint32_t>(gil[0] | gil[1] << 8 | gil[2] << 16);
     const std::vector<std::uint8_t> steps = machine_.read(retropp::MemoryRegion{.at = kSteps, .size = 3});
     state.party.steps = static_cast<std::uint32_t>(steps[0] | steps[1] << 8 | steps[2] << 16);
-    state.frameCount = readByte(kFrameCount);
+    state.playClockFrames = readByte(kPlayClockFrames);
 
     // The target effects' cells.
     const std::uint8_t formationFlags = readByte(kFormationFlags);
@@ -5466,19 +5558,19 @@ void DamageOracle::writeAttackCells(const DamageScenario& scenario) {
 
     const battle::BattleState& state = scenario.state;
     const battle::AttackInFlight& attack = scenario.attack;
-    writeByte(kTargetingByte, attack.targeting.bits);
-    writeByte(kExtraMultiplier, static_cast<std::uint8_t>(attack.extraMultiplier));
-    writeByte(kFirstAttackFlags, firstFlagsByte(attack));
-    writeByte(kAttackFlags, secondFlagsByte(attack));
-    writeWord(kCurrentTargets, maskOf(attack.scratch.currentTargets));
+    writeInFlightByte(kTargetingByte, attack.targeting.bits);
+    writeInFlightByte(kExtraMultiplier, static_cast<std::uint8_t>(attack.extraMultiplier));
+    writeInFlightByte(kFirstAttackFlags, firstFlagsByte(attack));
+    writeInFlightByte(kAttackFlags, secondFlagsByte(attack));
+    writeInFlightWord(kCurrentTargets, maskOf(attack.scratch.currentTargets));
     // The frame loads, subtracts and clears the MP cost as a word; only that clear writes its high byte.
-    writeWord(kMpCost, attack.scratch.mpCost);
+    writeInFlightWord(kMpCost, attack.scratch.mpCost);
     writeByte(kRunDifficulty, state.runDifficulty);
-    writeByte(kNameKind, nameKindByte(attack.scratch.nameKind));
-    writeByte(kFightCommand, attack.scratch.fightCommand ? static_cast<std::uint8_t>(*attack.scratch.fightCommand) : kNoOne);
-    writeByte(kRandomizeTargets, attack.scratch.randomizeTargets ? 0 : kNoOne);
+    writeInFlightByte(kNameKind, nameKindByte(attack.scratch.nameKind));
+    writeInFlightByte(kFightCommand, attack.scratch.fightCommand ? static_cast<std::uint8_t>(*attack.scratch.fightCommand) : kNoOne);
+    writeInFlightByte(kRandomizeTargets, attack.scratch.randomizeTargets ? 0 : kNoOne);
     writeByte(kInterceptorGuard, slotByte(state.scratch.interceptorGuarding));
-    writeByte(kQueuedAttack, static_cast<std::uint8_t>(attack.queuedAttack));
+    writeInFlightByte(kQueuedAttack, static_cast<std::uint8_t>(attack.queuedAttack));
     writeWord(kFacingRight, maskOf(state.facingRight));
     writeByte(kStragoSlot, slotByte(stragoInParty(state)));
     writeBytes(retropp::MemoryRegion{.at = kLoresKnown, .size = kLoreBytes}, loreBytes(state.party.loresKnown));
@@ -5492,11 +5584,11 @@ void DamageOracle::writeAttackCells(const DamageScenario& scenario) {
     if (!sketched && attack.scratch.sketch) {
         sketched = attack.scratch.sketch->monster;
     }
-    writeByte(kSketched, slotByte(sketched));
+    writeInFlightByte(kSketched, slotByte(sketched));
     // The script starts empty: the frame writes every command and params block of its own.
-    writeByte(kQueueEnd, 0);
-    writeByte(kAnimationPlace, 0);
-    writeByte(kNextParamsBlock, 0);
+    writeInFlightByte(kQueueEnd, 0);
+    writeInFlightByte(kAnimationPlace, 0);
+    writeInFlightByte(kNextParamsBlock, 0);
 
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const battle::Battler& battler = state.battlers[i];
@@ -7675,7 +7767,7 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
     writeBytes(retropp::MemoryRegion{.at = kSwitchVariables, .size = game::kBattleVariables}, state.switches.variables);
     writeByte(kRngPosition, state.rng.position());
     const std::array<std::uint8_t, kMessageVariableBytes> variables{};
-    writeBytes(retropp::MemoryRegion{.at = kEndingMessageVariables, .size = kMessageVariableBytes}, variables);
+    writeInFlightBytes(retropp::MemoryRegion{.at = kEndingMessageVariables, .size = kMessageVariableBytes}, variables);
     const std::array<std::uint8_t, kVeldtBattleBytes> veldt{};
     writeBytes(retropp::MemoryRegion{.at = kVeldtBattles, .size = kVeldtBattleBytes}, veldt);
 }
@@ -8416,9 +8508,9 @@ void DamageOracle::writeAiCells(const AiScenario& scenario) {
     writeWord(kFormation, static_cast<std::uint16_t>(state.formation));
     writeByte(kRngPosition, state.rng.position());
 
-    writeWord(kAiTargets, maskOf(scenario.run.targets));
-    writeWord(kAiStartingTargets, maskOf(scenario.run.startingTargets));
-    writeByte(kAiRestricted, scenario.run.restricted ? kAiRestrictedOn : 0);
+    writeInFlightWord(kAiTargets, maskOf(scenario.run.targets));
+    writeInFlightWord(kAiStartingTargets, maskOf(scenario.run.startingTargets));
+    writeInFlightByte(kAiRestricted, scenario.run.restricted ? kAiRestrictedOn : 0);
 }
 
 std::optional<battle::BattlerSlot> DamageOracle::readTargetingTarget(battle::BattlerSlot actor) {
@@ -10367,6 +10459,24 @@ void DamageOracle::answerInBattle(const GraphicsCall& call) {
         writeByte(kMonstersTargetable, targetable);
         const std::array<std::uint8_t, kEquipmentChangedFlagCount> unchanged{};
         writeBytes(retropp::MemoryRegion{.at = kEquipmentChangedFlagCells, .size = kEquipmentChangedFlagCount}, unchanged);
+        // The monsters on each side of a pincer, which the opening lays out (InitMonsterPos
+        // btlgfx_main.asm:2854-2857): from the port's own layout of the monsters the start loaded.
+        if (monsterSprites_ == nullptr) {
+            throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
+        }
+        battle::BattleState placed;
+        placed.formation = formation;
+        placed.battleType = static_cast<battle::BattleType>(readByte(kBattleType));
+        for (int position = 0; position < battle::kMonsterSlots; ++position) {
+            const battle::BattlerSlot slot = battle::BattlerSlot::monster(position);
+            const std::uint16_t monster = readWord(kMonsterIndex + slotIndex(slot));
+            if (monster != kEmptyMonsterSlot) {
+                placed.at(slot).monster = static_cast<MonsterId>(monster);
+            }
+        }
+        battle::layOutMonsters(placed, *monsterSprites_);
+        writeByte(kPincerFirstSide, placed.pincerSides[0].bits);
+        writeByte(kPincerSecondSide, placed.pincerSides[1].bits);
         return;
     }
     if (call.command == kOneFrame && !start.reachedTheLoop) {
@@ -10375,6 +10485,7 @@ void DamageOracle::answerInBattle(const GraphicsCall& call) {
             machine_.read(retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(start.cells.size())});
         std::copy(cells.begin(), cells.end(), start.cells.begin());
         start.unwrittenReads = unwrittenReads();
+        writtenSincePoint_.clear();
         writeByte(kEndOfBattleEventsOn, kEventsOn);
         writeByte(kEndOfBattleEvent, kEndTheBattleNow);
     }
@@ -10387,6 +10498,8 @@ StartResult DamageOracle::battleStart(const StartScenario& scenario) {
 
 StartResult DamageOracle::battleStartAsItStands() {
     start_.emplace();
+    writtenSincePoint_.clear();
+    writtenBeyond_.clear();
     graphicsCalls_.clear();
     unansweredGraphics_.reset();
     machine_.escapes()[kGraphicsKey].armed(true);
@@ -10416,7 +10529,6 @@ constexpr std::uint32_t kFieldFormation = kWorkRam + 0x11E0;
 constexpr std::uint32_t kFieldBackground = kWorkRam + 0x11E2;
 constexpr std::uint32_t kFieldBattleFlags = kWorkRam + 0x11E4;
 constexpr std::uint8_t kGauMayAppearBit = 0x01;
-constexpr std::uint32_t kPlayClockFrames = kWorkRam + 0x021E;
 constexpr std::uint32_t kBattleSettings = kWorkRam + 0x1D4D;
 constexpr std::uint8_t kWaitModeBit = 0x08;
 constexpr std::uint8_t kSpeedBits = 0x07;
@@ -10456,6 +10568,9 @@ void DamageOracle::writeStartScenario(const StartScenario& scenario) {
         writeByte(kFieldItems + static_cast<std::uint32_t>(slot), static_cast<std::uint8_t>(party.inventory[slot].item));
         writeByte(kFieldQuantities + static_cast<std::uint32_t>(slot), party.inventory[slot].quantity);
     }
+    std::array<std::uint8_t, 3> steps{};
+    writeThreeBytes(steps, party.steps);
+    writeBytes(retropp::MemoryRegion{.at = kSteps, .size = 3}, steps);
     writeByte(kSaveHours, party.playTimeAtLastSave.hours);
     writeByte(kSaveMinutes, party.playTimeAtLastSave.minutes);
     writeBytes(retropp::MemoryRegion{.at = kFieldSwitches, .size = game::kBattleVariables}, scenario.switches.variables);
@@ -10501,6 +10616,10 @@ StartScenario DamageOracle::readStartScenario() {
         party.inventory[slot] = game::InventorySlot{
             .item = static_cast<ItemId>(readByte(kFieldItems + static_cast<std::uint32_t>(slot))),
             .quantity = readByte(kFieldQuantities + static_cast<std::uint32_t>(slot))};
+    }
+    party.steps = 0;
+    for (std::uint32_t i = 0; i < 3; ++i) {
+        party.steps |= static_cast<std::uint32_t>(readByte(kSteps + i)) << (8 * i);
     }
     party.playTimeAtLastSave = game::PlayTime{.hours = readByte(kSaveHours), .minutes = readByte(kSaveMinutes)};
     const std::vector<std::uint8_t> switches =
@@ -10589,9 +10708,203 @@ std::string differences(const StartScenario& a, const StartScenario& b) {
         field("inventory item", static_cast<long>(p.inventory[slot].item), static_cast<long>(q.inventory[slot].item));
         field("inventory quantity", p.inventory[slot].quantity, q.inventory[slot].quantity);
     }
+    field("steps", p.steps, q.steps);
     field("hours at the last save", p.playTimeAtLastSave.hours, q.playTimeAtLastSave.hours);
     field("minutes at the last save", p.playTimeAtLastSave.minutes, q.playTimeAtLastSave.minutes);
     return lines;
+}
+
+// --- the state as the cartridge holds it ---------------------------------------------------------
+
+namespace {
+
+// What the start's fill leaves in a cell of $2000-$341F (InitBattle :6063-6067).
+constexpr std::uint8_t kFilled = 0xFF;
+// An empty inventory record as LoadItemProp leaves it (:13987-13994): no item, unusable, the targeting
+// of the record loaded before it, the quantity, and no hand that can hold it.
+constexpr std::uint8_t kUnusableItem = 0x80;
+constexpr std::uint8_t kNoHandHoldsIt = 0xFF;
+constexpr std::size_t kRecordTargeting = 2;
+// The empty party slot's record offset, left by the fill (InitParty :7848-7850 skips the slot).
+constexpr std::uint16_t kNoRecord = 0xFFFF;
+// LoadBattleProp toggles the top four bits of the formation's first byte as it copies it (:7975-7977).
+constexpr std::uint8_t kFormationFirstByteToggled = 0xF0;
+// $3205,x: bit 7 the battler may act after a Jump (set :264-266, cleared :1797-1799, read :2789, :5758);
+// bit 2 Air Anchor is not on it (:1129-1131, :9024-9028, :9743-9745); bit 1 its near-fatal spell has not
+// been cast this battle (:1626-1629).
+constexpr std::uint8_t kMayActAfterJumpBit = 0x80;
+constexpr std::uint8_t kNearFatalSpellAvailableBit = 0x02;
+// $3AA0,x, every bit a field: 0 on the field, 1 its commands come from the menu (:1437), 2 its menu is
+// open, 3 its gauge is stopped, 4 a status holds it, 5 its action is queued (:2747), 6 control holds it
+// (:1386-1409), 7 its menu may open (:1441).
+constexpr std::uint8_t kTakesMenuInputBit = 0x02;
+constexpr std::uint8_t kAtbStoppedBit = 0x08;
+constexpr std::uint8_t kActionQueuedBit = 0x20;
+constexpr std::uint8_t kHeldByControlFieldBit = 0x40;
+// $B1's bits beyond the counterattack and the run (kCounterattackBit, kCannotRunBit, kMenusClosedBit).
+constexpr std::uint8_t kEscapeBlockedBit = 0x02;
+constexpr std::uint8_t kBackAttackFlagBit = 0x20;
+constexpr std::uint8_t kMimickingBit = 0x40;
+// A party slot's place in the monsters' index list (kMonsterIndex), $1FF9-$2000: no monster stands there.
+constexpr std::uint32_t kPartySlotsMonsterIndexBytes = 8;
+
+}  // namespace
+
+void DamageOracle::layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes) {
+    writeCells(retropp::MemoryRegion{.at = at, .size = static_cast<std::uint32_t>(bytes.size())}, bytes,
+               CellWrite::AsTheCartridgeHoldsIt);
+}
+
+void DamageOracle::layByteAsTheCartridgeHoldsIt(std::uint32_t at, std::uint8_t value) {
+    const std::array<std::uint8_t, 1> bytes{value};
+    layAsTheCartridgeHoldsIt(at, bytes);
+}
+
+void DamageOracle::layWordAsTheCartridgeHoldsIt(std::uint32_t at, std::uint16_t value) {
+    const std::array<std::uint8_t, 2> bytes{static_cast<std::uint8_t>(value & 0xFF), static_cast<std::uint8_t>(value >> 8)};
+    layAsTheCartridgeHoldsIt(at, bytes);
+}
+
+void DamageOracle::leaveOut(std::uint32_t at, std::uint32_t count) {
+    if (capture_ == nullptr) {
+        return;
+    }
+    for (std::uint32_t cell = at; cell < at + count; ++cell) {
+        capture_->cells.erase(cell);
+        capture_->disagreements.erase(cell);
+        capture_->leftOut.insert(cell);
+    }
+}
+
+void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& state) {
+    // The hands, then the inventory, in the order InitInventory loads them (:13914-13941): each shield
+    // and each weapon last party slot first, then the items from the last slot down. An empty record
+    // keeps the targeting the record loaded before it left; a hand read through an empty party slot's
+    // offset (bank $7F, kCellsNotCompared) leaves it unknown.
+    std::optional<std::uint8_t> targeting = kFilled;
+    for (const auto* hands : {&state.inventory.shieldHands, &state.inventory.weaponHands}) {
+        const std::uint32_t first = hands == &state.inventory.shieldHands ? kShieldHands : kWeaponHands;
+        for (int position = battle::kPartySlots - 1; position >= 0; --position) {
+            const std::uint32_t at = first + static_cast<std::uint32_t>(position) * kHandItemSize;
+            if (!state.at(battle::BattlerSlot::character(position)).actor) {
+                leaveOut(at, kHandItemSize);
+                targeting.reset();
+                continue;
+            }
+            const battle::BattleItem& hand = (*hands)[static_cast<std::size_t>(position)];
+            const battle::ItemRecord record = battle::recordOf(hand);
+            layAsTheCartridgeHoldsIt(at, record);
+            if (hand.item != ItemId::EMPTY) {
+                targeting = record[kRecordTargeting];
+            }
+        }
+    }
+    for (std::size_t slot = game::kInventorySlots; slot-- > 0;) {
+        const battle::BattleItem& item = state.inventory.items[slot];
+        const std::uint32_t at = kInventoryRecords + static_cast<std::uint32_t>(slot) * kRecordBytes;
+        if (item.item != ItemId::EMPTY) {
+            targeting = battle::recordOf(item)[kRecordTargeting];
+            continue;
+        }
+        const std::array<std::uint8_t, kRecordBytes> empty{static_cast<std::uint8_t>(ItemId::EMPTY), kUnusableItem,
+                                                          targeting.value_or(0), item.quantity, kNoHandHoldsIt};
+        layAsTheCartridgeHoldsIt(at, empty);
+        if (!targeting) {
+            leaveOut(at + kRecordTargeting, 1);
+        }
+    }
+
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+        const battle::Battler& member = state.at(slot);
+        const std::uint32_t at = slotIndex(slot);
+        if (!member.actor) {
+            layWordAsTheCartridgeHoldsIt(kRecordOffset + at, kNoRecord);
+        }
+        if (!member.controlling) {
+            leaveOut(kControlMenus + static_cast<std::uint32_t>(position) * kControlMenuSize, kControlMenuSize);
+        }
+    }
+    leaveOut(kMonsterIndex, kPartySlotsMonsterIndexBytes);
+
+    for (std::size_t i = 0; i < state.battlers.size(); ++i) {
+        const battle::Battler& battler = state.battlers[i];
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
+        const auto at = static_cast<std::uint32_t>(i * 2);
+        layByteAsTheCartridgeHoldsIt(kToUpdate + at, pendingByte(battler.pendingUpdates));
+        layByteAsTheCartridgeHoldsIt(kAnchorCell + at,
+                                     static_cast<std::uint8_t>((battler.mayActAfterJump ? kMayActAfterJumpBit : 0) |
+                                                               (battler.airAnchored ? 0 : kNotAnchoredBit) |
+                                                               (battler.nearFatalSpellAvailable ? kNearFatalSpellAvailableBit : 0)));
+        std::uint8_t field = battler.present ? kPresentBit : 0;
+        field |= battler.takesMenuInput ? kTakesMenuInputBit : 0;
+        field |= battler.inBattleMenu ? kInBattleMenuBit : 0;
+        field |= battler.atbStopped ? kAtbStoppedBit : 0;
+        field |= battler.heldByStatus ? kHeldByStatusBit : 0;
+        field |= battler.actionQueued ? kActionQueuedBit : 0;
+        field |= battler.heldByControl ? kHeldByControlFieldBit : 0;
+        field |= battler.menuMayOpen ? kMenuMayOpenBit : 0;
+        layByteAsTheCartridgeHoldsIt(kOnTheField + at, field);
+        if (slot.isMonster() && !battler.monster) {
+            layWordAsTheCartridgeHoldsIt(kMonsterIndex + at, kEmptyMonsterSlot);
+        }
+        if (!battler.monster && !battler.rage) {
+            leaveOut(kSpecialAttack + at, 1);
+            leaveOut(kNamedMonster + at, 2);
+        }
+        // A battler with no party member in it holds nothing in its hands: the zero fill
+        // (InitBattle :6056-6060), and for a monster whatever LoadMonsterProp leaves.
+        if (!battler.actor) {
+            leaveOut(kHandItems + at, 2);
+        }
+        // What a battler was last hit with is read only once it has been hit (AICond_01/_02 :4669-4671,
+        // AICond_04 :4693-4695 test the "by" cell first, which the fill leaves empty).
+        const battle::LastHits& last = battler.lastHit;
+        if (!last.command) {
+            leaveOut(kLastHitCommand + at, 1);
+        }
+        if (!last.spell) {
+            leaveOut(kLastHitSpell + at, 1);
+        }
+        if (!last.item) {
+            leaveOut(kLastHitItem + at, 1);
+        }
+        if (!last.element) {
+            leaveOut(kLastHitElement + at, 1);
+        }
+    }
+    // The battle's flags at $B1: 0 a counterattack is running (:5721-5722, :12413-12414), 1 a monster or a
+    // party member fighting the party makes running harder (CheckRunAway :15188-15191, :15246-15249),
+    // 2 the party cannot run (:15207-15210), 5 a back attack (:7664-7665), 6 the next action is Mimic's
+    // (:325-326, :12975-12976), 7 no battle menu may open (:12074-12075). Bit 4 is one command's own
+    // (InitTarget_01 :6529-6530, cleared :3963-3964).
+    layByteAsTheCartridgeHoldsIt(
+        kRunningCell, static_cast<std::uint8_t>((state.counterattackRunning ? kCounterattackBit : 0) |
+                                                (state.escapeBlockedByMonster ? kEscapeBlockedBit : 0) |
+                                                (state.cannotRun ? kCannotRunBit : 0) |
+                                                (state.backAttack ? kBackAttackFlagBit : 0) |
+                                                (state.mimicking ? kMimickingBit : 0) |
+                                                (state.menusDisabled ? kMenusClosedBit : 0)));
+    // Counterattacks are on while $341A is not zero (:12530-12531); every command starts it at $FF
+    // (ExecCmd :3106-3109) and a counterattack's end clears it (:9753).
+    layByteAsTheCartridgeHoldsIt(kCountersEnabled, state.scratch.countersEnabled ? kFilled : 0);
+
+    // The reach (_c25917 :14635-14642): the monsters the AI leaves in reach in $2F46, the party members
+    // not seized in $3403, the targetable or present in $3A78 and those counted in the battle in $3408.
+    layByteAsTheCartridgeHoldsIt(kReachMonsters, static_cast<std::uint8_t>(~state.aiUntargetable.monsters.bits));
+    layByteAsTheCartridgeHoldsIt(kReachCharacters, static_cast<std::uint8_t>(~seizedSet(state).characters.bits));
+    layWordAsTheCartridgeHoldsIt(kReachFirst, maskOf(state.targetableOrPresent));
+    layWordAsTheCartridgeHoldsIt(kReachSecond, maskOf(state.countedInBattle));
+
+    const FormationAux& aux = getFormationAux(state.formation);
+    layByteAsTheCartridgeHoldsIt(kFormationBytes, static_cast<std::uint8_t>(aux.entranceAndTypes ^ kFormationFirstByteToggled));
+    // Which way each battler faces is the graphics program's from the opening on; the battle program
+    // only reads it (:3230, :3260).
+    leaveOut(kFacingRight, 2);
+    if (!state.colosseum) {
+        leaveOut(kWagerCell, 1);
+        leaveOut(kPrizeCell, 1);
+    }
 }
 
 }  // namespace ostinato::trace

@@ -64,6 +64,8 @@
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "data/monster_sprites.h"
+#include "data/text_corpus.h"
 #include "game/character_record.h"
 #include "game/battle_switches.h"
 #include "ostinato/character_prop_id.h"
@@ -123,7 +125,7 @@ inline constexpr std::array<TracedRoutine, 19> kTracedRoutines{{
     {"LearnRage", 0xC24A07, 0xC248EE, 0, {}, true},
 }};
 
-// The cells the traced routines read and write, as ranges of work RAM: the console's frame count; the
+// The cells the traced routines read and write, as ranges of work RAM: the play clock's frames; the
 // direct-page params block, attack flags and multiplier; the party's gil and steps; the attack's record copy and
 // damage; the party members' control menus; the battle's copy of the party's hands; the numeral
 // buffer; the script's params blocks; the script queue; the monsters standing, the message's item and amount, the formation's
@@ -149,7 +151,7 @@ struct TracedRange {
     std::uint32_t size;
 };
 inline constexpr std::array<TracedRange, 56> kTracedRanges{{
-    {"frame count", 0x7E021E, 1},       {"direct page", 0x7E00A0, 32},       {"gil and steps", 0x7E1860, 9},
+    {"play clock frames", 0x7E021E, 1}, {"direct page", 0x7E00A0, 32},       {"gil and steps", 0x7E1860, 9},
     {"attack record", 0x7E11A0, 18},    {"monster indexes", 0x7E1FF9, 20},   {"control menus", 0x7E205E, 48},
     {"party's hands", 0x7E2B86, 40},    {"numeral buffer", 0x7E2BCE, 160},   {"params blocks", 0x7E2C6E, 256},
     {"script queue", 0x7E2D6E, 256},
@@ -1050,11 +1052,56 @@ struct StartResult {
     // Every cell the start read before anything wrote it, up to the loop's first frame wait (as
     // DamageOracle::unwrittenReads() lists them).
     std::vector<UnwrittenRead> unwrittenReads;
+    // Every cell of $7E:0000-3FFF the battle program wrote up to the loop's first frame wait.
+    std::set<std::uint32_t> battleWrites;
+    // Every read of $7E:0000-3FFF the battle program made after the loop's first frame wait of a cell
+    // nothing had written since, with the byte it found: what the comparison point carried on.
+    std::vector<UnwrittenRead> readsAfterThePoint;
+    // Every read the battle program made of $7E:4000-$7F:FFFF that is not on kCellsNotCompared, with
+    // the byte it found.
+    std::vector<UnwrittenRead> readsBeyondTheBattlesCells;
 };
 
 // Every field where two start scenarios differ, one per line naming it and both values; empty when
 // they agree.
 [[nodiscard]] std::string differences(const StartScenario& a, const StartScenario& b);
+
+// The port's start over `scenario` (battle::startBattle()), with the game's text and the monsters'
+// sprites the start reads.
+[[nodiscard]] battle::BattleState portStart(const StartScenario& scenario, const TextCorpus& text,
+                                            const MonsterSprites& sprites);
+
+// Cells, or bits of cells, whose bits a BattleState field does not determine in full: `count` cells
+// from `at`, `stride` apart, compared by the bits in `meaning` only. Every other bit of them is the
+// start's fill or a routine's leavings, for the reason in `why`.
+struct CellMeaning {
+    std::uint32_t at = 0;
+    std::uint32_t count = 1;
+    std::uint32_t stride = 1;
+    std::uint8_t meaning = 0xFF;
+    const char* why = "";
+};
+
+// Cells, or bits of cells, the battle program writes that the whole-state comparison does not cover:
+// `count` cells from `at`, `stride` apart, the bits in `bits`. A provisional entry is one only a battle's
+// start and its end have shown; a whole battle is still to prove it. Each carries its reason and the
+// lines it comes from.
+struct CellsNotCompared {
+    std::uint32_t at = 0;
+    std::uint32_t count = 1;
+    std::uint32_t stride = 1;
+    std::uint8_t bits = 0xFF;
+    bool provisional = true;
+    const char* why = "";
+};
+
+// The two tables, kCellMeanings and kCellsNotCompared.
+[[nodiscard]] std::span<const CellMeaning> cellMeanings();
+[[nodiscard]] std::span<const CellsNotCompared> cellsNotCompared();
+// The bits of `cell` a BattleState field determines: every bit, unless kCellMeanings narrows it.
+[[nodiscard]] std::uint8_t meaningBits(std::uint32_t cell);
+// The bits of `cell` on kCellsNotCompared: none, unless a row lists it.
+[[nodiscard]] std::uint8_t notComparedBits(std::uint32_t cell);
 
 // Cells the attack frame reads that no scenario writes, left as the machine has them: `count` cells
 // from `at`, `stride` apart. Each is a cell whose value reaches nothing the game shows or keeps.
@@ -1064,7 +1111,7 @@ struct CellsLeftAsTheMachineHasThem {
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 12> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 15> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -1091,6 +1138,16 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 12> kCellsLeftAsTheMac
     {.at = 0x7E3A29, .count = 3,
      .why = "the last three bytes of a script command, which the commands queued with them do not read"},
     {.at = 0x7E3A81, .why = "the byte before the Golem's block, loaded with it where only the next byte's sign is tested"},
+    {.at = 0x7E00B9,
+     .why = "the byte above the start's party-member test, read by a sixteen-bit bit test against a party member's "
+            "bit whose high byte is zero (LoadCharProp battle_main.asm:6622-6623)"},
+    {.at = 0x7E11DF,
+     .why = "the field's equipment field effects, which the start's equipment sums OR into and never clear "
+            "(CalcEquipEffect :2487-2488; UpdateEquip clears $11A0-$11DE only, :2302-2304); the battle reads it "
+            "nowhere else"},
+    {.at = 0x7E1A69,
+     .why = "the high byte of the last inventory slot's quantity, loaded sixteen bits wide (InitInventory "
+            ":13935-13937) and overwritten with $FF before anything reads it (LoadItemProp :13989-13990)"},
 }};
 
 // Whether `cell` is one of kCellsLeftAsTheMachineHasThem.
@@ -1318,6 +1375,10 @@ public:
     // The same from the cells as they stand: for a machine restored to the tick before a battle.
     [[nodiscard]] StartResult battleStartAsItStands();
 
+    // The monsters' sprites a whole battle's opening lays the monsters out by, for the sides of a
+    // pincer. Required before battleStart(); kept by reference.
+    void useMonsterSprites(const MonsterSprites& sprites) { monsterSprites_ = &sprites; }
+
     // The scenario's cells as battleStart() writes them, with nothing called: the field's cells the
     // start reads.
     void writeStartScenario(const StartScenario& scenario);
@@ -1325,6 +1386,34 @@ public:
     // The start as the cells hold it, read the way writeStartScenario() writes one: for a machine
     // restored to the tick before a battle, or one a scenario was written into.
     [[nodiscard]] StartScenario readStartScenario();
+
+    // `state` laid into the battle's cells: the cells a BattleState field determines, through the
+    // writers every routine's scenario is written by — the attack frame's, the AI's, the scripts' and
+    // the ending's — with none of the attack, command or script those writers also lay, and the
+    // party's records holding `boosts`' HP and MP boost bits. Where a field says a place holds nothing,
+    // the cell holds what the cartridge's start leaves there.
+    void writeBattleState(const battle::BattleState& state, const PartyCells& boosts);
+
+    // The cells writeBattleState() lays `state` into, each by the bits of it that have meaning
+    // (kCellMeanings), against the cells a cartridge's battle holds: one line per cell where they part,
+    // naming the cell and both bytes, and one per cell two writers lay differently at a bit with
+    // meaning. Empty when they agree.
+    [[nodiscard]] std::string compareBattleState(const battle::BattleState& state, const PartyCells& boosts,
+                                                 const BattleCells& cartridge);
+
+    // The write-set gate: every cell in `written` that compareBattleState() does not cover in full —
+    // its bits with meaning and its bits on kCellsNotCompared between them short of the whole byte —
+    // one line per cell naming it and the bits left. Empty when every cell written is covered.
+    [[nodiscard]] std::string uncoveredWrites(const battle::BattleState& state, const PartyCells& boosts,
+                                              const std::set<std::uint32_t>& written);
+
+    // The carried-read gate: every read in `reads` (StartResult::readsAfterThePoint) of a cell or bit
+    // compareBattleState() left out for `state` — on kCellsNotCompared, left out as no field
+    // determines it, or a bit outside its meaning — one line per read naming the cell and the byte.
+    // Empty when the battle read nothing the comparison did not hold.
+    [[nodiscard]] std::string carriedReads(const battle::BattleState& state, const PartyCells& boosts,
+                                           const std::vector<UnwrittenRead>& reads);
+
     // Every cell of the battle's work RAM ($7E:0000-3FFF) the last call read before anything wrote
     // it — the oracle's own writes since the call before, or the guest's during the call — with the
     // byte its first such read found, in address order. Empty when every cell the routine read came
@@ -1422,6 +1511,8 @@ private:
     [[nodiscard]] ApplyDamageResult readApplyCells();
     void registerGate();
     void noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool write);
+    // A whole battle's access to a cell past $7E:3FFF, for the widened read-set gate.
+    void noteAccessBeyond(std::uint32_t cell, std::uint8_t value, bool write);
     void writeBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes);
     [[nodiscard]] AttackerEffectResult readAttackerEffectResult();
     [[nodiscard]] TargetEffectResult readTargetEffectResult();
@@ -1473,6 +1564,31 @@ private:
                                                                        std::uint32_t firstBuffer);
     void writeByte(std::uint32_t at, std::uint8_t value);
     void writeWord(std::uint32_t at, std::uint16_t value);
+    // The writes of a scenario's attack, command, script or message: laid on the machine as every
+    // other write is, and left out of what writeBattleState() lays.
+    void writeInFlightBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes);
+    void writeInFlightByte(std::uint32_t at, std::uint8_t value);
+    void writeInFlightWord(std::uint32_t at, std::uint16_t value);
+    // What a write lays: the state, something in flight, or the state as the cartridge holds it where
+    // an existing writer's encoding differs (which overrules every other writer of the cell).
+    enum class CellWrite : std::uint8_t { State, InFlight, AsTheCartridgeHoldsIt };
+    void writeCells(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes, CellWrite kind);
+    // writeBattleState()'s last pass: the cells where the cartridge's encoding of the state is not the
+    // existing writers', laid as the cartridge holds them, and the cells no field determines left out.
+    void writeStateAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    void layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes);
+    void layByteAsTheCartridgeHoldsIt(std::uint32_t at, std::uint8_t value);
+    void layWordAsTheCartridgeHoldsIt(std::uint32_t at, std::uint16_t value);
+    // Leave `count` cells from `at` out of what writeBattleState() lays: no field determines them.
+    void leaveOut(std::uint32_t at, std::uint32_t count);
+    // The cells writeBattleState() would lay `state` into, with the cells two writers lay differently,
+    // with nothing written to the machine.
+    struct LaidState {
+        std::map<std::uint32_t, std::uint8_t> cells;
+        std::map<std::uint32_t, std::uint8_t> disagreements;  // the bits two writers lay differently
+        std::set<std::uint32_t> leftOut;                      // the cells no field determines
+    };
+    [[nodiscard]] LaidState layState(const battle::BattleState& state, const PartyCells& boosts);
     [[nodiscard]] std::uint8_t readByte(std::uint32_t at);
     [[nodiscard]] std::uint16_t readWord(std::uint32_t at);
 
@@ -1537,6 +1653,16 @@ private:
     // A start being run (battleStart()): what it has reached, and the cells read at the loop's first
     // frame wait.
     std::optional<StartResult> start_;
+    // While a graphics command's answer runs: its accesses are the graphics program's, not the battle
+    // program's.
+    bool answering_ = false;
+    // The cells written since the loop's first frame wait, for the carried-read gate.
+    std::set<std::uint32_t> writtenSincePoint_;
+    // The cells beyond $7E:3FFF the battle program wrote in the battle being run.
+    std::set<std::uint32_t> writtenBeyond_;
+    const MonsterSprites* monsterSprites_ = nullptr;
+    // While layState() lays a state out: the cells laid, instead of writing the machine.
+    LaidState* capture_ = nullptr;
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
     // guest during it), and the cells the guest read during the last call before any was written.
     std::set<std::uint32_t> gateWritten_;
@@ -1615,7 +1741,7 @@ struct TargetScenario {
 // space, half the time one of the effects that act on the attacker; the attack's record, damage,
 // multiplier, command and animation values, its flags, aim and params; the command's attacks to come,
 // target count and message; for every battler its level, HP and MP, statuses, flags, hands, gold, Seize
-// and whether it is on the field or in its menu; the party's gil and steps, the battle's frame count,
+// and whether it is on the field or in its menu; the party's gil and steps, the play clock's frames,
 // Forcefield, Quick, the Golem, the allies standing, whether the party can run, whether a counterattack
 // is running, and the random-number position.
 [[nodiscard]] DamageScenario drawAttackerEffectScenario(std::mt19937& rng);

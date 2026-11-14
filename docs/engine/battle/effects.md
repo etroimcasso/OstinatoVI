@@ -34,7 +34,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/command_executor.h` | `CommandExecutor::checkControl`, `releaseLinks`, `clearControl`, `refreshMorph` and `tickMorph`, one call each |
 | `src/battle/attack.h` | `AttackInFlight`, `AttackScratch` (`mindBlastPicks`, `messageItem`, `messageAmount`, `sketch`), `initParams()`, `markToRetaliate()` |
 | `src/battle/battle_script.h` | the battle messages the effects show, `kMessageDoesntHaveAnything` to `kMessageOgreNixBroken`; `BattleScriptBuilder::params()` |
-| `src/battle/battle_state.h` | the links (`Battler::controlling`, `controlEnding`, `charming`, `guarding`, `targetingTarget`), `Battler::aiVariable` and `controlMenu`, `ControlMenuEntry`, `BattleState::swallowedByZinger`, `flippedByControl`, `frameCount`, `takenFromTheParty`, Morph's `morphCounter`, `morphCounterSpeed`, `morphLastsTwiceAsLong`, and the cells the effects write |
+| `src/battle/battle_state.h` | the links (`Battler::controlling`, `controlEnding`, `charming`, `guarding`, `targetingTarget`), `Battler::aiVariable` and `controlMenu`, `ControlMenuEntry`, `BattleState::swallowedByZinger`, `flippedByControl`, `playClockFrames`, `takenFromTheParty`, Morph's `morphCounter`, `morphCounterSpeed`, `morphLastsTwiceAsLong`, and the cells the effects write |
 | `src/game/character_record.h` | `Party::gil`, `Party::steps`, `Party::morphSupply` |
 | `src/game/battle_switches.h` | `kMorphLastsTwiceAsLongSwitch`, `kPermanentMorphSwitch` |
 | `tools/damage-trace/damage_oracle.h` | `DamageOracle::attackerEffect()` and `targetEffect()`, the cartridge's routines over a `DamageScenario`; `runAttackerEffect()`, `runTargetEffect()`, the two result readers and `differences()`; `drawAttackerEffectScenario()`, `drawTargetEffectScenario()`; `DamageOracle::replay()` for a traced call of either routine |
@@ -95,7 +95,7 @@ from `scratch.messageItem` and `scratch.messageAmount`.
 | Thiefknife | steals instead of striking on half the draws; a Fight is shown as Capture |
 | Atma Weapon, Drainer, Soul Sabre, Heal Rod | change the attack's flags: ignore defense, no critical, drain, work on MP, restore |
 | Rune Edge, Illumina, Ragnarok, Punisher | a certain critical hit for 12 to 19 MP, when the attacker has them |
-| Dice, Fixed Dice | the damage from two dice, or three — the third read from `BattleState::frameCount` — times twice the attacker's level, and the face again for three of a kind |
+| Dice, Fixed Dice | the damage from two dice, or three — the third read from `BattleState::playClockFrames` — times twice the attacker's level, and the face again for three of a kind |
 | Valiant Knife | the damage gains what the attacker has lost of its HP |
 | Tempest | Wind Slash in place of the blow on half the draws |
 | Ogre Nix | sometimes breaks: the hand's power goes to 0 and the battle's copy of the hand empties |
@@ -289,8 +289,9 @@ call before them; a caller replaying them sets `TracedCall::target` itself.
 
 ## Gotchas
 
-- **The Fixed Dice read a clock.** The third die is `BattleState::frameCount`, which counts every
-  frame shown since the battle started; two battles fought the same way roll the same.
+- **The Fixed Dice read a clock.** The third die is `BattleState::playClockFrames`, the play clock's
+  frames: it starts at `BattleStart::playTimeFrames` and steps on every frame, 1 to 60 and round, so
+  two battles started on the same frame of the play clock and fought the same way roll the same.
 - **Ogre Nix breaks by the last digit of the HP.** The chance is one in that digit plus one: at an HP
   ending in 0 it always breaks, at one ending in 9 one time in ten. It never breaks while its wielder's
   menu is open or during a counterattack.
@@ -351,6 +352,6 @@ call before them; a caller replaying them sets `TracedCall::target` itself.
 | What a battler that falls or leaves lets go of | `releaseLinks()` in `src/battle/links.cpp` |
 | The meter's speed, what a revert keeps | `morphMenuChanged()`, `runDownMorph()` and `saveMorphSupply()` in `src/battle/morph.cpp` |
 | The messages the effects show | the `kMessage…` constants in `src/battle/battle_script.h` |
-| How the frame counts frames | `tickBattleTime()` in `src/battle/battle_clock.cpp` |
+| How the play clock's frames step | `tickBattleTime()` in `src/battle/battle_clock.cpp` |
 | The cells the oracle writes and reads for the effects | `writeEffectCells()`, `writeTargetEffectCells()`, `readAttackerEffectResult()` and `readTargetEffectResult()` in `tools/damage-trace/damage_oracle.cpp` |
 | How a traced effect call is rebuilt | `readEffectScenario()` and `replayEffectCall()` in `tools/damage-trace/damage_oracle.cpp` |
