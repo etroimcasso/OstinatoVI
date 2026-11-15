@@ -1,4 +1,4 @@
-// The battle the AI's target and condition tests read, and the oracle run beside the port.
+// The battle the AI's target and condition tests read, and the cartridge the port is checked against.
 //
 // Test code. One fixed battle with a battler of every kind a selector tells apart:
 //
@@ -90,20 +90,10 @@ inline trace::AiScenario aiBattle() {
     return s;
 }
 
-// The cartridge, hosted once for every test that runs the oracle.
+// The cartridge, read once for every test that asks it (tests/with_cartridge.h).
 inline std::span<const std::uint8_t> aiCartridge() {
     static const std::vector<std::uint8_t> image = vanillaRom();
     return assets::stripCopierHeader(image);
-}
-
-// `body(oracle)` with the oracle started on the cartridge.
-template <typename Body>
-void withAiOracle(Body body) {
-    trace::runOnLoop([&] {
-        trace::DamageOracle oracle{aiCartridge()};
-        oracle.start();
-        body(oracle);
-    });
 }
 
 }  // namespace ostinato::test

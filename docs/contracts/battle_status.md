@@ -7,7 +7,8 @@ fatal. All citations point into the pinned reference tree `original-src/` (every
 `1ea47b5`); line numbers are into `src/battle/battle_main.asm` unless another file is named, and
 `ram:` names a line of `notes/battle-ram.txt`. This document is the test authority for
 `tests/test_status_effect.cpp`, `tests/test_status_changes.cpp`, `tests/test_status_oracle.cpp`,
-`tests/test_near_fatal.cpp` and `tests/test_status_start.cpp`.
+`tests/test_near_fatal.cpp`, `tests/test_status_start.cpp` and the first three's files of the same
+names under `tests/oracle/`.
 
 The attack frame (`docs/contracts/battle_commands.md`) calls both at its `AttackHooks` status points;
 this contract starts at those calls. The battle's own hooks are `BattleHooks`

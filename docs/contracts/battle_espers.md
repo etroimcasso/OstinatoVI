@@ -8,7 +8,7 @@ is named. A character record's cells are named from `notes/field-ram.txt:885-927
 `$1600 + 37·n`, with the level at `+$08`, the maximum HP at `+$0B` (two bytes), the maximum MP at
 `+$0F`, the experience at `+$11` (three bytes), vigor, speed, stamina and magic power at `+$1A` to `+$1D`
 and the esper at `+$1E`. This document is the test authority for `tests/test_spell_learning.cpp`,
-`tests/test_leveling.cpp` and `tests/test_espers_oracle.cpp`.
+`tests/test_leveling.cpp`, `tests/test_espers_oracle.cpp` and `tests/oracle/test_espers_oracle.cpp`.
 
 Both rules are pure functions over the party's records (`game::CharacterRecord`, `game::SpellProgress`
 in `src/game/character_record.h`): `src/battle/spell_learning.h` and `src/battle/leveling.h`. Every claim

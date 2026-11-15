@@ -6,8 +6,9 @@ that damage taken from HP or MP and shown as numerals, and a spell bounced off R
 citations point into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line
 numbers are into `src/battle/battle_main.asm` unless another file is named, and `btlgfx:` names a
 line of `src/btlgfx/btlgfx_main.asm`. This document is the test authority for
-`tests/test_damage_formulas.cpp`, `tests/test_target_damage.cpp`, `tests/test_apply_damage.cpp`,
-`tests/test_reflected_attack.cpp` and `tests/test_damage_oracle.cpp`.
+`tests/test_damage_formulas.cpp`, `tests/test_target_damage.cpp`, `tests/test_apply_damage.cpp` and
+`tests/test_reflected_attack.cpp`, the files of the same names under `tests/oracle/`, and
+`tests/oracle/test_damage_oracle.cpp`.
 
 The attack frame (`docs/contracts/battle_commands.md`) calls these at its `AttackHooks` damage
 points and, for a spell that bounced off Reflect, runs the bounce itself; this contract starts at
@@ -624,18 +625,18 @@ whose cells the call touched, and with no cells touched but the battler's, its o
 showing routine after a bounce is the attacker of the params block before this one (`$2c6e` +
 `$3a32` − 15). A blow's base damage is a party member's when it
 reads that member's relic word (`$3c58,x`), else a monster's, and a spell's does not depend on who
-cast it. `tests/test_trace_replay.cpp` replays 200 of the oracle's own calls of each kind and every
+cast it. `tests/oracle/test_trace_replay.cpp` replays 200 of the oracle's own calls of each kind and every
 recording under `tests/fixtures/damage-trace/`.
 
 Every case in the tables above asserts three ways — the port's value, the value worked out here, and
 the cartridge's — and the per-target cases compare every other cell of the two results as well.
-`tests/test_damage_formulas.cpp` sweeps 2,000 scenarios drawn from a fixed seed through each of the
-first four routines, within the game's own ranges (a party member's level 1 to 99), and
-`tests/test_target_damage.cpp` sweeps 500 through `CalcTargetDmg` (a party member's HP and MP at
+`tests/oracle/test_damage_formulas.cpp` sweeps 2,000 scenarios drawn from a fixed seed through each of
+the first four routines, within the game's own ranges (a party member's level 1 to 99), and
+`tests/oracle/test_target_damage.cpp` sweeps 500 through `CalcTargetDmg` (a party member's HP and MP at
 most 9,999 and 999 and never above the maximum, the Atma Weapon only for a party member, a
 fractional attack's power at most 16), asserting the port against the cartridge.
-`tests/test_apply_damage.cpp` sweeps 500 through the showing routine and
-`tests/test_reflected_attack.cpp` 500 through `CalcReflectDmg` (a spell's own command, the blocks
+`tests/oracle/test_apply_damage.cpp` sweeps 500 through the showing routine and
+`tests/oracle/test_reflected_attack.cpp` 500 through `CalcReflectDmg` (a spell's own command, the blocks
 equipment can show, counterattacks and `$341b` each drawn, and the hits to come drawn apart from the
 battlers the spell bounced off).
 `ostinato-damage-trace --check` runs the first four routines' sweep from the command line

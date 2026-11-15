@@ -3,23 +3,21 @@
 // off, the three additions the mask does not touch, the statuses for a counterattack, every status's
 // handler going on and coming off, the order the handlers run in, a Zombie's statuses, and the
 // pending statuses emptied. Each case is worked out by hand from the original and also run on the
-// cartridge (tools/damage-trace/damage_oracle.h); the port must match both.
+// cartridge (tools/damage-trace/src/oracle/damage_oracle.h) where the run asks it
+// (tests/with_cartridge.h); the port must match both. The drawn battles are in
+// tests/oracle/test_status_changes.cpp.
 
 #include <gtest/gtest.h>
 
 #include <cstddef>
 #include <cstdint>
-#include <random>
-#include <span>
-#include <string>
-#include <vector>
 
-#include "assets/cartridge.h"
 #include "battle/status.h"
 #include "oracle/damage_oracle.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
-#include "vanilla_rom.h"
+#include "status_changes_cases.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -27,7 +25,6 @@ namespace {
 using battle::BattlerSet;
 using battle::BattlerSlot;
 using battle::kAllStatuses;
-using trace::DamageOracle;
 using trace::DamageScenario;
 using trace::StatusChangesResult;
 
@@ -43,32 +40,18 @@ constexpr std::uint8_t kCommandList = 0x08;
 constexpr std::uint8_t kSpeed = 0x04;
 constexpr std::uint8_t kMorph = 0x02;
 
-class StatusChangesTest : public ::testing::Test {
-protected:
-    static void SetUpTestSuite() { image_ = new std::vector<std::uint8_t>{vanillaRom()}; }
-    static void TearDownTestSuite() {
-        delete image_;
-        image_ = nullptr;
-    }
-    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    // The statuses taking effect by the port, checked against the cartridge's own answer.
-    static StatusChangesResult checked(const DamageScenario& scenario) {
-        const StatusChangesResult port = trace::portStatusChanges(scenario);
-        StatusChangesResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.statusChanges(scenario);
-        });
-        EXPECT_EQ(trace::differences(port, guest), "");
-        return port;
-    }
-
-    static std::vector<std::uint8_t>* image_;
-};
-
-std::vector<std::uint8_t>* StatusChangesTest::image_ = nullptr;
+// The statuses taking effect by the port, checked against the cartridge's own answer where the run
+// asks it.
+StatusChangesResult checked(const DamageScenario& scenario) {
+    const StatusChangesResult port = trace::portStatusChanges(scenario);
+    withCartridge(StatusChangesTest::image(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().statusChanges(scenario)), "");
+    });
+    return port;
+}
 
 // A battle with one battler on the field at full HP, with `status`, to be given `toSet` and to lose
 // `toClear`; it can be given anything.
@@ -456,22 +439,6 @@ TEST_F(StatusChangesTest, TheDurationsAreTheCartridges) {
     EXPECT_EQ(battle::kStopDuration, 18);
     EXPECT_EQ(battle::kReflectDuration, 26);
     EXPECT_EQ(battle::kFreezeDuration, 34);
-}
-
-// Every bit of every battler's statuses, pending statuses, immunities and flags drawn at random: the
-// port and the cartridge agree on every draw.
-TEST_F(StatusChangesTest, AgreesWithTheCartridgeOverDrawnBattles) {
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        std::mt19937 rng{trace::kSweepSeed};
-        for (int draw = 0; draw < 500; ++draw) {
-            const DamageScenario scenario = trace::drawStatusChangesScenario(rng);
-            const std::string apart =
-                trace::differences(trace::portStatusChanges(scenario), oracle.statusChanges(scenario));
-            ASSERT_EQ(apart, "") << "draw " << draw;
-        }
-    });
 }
 
 }  // namespace

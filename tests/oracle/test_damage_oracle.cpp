@@ -2,6 +2,9 @@
 // called in the mode and frame the battle program calls it in, the watches see what a routine
 // writes, a scenario written for the guest reads back as written, and an image without the routines
 // is refused.
+//
+// They host the cartridge on the engine's machine and run in every run of the tests, a brief one
+// (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h) included: they are the oracle's own checks.
 
 #include <gtest/gtest.h>
 

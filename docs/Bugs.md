@@ -500,7 +500,7 @@ reaches `_c2362f` (`:8641-8652`) through `_c2384a` and `_c23852` with the carry
 `DoAttackerEffect` (`:10118-10129`) passes the carry through.
 
 **Where the port keeps it.** `facingStepLeavesTheMarkReady()` in
-`src/battle/attacker_effects.cpp`, read by `spiraler()`. `tests/test_attack_oracle.cpp`
+`src/battle/attacker_effects.cpp`, read by `spiraler()`. `tests/oracle/test_attack_oracle.cpp`
 compares the whole attack with the cartridge's frame.
 
 **If you want to change it.** Passing `false` to `hideAndDie()` leaves the mark
@@ -833,7 +833,7 @@ place.
 
 **Where the port keeps it.** `mergeItemsObtained()` in `src/battle/items_obtained.cpp`.
 `tests/test_items_obtained.cpp` (`ItemsObtained.AFullInventoryStopsTheMergeAndEverythingBehindItWaits`) and
-`tests/test_battle_end_oracle.cpp` (`BattleEndOracleTest.TheListByHand`) pin it, against the cartridge as
+`tests/oracle/test_battle_end_oracle.cpp` (`BattleEndOracleTest.TheListByHand`) pin it, against the cartridge as
 well.
 
 **If you want to change it.** Passing over a place that does not fit, instead of returning, lets the
@@ -890,7 +890,7 @@ with the accumulator, and empties a slot that runs out with `lda #$ff`, which re
 accumulator.
 
 **Where the port keeps it.** `writeBack()` in `src/battle/battle_start.cpp`. `tests/test_battle_end.cpp`
-(`WriteBack.AWagerHeldInTwoSlotsIsTakenFromTheLastUntilItRunsOut`) and `tests/test_battle_end_oracle.cpp`
+(`WriteBack.AWagerHeldInTwoSlotsIsTakenFromTheLastUntilItRunsOut`) and `tests/oracle/test_battle_end_oracle.cpp`
 (`BattleEndOracleTest.WriteBackSweep`) pin it, against the cartridge as well.
 
 **If you want to change it.** Keeping the wager as the item looked for takes one from every slot holding it.

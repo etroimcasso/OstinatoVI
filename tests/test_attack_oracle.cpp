@@ -1,24 +1,17 @@
-// The attack frame on the oracle: ExecSelfAttack and ExecAttack are where the US cartridges hold them
-// and an image without either is refused; the frame reads no cell a scenario leaves unwritten; the
-// port's whole attack (battle::runAttack, battle::runSelfAttack) leaves every cell as the cartridge's
-// own frame does, by hand and over drawn battles; and the routines the frame calls, traced while it
-// runs, replay against the port with no difference.
+// The attack frame worked out by hand: the port's whole attack (battle::runAttack,
+// battle::runSelfAttack) on battles built to reach each of its paths, the values worked out from the
+// original, and every cell left as the cartridge's own frame leaves it where the run asks it
+// (tests/with_cartridge.h). The frame on the oracle, its drawn battles and its traced calls are in
+// tests/oracle/test_attack_oracle.cpp.
 
 #include <gtest/gtest.h>
 
-#include <cstddef>
 #include <cstdint>
-#include <cstdio>
 #include <optional>
-#include <random>
-#include <span>
-#include <sstream>
-#include <stdexcept>
 #include <string>
 #include <variant>
-#include <vector>
 
-#include "assets/cartridge.h"
+#include "attack_oracle_cases.h"
 #include "battle/attack.h"
 #include "battle/battle_script.h"
 #include "battle/battle_state.h"
@@ -31,47 +24,14 @@
 #include "ostinato/item_effects.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
-#include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
 
 using battle::BattlerSlot;
 using trace::AttackResult;
-using trace::DamageOracle;
 using trace::DamageScenario;
-
-class AttackOracleTest : public ::testing::Test {
-protected:
-    static void SetUpTestSuite() { image_ = new std::vector<std::uint8_t>{vanillaRom()}; }
-    static void TearDownTestSuite() {
-        delete image_;
-        image_ = nullptr;
-    }
-    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    // `body(oracle)` with the oracle started on the cartridge.
-    template <typename Body>
-    static void withOracle(Body body) {
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            body(oracle);
-        });
-    }
-
-    static std::vector<std::uint8_t>* image_;
-};
-
-std::vector<std::uint8_t>* AttackOracleTest::image_ = nullptr;
-
-// A HiROM image holds bank $C2 from offset $020000.
-constexpr std::size_t offsetOf(std::uint32_t at) {
-    return at - 0xC00000;
-}
-
-constexpr std::uint32_t kExecSelfAttack = 0xC23167;
-constexpr std::uint32_t kExecAttack = 0xC2317B;
 
 constexpr BattlerSlot kHero = BattlerSlot::character(0);
 constexpr BattlerSlot kFoe = BattlerSlot::monster(0);
@@ -117,12 +77,14 @@ DamageScenario fireAtTheHero() {
     return s;
 }
 
-// The port's whole attack over `s`, with the cartridge's frame over the same battle leaving every
-// cell the same.
-AttackResult checked(DamageOracle& oracle, const DamageScenario& s, bool self = false) {
+// The port's whole attack over `s`, with the cartridge's frame over the same battle, where the run
+// asks it, leaving every cell the same.
+AttackResult checked(const Cartridge& cartridge, const DamageScenario& s, bool self = false) {
     const AttackResult port = trace::attackResult(self ? trace::portSelfAttack(s) : trace::portAttack(s));
-    const AttackResult guest = self ? oracle.selfAttack(s) : oracle.attack(s);
-    EXPECT_EQ(trace::differences(port, guest), "");
+    if (cartridge) {
+        const AttackResult guest = self ? cartridge.oracle().selfAttack(s) : cartridge.oracle().attack(s);
+        EXPECT_EQ(trace::differences(port, guest), "");
+    }
     return port;
 }
 
@@ -135,75 +97,14 @@ std::string statusBytes(const StatusSet& set) {
            "/" + std::to_string(set.bytes[3]);
 }
 
-// How many times `what` appears in `text`.
-int countOf(const std::string& text, const std::string& what) {
-    int count = 0;
-    for (std::size_t at = text.find(what); at != std::string::npos; at = text.find(what, at + what.size())) {
-        ++count;
-    }
-    return count;
-}
-
-TEST_F(AttackOracleTest, AnImageWithoutExecAttackIsRefused) {
-    trace::runOnLoop([&] {
-        const std::span<const std::uint8_t> original = image();
-        std::vector<std::uint8_t> other(original.begin(), original.end());
-        other[offsetOf(kExecAttack)] ^= 0xFF;
-        EXPECT_THROW(DamageOracle{other}, std::runtime_error);
-    });
-}
-
-TEST_F(AttackOracleTest, AnImageWithoutExecSelfAttackIsRefused) {
-    trace::runOnLoop([&] {
-        const std::span<const std::uint8_t> original = image();
-        std::vector<std::uint8_t> other(original.begin(), original.end());
-        other[offsetOf(kExecSelfAttack)] ^= 0xFF;
-        EXPECT_THROW(DamageOracle{other}, std::runtime_error);
-    });
-}
-
-// Every cell the frame read came from the scenario or from the frame itself, but the cells left as
-// the machine has them.
-std::string readsUnwritten(DamageOracle& oracle) {
-    std::string text;
-    for (const trace::UnwrittenRead& read : oracle.unwrittenReads()) {
-        if (!trace::leftAsTheMachineHasIt(read.at)) {
-            char line[24];
-            std::snprintf(line, sizeof line, "$%02X:%04X ", read.at >> 16 & 0xFF, read.at & 0xFFFF);
-            text += line;
-        }
-    }
-    return text;
-}
-
-TEST_F(AttackOracleTest, TheAttackFrameReadsNothingTheScenarioDoesNotWrite) {
-    std::mt19937 rng{trace::kSweepSeed};
-    withOracle([&](DamageOracle& oracle) {
-        for (int draw = 0; draw < 50; ++draw) {
-            (void)oracle.attack(trace::drawAttackScenario(rng));
-            EXPECT_EQ(readsUnwritten(oracle), "") << "draw " << draw;
-        }
-    });
-}
-
-TEST_F(AttackOracleTest, TheSelfAttackFrameReadsNothingTheScenarioDoesNotWrite) {
-    std::mt19937 rng{trace::kSweepSeed};
-    withOracle([&](DamageOracle& oracle) {
-        for (int draw = 0; draw < 50; ++draw) {
-            (void)oracle.selfAttack(trace::drawSelfAttackScenario(rng));
-            EXPECT_EQ(readsUnwritten(oracle), "") << "draw " << draw;
-        }
-    });
-}
-
 // A self-attack that does nothing: no power, no statuses, shown as nothing. The battle reads back
 // as the scenario wrote it, and battlers away from the field can be aimed at for the rest of the
 // command.
 TEST_F(AttackOracleTest, AQuietSelfAttackLeavesTheBattleAsWritten) {
     DamageScenario s = frameBattle();
     s.attack.command = battle::kNothingShown;
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s, true);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s, true);
         EXPECT_EQ(cell(port, "HP of battler 4"), "1000");
         EXPECT_EQ(cell(port, "HP of battler 0"), "1000");
         EXPECT_EQ(cell(port, "statuses of battler 4"), "0/0/0/0");
@@ -218,8 +119,8 @@ TEST_F(AttackOracleTest, AStatusPutOnTheAttackerItself) {
     s.attack.command = battle::kNothingShown;
     s.attack.record.flags2.set(AttackFlag2::UNDODGEABLE);
     s.attack.record.statuses.set(StatusId::PROTECT);
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s, true);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s, true);
         EXPECT_EQ(cell(port, "statuses of battler 4"), statusBytes(StatusSet::of(StatusId::PROTECT)));
         EXPECT_EQ(cell(port, "HP of battler 4"), "1000");
         EXPECT_EQ(cell(port, "last attacker of battler 4"), std::to_string(4 | 0x80));
@@ -234,8 +135,8 @@ TEST_F(AttackOracleTest, AStatusTakenOffTheAttackerItself) {
     s.attack.record.flags2.set(AttackFlag2::UNDODGEABLE);
     s.attack.record.flags2.set(AttackFlag2::REMOVE_STATUS);
     s.attack.record.statuses.set(StatusId::REFLECT);
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s, true);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s, true);
         EXPECT_EQ(cell(port, "statuses of battler 4"), "0/0/0/0");
         EXPECT_EQ(cell(port, "HP of battler 4"), "1000");
     });
@@ -246,8 +147,8 @@ TEST_F(AttackOracleTest, AStatusTakenOffTheAttackerItself) {
 TEST_F(AttackOracleTest, ASpellShortOfMpShowsTheMessageAndDoesNothing) {
     DamageScenario s = fireAtTheHero();
     s.state.at(kFoe).mp = 2;
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(cell(port, "script").substr(0, 13), "animation 18 ");
         EXPECT_EQ(countOf(cell(port, "script"), "message 40"), 1);
         EXPECT_EQ(cell(port, "HP of battler 0"), "1000");
@@ -259,8 +160,8 @@ TEST_F(AttackOracleTest, ASpellShortOfMpShowsTheMessageAndDoesNothing) {
 TEST_F(AttackOracleTest, AMutedCastersSpellFizzles) {
     DamageScenario s = fireAtTheHero();
     s.state.at(kFoe).status.set(StatusId::SILENCE);
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(cell(port, "script"), "pose reset 4; ");
         EXPECT_EQ(cell(port, "HP of battler 0"), "1000");
     });
@@ -271,13 +172,13 @@ TEST_F(AttackOracleTest, AMutedCastersSpellFizzles) {
 TEST_F(AttackOracleTest, AnAirAnchoredAttackerDiesAfterItsAttack) {
     DamageScenario s = frameBattle();
     s.state.at(kFoe).airAnchored = true;
-    withOracle([&](DamageOracle& oracle) {
-        AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        AttackResult port = checked(cartridge, s);
         EXPECT_EQ(cell(port, "statuses of battler 4"), statusBytes(StatusSet::of(StatusId::DEAD)));
         EXPECT_EQ(cell(port, "last attacker of battler 4"), "4");
         EXPECT_EQ(cell(port, "Air Anchor of battler 4"), "0");
         s.attack.record.flags1.set(AttackFlag1::AFFECT_MP);
-        port = checked(oracle, s);
+        port = checked(cartridge, s);
         EXPECT_EQ(cell(port, "last attacker of battler 4"), std::to_string(4 | 0x80));
     });
 }
@@ -307,12 +208,12 @@ TEST_F(AttackOracleTest, ACriticalHitOnADrawBelowEight) {
         }
     }
     ASSERT_TRUE(critical && plain);
-    withOracle([&](DamageOracle& oracle) {
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
         s.state.rng = battle::BattleRng(static_cast<std::uint8_t>(*critical));
-        AttackResult port = checked(oracle, s);
+        AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "critical 1"), 1);
         s.state.rng = battle::BattleRng(static_cast<std::uint8_t>(*plain));
-        port = checked(oracle, s);
+        port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "critical 1"), 0);
     });
 }
@@ -323,8 +224,8 @@ TEST_F(AttackOracleTest, RunicDrawsTheSpellIn) {
     DamageScenario s = fireAtTheHero();
     s.state.at(kHero).mp = 50;
     s.state.at(kHero).triggers.runic = true;
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(cell(port, "script").substr(0, 13), "animation 37 ");
         EXPECT_EQ(cell(port, "MP of battler 0"), std::to_string(50 + s.attack.record.mpCost));
         EXPECT_EQ(cell(port, "HP of battler 0"), "1000");
@@ -351,8 +252,8 @@ TEST_F(AttackOracleTest, TheWeaponsSpellIsCastAfterTheHit) {
     }
     ASSERT_LT(position, 256);
     s.state.rng = battle::BattleRng(static_cast<std::uint8_t>(position));
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 2 0 "), 1);
     });
 }
@@ -383,8 +284,8 @@ DamageScenario heroFights(BattleCommandId command) {
 // carries the hand in its top bit, the plain hit's number turned down a bit at each swing.
 TEST_F(AttackOracleTest, AFightSwingsEachHandWithTheHandInTheAttacksTopBit) {
     const DamageScenario s = heroFights(BattleCommandId::FIGHT);
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 0 "), 2);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 0 119 "), 1);  // $EE turned: the weapon hand
         EXPECT_EQ(countOf(cell(port, "script"), "animation 0 187 "), 1);  // and again: the shield hand
@@ -396,8 +297,8 @@ TEST_F(AttackOracleTest, AnOfferingSwingsEightTimes) {
     DamageScenario s = heroFights(BattleCommandId::FIGHT);
     s.state.at(kHero).relicEffects4.set(RelicEffect4::FIGHT_TO_X_FIGHT);
     s.attack.scratch.attacksLeft = 7;
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 0 "), 8);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 0 170 "), 1);  // the eighth, the shield hand
     });
@@ -407,8 +308,8 @@ TEST_F(AttackOracleTest, AnOfferingSwingsEightTimes) {
 TEST_F(AttackOracleTest, CapturesHitsSteal) {
     DamageScenario s = heroFights(BattleCommandId::CAPTURE);
     s.state.at(kFoe).commonSteal = ItemId::POTION;
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "animation 6 "), 2);
         EXPECT_GE(countOf(cell(port, "script"), "message "), 1);
     });
@@ -439,127 +340,11 @@ TEST_F(AttackOracleTest, TheAttackAfterABounceTakesTheLoreListForItsTargets) {
     }
     ASSERT_LT(position, 256);
     s.state.rng = battle::BattleRng(static_cast<std::uint8_t>(position));
-    withOracle([&](DamageOracle& oracle) {
-        const AttackResult port = checked(oracle, s);
+    withCartridge(AttackOracleTest::image(), [&](const Cartridge& cartridge) {
+        const AttackResult port = checked(cartridge, s);
         EXPECT_EQ(countOf(cell(port, "script"), "bounced attack"), 1);
         EXPECT_EQ(countOf(cell(port, "script"), noBattler), 1);
     });
-}
-
-// The routines the frame calls, traced while it runs, are closed at the frame's own return sites
-// and replay against the port with no difference.
-TEST_F(AttackOracleTest, TheFramesInnerCallsReplayAsTheCartridgeWorkedThemOut) {
-    std::mt19937 rng{trace::kSweepSeed};
-    int calls = 0;
-    withOracle([&](DamageOracle& oracle) {
-        oracle.trace(true);
-        for (int draw = 0; draw < 20; ++draw) {
-            (void)oracle.attack(trace::drawAttackScenario(rng));
-            std::stringstream log;
-            for (const std::string& line : oracle.takeTrace()) {
-                log << line << '\n';
-            }
-            for (const trace::TracedCall& call : trace::parseTrace(log)) {
-                ++calls;
-                EXPECT_EQ(oracle.replay(call), "") << "draw " << draw << ", " << call.routine;
-            }
-        }
-        oracle.trace(false);
-    });
-    EXPECT_GE(calls, 100);
-}
-
-// What a sweep reached, read from the port's side.
-struct Reached {
-    int differing = 0;
-    int named = 0;
-    int shortOfMp = 0;
-    int fizzled = 0;
-    int runic = 0;
-    int critical = 0;
-    int bounced = 0;
-    int twoAttacks = 0;
-    int anchored = 0;
-    int lore = 0;
-    int fought = 0;
-    int shieldHand = 0;
-    int offering = 0;
-    int captured = 0;
-    int emptyHand = 0;
-    std::string first;
-};
-
-void sweep(DamageOracle& oracle, bool self, Reached& reached) {
-    std::mt19937 rng{trace::kSweepSeed};
-    for (int draw = 0; draw < 500; ++draw) {
-        const DamageScenario s = self ? trace::drawSelfAttackScenario(rng) : trace::drawAttackScenario(rng);
-        const trace::AttackRun run = self ? trace::portSelfAttack(s) : trace::portAttack(s);
-        const AttackResult port = trace::attackResult(run);
-        const std::string difference = trace::differences(port, self ? oracle.selfAttack(s) : oracle.attack(s));
-        if (!difference.empty() && ++reached.differing == 1) {
-            reached.first = "draw " + std::to_string(draw) + " (" + trace::describe(s) + "):\n" + difference;
-        }
-        const std::string& script = port.cells.at("script");
-        reached.named += countOf(script, "name ") > 0 ? 1 : 0;
-        reached.shortOfMp += countOf(script, "message 40;") > 0 ? 1 : 0;
-        reached.fizzled += countOf(script, "pose reset") > 0 ? 1 : 0;
-        reached.runic += countOf(script, "animation 37 ") > 0 ? 1 : 0;
-        reached.critical += countOf(script, "critical 1") > 0 ? 1 : 0;
-        reached.bounced += countOf(script, "bounced attack") + countOf(script, "scattered attack") > 0 ? 1 : 0;
-        reached.twoAttacks += countOf(script, "animation") >= 2 ? 1 : 0;
-        reached.anchored += s.state.at(s.attacker).airAnchored ? 1 : 0;
-        reached.lore += run.after.state.loresLearned != s.state.loresLearned ? 1 : 0;
-        if (const std::optional<BattleCommandId> fight = s.attack.scratch.fightCommand) {
-            const battle::Battler& attacker = s.state.at(s.attacker);
-            ++reached.fought;
-            reached.captured += *fight == BattleCommandId::CAPTURE ? 1 : 0;
-            reached.offering += attacker.relicEffects4.has(RelicEffect4::FIGHT_TO_X_FIGHT) ? 1 : 0;
-            reached.emptyHand += attacker.shieldHand.battlePower == 0 ? 1 : 0;
-            for (const battle::BattleScriptCommand& command : run.script.commands()) {
-                const auto* animation = std::get_if<battle::AttackAnimation>(&command);
-                if (animation != nullptr && animation->offHand) {
-                    ++reached.shieldHand;
-                    break;
-                }
-            }
-        }
-    }
-}
-
-void expectEveryPathReached(const Reached& reached) {
-    EXPECT_EQ(reached.differing, 0) << reached.differing << " of 500 differ; the first:\n" << reached.first;
-    EXPECT_GT(reached.named, 0);
-    EXPECT_GT(reached.shortOfMp, 0);
-    EXPECT_GT(reached.fizzled, 0);
-    EXPECT_GT(reached.runic, 0);
-    EXPECT_GT(reached.critical, 0);
-    EXPECT_GT(reached.bounced, 0);
-    EXPECT_GT(reached.twoAttacks, 0);
-    EXPECT_GT(reached.anchored, 0);
-    EXPECT_GT(reached.lore, 0);
-}
-
-// The paths only a command that loads a hand takes: a Fight, each hand swung, an Offering's eight
-// swings, Capture's hit and a hand with no power.
-void expectEveryHandPathReached(const Reached& reached) {
-    EXPECT_GT(reached.fought, 0);
-    EXPECT_GT(reached.shieldHand, 0);
-    EXPECT_GT(reached.offering, 0);
-    EXPECT_GT(reached.captured, 0);
-    EXPECT_GT(reached.emptyHand, 0);
-}
-
-TEST_F(AttackOracleTest, FiveHundredDrawnAttacksMatchTheCartridge) {
-    Reached reached;
-    withOracle([&](DamageOracle& oracle) { sweep(oracle, false, reached); });
-    expectEveryPathReached(reached);
-    expectEveryHandPathReached(reached);
-}
-
-TEST_F(AttackOracleTest, FiveHundredDrawnSelfAttacksMatchTheCartridge) {
-    Reached reached;
-    withOracle([&](DamageOracle& oracle) { sweep(oracle, true, reached); });
-    expectEveryPathReached(reached);
 }
 
 }  // namespace

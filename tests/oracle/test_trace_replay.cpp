@@ -3,6 +3,10 @@
 // cartridge's routine wrote. The cartridge's own calls, traced through the oracle, prove the replay;
 // every recording under tests/fixtures/damage-trace/ is replayed the same way.
 //
+// Reading a trace needs no machine and runs in every run of the tests; every replay hosts the
+// cartridge on the engine's machine and is skipped by a brief run (OSTINATO_CARTRIDGE_CHECKS=brief,
+// tests/with_cartridge.h).
+//
 // Authority: docs/contracts/battle_damage.md.
 
 #include <gtest/gtest.h>
@@ -22,6 +26,7 @@
 #include "battle/damage.h"
 #include "oracle/damage_oracle.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -42,15 +47,6 @@ public:
 };
 
 std::vector<std::uint8_t>* TraceReplayTest::image_ = nullptr;
-
-template <typename Body>
-void withOracle(Body body) {
-    trace::runOnLoop([&] {
-        trace::DamageOracle oracle{TraceReplayTest::image()};
-        oracle.start();
-        body(oracle);
-    });
-}
 
 std::vector<TracedCall> parse(const std::string& text) {
     std::istringstream in{text};
@@ -157,7 +153,8 @@ Replayed replayAll(trace::DamageOracle& oracle, const std::vector<std::string>& 
 }
 
 TEST_F(TraceReplayTest, TheBaseDamageReplaysAsTheCartridgeWorkedItOut) {
-    withOracle([](trace::DamageOracle& oracle) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    withStartedOracle(TraceReplayTest::image(), [](trace::DamageOracle& oracle) {
         std::mt19937 rng{trace::kSweepSeed};
         int calls = 0;
         for (int index = 0; index < kReplayDraws; ++index) {
@@ -172,7 +169,8 @@ TEST_F(TraceReplayTest, TheBaseDamageReplaysAsTheCartridgeWorkedItOut) {
 }
 
 TEST_F(TraceReplayTest, TheDamageToOneTargetReplaysAsTheCartridgeWorkedItOut) {
-    withOracle([](trace::DamageOracle& oracle) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    withStartedOracle(TraceReplayTest::image(), [](trace::DamageOracle& oracle) {
         std::mt19937 rng{trace::kSweepSeed};
         int calls = 0;
         for (int index = 0; index < kReplayDraws; ++index) {
@@ -187,7 +185,8 @@ TEST_F(TraceReplayTest, TheDamageToOneTargetReplaysAsTheCartridgeWorkedItOut) {
 }
 
 TEST_F(TraceReplayTest, TheDamageTakenAndShownReplaysAsTheCartridgeWorkedItOut) {
-    withOracle([](trace::DamageOracle& oracle) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    withStartedOracle(TraceReplayTest::image(), [](trace::DamageOracle& oracle) {
         std::mt19937 rng{trace::kSweepSeed};
         int calls = 0;
         for (int index = 0; index < kReplayDraws; ++index) {
@@ -202,7 +201,8 @@ TEST_F(TraceReplayTest, TheDamageTakenAndShownReplaysAsTheCartridgeWorkedItOut) 
 }
 
 TEST_F(TraceReplayTest, ABouncesCallsReplayAsTheCartridgeWorkedThemOut) {
-    withOracle([](trace::DamageOracle& oracle) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    withStartedOracle(TraceReplayTest::image(), [](trace::DamageOracle& oracle) {
         std::mt19937 rng{trace::kSweepSeed};
         int calls = 0;
         for (int index = 0; index < kReplayDraws; ++index) {
@@ -225,6 +225,7 @@ TEST_F(TraceReplayTest, ABouncesCallsReplayAsTheCartridgeWorkedThemOut) {
 // Every damage-trace log under tests/fixtures/damage-trace/ replays with no difference. With no
 // recordings there is nothing to replay.
 TEST_F(TraceReplayTest, EveryRecordingReplaysAsTheGameWorkedItOut) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::filesystem::path recordings{OSTINATO_DAMAGE_TRACE_RECORDINGS};
     std::vector<std::filesystem::path> logs;
     std::error_code error;
@@ -234,7 +235,7 @@ TEST_F(TraceReplayTest, EveryRecordingReplaysAsTheGameWorkedItOut) {
         }
     }
     int calls = 0;
-    withOracle([&](trace::DamageOracle& oracle) {
+    withStartedOracle(TraceReplayTest::image(), [&](trace::DamageOracle& oracle) {
         for (const std::filesystem::path& log : logs) {
             std::ifstream in{log};
             for (const TracedCall& call : trace::parseTrace(in)) {

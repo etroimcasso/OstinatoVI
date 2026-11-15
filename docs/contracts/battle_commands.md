@@ -274,7 +274,8 @@ target, with the covered ally recorded.
 The frame is checked whole: `ExecSelfAttack` and `ExecAttack` run on the cartridge over the same
 battle as the port's `runSelfAttack()` and `runAttack()`, every cell the frame reads written from the
 port's state and every cell it leaves compared, a Fight's and a Capture's hand loaded at each swing
-included (`tests/test_attack_oracle.cpp` is the test authority for this section).
+included (`tests/test_attack_oracle.cpp` and `tests/oracle/test_attack_oracle.cpp` are the test
+authority for this section).
 
 ### The attack loop
 
@@ -666,7 +667,8 @@ shown as Mimic, whose animation is empty (`$b5 = $12`).
 Damage over time, the spell with no caster, the status timers and Seize's drain run whole on the
 cartridge (`Cmd_22`, `Cmd_26`, `Cmd_29`, `Cmd_2d`) over the same battle as the port's
 `CommandExecutor::execute()`, every cell they read written from the port's state and every cell they
-leave compared (`tests/test_own_actions_oracle.cpp` is the test authority for this section).
+leave compared (`tests/test_own_actions_oracle.cpp` and `tests/oracle/test_own_actions_oracle.cpp` are
+the test authority for this section).
 
 ### Damage over time
 

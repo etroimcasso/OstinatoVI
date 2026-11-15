@@ -2,18 +2,14 @@
 // target"): what the attack sets and clears by its mode, the two rules that take Invisible and
 // Frozen off, Vanish not applying, Life on the undead, the statuses added to what is already
 // waiting, and the miss for a target immune to all of it. Each case is worked out by hand from the
-// original and also run on the cartridge (tools/damage-trace/damage_oracle.h); the port must match
-// both.
+// original and also run on the cartridge (tools/damage-trace/src/oracle/damage_oracle.h) where the run
+// asks it (tests/with_cartridge.h); the port must match both. The drawn attacks are in
+// tests/oracle/test_status_effect.cpp.
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
-#include <random>
-#include <span>
-#include <string>
-#include <vector>
 
-#include "assets/cartridge.h"
 #include "battle/status.h"
 #include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
@@ -22,7 +18,8 @@
 #include "ostinato/element_set.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
-#include "vanilla_rom.h"
+#include "status_effect_cases.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -31,7 +28,6 @@ using battle::BattlerSet;
 using battle::kAllStatuses;
 using battle::BattlerSlot;
 using battle::StatusChange;
-using trace::DamageOracle;
 using trace::DamageScenario;
 using trace::StatusEffectResult;
 
@@ -43,32 +39,18 @@ constexpr AttackFlags2 kBothModes = AttackFlags2::of(AttackFlag2::REMOVE_STATUS,
 constexpr BattlerSlot kCaster = BattlerSlot::character(0);
 constexpr BattlerSlot kTarget = BattlerSlot::monster(1);
 
-class StatusEffectTest : public ::testing::Test {
-protected:
-    static void SetUpTestSuite() { image_ = new std::vector<std::uint8_t>{vanillaRom()}; }
-    static void TearDownTestSuite() {
-        delete image_;
-        image_ = nullptr;
-    }
-    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    // The attack's statuses on `target` by the port, checked against the cartridge's own answer.
-    static StatusEffectResult checked(const DamageScenario& scenario, BattlerSlot target = kTarget) {
-        const StatusEffectResult port = trace::portStatusEffect(scenario, target);
-        StatusEffectResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.statusEffect(scenario, target);
-        });
-        EXPECT_EQ(trace::differences(port, guest), "");
-        return port;
-    }
-
-    static std::vector<std::uint8_t>* image_;
-};
-
-std::vector<std::uint8_t>* StatusEffectTest::image_ = nullptr;
+// The attack's statuses on `target` by the port, checked against the cartridge's own answer where the
+// run asks it.
+StatusEffectResult checked(const DamageScenario& scenario, BattlerSlot target = kTarget) {
+    const StatusEffectResult port = trace::portStatusEffect(scenario, target);
+    withCartridge(StatusEffectTest::image(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().statusEffect(scenario, target)), "");
+    });
+    return port;
+}
 
 // A scenario with a spell that puts `statuses` on, or takes them off by `flags2`, and a target that
 // can be given anything and has `current`.
@@ -356,22 +338,6 @@ TEST_F(StatusEffectTest, AToggleOnAPartyMemberDoesBoth) {
     const StatusEffectResult result = checked(scenario, member);
     EXPECT_EQ(result.statusesToSet.bytes, StatusSet::of(StatusId::FLOAT).bytes);
     EXPECT_EQ(result.statusesToClear.bytes, StatusSet::of(StatusId::IMP).bytes);
-}
-
-// Every bit of the attack's record and of the target drawn at random: the port and the cartridge
-// agree on every draw.
-TEST_F(StatusEffectTest, AgreesWithTheCartridgeOverDrawnAttacks) {
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        std::mt19937 rng{trace::kSweepSeed};
-        for (int draw = 0; draw < 500; ++draw) {
-            const trace::TargetScenario drawn = trace::drawStatusEffectScenario(rng);
-            const std::string apart = trace::differences(trace::portStatusEffect(drawn.scenario, drawn.target),
-                                                         oracle.statusEffect(drawn.scenario, drawn.target));
-            ASSERT_EQ(apart, "") << "draw " << draw;
-        }
-    });
 }
 
 }  // namespace

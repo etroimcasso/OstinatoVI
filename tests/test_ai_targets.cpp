@@ -2,7 +2,7 @@
 // the thirty selectors, a party member by who it is and each monster slot, with and without the cut to
 // the battlers an attack can reach, over one fixed battle (tests/ai_battle.h). Each answer is worked out
 // by hand from the original, and the port and the cartridge's own routine (CheckAITarget, run on the
-// oracle) must both give it.
+// oracle) must both give it; a brief run of the tests (tests/with_cartridge.h) checks the port alone.
 
 #include <gtest/gtest.h>
 
@@ -14,6 +14,7 @@
 #include "data/rng_table.h"
 #include "ostinato/ai_target_selector.h"
 #include "ostinato/character_prop_id.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -28,12 +29,15 @@ const BattlerSet kReachable = setOf(kTerra, kSelf, kReflecting);
 // Every party member and monster in the battle, on the field or not.
 const BattlerSet kInTheBattle = setOf(kTerra, kLocke, kEdgar, kSelf, kReflecting, kFallen, kHidden, kJumping);
 
-// The port's and the cartridge's answer for `target` over `s`; they must agree.
+// The port's answer for `target` over `s`, and the cartridge's where the run asks it; they must agree.
 AiTargetsResult checked(const AiScenario& s, AiTarget target, bool reachableOnly) {
-    AiTargetsResult guest;
-    withAiOracle([&](trace::DamageOracle& oracle) { guest = oracle.aiTargets(s, target, reachableOnly); });
     const AiTargetsResult port = trace::portAiTargets(s, target, reachableOnly);
-    EXPECT_EQ(trace::differences(port, guest), "");
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().aiTargets(s, target, reachableOnly)), "");
+    });
     return port;
 }
 

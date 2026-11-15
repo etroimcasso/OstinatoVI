@@ -4,6 +4,9 @@
 // machine and from that fight's scenario written into a machine fresh from its reset code, and in both
 // it opens, reaches the loop's first frame wait and returns; and a start scenario written reads back
 // the same.
+//
+// Every test here asks the cartridge on the engine's machine, so a brief run of the tests
+// (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h) skips them all.
 
 #include <gtest/gtest.h>
 
@@ -29,6 +32,7 @@
 #include "retropp/snes.h"
 #include "retropp/vm.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -126,6 +130,7 @@ std::vector<std::uint8_t>* BattleStartOracleTest::firstFight_ = nullptr;
 // The battle program's entry for the field and BattleMain are where the US cartridges hold them, and
 // an image without either is refused.
 TEST_F(BattleStartOracleTest, TheBattleProgramsEntryIsWhereTheCartridgeHoldsIt) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::span<const std::uint8_t> cartridge = image();
     EXPECT_EQ(cartridge[0x020000], 0x4C);  // Battle_ext: jmp BattleMain
     EXPECT_EQ(cartridge[0x020001], 0x0C);
@@ -151,6 +156,7 @@ TEST_F(BattleStartOracleTest, TheBattleProgramsEntryIsWhereTheCartridgeHoldsIt) 
 // The first fight's start, from the machine as the field left it: the battle opens (graphics command
 // $00), reaches the loop's first frame wait ($01), and, ended there, closes ($09) and returns.
 TEST_F(BattleStartOracleTest, TheFirstFightReachesTheLoopAndReturns) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -170,6 +176,7 @@ TEST_F(BattleStartOracleTest, TheFirstFightReachesTheLoopAndReturns) {
 // The first fight's scenario, read off the machine as the field left it, written into another
 // machine and read back: the same scenario.
 TEST_F(BattleStartOracleTest, AStartScenarioWrittenReadsBackTheSame) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -188,6 +195,7 @@ TEST_F(BattleStartOracleTest, AStartScenarioWrittenReadsBackTheSame) {
 // The first fight's scenario written into a machine fresh from its reset code, with nothing else of
 // the game run: the battle program opens, reaches the loop's first frame wait and returns.
 TEST_F(BattleStartOracleTest, AWrittenScenarioReachesTheLoopAndReturns) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -212,6 +220,7 @@ TEST_F(BattleStartOracleTest, AWrittenScenarioReachesTheLoopAndReturns) {
 // and the play clock's frames among them, and nothing read beyond the battle's cells that is not
 // listed.
 TEST_F(BattleStartOracleTest, TheFirstFightsStartIsThePorts) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -234,6 +243,7 @@ TEST_F(BattleStartOracleTest, TheFirstFightsStartIsThePorts) {
 // The same start from the first fight's scenario written into a machine fresh from its reset code:
 // the port's start again.
 TEST_F(BattleStartOracleTest, TheFirstFightsWrittenScenarioStartsAsThePortDoes) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -255,6 +265,7 @@ TEST_F(BattleStartOracleTest, TheFirstFightsWrittenScenarioStartsAsThePortDoes) 
 // them; and the quantity's high byte it reads at $1A69 reaches nothing: written $00 and $FF, the
 // cells at the loop's first frame wait are the same.
 TEST_F(BattleStartOracleTest, TheFirstFightsStartReadsNothingItWasNotHanded) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -294,6 +305,7 @@ TEST_F(BattleStartOracleTest, TheFirstFightsStartReadsNothingItWasNotHanded) {
 // names a cell the start's fill wrote that no field determines and passes one the comparison holds; the
 // carried-read gate names a read of a cell the comparison left out and passes a read of one it holds.
 TEST_F(BattleStartOracleTest, TheGatesNameWhatTheComparisonDoesNotHold) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -325,6 +337,7 @@ TEST_F(BattleStartOracleTest, TheGatesNameWhatTheComparisonDoesNotHold) {
 // started from the first fight's scenario: the opening lays the setup's byte into $2F46 and the port
 // starts with that monster out of the AI's reach.
 TEST_F(BattleStartOracleTest, AScriptedSetupKeepsItsMonstersOutOfReach) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     std::optional<FormationId> chosen;
     for (int id = 0; id < kFormationCount && !chosen; ++id) {
         const FormationAux& aux = getFormationAux(static_cast<FormationId>(id));

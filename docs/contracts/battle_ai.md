@@ -5,9 +5,9 @@ when its monster takes a slot, how a turn and a counterattack read it, who it na
 what each of its conditions tests, and the three commands only a script queues. All citations point
 into the pinned reference tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
 `src/battle/battle_main.asm` unless another file is named. This document is the test authority for
-`tests/test_ai_targets.cpp`, `tests/test_ai_conditions.cpp`, `tests/test_ai_oracle.cpp`,
-`tests/test_ai_run.cpp`, `tests/test_ai_commands.cpp`, `tests/test_ai_run_oracle.cpp` and
-`tests/test_ai_trace.cpp`.
+`tests/test_ai_targets.cpp`, `tests/test_ai_conditions.cpp`, `tests/oracle/test_ai_oracle.cpp`,
+`tests/test_ai_run.cpp`, `tests/test_ai_commands.cpp`, `tests/test_ai_run_oracle.cpp`,
+`tests/test_ai_trace.cpp` and the last two's files of the same names under `tests/oracle/`.
 
 The scripts themselves are data: `src/data/ai_scripts.h`, described in
 [`docs/engine/data-layer/monster-ai-scripts.md`](../engine/data-layer/monster-ai-scripts.md). The rules

@@ -3,6 +3,10 @@
 // machine through the file, an input script read and held frame by frame and refused by line, the
 // trace on a machine running that script logging each attack's own context, and the recording of the
 // first fight holding a status being set.
+//
+// The files, the scripts and the recordings are read with no machine and run in every run of the
+// tests; the two tests that run the cartridge on the engine's machine are skipped by a brief run
+// (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
 
 #include <gtest/gtest.h>
 
@@ -28,6 +32,7 @@
 #include "retropp/snes.h"
 #include "retropp/vm.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -203,6 +208,7 @@ std::vector<std::uint8_t> pictureOf(const retropp::Vm& machine) {
 // the state's moment: 240 ticks on they stand on the same memory and picture, and one tick short of
 // that they do not, so the comparison sees a tick.
 TEST(TraceStateMachine, AStateThroughTheFileCarriesOnWhereTheMachineStood) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t> rom = vanillaRom();
     const std::span<const std::uint8_t> image = assets::stripCopierHeader(rom);
     const TempDirectory directory;
@@ -328,6 +334,7 @@ TEST(TraceInputScript, ALineOfAnyOtherShapeIsRefusedNamingTheLine) {
 // attack: the script reaches the fight, each call's context is the attack's own though the game wrote
 // it during the tick the call ran on, and every call replays against the port.
 TEST(TraceRunningMachine, TheScriptReachesTheFightAndTheContextIsTheAttacksOwn) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     constexpr std::uint64_t kFirstAttackDone = 10216 + 320;
     constexpr std::uint8_t kFirstGuardToAttack = 7;
 

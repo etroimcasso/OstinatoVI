@@ -1,14 +1,14 @@
 # Build System & Test Harness
 
-**Date:** 2026-08-01 (updated 2026-11-12)
+**Date:** 2026-08-01 (updated 2026-11-14)
 **Status:** Complete
 
 ## Concept
 
 The build rails for the port: a CMake project that consumes the Polyrhythm engine as a source
-subproject and builds one static library holding all port code, the game binary, four developer
-tools and thirty GoogleTest binaries, each test binary covering one area so its baseline moves only
-when that area does.
+subproject and builds three static libraries — all port code, and the damage oracle's port side and
+cartridge side — the game binary, four developer tools and 31 GoogleTest binaries, each test binary
+covering one area so its baseline moves only when that area does.
 
 ## Design decisions
 
@@ -21,8 +21,8 @@ when that area does.
   engine turns both off when it is not the top-level project, so `ctest` shows only the port's tests
   and the engine fetches no GoogleTest of its own. The port does not set them.
 - **`retropp::testkit` is not linked.** The port checks itself against the cartridge through its own
-  oracle on the engine's SNES machine (`tools/damage-trace/damage_oracle`), which needs only
-  `retropp::engine`.
+  oracle on the engine's SNES machine (`tools/damage-trace/src/oracle/damage_oracle.h`), which needs
+  only `retropp::engine`.
 - **Engine pin `bb0e3dec`.** Nested engine submodules: SameBoy `v1.0.3`, SDL `release-3.4.10`,
   `third_party/snaggletooth` (the SNES core the hosted cartridge runs on). A pin moves only
   deliberately, on its own `ci/` branch.
@@ -31,17 +31,19 @@ when that area does.
 
 ### Target topology
 
-Thirty-seven targets:
+Thirty-nine targets:
 
 | Target | Kind | Links | Purpose |
 |---|---|---|---|
 | `ostinato-vi-lib` | STATIC | `retropp::engine` (PUBLIC) | All port code — assets, battle, data, game, render, text — so the binary, the tools and the tests build against it without duplicating a `main`. Public include dirs: `include/` (generated enums and port headers) + `src/`. |
+| `ostinato-battle-scenarios` | STATIC | `ostinato-vi-lib` (PUBLIC) | The damage oracle's port side: the scenarios it runs, the port's answer to each, the comparisons, the seeded draws, the reports and the trace's parsers, with no machine in any file. Public include dir: `tools/damage-trace/src`. |
+| `ostinato-damage-oracle` | STATIC | `ostinato-battle-scenarios` (PUBLIC) | The damage oracle's cartridge side: `DamageOracle`, which hosts the cartridge on the engine's SNES machine and runs its battle routines over a scenario, the trace of those routines, and a machine's state written and restored. |
 | `ostinato-vi` | executable | `ostinato-vi-lib` | The game binary: publishes its identity, settles the asset root, installs a cartridge (`--install-rom <path> [--out <dir>]`, or the first-start flow), and prints the port name and engine version. |
 | `ostinato-preview-dialog` | executable | `ostinato-vi-lib` | Field dialog messages typed by a scripted player, in a window or captured to files. |
 | `ostinato-preview-battle` | executable | `ostinato-vi-lib` | Battles fought to their end by a scripted player, in a window or captured to files. |
 | `ostinato-frames` | executable | `retropp::engine` | The cartridge on the engine's SNES machine, its frames and spans recorded between marked moments — the reference the previews are measured against. |
-| `ostinato-damage-trace` | executable | `ostinato-vi-lib` | The cartridge's battle routines traced as the game is played, checked against the port over seeded scenarios, and recordings replayed ([`tools/damage-trace/README.md`](../../tools/damage-trace/README.md)). |
-| 31 test binaries | executable | `ostinato-vi-lib` + `GTest::gtest_main` | Below. |
+| `ostinato-damage-trace` | executable | `ostinato-damage-oracle` | The cartridge's battle routines traced as the game is played, checked against the port over seeded scenarios, and recordings replayed ([`tools/damage-trace/README.md`](../../tools/damage-trace/README.md)). |
+| 31 test binaries | executable | `ostinato-vi-lib` + `GTest::gtest_main`; the eight battle binaries from `battle-commands` to `battle-whole` link `ostinato-damage-oracle` | Below. |
 
 The test binaries, one per area:
 
@@ -81,11 +83,28 @@ The test binaries, one per area:
 
 Every data table is tested over its whole corpus against a fixture generated from the original. The
 battle binaries check each rule three ways — the port, the value worked out from the original, and the
-cartridge's own routine run on the engine's SNES machine. A binary that reads the cartridge finds it
-through `FF6_VANILLA_ROM` and fails, naming the path, when it cannot read it; the binaries that replay
-recordings find them through `OSTINATO_DAMAGE_TRACE_RECORDINGS`, baked in as
-`tests/fixtures/damage-trace/`. The only skips are the Japanese-cartridge cases, eight in all, until a
-Japanese cartridge is available.
+cartridge's own routine run on the engine's SNES machine. Their hand checks sit in `tests/`; the tests
+that ask only the cartridge — sweeps over drawn scenarios, replays, the battle whole, the oracle's own
+checks — sit in `tests/oracle/` and are built into the same binaries. A binary that reads the cartridge
+finds it through `FF6_VANILLA_ROM` and fails, naming the path, when it cannot read it; the binaries that
+replay recordings find them through `OSTINATO_DAMAGE_TRACE_RECORDINGS`, baked in as
+`tests/fixtures/damage-trace/`.
+
+One more test is registered beside the binaries: `DamageTraceTool.ChecksEveryRoutineBriefly` runs
+`ostinato-damage-trace --check 20` through `cmake/run_damage_trace_check.cmake`, passing on the tool's
+exit code and removing the directory the tool writes.
+
+How much of the cartridge a run asks is chosen when the tests run, by `OSTINATO_CARTRIDGE_CHECKS`
+(`tests/with_cartridge.h`; `tools/damage-trace/README.md` § Checking). The build is the same either way.
+
+| Run | Passed / total / skipped |
+|---|---|
+| Everything (`OSTINATO_CARTRIDGE_CHECKS` unset) — a developer's machine | 2140/2148/8 |
+| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) — every CI build job | 2028/2148/120 |
+
+Eight skips are in both runs: the Japanese-cartridge cases, until a Japanese cartridge is available.
+The brief run's other 112 are the tests that host the cartridge and have nothing but the cartridge to
+check.
 
 ### C++ standard & compiler minimums
 
@@ -149,8 +168,11 @@ game: the game binary carries none of their code, and nothing under `tools/` shi
 
 **Files:**
 - `CMakeLists.txt` — top-level: the Release default, the compiler floor, `add_subdirectory(engine)`,
-  the warning flags, the library, the game binary with its lean-build options, the previews and tools,
-  GoogleTest, and the thirty test binaries.
+  the warning flags, the libraries, the game binary with its lean-build options, the previews and
+  tools, GoogleTest, the 31 test binaries and the damage trace's test.
+- `cmake/run_damage_trace_check.cmake` — the damage trace's 20-draw check run as a test.
+- `tests/with_cartridge.h` — how much of the cartridge a run of the tests asks, and the entry points a
+  test asks it through.
 - `include/ostinato/ostinato.h` — `ostinato::portName()` and `ostinato::kFieldTickPeriod`.
 - `src/main.cpp` — the game binary's entry: identity, asset root, cartridge install, version line.
 - `tests/test_smoke.cpp` — the one smoke case.

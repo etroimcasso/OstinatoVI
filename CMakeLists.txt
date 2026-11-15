@@ -333,6 +333,11 @@ target_link_libraries(ostinato-damage-trace PRIVATE ostinato-damage-oracle)
 
 # ---------------------------------------------------------------------------
 # Tests: GoogleTest (fetched — the engine does not provide it to consumers).
+#
+# The battle binaries that link ostinato-damage-oracle hold two kinds of test: hand checks under
+# tests/, which ask the cartridge beside the port, and tests under tests/oracle/, which ask only the
+# cartridge. Every build builds both; OSTINATO_CARTRIDGE_CHECKS chooses, when the tests run, how much
+# of the cartridge a run asks (tests/with_cartridge.h).
 # ---------------------------------------------------------------------------
 include(FetchContent)
 set(gtest_force_shared_crt ON  CACHE BOOL "" FORCE)  # match MSVC runtime
@@ -704,6 +709,7 @@ gtest_discover_tests(ostinato-vi-battle-core-tests)
 add_executable(ostinato-vi-battle-commands-tests
     tests/test_attack_frame.cpp
     tests/test_attack_oracle.cpp
+    tests/oracle/test_attack_oracle.cpp
     tests/test_automatic_actions.cpp
     tests/test_battle_layout.cpp
     tests/test_battle_script.cpp
@@ -713,6 +719,7 @@ add_executable(ostinato-vi-battle-commands-tests
     tests/test_hit_check.cpp
     tests/test_item_attack.cpp
     tests/test_own_actions_oracle.cpp
+    tests/oracle/test_own_actions_oracle.cpp
     tests/test_system_commands.cpp
     tests/test_targeting.cpp)
 target_compile_features(ostinato-vi-battle-commands-tests PRIVATE cxx_std_20)
@@ -727,11 +734,15 @@ gtest_discover_tests(ostinato-vi-battle-commands-tests)
 # (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-damage-tests
     tests/test_apply_damage.cpp
+    tests/oracle/test_apply_damage.cpp
     tests/test_damage_formulas.cpp
-    tests/test_damage_oracle.cpp
+    tests/oracle/test_damage_formulas.cpp
+    tests/oracle/test_damage_oracle.cpp
     tests/test_reflected_attack.cpp
+    tests/oracle/test_reflected_attack.cpp
     tests/test_target_damage.cpp
-    tests/test_trace_replay.cpp)
+    tests/oracle/test_target_damage.cpp
+    tests/oracle/test_trace_replay.cpp)
 target_compile_features(ostinato-vi-battle-damage-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-damage-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-damage-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -745,13 +756,16 @@ gtest_discover_tests(ostinato-vi-battle-damage-tests)
 # cartridge's own routines, run on the hosted cartridge over the same battle
 # (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-status-tests
-    tests/test_cell_writes.cpp
+    tests/oracle/test_cell_writes.cpp
     tests/test_near_fatal.cpp
     tests/test_status_changes.cpp
+    tests/oracle/test_status_changes.cpp
     tests/test_status_effect.cpp
+    tests/oracle/test_status_effect.cpp
     tests/test_status_oracle.cpp
+    tests/oracle/test_status_oracle.cpp
     tests/test_status_start.cpp
-    tests/test_trace_state.cpp)
+    tests/oracle/test_trace_state.cpp)
 target_compile_features(ostinato-vi-battle-status-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-status-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-status-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -770,10 +784,13 @@ add_executable(ostinato-vi-battle-effects-tests
     tests/test_attacker_effects.cpp
     tests/test_control_menu.cpp
     tests/test_cover_and_params.cpp
+    tests/oracle/test_cover_and_params.cpp
     tests/test_effects_oracle.cpp
+    tests/oracle/test_effects_oracle.cpp
     tests/test_links.cpp
     tests/test_morph.cpp
-    tests/test_target_effects.cpp)
+    tests/test_target_effects.cpp
+    tests/oracle/test_target_effects.cpp)
 target_compile_features(ostinato-vi-battle-effects-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-effects-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-effects-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -786,6 +803,7 @@ gtest_discover_tests(ostinato-vi-battle-effects-tests)
 # (tools/damage-trace/src/oracle/damage_oracle.h). Own binary so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-espers-tests
     tests/test_espers_oracle.cpp
+    tests/oracle/test_espers_oracle.cpp
     tests/test_leveling.cpp
     tests/test_spell_learning.cpp)
 target_compile_features(ostinato-vi-battle-espers-tests PRIVATE cxx_std_20)
@@ -804,11 +822,13 @@ gtest_discover_tests(ostinato-vi-battle-espers-tests)
 add_executable(ostinato-vi-battle-ai-tests
     tests/test_ai_commands.cpp
     tests/test_ai_conditions.cpp
-    tests/test_ai_oracle.cpp
+    tests/oracle/test_ai_oracle.cpp
     tests/test_ai_run.cpp
     tests/test_ai_run_oracle.cpp
+    tests/oracle/test_ai_run_oracle.cpp
     tests/test_ai_targets.cpp
-    tests/test_ai_trace.cpp)
+    tests/test_ai_trace.cpp
+    tests/oracle/test_ai_trace.cpp)
 target_compile_features(ostinato-vi-battle-ai-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-ai-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-ai-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -825,10 +845,12 @@ gtest_discover_tests(ostinato-vi-battle-ai-tests)
 add_executable(ostinato-vi-battle-rewards-tests
     tests/test_rewards.cpp
     tests/test_rewards_oracle.cpp
+    tests/oracle/test_rewards_oracle.cpp
     tests/test_items_obtained.cpp
     tests/test_battle_end.cpp
     tests/test_battle_end_oracle.cpp
-    tests/test_rewards_trace.cpp)
+    tests/oracle/test_battle_end_oracle.cpp
+    tests/oracle/test_rewards_trace.cpp)
 target_compile_features(ostinato-vi-battle-rewards-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-rewards-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-rewards-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -841,7 +863,7 @@ gtest_discover_tests(ostinato-vi-battle-rewards-tests)
 # the port's at the loop's first frame wait (tools/damage-trace/src/oracle/damage_oracle.h). Own binary
 # so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-whole-tests
-    tests/test_battle_start_oracle.cpp)
+    tests/oracle/test_battle_start_oracle.cpp)
 target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-whole-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-whole-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
@@ -849,3 +871,12 @@ target_compile_definitions(ostinato-vi-battle-whole-tests PRIVATE
     OSTINATO_DAMAGE_TRACE_RECORDINGS="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/damage-trace")
 target_link_libraries(ostinato-vi-battle-whole-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-whole-tests)
+
+# The damage trace run as a test: its check over 20 drawn scenarios through every routine it traces,
+# passing on the tool's exit code (cmake/run_damage_trace_check.cmake). It runs in every run of the
+# tests, a brief one included.
+add_test(NAME DamageTraceTool.ChecksEveryRoutineBriefly
+    COMMAND ${CMAKE_COMMAND}
+        -DTOOL=$<TARGET_FILE:ostinato-damage-trace>
+        -DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/damage-trace-check
+        -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/run_damage_trace_check.cmake)

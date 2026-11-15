@@ -1,33 +1,22 @@
-// The cover and the attack's animation set up, on the oracle (docs/contracts/battle_commands.md,
-// "The attack frame" and "Cover"): both routines are where the US cartridges hold them and an image
-// without either is refused; a Dragon Horn landing with another to come is marked for the jump's
+// The cover and the attack's animation set up, worked out by hand (docs/contracts/battle_commands.md,
+// "The attack frame" and "Cover"): a Dragon Horn landing with another to come is marked for the jump's
 // animation and aims the next landing at random, and the last landing is not; a bodyguard who is
 // controlled or held in Seize does not step in, while one controlling a monster or holding someone
 // does, and an ally held in Seize is not covered. Every case is worked out by hand from the original
-// and also run on the cartridge's own routine (tools/damage-trace/damage_oracle.h); the port must
-// match both. Then 500 drawn scenarios through each routine.
+// and also run on the cartridge's own routine (tools/damage-trace/src/oracle/damage_oracle.h) where the
+// run asks it (tests/with_cartridge.h); the port must match both. Both routines on the oracle and the
+// drawn scenarios are in tests/oracle/test_cover_and_params.cpp.
 
 #include <gtest/gtest.h>
 
-#include <array>
-#include <cstddef>
-#include <cstdint>
-#include <iostream>
-#include <optional>
-#include <random>
-#include <span>
-#include <stdexcept>
-#include <string>
-#include <vector>
-
-#include "assets/cartridge.h"
 #include "battle/attack.h"
 #include "battle/targeting.h"
+#include "cover_and_params_cases.h"
 #include "oracle/damage_oracle.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/item_effects.h"
 #include "ostinato/status_id.h"
-#include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -35,10 +24,7 @@ namespace {
 using battle::AttackInFlight;
 using battle::BattlerSet;
 using battle::BattlerSlot;
-using trace::CoverResult;
-using trace::DamageOracle;
 using trace::DamageScenario;
-using trace::ParamsInitResult;
 
 constexpr BattlerSlot kTerra = BattlerSlot::character(0);
 constexpr BattlerSlot kLocke = BattlerSlot::character(1);
@@ -46,79 +32,31 @@ constexpr BattlerSlot kEdgar = BattlerSlot::character(3);
 constexpr BattlerSlot kGuard = BattlerSlot::monster(0);
 constexpr BattlerSlot kSoldier = BattlerSlot::monster(1);
 
-constexpr std::uint32_t kInitGfxParams = 0xC257C2;
-constexpr std::uint32_t kCoverEffect = 0xC2123B;
-
-// A HiROM image holds bank $C2 from offset $020000.
-constexpr std::size_t offsetOf(std::uint32_t at) {
-    return at - 0xC00000;
-}
-
-class CoverAndParamsTest : public ::testing::Test {
-protected:
-    static void SetUpTestSuite() { image_ = new std::vector<std::uint8_t>{vanillaRom()}; }
-    static void TearDownTestSuite() {
-        delete image_;
-        image_ = nullptr;
-    }
-    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    // The port's animation set up over `scenario`, checked against the cartridge's own answer.
-    static AttackInFlight checkedParams(const DamageScenario& scenario) {
-        ParamsInitResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.initParams(scenario);
-        });
-        EXPECT_EQ(trace::differences(trace::portInitParams(scenario), guest), "");
-        DamageScenario after = scenario;
-        battle::initParams(after.attack, after.attacker);
-        return after.attack;
-    }
-
-    // The port's cover over `scenario`, checked against the cartridge's own answer.
-    static AttackInFlight checkedCover(const DamageScenario& scenario) {
-        CoverResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.coverEffect(scenario);
-        });
-        EXPECT_EQ(trace::differences(trace::portCoverTarget(scenario), guest), "");
-        DamageScenario after = scenario;
-        battle::coverTarget(after.state, after.attack, after.attacker);
-        return after.attack;
-    }
-
-    static std::vector<std::uint8_t>* image_;
-};
-
-std::vector<std::uint8_t>* CoverAndParamsTest::image_ = nullptr;
-
-// --- where the routines are ----------------------------------------------------------------------
-
-TEST_F(CoverAndParamsTest, BothRoutinesAreWhereTheUsCartridgesHoldThem) {
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        const std::vector<std::uint8_t> initGfxParams =
-            oracle.machine().read(retropp::MemoryRegion{.at = kInitGfxParams, .size = 4});
-        const std::vector<std::uint8_t> coverEffect =
-            oracle.machine().read(retropp::MemoryRegion{.at = kCoverEffect, .size = 4});
-        EXPECT_EQ(initGfxParams, (std::vector<std::uint8_t>{0x08, 0xE2, 0x30, 0x64}));  // php; sep #$30; stz $a0
-        EXPECT_EQ(coverEffect, (std::vector<std::uint8_t>{0xDA, 0x08, 0xA5, 0xB2}));    // phx; php; lda $b2
+// The port's animation set up over `scenario`, checked against the cartridge's own answer where the
+// run asks it.
+AttackInFlight checkedParams(const DamageScenario& scenario) {
+    withCartridge(CoverAndParamsTest::image(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(trace::portInitParams(scenario), cartridge.oracle().initParams(scenario)), "");
     });
+    DamageScenario after = scenario;
+    battle::initParams(after.attack, after.attacker);
+    return after.attack;
 }
 
-TEST_F(CoverAndParamsTest, AnImageWithoutEitherRoutineIsRefused) {
-    for (const std::uint32_t routine : {kInitGfxParams, kCoverEffect}) {
-        trace::runOnLoop([&] {
-            const std::span<const std::uint8_t> original = image();
-            std::vector<std::uint8_t> other(original.begin(), original.end());
-            other[offsetOf(routine)] ^= 0xFF;
-            EXPECT_THROW(DamageOracle{other}, std::runtime_error) << std::hex << routine;
-        });
-    }
+// The port's cover over `scenario`, checked against the cartridge's own answer where the run asks it.
+AttackInFlight checkedCover(const DamageScenario& scenario) {
+    withCartridge(CoverAndParamsTest::image(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(trace::portCoverTarget(scenario), cartridge.oracle().coverEffect(scenario)), "");
+    });
+    DamageScenario after = scenario;
+    battle::coverTarget(after.state, after.attack, after.attacker);
+    return after.attack;
 }
 
 // --- the attack's animation set up ---------------------------------------------------------------
@@ -181,26 +119,6 @@ TEST_F(CoverAndParamsTest, TheOtherSideRuleAndTheSwirlAreSetUpWithTheParams) {
     EXPECT_TRUE(attack.rules.opposingSideOnly);
     EXPECT_FALSE(attack.params.castingSwirl);
     EXPECT_FALSE(attack.castingSwirlSuppressed);
-}
-
-constexpr int kSweepDraws = 500;
-
-TEST_F(CoverAndParamsTest, EveryDrawnScenarioSetsUpTheParamsAsTheCartridgeDoes) {
-    std::mt19937 rng{trace::kSweepSeed};
-    int dragonHornLandings = 0;
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        for (int draw = 0; draw < kSweepDraws; ++draw) {
-            const DamageScenario scenario = trace::drawAttackerEffectScenario(rng);
-            if (scenario.attack.scratch.dragonHorn && scenario.attack.scratch.attacksLeft != 0) {
-                ++dragonHornLandings;
-            }
-            EXPECT_EQ(trace::differences(trace::portInitParams(scenario), oracle.initParams(scenario)), "")
-                << "draw " << draw;
-        }
-    });
-    EXPECT_GT(dragonHornLandings, 0);
 }
 
 // --- the cover -----------------------------------------------------------------------------------
@@ -284,78 +202,6 @@ TEST_F(CoverAndParamsTest, ALoveTokenBodyguardCoversFirst) {
     const AttackInFlight attack = checkedCover(s);
     expectCovered(attack, kEdgar);
     EXPECT_EQ(attack.params.steppingIn, BattlerSet::of(kEdgar));
-}
-
-// Whether the cover would have gone otherwise for the battler at `slot` with its link cleared:
-// the draw reached the rule that keeps a battler with that link out.
-bool linkMattered(const DamageScenario& scenario, BattlerSlot slot, bool held) {
-    DamageScenario as = scenario;
-    battle::coverTarget(as.state, as.attack, as.attacker);
-    DamageScenario freed = scenario;
-    if (held) {
-        freed.state.at(slot).seizedBy.reset();
-    } else {
-        freed.state.at(slot).controlledBy.reset();
-    }
-    battle::coverTarget(freed.state, freed.attack, freed.attacker);
-    return !(as.attack.params.steppingIn == freed.attack.params.steppingIn);
-}
-
-// The target a blow at `targets` covers: the highest-numbered one.
-std::optional<BattlerSlot> coveredTarget(BattlerSet targets) {
-    for (int index = battle::kBattlerSlots - 1; index >= 0; --index) {
-        if (targets.has(BattlerSlot::fromIndex(index))) {
-            return BattlerSlot::fromIndex(index);
-        }
-    }
-    return std::nullopt;
-}
-
-// Over 500 drawn scenarios the cover leaves the targets, the covered ally and the battlers stepping
-// in as the cartridge's routine does, and the draws reach both bodyguards and both exclusions.
-TEST_F(CoverAndParamsTest, EveryDrawnScenarioIsCoveredAsTheCartridgeCoversIt) {
-    std::mt19937 rng{trace::kSweepSeed};
-    int loveTokens = 0;
-    int trueKnights = 0;
-    int controlledKeptOut = 0;
-    int heldKeptOut = 0;
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        for (int draw = 0; draw < kSweepDraws; ++draw) {
-            const DamageScenario scenario = trace::drawCoverScenario(rng);
-            EXPECT_EQ(trace::differences(trace::portCoverTarget(scenario), oracle.coverEffect(scenario)), "")
-                << "draw " << draw;
-
-            DamageScenario after = scenario;
-            battle::coverTarget(after.state, after.attack, after.attacker);
-            if (after.attack.params.coveredAlly) {
-                const auto& bodyguard = scenario.state.at(*after.attack.params.coveredAlly).bodyguard;
-                const bool byLoveToken = bodyguard && after.attack.targets == BattlerSet::of(*bodyguard);
-                ++(byLoveToken ? loveTokens : trueKnights);
-            }
-            const std::optional<BattlerSlot> covered = coveredTarget(scenario.attack.targets);
-            for (int index = 0; index < battle::kBattlerSlots; ++index) {
-                const BattlerSlot slot = BattlerSlot::fromIndex(index);
-                if (slot == covered) {
-                    continue;
-                }
-                const battle::Battler& battler = scenario.state.at(slot);
-                if (battler.controlledBy && !battler.controlEnding && linkMattered(scenario, slot, false)) {
-                    ++controlledKeptOut;
-                }
-                if (battler.seizedBy && linkMattered(scenario, slot, true)) {
-                    ++heldKeptOut;
-                }
-            }
-        }
-    });
-    EXPECT_GT(loveTokens, 0);
-    EXPECT_GT(trueKnights, 0);
-    EXPECT_GT(controlledKeptOut, 0);
-    EXPECT_GT(heldKeptOut, 0);
-    std::cout << "love tokens " << loveTokens << ", true knights " << trueKnights << ", controlled kept out "
-              << controlledKeptOut << ", held kept out " << heldKeptOut << '\n';
 }
 
 }  // namespace

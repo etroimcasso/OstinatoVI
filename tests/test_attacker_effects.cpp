@@ -1,8 +1,9 @@
 // The special effects on the attacker (docs/contracts/battle_effects.md, "The effects on the
 // attacker"): every effect the original's table names, each worked out by hand from the original and
-// also run on the cartridge's own routine (tools/damage-trace/damage_oracle.h); the port must match
-// both. Then the effects every attack, weapon, item and command in the game carries, and the three
-// no one carries.
+// also run on the cartridge's own routine (tools/damage-trace/src/oracle/damage_oracle.h); the port
+// must match both, and a brief run of the tests (tests/with_cartridge.h) checks the port alone. Then
+// the effects every attack, weapon, item and command in the game carries, and the three no one
+// carries.
 
 #include <gtest/gtest.h>
 
@@ -38,6 +39,7 @@
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -62,16 +64,17 @@ protected:
     }
     static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
 
-    // The port's effect over `scenario`, checked against the cartridge's own answer.
+    // The port's effect over `scenario`, checked against the cartridge's own answer where the run
+    // asks it.
     static trace::AttackerEffectRun checked(const DamageScenario& scenario) {
         trace::AttackerEffectRun run = trace::runAttackerEffect(scenario);
-        AttackerEffectResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.attackerEffect(scenario);
+        withCartridge(image(), [&](const Cartridge& cartridge) {
+            if (!cartridge) {
+                return;
+            }
+            EXPECT_EQ(trace::differences(trace::attackerEffectResult(run), cartridge.oracle().attackerEffect(scenario)),
+                      "");
         });
-        EXPECT_EQ(trace::differences(trace::attackerEffectResult(run), guest), "");
         return run;
     }
 

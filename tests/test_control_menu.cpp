@@ -1,7 +1,8 @@
 // The control menu (docs/contracts/battle_effects.md, "The control menu"): a controller's four rows
 // from its monster's control attacks, each castable when the monster has the MP it costs; the rows
 // filled again when the controlled monster acts; and the 65,535-MP wrap, checked against the
-// cartridge's own routine through Control taking hold.
+// cartridge's own routine through Control taking hold, and on the port alone in a brief run of the
+// tests (tests/with_cartridge.h).
 
 #include <gtest/gtest.h>
 
@@ -20,6 +21,7 @@
 #include "ostinato/attack_id.h"
 #include "ostinato/monster_id.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -68,13 +70,13 @@ protected:
         monster.retaliationPending = true;
         monster.lastHit.command = battle::Hit<BattleCommandId>{.by = kController, .with = BattleCommandId::CONTROL};
         const trace::TargetEffectRun run = trace::runTargetEffect(s, kMonster);
-        TargetEffectResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.targetEffect(s, kMonster);
+        withCartridge(image(), [&](const Cartridge& cartridge) {
+            if (!cartridge) {
+                return;
+            }
+            EXPECT_EQ(trace::differences(trace::targetEffectResult(run), cartridge.oracle().targetEffect(s, kMonster)),
+                      "");
         });
-        EXPECT_EQ(trace::differences(trace::targetEffectResult(run), guest), "");
         EXPECT_FALSE(run.missed);
         return run.after.state.at(kController).controlMenu;
     }

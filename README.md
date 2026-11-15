@@ -17,7 +17,7 @@ What the checks cover so far, as each part of the game is built:
 - **Against the picture.** Where the battle preview puts things is measured from the console's own frames, recorded 1:1 from the cartridge running on the same machine ([`tools/frames/`](tools/frames/README.md)).
 - **Every table, every entry.** Every data table the game compiles in is compared with the original entry by entry, for every entry and every field, not a sample.
 - **The original's bugs, kept and written down.** When the original misbehaves, the port does the same, and [`docs/Bugs.md`](docs/Bugs.md) records it: what the player sees, where the original does it, where the port keeps it, and what to change to fix it — 31 so far, from Umaro's throw adding one to Mog's power to a failed Metamorph announcing an item the party never gets.
-- **On every platform.** More than 3,300 tests; the C++ suite runs on Linux, macOS and Windows, x64 and ARM.
+- **On every platform, and on the developer's machine.** More than 3,300 tests. Linux, macOS and Windows, x64 and ARM, each build the whole C++ suite, the tests against the cartridge among them, and run every check of the port, with a brief sample of the cartridge's own: the oracle's own tests and a 20-draw check of every routine it runs. On a developer's machine with the cartridge, every check also runs the original routine beside the port, and the sweeps, the recorded fights and the battle program called whole run too ([`tools/damage-trace/README.md`](tools/damage-trace/README.md#the-tests-that-ask-the-cartridge)).
 
 ## Progress
 
@@ -118,6 +118,8 @@ ctest --test-dir build
 ```
 
 The build defaults to a lean Release configuration (optimized, dead-stripped, symbol-stripped).
+
+The tests read your cartridge in place from the path `FF6_VANILLA_ROM` names, and fail, naming it, without one. A run asks the cartridge everything by default; `OSTINATO_CARTRIDGE_CHECKS=brief ctest --test-dir build` runs the port's checks with only the brief sample of the cartridge's.
 
 ## License
 

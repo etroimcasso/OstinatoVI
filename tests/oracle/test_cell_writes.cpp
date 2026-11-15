@@ -1,5 +1,9 @@
 // The trace tool's cell writes: the three words of a write read and refused by word, and the bytes
 // written into a running cartridge's work RAM landing before the frame the write names and not before.
+//
+// The words are read with no machine and run in every run of the tests; the running cartridge is
+// hosted on the engine's machine, so a brief run (OSTINATO_CARTRIDGE_CHECKS=brief,
+// tests/with_cartridge.h) skips that test.
 
 #include <gtest/gtest.h>
 
@@ -16,6 +20,7 @@
 #include "retropp/memory_region.h"
 #include "retropp/vm.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -98,6 +103,7 @@ constexpr std::uint64_t kWriteFrame = 300;
 // Bytes written before a frame are in work RAM once that frame has run, and had not landed one frame
 // earlier; each is the opposite of what the cell held, so the cartridge did not put it there.
 TEST(TraceCellWriteMachine, TheBytesLandBeforeTheFrameTheWriteNames) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t> rom = vanillaRom();
     const std::span<const std::uint8_t> image = assets::stripCopierHeader(rom);
 

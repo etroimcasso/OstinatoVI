@@ -1,10 +1,14 @@
-// A battle's end, traced (tools/damage-trace/damage_oracle): the four steps of a win on the party's
+// A battle's end, traced (tools/damage-trace/src/oracle/damage_oracle.h): the four steps of a win on the party's
 // records followed call by call, the win, the loss and the wrap-up followed whole as what their cells
 // hold on entry and on return, with every battle message shown. Their return sites and ShowMsg's call
 // are where the US cartridges make them; the trace's lines read back as written and a line that is not
 // well formed is refused; every call and every ending the oracle makes, traced, replays against the
 // port with no difference; and two recordings of the first fight in Narshe, won and lost on the
 // cartridge, replay the same way and hold what the battle showed.
+//
+// The trace's lines are read with no machine and run in every run of the tests; every test that
+// hosts the cartridge on the engine's machine is skipped by a brief run (OSTINATO_CARTRIDGE_CHECKS=brief,
+// tests/with_cartridge.h).
 
 #include <gtest/gtest.h>
 
@@ -28,6 +32,7 @@
 #include "ostinato/attack_id.h"
 #include "ostinato/item_id.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -49,15 +54,6 @@ protected:
         image_ = nullptr;
     }
     static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    template <typename Body>
-    static void withOracle(Body body) {
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            body(oracle);
-        });
-    }
 
     static std::vector<std::uint8_t>* image_;
 };
@@ -111,6 +107,7 @@ const TracedEnding& endingNamed(const std::vector<TracedEnding>& endings, const 
 // --- where the trace stops ---------------------------------------------------------------------
 
 TEST_F(RewardsTraceTest, TheEndingsReturnWhereTheirCallersCallThem) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
         const auto callBefore = [&](std::uint32_t at) {
@@ -208,8 +205,9 @@ TEST(RewardsTraceLines, ALineThatIsNotWellFormedIsRefused) {
 // sweep runs the cartridge's own level loop, so the abilities it reaches are traced with the actor and
 // level it read from the record.
 TEST_F(RewardsTraceTest, EveryTracedStepReplays) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     std::map<std::string, int> replayed;
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         std::mt19937 experienceRng{trace::kSweepSeed};
         std::mt19937 equipmentRng{trace::kSweepSeed};
         std::mt19937 levelRng{trace::kSweepSeed};
@@ -237,9 +235,10 @@ TEST_F(RewardsTraceTest, EveryTracedStepReplays) {
 // Every ending the oracle plays, traced: the wrap-up, the win (with the wrap-up and the steps inside
 // it) and the loss, each with the message its caller hands it — each replays with no difference.
 TEST_F(RewardsTraceTest, EveryTracedEndingReplays) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     std::map<std::string, int> replayed;
     int messages = 0;
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         std::mt19937 endingRng{trace::kSweepSeed};
         std::mt19937 winRng{trace::kSweepSeed};
         for (int draw = 0; draw < kDraws; ++draw) {
@@ -277,6 +276,7 @@ TEST_F(RewardsTraceTest, EveryTracedEndingReplays) {
 // has the run): the share of 32 takes all three party members up a level, Terra's teaching her Antdot,
 // the first fallen guard's draw is rare and drops a Tonic, and the party gets 96 GP.
 TEST_F(RewardsTraceTest, TheRecordedWinIsThePorts) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::string text = recording("rewards-win.log");
     const std::vector<TracedEnding> endings = endingsIn(text);
     const std::vector<TracedCall> calls = callsIn(text);
@@ -312,7 +312,7 @@ TEST_F(RewardsTraceTest, TheRecordedWinIsThePorts) {
     ASSERT_NE(terra, calls.end());
     EXPECT_EQ(terra->abilitiesLevel, 6);
 
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         for (const TracedCall& call : calls) {
             EXPECT_EQ(oracle.replay(call), "") << "frame " << call.frame << ": " << call.routine;
         }
@@ -326,6 +326,7 @@ TEST_F(RewardsTraceTest, TheRecordedWinIsThePorts) {
 // have felled them; A then closes "Annihilated". The loss, from the end check, shows that message alone
 // after its wrap-up.
 TEST_F(RewardsTraceTest, TheRecordedLossIsThePorts) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     const std::string text = recording("rewards-loss.log");
     const std::vector<TracedEnding> endings = endingsIn(text);
     ASSERT_EQ(endings.size(), 2u);
@@ -334,7 +335,7 @@ TEST_F(RewardsTraceTest, TheRecordedLossIsThePorts) {
     EXPECT_EQ(loss.returnedTo, 0xC24831u);
     EXPECT_EQ(shown(loss), (std::vector<MessageShown>{{.message = battle::kMessageAnnihilated}}));
 
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         for (const TracedEnding& ending : endings) {
             EXPECT_EQ(oracle.replayEnding(ending), "") << "frame " << ending.frame << ": " << ending.routine;
         }

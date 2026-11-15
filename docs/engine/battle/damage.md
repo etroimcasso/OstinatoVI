@@ -223,7 +223,7 @@ bounced off — for a Launcher's or Super Ball's hits, the lowest battler in the
 and for the damage shown after a bounce, the attacker of the block before), and the target from the
 battler cells the routine touched or, for a bounce, the byte the hit was given. `ostinato-damage-trace <rom> <dir> --replay` does the same from the
 command line, and every `.log` under `tests/fixtures/damage-trace/` is replayed by
-`tests/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe, and
+`tests/oracle/test_trace_replay.cpp`; `first-fight.log` there is the first fight in Narshe, and
 `failed-metamorph.log` the same fight with a failed Metamorph written in, and `esper-win.log` the same
 fight won with Terra holding an esper. The trace also follows the statuses, the special effects and,
 at a won battle's end, the esper's spells learned and the level-up; their calls replay the same way

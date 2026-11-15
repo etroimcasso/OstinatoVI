@@ -1,15 +1,16 @@
-// A monster's AI script run checked against the cartridge's own routines (battle/ai.h,
-// battle/system_commands.h, docs/contracts/battle_ai.md), run on the hosted cartridge over the same
-// battle (tools/damage-trace/damage_oracle): every script readied into an empty slot and into one
-// that held another script; turns and counterattacks; and the three commands only a script queues.
+// A monster's AI script run worked out by hand (battle/ai.h, battle/system_commands.h,
+// docs/contracts/battle_ai.md): every script readied into a slot that held another script, the part
+// one script runs into another's, a turn on the fixed battle, and the three commands only a script
+// queues. Each is checked against the cartridge's own routines, run on the hosted cartridge over the
+// same battle (tools/damage-trace/src/oracle/damage_oracle.h), where the run asks it
+// (tests/with_cartridge.h). Every script readied and run over drawn battles is in
+// tests/oracle/test_ai_run_oracle.cpp.
 
 #include <gtest/gtest.h>
 
 #include <cstdint>
-#include <random>
+#include <optional>
 #include <string>
-#include <variant>
-#include <vector>
 
 #include "ai_battle.h"
 #include "battle/ai.h"
@@ -18,6 +19,7 @@
 #include "data/ai_scripts.h"
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -26,165 +28,43 @@ using trace::AiRunResult;
 using trace::AiScenario;
 using trace::AiScriptPlaces;
 
-// The scripts a scripted battle gives a party member start here.
-constexpr std::uint16_t kCharacterAiScripts = 256;
-
 AiScenario withScript(AiScenario s, battle::BattlerSlot slot, std::uint16_t script) {
     s.state.at(slot).aiScript = script;
     battle::readyAi(s.state, slot);
     return s;
 }
 
-TEST(AiRunOracleTest, ReadyingEveryScriptIntoAnEmptySlot) {
-    withAiOracle([&](trace::DamageOracle& oracle) {
-        for (std::uint16_t script = 0; script < kAiScriptCount; ++script) {
-            AiScenario s = aiBattle();
-            s.state.at(kEmptyMonsterSlot) = battle::Battler{};
-            s.state.at(kEmptyMonsterSlot).aiScript = script;
-            const AiScriptPlaces guest = oracle.readyAi(s, kEmptyMonsterSlot);
-            battle::readyAi(s.state, kEmptyMonsterSlot);
-            ASSERT_EQ(trace::differences(trace::portScriptPlaces(s.state, kEmptyMonsterSlot), guest), "")
-                << "script " << script;
-        }
-    });
-}
-
-// Where each step stands in the cartridge's script block, for a report.
-std::string differenceIn(const std::string& differences, std::uint16_t script, int turn, const AiScenario& s) {
-    return "script " + std::to_string(script) + " on battler " + std::to_string(s.actor.index()) + ", turn " +
-           std::to_string(turn + 1) + " (" + trace::describe(s) + "):\n" + differences;
-}
-
-void emptyLists(battle::BattleState& state, battle::BattlerSlot actor) {
-    state.at(actor).actions.clear();
-    state.at(actor).counterActions.clear();
-    state.counterQueue = {};
-}
-
-// What a sweep compared, so a sweep that compares nothing shows.
-struct SweepCounts {
-    int runs = 0;
-    int differing = 0;
-    int actions = 0;
-    int resumed = 0;  // runs that stopped at a wait
-    int draws = 0;    // random numbers drawn
-    std::string first;
-
-    void note(const std::string& difference) {
-        ++runs;
-        if (!difference.empty() && ++differing == 1) {
-            first = difference;
-        }
+// The places the cartridge readies `slot`'s script at over `s`, where the run asks it.
+std::optional<AiScriptPlaces> cartridgeReadyAi(const Cartridge& cartridge, const AiScenario& s, battle::BattlerSlot slot) {
+    if (!cartridge) {
+        return std::nullopt;
     }
-    void count(const AiRunResult& result, std::uint8_t rngBefore) {
-        actions += static_cast<int>(result.actions.size() + result.counterActions.size());
-        if (result.script.turnSkipped != battle::kNoResume || result.script.counterSkipped != battle::kNoResume) {
-            ++resumed;
-        }
-        draws += static_cast<std::uint8_t>(result.rngPosition - rngBefore);
-    }
-    std::string report() const {
-        return std::to_string(differing) + " of " + std::to_string(runs) + " runs differ; the first:\n" + first;
-    }
-};
-
-// Six turns of `script` for `actor`, port and cartridge each going on from its own last turn.
-// Returns the first difference, or empty.
-std::string sixTurns(trace::DamageOracle& oracle, const AiScenario& s, std::uint16_t script, SweepCounts& counts) {
-    battle::BattleState port = s.state;
-    for (int turn = 0; turn < 6; ++turn) {
-        const std::uint8_t rngBefore = port.rng.position();
-        const AiRunResult guest = turn == 0 ? oracle.aiTurn(s) : oracle.nextAiTurn(s.actor);
-        const AiRunResult ours = trace::portAiTurn(port, s.actor);
-        const std::string differences = trace::differences(ours, guest);
-        if (!differences.empty()) {
-            return differenceIn(differences, script, turn, s);
-        }
-        counts.count(guest, rngBefore);
-        emptyLists(port, s.actor);
-    }
-    return "";
+    return cartridge.oracle().readyAi(s, slot);
 }
 
-TEST(AiRunOracleTest, EveryScriptForSixTurnsMatchesTheCartridge) {
-    std::mt19937 rng{trace::kSweepSeed};
-    SweepCounts counts;
-    withAiOracle([&](trace::DamageOracle& oracle) {
-        for (std::uint16_t script = 0; script < kAiScriptCount; ++script) {
-            std::vector<battle::BattlerSlot> actors{battle::BattlerSlot::monster(script % battle::kMonsterSlots)};
-            if (script >= kCharacterAiScripts) {
-                actors.push_back(battle::BattlerSlot::character(script % battle::kPartySlots));
-            }
-            for (const battle::BattlerSlot actor : actors) {
-                const AiScenario s = trace::drawAiRunScenario(rng, script, actor);
-                counts.note(sixTurns(oracle, s, script, counts));
-            }
-        }
-    });
-    EXPECT_EQ(counts.differing, 0) << counts.report();
-    // Every script on a monster slot, and the ones a scripted battle gives a party member on a party
-    // slot too; the sweep queues actions, stops at waits and draws.
-    EXPECT_EQ(counts.runs, 384 + 128);
-    EXPECT_GE(counts.actions, 3000);
-    EXPECT_GE(counts.resumed, 500);
-    EXPECT_GE(counts.draws, 3000);
+// The port's places for `slot` in `state` are the cartridge's, where there is a cartridge's.
+::testing::AssertionResult theSamePlaces(const battle::BattleState& state, battle::BattlerSlot slot,
+                                         const std::optional<AiScriptPlaces>& guest) {
+    if (!guest) {
+        return ::testing::AssertionSuccess();
+    }
+    const std::string apart = trace::differences(trace::portScriptPlaces(state, slot), *guest);
+    return apart.empty() ? ::testing::AssertionSuccess() : ::testing::AssertionFailure() << apart;
 }
 
-TEST(AiRunOracleTest, EveryCounterattackPartOnEveryPathThroughItsGuardMatchesTheCartridge) {
-    std::mt19937 rng{trace::kSweepSeed};
-    SweepCounts counts;
-    int restricted = 0;
-    withAiOracle([&](trace::DamageOracle& oracle) {
-        for (std::uint16_t script = 0; script < kAiScriptCount; ++script) {
-            if (!aiScript(script).hasCounter()) {
-                continue;
-            }
-            for (int path = 0; path < trace::kCounterGuards; ++path) {
-                const auto guard = static_cast<trace::CounterGuard>(path);
-                const AiScenario s =
-                    trace::drawAiRunScenario(rng, script, battle::BattlerSlot::monster(script % battle::kMonsterSlots), guard);
-                const AiRunResult guest = oracle.aiCounter(s);
-                const AiRunResult port = trace::portAiCounter(s);
-                const std::string difference = trace::differences(port, guest);
-                counts.note(difference.empty() ? "" : differenceIn(difference, script, path, s));
-                counts.count(guest, s.state.rng.position());
-                if (guard == trace::CounterGuard::DiedUnattacked || guard == trace::CounterGuard::QuickForAnother ||
-                    guard == trace::CounterGuard::HeldByAStatus || guard == trace::CounterGuard::Charmed) {
-                    ++restricted;
-                }
-            }
-        }
-    });
-    EXPECT_EQ(counts.differing, 0) << counts.report();
-    EXPECT_EQ(counts.runs, 210 * trace::kCounterGuards);
-    EXPECT_EQ(restricted, 210 * 4);
-    EXPECT_GE(counts.actions, 300);
+// The cartridge's counterattack part stands at `place` of the script block, where there is a
+// cartridge's.
+void expectTheCartridgesCounterPartAt(const std::optional<AiScriptPlaces>& guest, int place) {
+    if (guest) {
+        EXPECT_EQ(guest->counter, place);
+    }
 }
 
-TEST(AiRunOracleTest, TheThreeCommandsOverFiveHundredDrawnCasesMatchTheCartridge) {
-    std::mt19937 rng{trace::kSweepSeed};
-    int differing = 0;
-    int statusesSet = 0;
-    int statusesCleared = 0;
-    std::string first;
-    withAiOracle([&](trace::DamageOracle& oracle) {
-        for (int i = 0; i < 500; ++i) {
-            const trace::AiCommandCase c = trace::drawAiCommandCase(rng);
-            if (const auto* effect = std::get_if<battle::AiEffectAction>(&c.action)) {
-                statusesSet += effect->effect == AiEffect::SetStatus ? 1 : 0;
-                statusesCleared += effect->effect == AiEffect::ClearStatus ? 1 : 0;
-            }
-            const std::string difference =
-                trace::differences(trace::portAiCommand(c.scenario, c.action), oracle.aiCommand(c.scenario, c.action));
-            if (!difference.empty() && ++differing == 1) {
-                first = trace::listedActionText(c.action) + " by battler " + std::to_string(c.scenario.actor.index()) +
-                        ":\n" + difference;
-            }
-        }
-    });
-    EXPECT_EQ(differing, 0) << differing << " of 500 differ; the first:\n" << first;
-    EXPECT_GT(statusesSet, 0);
-    EXPECT_GT(statusesCleared, 0);
+// The cartridge's turn over `s` is the port's, where the run asks it.
+void expectTheCartridgesTurn(const Cartridge& cartridge, const AiScenario& s, const AiRunResult& port) {
+    if (cartridge) {
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().aiTurn(s)), "");
+    }
 }
 
 TEST(AiRunOracleTest, ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCartridgeKeeps) {
@@ -193,16 +73,16 @@ TEST(AiRunOracleTest, ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCar
     const std::uint16_t before = static_cast<std::uint16_t>(MonsterId::REPO_MAN);
     ASSERT_TRUE(aiScript(before).hasCounter());
     int keptOldCounter = 0;
-    withAiOracle([&](trace::DamageOracle& oracle) {
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) {
         for (std::uint16_t script = 0; script < kAiScriptCount; ++script) {
             AiScenario s = withScript(aiBattle(), kSelf, before);
             battle::Battler& slot = s.state.at(kSelf);
             slot.turnResume = battle::AiResume{.blocksSkipped = 1, .at = &slot.turnScript[1]};
             slot.counterResume = battle::AiResume{.blocksSkipped = 0, .at = &slot.counterScript[1]};
             slot.aiScript = script;
-            const AiScriptPlaces guest = oracle.readyAi(s, kSelf);
+            const std::optional<AiScriptPlaces> guest = cartridgeReadyAi(cartridge, s, kSelf);
             battle::readyAi(s.state, kSelf);
-            ASSERT_EQ(trace::differences(trace::portScriptPlaces(s.state, kSelf), guest), "") << "script " << script;
+            ASSERT_TRUE(theSamePlaces(s.state, kSelf, guest)) << "script " << script;
             if (!aiScript(script).hasCounter()) {
                 ++keptOldCounter;
                 EXPECT_EQ(slot.counterScript.data(), aiScript(before).counter.data());
@@ -215,9 +95,9 @@ TEST(AiRunOracleTest, ReadyingEveryScriptIntoASlotThatHeldAnotherKeepsWhatTheCar
 TEST(AiRunOracleTest, TheMagRoadersCounterattackPartIsWildCatsTurnPart) {
     // Script 243's part runs into script 119's, which the cartridge holds at byte 3410 of the block.
     const AiScenario s = withScript(aiBattle(), kSelf, static_cast<std::uint16_t>(MonsterId::MAG_ROADER_4));
-    AiScriptPlaces guest;
-    withAiOracle([&](trace::DamageOracle& oracle) { guest = oracle.readyAi(s, kSelf); });
-    EXPECT_EQ(guest.counter, 3410);
+    std::optional<AiScriptPlaces> guest;
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) { guest = cartridgeReadyAi(cartridge, s, kSelf); });
+    expectTheCartridgesCounterPartAt(guest, 3410);
     EXPECT_EQ(trace::portScriptPlaces(s.state, kSelf).counter, 3410);
     EXPECT_EQ(trace::portScriptPlaces(withScript(aiBattle(), kSelf, static_cast<std::uint16_t>(MonsterId::WILD_CAT)).state,
                                       kSelf)
@@ -228,10 +108,14 @@ TEST(AiRunOracleTest, TheMagRoadersCounterattackPartIsWildCatsTurnPart) {
 // --- the three commands, worked out by hand ------------------------------------------------------------
 
 trace::AiCommandResult checkedCommand(const AiScenario& s, const battle::Action& action) {
-    trace::AiCommandResult guest;
-    withAiOracle([&](trace::DamageOracle& oracle) { guest = oracle.aiCommand(s, action); });
     const trace::AiCommandResult port = trace::portAiCommand(s, action);
-    EXPECT_EQ(trace::differences(port, guest), "") << trace::listedActionText(action);
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().aiCommand(s, action)), "")
+            << trace::listedActionText(action);
+    });
     return port;
 }
 
@@ -332,10 +216,8 @@ TEST(AiRunOracleTest, RecruitingGauOnBothSides) {
 
 TEST(AiRunOracleTest, LobosTurnOnTheFixedBattle) {
     const AiScenario s = withScript(aiBattle(), kSelf, static_cast<std::uint16_t>(MonsterId::LOBO));
-    AiRunResult guest;
-    withAiOracle([&](trace::DamageOracle& oracle) { guest = oracle.aiTurn(s); });
     const AiRunResult port = trace::portAiTurn(s);
-    EXPECT_EQ(trace::differences(port, guest), "");
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) { expectTheCartridgesTurn(cartridge, s, port); });
     EXPECT_FALSE(port.actions.empty());
 }
 

@@ -11,7 +11,8 @@ at `+$1E` and the six pieces of equipment at `+$1F` to `+$24`. `$f0`-`$ff` are t
 cells and `$2f35`-`$2f40` the four message variables, three bytes each. Lines marked `G:` are into
 `src/btlgfx/btlgfx_main.asm`, the graphics program, which keeps the list of items obtained. This
 document is the test authority for `tests/test_rewards.cpp`, `tests/test_rewards_oracle.cpp`,
-`tests/test_items_obtained.cpp`, `tests/test_battle_end.cpp` and `tests/test_battle_end_oracle.cpp`.
+`tests/test_items_obtained.cpp`, `tests/test_battle_end.cpp`, `tests/test_battle_end_oracle.cpp` and the
+two oracle files' namesakes under `tests/oracle/`.
 
 The rules are functions over the party (`game::Party`, `src/game/character_record.h`) and the battle
 (`battle::BattleState`) in `src/battle/rewards.h`. Every rule with a routine of its own is also checked

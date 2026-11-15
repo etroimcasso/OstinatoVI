@@ -3,7 +3,8 @@
 // targets each leaves, the restriction two of them lift, the random number the status tests draw, the
 // test on the monster itself for a monster and for a party member with a script, and the count of
 // monster names the one-kind test reads. Each answer is worked out by hand from the original, and the
-// port and the cartridge's own condition routine (run on the oracle) must both give it.
+// port and the cartridge's own condition routine (run on the oracle) must both give it; a brief run of
+// the tests (tests/with_cartridge.h) checks the port alone.
 
 #include <gtest/gtest.h>
 
@@ -25,6 +26,7 @@
 #include "ostinato/item_id.h"
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -43,12 +45,16 @@ AiScenario conditionBattle() {
     return s;
 }
 
-// The port's and the cartridge's answer for `condition` over `s`; they must agree.
+// The port's answer for `condition` over `s`, and the cartridge's where the run asks it; they must
+// agree.
 AiConditionResult checked(const AiScenario& s, const AiCondition& condition) {
-    AiConditionResult guest;
-    withAiOracle([&](trace::DamageOracle& oracle) { guest = oracle.aiCondition(s, condition); });
     const AiConditionResult port = trace::portAiCondition(s, condition);
-    EXPECT_EQ(trace::differences(port, guest), "");
+    withCartridge(aiCartridge(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
+        }
+        EXPECT_EQ(trace::differences(port, cartridge.oracle().aiCondition(s, condition)), "");
+    });
     return port;
 }
 

@@ -9,7 +9,8 @@ tree `original-src/` (everything8215/ff6 @ `1ea47b5`); line numbers are into
 `src/battle/battle_main.asm` unless another file is named, and `ram:` names a line of
 `notes/battle-ram.txt`. This document is the test authority for `tests/test_attacker_effects.cpp`,
 `tests/test_effects_oracle.cpp`, `tests/test_target_effects.cpp`, `tests/test_control_menu.cpp`,
-`tests/test_links.cpp` and `tests/test_morph.cpp`.
+`tests/test_links.cpp`, `tests/test_morph.cpp`, `tests/oracle/test_effects_oracle.cpp` and
+`tests/oracle/test_target_effects.cpp`.
 
 The attack frame (`docs/contracts/battle_commands.md`) calls the effects at its `AttackHooks`
 points; this contract starts at those calls. The battle's own hooks are `BattleHooks`

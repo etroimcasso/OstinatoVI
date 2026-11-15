@@ -3,7 +3,10 @@
 // table of conditions points at the routines the original names, and an image without them is
 // refused; then 500 drawn battles through each — every target a script can name, with and without
 // the cut to the reachable, and every condition a script can hold — each run on the cartridge's own
-// routine (tools/damage-trace/damage_oracle.h) and by the port, the two matching.
+// routine (tools/damage-trace/src/oracle/damage_oracle.h) and by the port, the two matching.
+//
+// Every test here asks the cartridge on the engine's machine, so a brief run of the tests
+// (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h) skips them all.
 
 #include <gtest/gtest.h>
 
@@ -20,6 +23,7 @@
 #include "oracle/damage_oracle.h"
 #include "data/ai_scripts.h"
 #include "vanilla_rom.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -50,15 +54,6 @@ protected:
     }
     static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
 
-    template <typename Body>
-    static void withOracle(Body body) {
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            body(oracle);
-        });
-    }
-
     static std::vector<std::uint8_t>* image_;
 };
 
@@ -67,6 +62,7 @@ std::vector<std::uint8_t>* AiOracleTest::image_ = nullptr;
 // --- where the routines are ----------------------------------------------------------------------
 
 TEST_F(AiOracleTest, TheTargetRoutineAndTheTargetTestAreWhereTheUsCartridgesHoldThem) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
         const auto bytes = [&](std::uint32_t at) {
@@ -80,6 +76,7 @@ TEST_F(AiOracleTest, TheTargetRoutineAndTheTargetTestAreWhereTheUsCartridgesHold
 }
 
 TEST_F(AiOracleTest, TheTableOfConditionsPointsAtTheTwentyNineRoutines) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
         const std::vector<std::uint8_t> table =
@@ -95,6 +92,7 @@ TEST_F(AiOracleTest, TheTableOfConditionsPointsAtTheTwentyNineRoutines) {
 }
 
 TEST_F(AiOracleTest, AnImageWithoutTheRoutinesOrTheirTableIsRefused) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     for (const std::uint32_t at : {kCheckAiTarget, kAiTargetTest, kAiTargetTestClear, kAiConditionTable + 2 * 9}) {
         trace::runOnLoop([&] {
             const std::span<const std::uint8_t> original = image();
@@ -110,12 +108,13 @@ TEST_F(AiOracleTest, AnImageWithoutTheRoutinesOrTheirTableIsRefused) {
 constexpr int kSweepDraws = 500;
 
 TEST_F(AiOracleTest, EveryDrawnTargetIsTheCartridges) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     std::mt19937 rng{trace::kSweepSeed};
     int found = 0;
     int empty = 0;
     int reachable = 0;
     int picked = 0;
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         for (int draw = 0; draw < kSweepDraws; ++draw) {
             const AiTargetsCase c = trace::drawAiTargetsCase(rng);
             const AiTargetsResult port = trace::portAiTargets(c.scenario, c.target, c.reachableOnly);
@@ -134,10 +133,11 @@ TEST_F(AiOracleTest, EveryDrawnTargetIsTheCartridges) {
 }
 
 TEST_F(AiOracleTest, EveryDrawnConditionIsTheCartridges) {
+    OSTINATO_SKIP_WHEN_BRIEF();
     std::mt19937 rng{trace::kSweepSeed};
     std::array<int, std::variant_size_v<AiCondition>> held{};
     std::array<int, std::variant_size_v<AiCondition>> failed{};
-    withOracle([&](DamageOracle& oracle) {
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
         for (int draw = 0; draw < kSweepDraws; ++draw) {
             const AiConditionCase c = trace::drawAiConditionCase(rng);
             const AiConditionResult port = trace::portAiCondition(c.scenario, c.condition);

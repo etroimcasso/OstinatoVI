@@ -1,9 +1,8 @@
 // The special effects on each target (docs/contracts/battle_effects.md, "The effects on each
 // target"): every effect the original's table names, each worked out by hand from the original and
-// also run on the cartridge's own routine (tools/damage-trace/damage_oracle.h); the port must match
-// both. Then the routine on the oracle — where the US cartridges hold it, where the frame's and the
-// bounce's calls return — and 500 drawn scenarios over which the port leaves every cell as the
-// cartridge does.
+// also run on the cartridge's own routine (tools/damage-trace/src/oracle/damage_oracle.h) where the run
+// asks it (tests/with_cartridge.h); the port must match both. The routine on the oracle and the drawn
+// scenarios are in tests/oracle/test_target_effects.cpp.
 
 #include <gtest/gtest.h>
 
@@ -21,7 +20,6 @@
 #include <variant>
 #include <vector>
 
-#include "assets/cartridge.h"
 #include "battle/attack.h"
 #include "battle/battle_script.h"
 #include "battle/target_effects.h"
@@ -45,7 +43,8 @@
 #include "ostinato/monster_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
-#include "vanilla_rom.h"
+#include "target_effects_cases.h"
+#include "with_cartridge.h"
 
 namespace ostinato::test {
 namespace {
@@ -54,83 +53,23 @@ using battle::BattlerSet;
 using battle::BattlerSlot;
 using battle::CommandEffect;
 using battle::SpecialEffect;
-using trace::DamageOracle;
 using trace::DamageScenario;
 using trace::TargetEffectResult;
 using trace::TargetEffectRun;
 
-class TargetEffectTest : public ::testing::Test {
-protected:
-    static void SetUpTestSuite() { image_ = new std::vector<std::uint8_t>{vanillaRom()}; }
-    static void TearDownTestSuite() {
-        delete image_;
-        image_ = nullptr;
-    }
-    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
-
-    // The port's effect on `target` over `scenario`, checked against the cartridge's own answer.
-    static TargetEffectRun checked(const DamageScenario& scenario, BattlerSlot target) {
-        TargetEffectRun run = trace::runTargetEffect(scenario, target);
-        TargetEffectResult guest;
-        trace::runOnLoop([&] {
-            DamageOracle oracle{image()};
-            oracle.start();
-            guest = oracle.targetEffect(scenario, target);
-        });
-        EXPECT_EQ(trace::differences(trace::targetEffectResult(run), guest), "");
-        return run;
-    }
-
-    static std::vector<std::uint8_t>* image_;
-};
-
-std::vector<std::uint8_t>* TargetEffectTest::image_ = nullptr;
-
-// A HiROM image holds bank $C2 from offset $020000.
-constexpr std::size_t offsetOf(std::uint32_t at) {
-    return at - 0xC00000;
-}
-
-constexpr std::uint32_t kDoTargetEffect = 0xC2387E;
-
-TEST_F(TargetEffectTest, AnImageWithoutDoTargetEffectIsRefused) {
-    trace::runOnLoop([&] {
-        const std::span<const std::uint8_t> original = image();
-        std::vector<std::uint8_t> other(original.begin(), original.end());
-        other[offsetOf(kDoTargetEffect)] ^= 0xFF;
-        EXPECT_THROW(DamageOracle{other}, std::runtime_error);
-    });
-}
-
-// The attack frame's `jsr DoTargetEffect` (battle_main.asm:8357) returns to $C2:345F, the bounce's
-// (:8435) to $C2:34FC: the three bytes before each are the call.
-TEST_F(TargetEffectTest, TheFramesAndTheBouncesCallsReturnWhereTheTraceExpects) {
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        const std::vector<std::uint8_t> toDoTargetEffect{0x20, 0x7E, 0x38};
-        for (const std::uint32_t returnsTo : {0xC2345Fu, 0xC234FCu}) {
-            const std::vector<std::uint8_t> call =
-                oracle.machine().read(retropp::MemoryRegion{.at = returnsTo - 3, .size = 3});
-            EXPECT_EQ(call, toDoTargetEffect) << std::hex << returnsTo;
+// The port's effect on `target` over `scenario`, checked against the cartridge's own answer where the
+// run asks it.
+TargetEffectRun checked(const DamageScenario& scenario, BattlerSlot target) {
+    TargetEffectRun run = trace::runTargetEffect(scenario, target);
+    withCartridge(TargetEffectTest::image(), [&](const Cartridge& cartridge) {
+        if (!cartridge) {
+            return;
         }
+        EXPECT_EQ(trace::differences(trace::targetEffectResult(run), cartridge.oracle().targetEffect(scenario, target)),
+                  "");
     });
+    return run;
 }
-
-// With no special effect the routine changes nothing: every cell reads back as written.
-TEST_F(TargetEffectTest, AScenarioWithNoEffectReadsBackAsWritten) {
-    std::mt19937 rng{trace::kSweepSeed};
-    trace::TargetScenario drawn = trace::drawTargetEffectScenario(rng);
-    drawn.scenario.attack.effect = {};
-    const TargetEffectResult unchanged = trace::targetEffectResult(trace::runTargetEffect(drawn.scenario, drawn.target));
-    TargetEffectResult guest;
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        guest = oracle.targetEffect(drawn.scenario, drawn.target);
-    });
-    EXPECT_EQ(trace::differences(unchanged, guest), "");
-}
-
 
 constexpr BattlerSlot kHero = BattlerSlot::character(1);
 constexpr BattlerSlot kAlly = BattlerSlot::character(2);
@@ -1179,25 +1118,6 @@ TEST(TargetEffectCarriers, EveryEffectOnATargetHasACarrier) {
     for (const std::uint8_t row : rows) {
         EXPECT_TRUE(carried.contains(row)) << "effect " << int{row};
     }
-}
-
-constexpr int kSweepDraws = 500;
-
-TEST_F(TargetEffectTest, EveryDrawnScenarioLeavesTheCellsAsTheCartridgeDoes) {
-    std::mt19937 rng{trace::kSweepSeed};
-    trace::runOnLoop([&] {
-        DamageOracle oracle{image()};
-        oracle.start();
-        for (int draw = 0; draw < kSweepDraws; ++draw) {
-            const trace::TargetScenario drawn = trace::drawTargetEffectScenario(rng);
-            const TargetEffectResult port =
-                trace::targetEffectResult(trace::runTargetEffect(drawn.scenario, drawn.target));
-            const TargetEffectResult guest = oracle.targetEffect(drawn.scenario, drawn.target);
-            EXPECT_EQ(trace::differences(port, guest), "")
-                << "draw " << draw << ", effect " << int{drawn.scenario.attack.effect.index()} << ", attacker "
-                << drawn.scenario.attacker.index() << ", target " << drawn.target.index();
-        }
-    });
 }
 
 }  // namespace

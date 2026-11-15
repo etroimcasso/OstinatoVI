@@ -425,21 +425,22 @@ fails the run:
 A call the log opens and never closes — the routine left by some other way than its callers' return
 sites — is not replayed. A call that cannot be rebuilt counts as a difference, with the reason logged.
 Copy a recording into `tests/fixtures/damage-trace/` (any `.log` file name) and
-`tests/test_trace_replay.cpp` replays it with the rest of the damage tests. `first-fight.log` there is
-the first fight in Narshe, played from `first-fight.inputs`'s state, in which Terra's Bio Blast sets
-Poison and Sap on both guards; `tests/test_trace_state.cpp` checks that it holds a status being set.
-`failed-metamorph.log` is the same fight with the failed Metamorph written in (above), and
-`tests/test_trace_state.cpp` checks that it runs both effect routines, Metamorph's among them.
-`esper-win.log` is the same fight won with Terrato written in (above), and `tests/test_espers_oracle.cpp`
-checks what its four record calls read and wrote. The cartridge's own calls of the two status routines,
-traced through the oracle, are replayed by `tests/test_status_oracle.cpp`, of the two effect routines by
-`tests/test_effects_oracle.cpp`, and of the two routines on the party's records by
-`tests/test_espers_oracle.cpp`. `tests/test_ai_trace.cpp` replays the cartridge's own AI calls traced
-through the oracle — every script readied, every script's turns, every counterattack part on every path
-through its guard and the three commands — and checks what `guards-counter.log` and
-`petrified-guard.log` hold. `tests/test_rewards_trace.cpp` replays the win's steps and the wrap-up, the
-win and the loss traced through the oracle, and checks and replays `rewards-win.log` and
-`rewards-loss.log`.
+`tests/oracle/test_trace_replay.cpp` replays it with the rest of the damage tests. `first-fight.log` there
+is the first fight in Narshe, played from `first-fight.inputs`'s state, in which Terra's Bio Blast sets
+Poison and Sap on both guards; `tests/oracle/test_trace_state.cpp` checks that it holds a status being
+set. `failed-metamorph.log` is the same fight with the failed Metamorph written in (above), and
+`tests/oracle/test_trace_state.cpp` checks that it runs both effect routines, Metamorph's among them.
+`esper-win.log` is the same fight won with Terrato written in (above), and
+`tests/oracle/test_espers_oracle.cpp` checks what its four record calls read and wrote. The cartridge's
+own calls of the two status routines, traced through the oracle, are replayed by
+`tests/oracle/test_status_oracle.cpp`, of the two effect routines by `tests/oracle/test_effects_oracle.cpp`,
+and of the two routines on the party's records by `tests/oracle/test_espers_oracle.cpp`.
+`tests/oracle/test_ai_trace.cpp` replays the cartridge's own AI calls traced through the oracle — every
+script readied, every script's turns, every counterattack part on every path through its guard and the
+three commands — and checks what `guards-counter.log` and `petrified-guard.log` hold.
+`tests/oracle/test_rewards_trace.cpp` replays the win's steps and the wrap-up, the win and the loss traced
+through the oracle, and checks and replays `rewards-win.log` and `rewards-loss.log`. A brief run of the
+tests skips every replay (§ Checking).
 
 ## Checking
 
@@ -457,40 +458,40 @@ work RAM and run through each routine and through the port's rule for it. Each s
 
 | Name | The routine | The test that sweeps the same draws |
 |---|---|---|
-| `base-damage` | `CalcDmg` | `tests/test_damage_formulas.cpp` |
-| `relic-bonus` | `RelicDmgEffect` | `tests/test_damage_formulas.cpp` |
-| `multiplier` | `ApplyDmgMult` | `tests/test_damage_formulas.cpp` |
-| `target-damage` | `CalcTargetDmg` | `tests/test_target_damage.cpp` |
-| `apply-damage` | the apply-and-show routine | `tests/test_apply_damage.cpp` |
-| `reflected-attack` | `CalcReflectDmg` | `tests/test_reflected_attack.cpp` |
-| `status-changes` | `UpdateStatus` | `tests/test_status_changes.cpp` |
-| `status-effect` | `MagicStatusEffect` | `tests/test_status_effect.cpp` |
-| `attacker-effect` | `DoAttackerEffect` | `tests/test_effects_oracle.cpp` |
-| `target-effect` | `DoTargetEffect` | `tests/test_target_effects.cpp` |
-| `params` | `InitGfxParams` | `tests/test_cover_and_params.cpp` |
-| `cover` | `CoverEffect` | `tests/test_cover_and_params.cpp` |
-| `esper-learning` | `LearnGenjuMagic` | `tests/test_espers_oracle.cpp` |
-| `level-up` | `DoLevelUp` | `tests/test_espers_oracle.cpp` |
-| `ai-targets` | `CheckAITarget`, the battlers a monster's script names | `tests/test_ai_oracle.cpp` |
-| `ai-conditions` | the condition routines a monster's script tests, through the cartridge's table of them | `tests/test_ai_oracle.cpp` |
-| `ai-setup` | `InitAI`, a script readied into a slot that held another | `tests/test_ai_run_oracle.cpp` |
-| `ai-turns` | `ExecMonsterAction`, one turn of a script | `tests/test_ai_run_oracle.cpp` |
-| `ai-counters` | `ExecAIRetal`, a counterattack part on one of the eight paths through its guard | `tests/test_ai_run_oracle.cpp` |
-| `ai-commands` | `Cmd_2e`, `Cmd_2f` and `Cmd_30`, the three commands only a script queues, with every effect; `SetStatus` and `ClearStatus` run the whole attack frame | `tests/test_ai_run_oracle.cpp` |
-| `attack` | `ExecAttack`, every attack of a command's attack, a Fight's and a Capture's hand loaded at each swing among them, against `battle::runAttack()` | `tests/test_attack_oracle.cpp` |
-| `self-attack` | `ExecSelfAttack`, an attack aimed at its attacker, against `battle::runSelfAttack()` | `tests/test_attack_oracle.cpp` |
-| `own-actions` | `Cmd_22`, `Cmd_26`, `Cmd_29` and `Cmd_2d`, the battle's own damage over time, spell with no caster, status timers running out and Seize's drain, and `Cmd_30`'s `SetStatus` and `ClearStatus`, each run whole against `CommandExecutor::execute()` | `tests/test_own_actions_oracle.cpp` |
-| `add-exp` | `AddExp`, a share of a win's experience added to a record | `tests/test_rewards_oracle.cpp` |
-| `item-learning` | `LearnItemMagic`, the spells a record's equipment teaches, with the Cursed Shield's count | `tests/test_rewards_oracle.cpp` |
-| `level-ups` | `CheckLevelUp`, every level a record reaches with what each teaches and the messages told | `tests/test_rewards_oracle.cpp` |
-| `abilities` | `LearnAbilities`, what an actor learns at a level | `tests/test_rewards_oracle.cpp` |
-| `rages` | `LearnRage`, the rages of the six monster slots | `tests/test_rewards_oracle.cpp` |
-| `items-obtained` | graphics command `$05`, an item added to the items obtained, against `battle::obtainItem()` | `tests/test_battle_end_oracle.cpp` |
-| `items-merged` | graphics command `$0A`, the items obtained merged into the inventory, against `battle::mergeItemsObtained()` | `tests/test_battle_end_oracle.cpp` |
-| `wrap-up` | `_c24903`, the close every ending but two runs, against `battle::wrapUpBattle()`, with every cell it reads written first | `tests/test_battle_end_oracle.cpp` |
-| `win` | `WinBattle`, the win whole — the celebration, the wrap-up, the colosseum, experience, levels, spells, lores, the dance, drops and gold, every message — against `battle::playBattleEnd()` | `tests/test_battle_end_oracle.cpp` |
-| `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/test_battle_end_oracle.cpp` |
-| `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/test_battle_end_oracle.cpp` |
+| `base-damage` | `CalcDmg` | `tests/oracle/test_damage_formulas.cpp` |
+| `relic-bonus` | `RelicDmgEffect` | `tests/oracle/test_damage_formulas.cpp` |
+| `multiplier` | `ApplyDmgMult` | `tests/oracle/test_damage_formulas.cpp` |
+| `target-damage` | `CalcTargetDmg` | `tests/oracle/test_target_damage.cpp` |
+| `apply-damage` | the apply-and-show routine | `tests/oracle/test_apply_damage.cpp` |
+| `reflected-attack` | `CalcReflectDmg` | `tests/oracle/test_reflected_attack.cpp` |
+| `status-changes` | `UpdateStatus` | `tests/oracle/test_status_changes.cpp` |
+| `status-effect` | `MagicStatusEffect` | `tests/oracle/test_status_effect.cpp` |
+| `attacker-effect` | `DoAttackerEffect` | `tests/oracle/test_effects_oracle.cpp` |
+| `target-effect` | `DoTargetEffect` | `tests/oracle/test_target_effects.cpp` |
+| `params` | `InitGfxParams` | `tests/oracle/test_cover_and_params.cpp` |
+| `cover` | `CoverEffect` | `tests/oracle/test_cover_and_params.cpp` |
+| `esper-learning` | `LearnGenjuMagic` | `tests/oracle/test_espers_oracle.cpp` |
+| `level-up` | `DoLevelUp` | `tests/oracle/test_espers_oracle.cpp` |
+| `ai-targets` | `CheckAITarget`, the battlers a monster's script names | `tests/oracle/test_ai_oracle.cpp` |
+| `ai-conditions` | the condition routines a monster's script tests, through the cartridge's table of them | `tests/oracle/test_ai_oracle.cpp` |
+| `ai-setup` | `InitAI`, a script readied into a slot that held another | `tests/oracle/test_ai_run_oracle.cpp` |
+| `ai-turns` | `ExecMonsterAction`, one turn of a script | `tests/oracle/test_ai_run_oracle.cpp` |
+| `ai-counters` | `ExecAIRetal`, a counterattack part on one of the eight paths through its guard | `tests/oracle/test_ai_run_oracle.cpp` |
+| `ai-commands` | `Cmd_2e`, `Cmd_2f` and `Cmd_30`, the three commands only a script queues, with every effect; `SetStatus` and `ClearStatus` run the whole attack frame | `tests/oracle/test_ai_run_oracle.cpp` |
+| `attack` | `ExecAttack`, every attack of a command's attack, a Fight's and a Capture's hand loaded at each swing among them, against `battle::runAttack()` | `tests/oracle/test_attack_oracle.cpp` |
+| `self-attack` | `ExecSelfAttack`, an attack aimed at its attacker, against `battle::runSelfAttack()` | `tests/oracle/test_attack_oracle.cpp` |
+| `own-actions` | `Cmd_22`, `Cmd_26`, `Cmd_29` and `Cmd_2d`, the battle's own damage over time, spell with no caster, status timers running out and Seize's drain, and `Cmd_30`'s `SetStatus` and `ClearStatus`, each run whole against `CommandExecutor::execute()` | `tests/oracle/test_own_actions_oracle.cpp` |
+| `add-exp` | `AddExp`, a share of a win's experience added to a record | `tests/oracle/test_rewards_oracle.cpp` |
+| `item-learning` | `LearnItemMagic`, the spells a record's equipment teaches, with the Cursed Shield's count | `tests/oracle/test_rewards_oracle.cpp` |
+| `level-ups` | `CheckLevelUp`, every level a record reaches with what each teaches and the messages told | `tests/oracle/test_rewards_oracle.cpp` |
+| `abilities` | `LearnAbilities`, what an actor learns at a level | `tests/oracle/test_rewards_oracle.cpp` |
+| `rages` | `LearnRage`, the rages of the six monster slots | `tests/oracle/test_rewards_oracle.cpp` |
+| `items-obtained` | graphics command `$05`, an item added to the items obtained, against `battle::obtainItem()` | `tests/oracle/test_battle_end_oracle.cpp` |
+| `items-merged` | graphics command `$0A`, the items obtained merged into the inventory, against `battle::mergeItemsObtained()` | `tests/oracle/test_battle_end_oracle.cpp` |
+| `wrap-up` | `_c24903`, the close every ending but two runs, against `battle::wrapUpBattle()`, with every cell it reads written first | `tests/oracle/test_battle_end_oracle.cpp` |
+| `win` | `WinBattle`, the win whole — the celebration, the wrap-up, the colosseum, experience, levels, spells, lores, the dance, drops and gold, every message — against `battle::playBattleEnd()` | `tests/oracle/test_battle_end_oracle.cpp` |
+| `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/oracle/test_battle_end_oracle.cpp` |
+| `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/oracle/test_battle_end_oracle.cpp` |
 
 While one of the reward routines runs, its calls to the graphics program (`ExecBtlGfx`, `$C2:6411`) are
 answered by the oracle at the graphics program's entry (`$C1:0000`): each call is recorded with the cells
@@ -502,8 +503,9 @@ cartridge's own table of graphics commands at `$C1:0008`. A message is compared 
 shows.
 
 `--replay-traced` also traces the traced routines' calls and endings in each draw and replays them
-against the port, as `tests/test_trace_replay.cpp`, `tests/test_status_oracle.cpp`,
-`tests/test_effects_oracle.cpp`, `tests/test_espers_oracle.cpp` and `tests/test_rewards_trace.cpp` do; a
+against the port, as `tests/oracle/test_trace_replay.cpp`, `tests/oracle/test_status_oracle.cpp`,
+`tests/oracle/test_effects_oracle.cpp`, `tests/oracle/test_espers_oracle.cpp` and
+`tests/oracle/test_rewards_trace.cpp` do; a
 target-effect draw's calls are given the draw's target. The oracle tells the trace what it hands a
 routine itself: the actor and level of an `abilities` call and the message of a `loss` call, logged as
 `snapshot LoseBattle handed <message>`. On
@@ -520,6 +522,45 @@ Each `attack`, `self-attack`, `own-actions`, `wrap-up`, `win`, `loss` and `write
 the frame reads before anything wrote it. `DamageOracle::unwrittenReads()` lists them after a call;
 `kCellsLeftAsTheMachineHasThem` in `src/scenarios/battle/battle_cells.h` holds the few the frame reads and nothing it shows
 or keeps depends on, each with its reason. Any other cell in the list is one the scenario must write.
+
+### The tests that ask the cartridge
+
+The test binaries ask the oracle two ways. A hand check works a case out by hand from the original,
+runs the port on it and, beside it, the cartridge's own routine; the port must give the hand-worked
+value and the cartridge the same. Hand checks sit in `tests/` with the port's other tests: the damage
+formulas, the damage to one target and the damage taken and shown, the statuses, the special effects
+and the control menu, the cover and the attack's animation, the espers at a battle's end, the rewards,
+the attack frame, the battle's own actions, the AI's targets, conditions, runs and commands, and the
+last places of the items obtained at power-on. A test that asks only the cartridge — a sweep over
+drawn scenarios, a replay of a trace or a recording, a read-set or write-set gate, the battle whole,
+the oracle's own checks of where the routines are — sits in `tests/oracle/`, under the file name of
+the hand checks it goes with (`tests/oracle/test_damage_formulas.cpp` holds the formulas' sweeps), and
+is built into the same test binary.
+
+How much of the cartridge a run of the tests asks is chosen by the environment variable
+`OSTINATO_CARTRIDGE_CHECKS`, read in `tests/with_cartridge.h`:
+
+| Value | The run |
+|---|---|
+| unset or empty | everything: every test runs, and every hand check asks the cartridge beside the port |
+| `brief` | the hand checks run on the port alone, and every test that hosts the cartridge is skipped, giving the reason `asks the cartridge on the engine's machine; a brief run leaves it out (OSTINATO_CARTRIDGE_CHECKS=brief)` — but for the oracle's own tests (`tests/oracle/test_damage_oracle.cpp`) and `DamageTraceTool.ChecksEveryRoutineBriefly`; the trace's parsers, state files, input scripts and cell writes need no machine and run |
+| anything else | the first test that asks fails, naming the variable and the value |
+
+With `FF6_VANILLA_ROM` naming the cartridge, from the repository's root:
+
+```sh
+ctest --test-dir build -j 3                                    # everything
+OSTINATO_CARTRIDGE_CHECKS=brief ctest --test-dir build -j 3    # brief
+```
+
+`DamageTraceTool.ChecksEveryRoutineBriefly` runs the tool itself, `--check 20` through every routine
+above, in both runs (`cmake/run_damage_trace_check.cmake`); it passes on the tool's exit code, and the
+directory the tool writes is removed after.
+
+A new hand check takes its cartridge from `withCartridge()` and asks it through a helper that does
+nothing where there is no cartridge to ask; a new test that asks only the cartridge goes in
+`tests/oracle/`, opens with `OSTINATO_SKIP_WHEN_BRIEF()` and takes the oracle from
+`withStartedOracle()`. `tests/with_cartridge.h` opens with an example of each.
 
 ## The battle whole
 
@@ -574,7 +615,7 @@ since. `StartResult::readsBeyondTheBattlesCells` holds every read of `$7E:4000-$
 empty party slot's hands, read through its record offset `$FFFF` from bank `$7F`, are listed.
 `portStart(scenario, text, sprites)` is the port's start over the same scenario.
 
-`tests/test_battle_start_oracle.cpp` checks that the battle program's entry is where the US cartridges
+`tests/oracle/test_battle_start_oracle.cpp` checks that the battle program's entry is where the US cartridges
 hold it and that an image without it is refused; calls it from the first fight as `first-fight.inputs`
 leaves the machine and from that fight's scenario written into a machine fresh from its reset code, each
 opening, reaching the loop and returning; checks that a scenario written reads back the same; compares
@@ -695,11 +736,5 @@ drawn scenario a `describe()`.
 | `ending/ending.h` | a battle's end's cells |
 | `ai/ai.h` | a battler's AI's cells |
 
-**The tests that run the oracle.** `tests/test_damage_formulas.cpp` and `tests/test_target_damage.cpp`
-run it against the port's formulas, `tests/test_status_changes.cpp` and `tests/test_status_effect.cpp`
-against its status rules, `tests/test_attacker_effects.cpp`, `tests/test_target_effects.cpp` and
-`tests/test_control_menu.cpp` against its special effects, `tests/test_cover_and_params.cpp` against its
-cover and its setting up of the attack's animation, `tests/test_espers_oracle.cpp` against an esper's
-spells learned and a level-up at a battle's end, `tests/test_attack_oracle.cpp` against the whole attack
-frame, `tests/test_own_actions_oracle.cpp` against the battle's own actions, and
-`tests/test_battle_start_oracle.cpp` calls the battle program whole (`DamageOracle::battleStart()`).
+The tests that run the oracle, and how a run of the tests chooses how much of the cartridge to ask, are
+in § Checking, § The tests that ask the cartridge.

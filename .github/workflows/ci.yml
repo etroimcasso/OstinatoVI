@@ -22,6 +22,10 @@ concurrency:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  # A brief run of the tests: the hand checks run on the port alone, and the tests that ask only the
+  # cartridge are skipped, the oracle's own tests and the damage trace's 20-draw check excepted
+  # (tests/with_cartridge.h).
+  OSTINATO_CARTRIDGE_CHECKS: brief
 
 jobs:
 
