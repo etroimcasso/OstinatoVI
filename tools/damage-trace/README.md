@@ -603,25 +603,51 @@ decides: the hands and control menus of a slot with none, what a battler was las
 has been hit, the special attack of a battler with no monster, which way the battlers face. A cell
 two writers lay differently at a bit with meaning is a line of its own.
 
+The same pass lays the cells no routine's scenario writes, in three parts:
+
+- `layMenusAsTheCartridgeHoldsIt()` — each party slot's four commands, its spell list (the esper, the
+  spells by their places, the lores), the party's own list and every attack's place in it, the espers
+  equipped and the Genji Gloves worn, and the SwdTechs, Blitzes, lores, rages and dances known.
+- `layBattlersAsTheCartridgeHoldsIt()` — each battler's ATB gauge and rate, advance wait and its
+  counter, status timers, damage-over-time beat and poison multiplier, Morph gauge and condemned count,
+  speed, equipment statuses and relics, run progress, experience, dance and the name it is listed under.
+- `layBattleAsTheCartridgeHoldsIt()` — the flags at `$B0`, the last attack's level, the settings, Roulette's
+  choice, the run buttons, the sets of battlers the battle keeps between steps, the battlers acting and
+  counterattacking, the three lines, the player's records, Mimic's memory, the tools owned and the
+  end-of-battle events.
+
+A line and the player's records are rings, laid from where the machine's ring starts: in a
+comparison, the cartridge's. The slots from there hold the battlers, or the records, in order, and the
+start itself is held by what is laid from it (`LaidState::positions`). A party member seated with no
+record has its record offset laid as `$FFFF` and everything the start loads through that offset left
+out (`docs/contracts/battle_core.md`, the start's seating).
+
 A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
-bits 7, 2 and 1, a battler mask by the bits that name a battler. Every other bit of a cell the battle
-program writes must be on `cellsNotCompared()` with its reason.
+bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's
+second byte by its bit 7. Every other bit of a cell the battle program writes must be on
+`cellsNotCompared()` with its reason; a row the start alone has shown is marked provisional.
 
 Two gates keep the comparison whole. `uncoveredWrites(state, boosts, StartResult::battleWrites)` names
 every cell the battle program wrote up to the loop's first frame wait that the comparison does not cover
 in full. `carriedReads(state, boosts, StartResult::readsAfterThePoint)` names every read the battle
-program made after that wait of a cell, or bit, the comparison does not hold and nothing had written
-since. `StartResult::readsBeyondTheBattlesCells` holds every read of `$7E:4000-$7F:FFFF` not listed — an
-empty party slot's hands, read through its record offset `$FFFF` from bank `$7F`, are listed.
-`portStart(scenario, text, sprites)` is the port's start over the same scenario.
+program made after that wait of a cell the comparison does not hold and nothing had written since. A
+cell compared in part is held by its compared bits, and its row on `cellsNotCompared()` names every
+reader of the rest; a ring's start is held; the stack, `$7E:1500-15FF`, is never carried, since a return
+reads what its own call pushed. A watch is handed the cell and the byte, not the instruction, so a
+gate's line names those two. `StartResult::readsBeyondTheBattlesCells` holds every read of
+`$7E:4000-$7F:FFFF` not listed — an empty party slot's hands, read through its record offset `$FFFF`
+from bank `$7F`, are listed. `portStart(scenario, text, sprites)` is the port's start over the same
+scenario.
 
 `tests/oracle/test_battle_start_oracle.cpp` checks that the battle program's entry is where the US cartridges
 hold it and that an image without it is refused; calls it from the first fight as `first-fight.inputs`
 leaves the machine and from that fight's scenario written into a machine fresh from its reset code, each
 opening, reaching the loop and returning; checks that a scenario written reads back the same; compares
 the first fight's start with the port's, from the machine and from its written scenario, and a scripted
-setup's start that keeps monster slot 0 out of reach; checks that the start reads nothing it was not
-handed but the listed cells; and checks each gate on cells whose answer is known.
+setup's start that keeps monster slot 0 out of reach, and the same setup's start with no record for
+the character it seats; checks that the start reads nothing it was not handed but the listed cells;
+checks each gate on cells whose answer is known; and checks both gates empty over the first fight's
+start.
 
 ## Files
 
@@ -696,6 +722,9 @@ routines' addresses in namespace `routines`.
 | `ai/ai_replay.cpp` | `readAiScenario()`: a battler's AI rebuilt from a recorded call, and replayed |
 | `battle/start.cpp` | the battle program called whole, `battleStart()`, and a start scenario written and read back |
 | `battle/battle_state.cpp` | the whole state compared: `writeBattleState()`, `compareBattleState()` and the two gates `uncoveredWrites()` and `carriedReads()` |
+| `battle/state_menus.cpp` | the party's command menus, spell lists and skills, laid as the cartridge holds them |
+| `battle/state_battlers.cpp` | each battler's clocks, counters and own cells, laid as the cartridge holds them |
+| `battle/state_battle.cpp` | the battle's flags, settings, lines, records and Mimic's memory, laid as the cartridge holds them |
 
 **`src/scenarios/`, the port's side**
 
@@ -718,7 +747,8 @@ routines' addresses in namespace `routines`.
 | `ai/ai_commands.{h,cpp}` | `portAiCommand()`; `drawAiCommandCase()` |
 | `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
 | `battle/start.{h,cpp}` | `StartScenario` and `StartResult`; `portStart()` |
-| `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables, `cellMeanings()` and `cellsNotCompared()`, and the cells left as the machine has them |
+| `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |
+| `battle/cells_not_compared.cpp` | `cellsNotCompared()`, every cell or bit the battle program writes that the comparison does not cover, with its reason; `onTheStack()` |
 
 Every result has a `differences()` beside it, which compares two of them cell by cell, and every
 drawn scenario a `describe()`.
@@ -735,6 +765,7 @@ drawn scenario a `describe()`.
 | `ending/party.h` | the rewards' cells besides the records |
 | `ending/ending.h` | a battle's end's cells |
 | `ai/ai.h` | a battler's AI's cells |
+| `battle/state.h` | the battle's state cells no routine's scenario writes: its flags, lines and records, each battler's clocks, the party's menus, spell lists and skills, Mimic's memory |
 
 The tests that run the oracle, and how a run of the tests chooses how much of the cartridge to ask, are
 in § Checking, § The tests that ask the cartridge.

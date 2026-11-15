@@ -52,6 +52,9 @@ struct CellsNotCompared {
 [[nodiscard]] std::uint8_t meaningBits(std::uint32_t cell);
 // The bits of `cell` on kCellsNotCompared: none, unless a row lists it.
 [[nodiscard]] std::uint8_t notComparedBits(std::uint32_t cell);
+// Whether `cell` is the stack's or the interrupts' jump code ($7E:1500-15FF): a return reads back what
+// its own call pushed, so a read there is never carried from a comparison point.
+[[nodiscard]] bool onTheStack(std::uint32_t cell);
 
 // Cells the attack frame reads that no scenario writes, left as the machine has them: `count` cells
 // from `at`, `stride` apart. Each is a cell whose value reaches nothing the game shows or keeps.

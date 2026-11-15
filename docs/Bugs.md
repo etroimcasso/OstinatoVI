@@ -210,6 +210,43 @@ anything into a hand in battle; giving them the bit `EquipPermissions::canEquip(
 uses for their actor would match the field menus. Either changes which items a
 guest can hold.
 
+---
+
+## A seated character with no record is loaded from memory past the battle's own
+
+**What happens.** A scripted battle can seat a character the party has no record
+for. The battle still counts them as present, but it finds no record holding
+them, and everything it would have loaded from the record — HP, MP, statuses,
+level, stats, equipment, hands, commands and esper — it reads from memory past
+the battle's own, whatever another program left there.
+
+**Where the original does it.** `InitParty` (`battle/battle_main.asm:7848-7917`)
+marks each seated slot present (`:7853`), then walks the sixteen records for the
+slot's character (`GetCharID`, `:7868-7870`) and stores the record offset only on
+a match (`:7910`). With no match the offset keeps the `$FFFF` the start filled in
+(`:6063-6067`). `LoadCharProp` (`:6602-6661`), `UpdateEquipBattle`
+(`:6745-6828`), `InitInventory` (`:13919-13929`), `InitCmdList`
+(`:13701-13708`) and `ValidateSpellList` (`:14217-14218`) then read through it:
+`$7E:1600` plus `$FFFF` and up is `$7F:15FF` and up.
+
+**Where the port keeps it.** It does not: there is no memory past the battle's
+own in the port for the reads to find. `seat()` in `src/battle/party_setup.cpp`
+finds no record for the character and leaves `Battler::record` empty, and
+`loadParty()` passes the slot by, so the character is present with nothing
+loaded. In play the case does not arise: a record gets its character only from
+the event command that gives a character its properties
+(`field/event.asm:1079`), so a setup's character has a record whenever the story
+has created them before the battle. `tests/oracle/test_battle_start_oracle.cpp`
+(`BattleStartOracleTest.ASeatedCharacterWithNoRecordIsLeftOutOfTheComparison`)
+starts such a battle on the cartridge and holds every cell not loaded through the
+record to the port's.
+
+**If you want to change it.** Giving such a character a record's worth of values
+means choosing them, since the original has none to give; refusing to seat a
+character with no record changes who stands in the battle.
+
+---
+
 ## Monsters with the same English name are listed on separate lines
 
 **What happens.** The battle's list of monsters' names counts monsters that

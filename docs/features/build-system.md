@@ -99,11 +99,11 @@ How much of the cartridge a run asks is chosen when the tests run, by `OSTINATO_
 
 | Run | Passed / total / skipped |
 |---|---|
-| Everything (`OSTINATO_CARTRIDGE_CHECKS` unset) — a developer's machine | 2140/2148/8 |
-| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) — every CI build job | 2028/2148/120 |
+| Everything (`OSTINATO_CARTRIDGE_CHECKS` unset) — a developer's machine | 2142/2150/8 |
+| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) — every CI build job | 2028/2150/122 |
 
 Eight skips are in both runs: the Japanese-cartridge cases, until a Japanese cartridge is available.
-The brief run's other 112 are the tests that host the cartridge and have nothing but the cartridge to
+The brief run's other 114 are the tests that host the cartridge and have nothing but the cartridge to
 check.
 
 ### C++ standard & compiler minimums

@@ -54,11 +54,11 @@ constexpr std::size_t kPlayClockFramesCell = 0x021E;
 constexpr std::size_t kMonstersStandingCell = 0x2F2F;
 constexpr std::size_t kMonsterReachCell = 0x2F46;
 // Cells for the gates: one the comparison holds whole (the party slot 0's field flags, $3AA0), one
-// the start's fill writes that no field determines ($2F55), and one the comparison leaves out (which
-// way the battlers face, $2F50).
+// no field determines and no row of the cells not compared lists (one of the field program's own,
+// $0600), and one the comparison leaves out (which way the battlers face, $2F50).
 constexpr std::uint32_t kWorkRam = 0x7E0000;
 constexpr std::uint32_t kHeldCell = kWorkRam + 0x3AA0;
-constexpr std::uint32_t kUnheldFillCell = kWorkRam + 0x2F55;
+constexpr std::uint32_t kUncoveredCell = kWorkRam + 0x0600;
 constexpr std::uint32_t kLeftOutCell = kWorkRam + 0x2F50;
 // The byte after the last inventory slot's quantity, which the start reads sixteen bits wide.
 constexpr std::uint32_t kQuantityHighByte = kWorkRam + 0x1A69;
@@ -302,8 +302,8 @@ TEST_F(BattleStartOracleTest, TheFirstFightsStartReadsNothingItWasNotHanded) {
 }
 
 // The two gates on the first fight's start, each on cells whose answer is known: the write-set gate
-// names a cell the start's fill wrote that no field determines and passes one the comparison holds; the
-// carried-read gate names a read of a cell the comparison left out and passes a read of one it holds.
+// names a cell neither compared nor listed and passes one the comparison holds; the carried-read gate
+// names a read of a cell the comparison left out and passes a read of one it holds.
 TEST_F(BattleStartOracleTest, TheGatesNameWhatTheComparisonDoesNotHold) {
     OSTINATO_SKIP_WHEN_BRIEF();
     const std::vector<std::uint8_t>& state = firstFight();
@@ -315,13 +315,12 @@ TEST_F(BattleStartOracleTest, TheGatesNameWhatTheComparisonDoesNotHold) {
         const trace::StartScenario scenario = oracle.readStartScenario();
         const StartResult result = oracle.battleStartAsItStands();
         ASSERT_TRUE(result.reachedTheLoop);
-        ASSERT_TRUE(result.battleWrites.contains(kUnheldFillCell));
         ASSERT_TRUE(result.battleWrites.contains(kHeldCell));
         const battle::BattleState port = trace::portStart(scenario, content().text, content().monsterSprites);
 
         EXPECT_EQ(oracle.uncoveredWrites(port, scenario.cells, {kHeldCell}), "");
-        EXPECT_EQ(oracle.uncoveredWrites(port, scenario.cells, {kUnheldFillCell}),
-                  "$7E:2F55 written, bits FF not compared\n");
+        EXPECT_EQ(oracle.uncoveredWrites(port, scenario.cells, {kUncoveredCell}),
+                  "$7E:0600 written, bits FF not compared\n");
         // The fill's bits of $3205 are listed; its write is held whole between them.
         EXPECT_EQ(oracle.uncoveredWrites(port, scenario.cells, {kWorkRam + 0x3205}), "");
 
@@ -330,6 +329,26 @@ TEST_F(BattleStartOracleTest, TheGatesNameWhatTheComparisonDoesNotHold) {
                                       {trace::UnwrittenRead{.at = kLeftOutCell, .value = 0xFF},
                                        trace::UnwrittenRead{.at = kLeftOutCell, .value = 0xFF}}),
                   "$7E:2F50 read after the comparison, FF, not compared\n");
+    });
+}
+
+// The first fight's start, both gates whole: every cell the battle program writes up to the loop's
+// first frame wait is compared or listed, and every listed cell the battle's end reads after it was
+// written since.
+TEST_F(BattleStartOracleTest, TheFirstFightsStartLeavesNoCellUncompared) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const std::vector<std::uint8_t>& state = firstFight();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        oracle.useMonsterSprites(content().monsterSprites);
+        ASSERT_TRUE(oracle.machine().restore(state));
+        const trace::StartScenario scenario = oracle.readStartScenario();
+        const StartResult result = oracle.battleStartAsItStands();
+        ASSERT_TRUE(result.reachedTheLoop);
+        const battle::BattleState port = trace::portStart(scenario, content().text, content().monsterSprites);
+        EXPECT_EQ(oracle.uncoveredWrites(port, scenario.cells, result.battleWrites), "");
+        EXPECT_EQ(oracle.carriedReads(port, scenario.cells, result.readsAfterThePoint), "");
     });
 }
 
@@ -379,6 +398,38 @@ TEST_F(BattleStartOracleTest, AScriptedSetupKeepsItsMonstersOutOfReach) {
         const battle::BattleState port = trace::portStart(scenario, content().text, content().monsterSprites);
         EXPECT_EQ(static_cast<std::uint8_t>(~port.aiUntargetable.monsters.bits), result.cells[kMonsterReachCell])
             << "formation " << static_cast<int>(*chosen);
+        EXPECT_EQ(oracle.compareBattleState(port, scenario.cells, result.cells), "");
+    });
+}
+
+// The same formation started from the first fight's party as it stands, so a character the setup
+// seats has no record: the cartridge loads what it loads for them from bank $7F, the port loads
+// nothing, and the comparison leaves out everything loaded through their record and holds the rest.
+TEST_F(BattleStartOracleTest, ASeatedCharacterWithNoRecordIsLeftOutOfTheComparison) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    std::optional<FormationId> chosen;
+    for (int id = 0; id < kFormationCount && !chosen; ++id) {
+        const FormationAux& aux = getFormationAux(static_cast<FormationId>(id));
+        if (aux.characterAiEnabled() &&
+            charAiSetup(static_cast<CharAiId>(aux.characterAiIndex())).validMonsterTargets.bits == kSlotZeroOutOfReach) {
+            chosen = static_cast<FormationId>(id);
+        }
+    }
+    ASSERT_TRUE(chosen) << "no scripted setup keeps a monster out of reach";
+    const std::vector<std::uint8_t>& state = firstFight();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        oracle.start();
+        oracle.useMonsterSprites(content().monsterSprites);
+        ASSERT_TRUE(oracle.machine().restore(state));
+        trace::StartScenario scenario = oracle.readStartScenario();
+        scenario.start.formation = FormationRef::of(*chosen);
+        const StartResult result = oracle.battleStart(scenario);
+        ASSERT_TRUE(result.reachedTheLoop);
+        const battle::BattleState port = trace::portStart(scenario, content().text, content().monsterSprites);
+        const bool seatedWithNoRecord = std::any_of(port.battlers.begin(), port.battlers.end(),
+                                                    [](const battle::Battler& b) { return b.actor && !b.record; });
+        ASSERT_TRUE(seatedWithNoRecord) << "the setup seats no character without a record";
         EXPECT_EQ(oracle.compareBattleState(port, scenario.cells, result.cells), "");
     });
 }

@@ -473,6 +473,17 @@ for them to hold it in battle: Terra to Umaro each have a bit of their own; for 
 the fifth and sixth bytes of their name (`:7891-7908` — see `docs/Bugs.md`). With two records
 holding the same character, the lower record's values are the ones kept.
 
+A character seated with **no record holding them** is still present (`inc $3aa0,x`, `:7853`), but
+the record loop finds no match (`GetCharID`, `:7868-7870`), so the slot's record offset keeps the
+start's `$FFFF` (`:6063-6067`, `:7910`). Everything the start loads through that offset comes from
+past the battle's own memory, at `$7F:15FF` and up: the HP, MP, statuses and level (`LoadCharProp`
+`:6602-6661`), what the equipment gives (`UpdateEquipBattle` `:6745-6828`), the hands
+(`InitInventory` `:13919-13929`), the commands (`InitCmdList` `:13701-13708`) and the esper
+(`ValidateSpellList` `:14217-14218`). The port loads nothing for such a character: `seat()` finds no
+record and `loadParty()` passes the slot by (see `docs/Bugs.md`). A record gets its character only
+from the event command that gives a character its properties (`field/event.asm:1079`), so a setup's
+character has a record whenever the story has created them before the battle.
+
 ### Equipment into battle stats
 
 `deriveEquipment()` (`UpdateEquip` `:2289-2389`) starts from the character's battle properties —

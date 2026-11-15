@@ -332,8 +332,10 @@ public:
     // `state` laid into the battle's cells: the cells a BattleState field determines, through the
     // writers every routine's scenario is written by — the attack frame's, the AI's, the scripts' and
     // the ending's — with none of the attack, command or script those writers also lay, and the
-    // party's records holding `boosts`' HP and MP boost bits. Where a field says a place holds nothing,
-    // the cell holds what the cartridge's start leaves there.
+    // party's records holding `boosts`' HP and MP boost bits — and the cells no routine's scenario
+    // writes: the party's menus, spell lists and skills, each battler's clocks and counters, and the
+    // battle's flags, lines, records and Mimic's memory. Where a field says a place holds nothing, the
+    // cell holds what the cartridge's start leaves there.
     void writeBattleState(const battle::BattleState& state, const PartyCells& boosts);
 
     // The cells writeBattleState() lays `state` into, each by the bits of it that have meaning
@@ -344,15 +346,18 @@ public:
                                                  const BattleCells& cartridge);
 
     // The write-set gate: every cell in `written` that compareBattleState() does not cover in full —
-    // its bits with meaning and its bits on kCellsNotCompared between them short of the whole byte —
-    // one line per cell naming it and the bits left. Empty when every cell written is covered.
+    // its bits with meaning and its bits on kCellsNotCompared between them short of the whole byte,
+    // and the cell neither left out as no field determines it nor a ring's start — one line per cell
+    // naming it and the bits left. Empty when every cell written is covered.
     [[nodiscard]] std::string uncoveredWrites(const battle::BattleState& state, const PartyCells& boosts,
                                               const std::set<std::uint32_t>& written);
 
-    // The carried-read gate: every read in `reads` (StartResult::readsAfterThePoint) of a cell or bit
-    // compareBattleState() left out for `state` — on kCellsNotCompared, left out as no field
-    // determines it, or a bit outside its meaning — one line per read naming the cell and the byte.
-    // Empty when the battle read nothing the comparison did not hold.
+    // The carried-read gate: every read in `reads` (StartResult::readsAfterThePoint) of a cell
+    // compareBattleState() does not hold for `state` — on kCellsNotCompared, or left out as no field
+    // determines it — one line per cell naming it and the byte the read found. A cell compared in
+    // part is held by its compared bits (its row on kCellsNotCompared names every reader of the rest),
+    // a ring's start is held by what is laid from it, and the stack is never carried. Empty when the
+    // battle read nothing the comparison did not hold.
     [[nodiscard]] std::string carriedReads(const battle::BattleState& state, const PartyCells& boosts,
                                            const std::vector<UnwrittenRead>& reads);
 
@@ -518,6 +523,17 @@ private:
     // writeBattleState()'s last pass: the cells where the cartridge's encoding of the state is not the
     // existing writers', laid as the cartridge holds them, and the cells no field determines left out.
     void writeStateAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    // The cells of that pass no routine's scenario writes: the party's command menus, spell lists and
+    // skills; each battler's clocks and counters; the battle's flags, lines, records and memory.
+    void layMenusAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    void layBattlersAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    void layBattleAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    // One line, laid from the start the machine holds at `startCell`: its slots in `ring` from there,
+    // and its end in the byte after the start.
+    void layLine(std::uint32_t startCell, std::uint32_t ring, const battle::BattlerQueue& line);
+    // A ring's position as the machine holds it: the cartridge's cells a comparison is made against,
+    // or the machine the state is written into.
+    [[nodiscard]] std::uint8_t positionByte(std::uint32_t at);
     void layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes);
     void layByteAsTheCartridgeHoldsIt(std::uint32_t at, std::uint8_t value);
     void layWordAsTheCartridgeHoldsIt(std::uint32_t at, std::uint16_t value);
@@ -529,8 +545,15 @@ private:
         std::map<std::uint32_t, std::uint8_t> cells;
         std::map<std::uint32_t, std::uint8_t> disagreements;  // the bits two writers lay differently
         std::set<std::uint32_t> leftOut;                      // the cells no field determines
+        // The rings' positions: where a line starts and where the next record is read. Each is the
+        // machine's own, and what follows it is laid from it, so the comparison holds it.
+        std::set<std::uint32_t> positions;
     };
-    [[nodiscard]] LaidState layState(const battle::BattleState& state, const PartyCells& boosts);
+    // Hold `count` cells from `at` as a ring's position (LaidState::positions).
+    void holdPosition(std::uint32_t at, std::uint32_t count);
+    // `cartridge`, where given, holds the ring positions the lines and records are laid from.
+    [[nodiscard]] LaidState layState(const battle::BattleState& state, const PartyCells& boosts,
+                                     const BattleCells* cartridge = nullptr);
     [[nodiscard]] std::uint8_t readByte(std::uint32_t at);
     [[nodiscard]] std::uint16_t readWord(std::uint32_t at);
 
@@ -605,6 +628,7 @@ private:
     const MonsterSprites* monsterSprites_ = nullptr;
     // While layState() lays a state out: the cells laid, instead of writing the machine.
     LaidState* capture_ = nullptr;
+    const BattleCells* positionsFrom_ = nullptr;  // while layState() captures against a cartridge
     // The read-set gate: the cells written since the last call began (by the oracle before it, by the
     // guest during it), and the cells the guest read during the last call before any was written.
     std::set<std::uint32_t> gateWritten_;

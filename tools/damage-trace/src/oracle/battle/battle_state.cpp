@@ -30,6 +30,7 @@
 #include "cells/ending/ending.h"
 #include "cells/ending/party.h"
 #include "cells/status/effects.h"
+#include "cells/battle/state.h"
 #include "cells/status/status.h"
 #include "scenarios/common/bytes.h"
 
@@ -69,6 +70,21 @@ constexpr std::uint8_t kBackAttackFlagBit = 0x20;
 constexpr std::uint8_t kMimickingBit = 0x40;
 // A party slot's place in the monsters' index list (kMonsterIndex), $1FF9-$2000: no monster stands there.
 constexpr std::uint32_t kPartySlotsMonsterIndexBytes = 8;
+// The tables of two bytes a battler the start loads from a party member's record (LoadCharProp
+// :6602-6661, UpdateEquipBattle :6745-6828): the to-update flags, HP, MP and their maxima, the statuses
+// to set, the level and speed, vigor, stamina and magic power, evade and magic block, the equipment's
+// statuses, the run factor, the monster flags' undead and human bits, the relic effects, the hands'
+// power, hit rate, spell, element and effects, defense, the statuses blocked, the elements, the block
+// effects and graphics, the hands' items and the relics; and the gauge's start and its rate, worked
+// from the speed (InitGauge :6228-6303, CalcSpeed :1539-1578).
+constexpr std::array<std::uint32_t, 33> kLoadedThroughTheRecord{
+    kWorkRam + 0x3204, kWorkRam + 0x3BF4, kWorkRam + 0x3C08, kWorkRam + 0x3C1C, kWorkRam + 0x3C30,
+    kWorkRam + 0x3DD4, kWorkRam + 0x3DE8, kWorkRam + 0x3B18, kWorkRam + 0x3B2C, kWorkRam + 0x3B40,
+    kWorkRam + 0x3B54, kWorkRam + 0x3C6C, kWorkRam + 0x3D70, kWorkRam + 0x3C94, kWorkRam + 0x3C44,
+    kWorkRam + 0x3B68, kWorkRam + 0x3B7C, kWorkRam + 0x3D34, kWorkRam + 0x3B90, kWorkRam + 0x3BA4,
+    kWorkRam + 0x3BB8, kWorkRam + 0x331C, kWorkRam + 0x3330, kWorkRam + 0x3BCC, kWorkRam + 0x3BE0,
+    kWorkRam + 0x3CBC, kWorkRam + 0x3CA8, kWorkRam + 0x3CD0, kWorkRam + 0x3CE4, kWorkRam + 0x3C58,
+    kWorkRam + 0x3EE4, kWorkRam + 0x3218, kWorkRam + 0x3AC8};
 }  // namespace
 
 void DamageOracle::layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes) {
@@ -226,6 +242,36 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         leaveOut(kWagerCell, 1);
         leaveOut(kPrizeCell, 1);
     }
+
+    layMenusAsTheCartridgeHoldsIt(state);
+    layBattlersAsTheCartridgeHoldsIt(state);
+    layBattleAsTheCartridgeHoldsIt(state);
+
+    // A party member seated with no record: the start finds none for its actor (InitParty :7848-7910),
+    // so its record offset keeps the fill's $FFFF and everything loaded through it comes from bank $7F —
+    // its HP, MP, statuses and level (LoadCharProp :6602-6661), what its equipment gives
+    // (UpdateEquipBattle :6745-6828), its hands (InitInventory :13919-13929), its commands (InitCmdList
+    // :13701-13708) and its esper (ValidateSpellList :14217-14218). No field determines any of it.
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+        const battle::Battler& member = state.at(slot);
+        if (!member.actor || member.record) {
+            continue;
+        }
+        const std::uint32_t at = slotIndex(slot);
+        const auto offset = static_cast<std::uint32_t>(position);
+        layWordAsTheCartridgeHoldsIt(kRecordOffset + at, kNoRecord);
+        for (const std::uint32_t table : kLoadedThroughTheRecord) {
+            leaveOut(table + at, 2);
+        }
+        leaveOut(kShieldHands + offset * kHandItemSize, kHandItemSize);
+        leaveOut(kWeaponHands + offset * kHandItemSize, kHandItemSize);
+        leaveOut(kCommandMenus + offset * kCommandMenuSize, kCommandMenuSize);
+        leaveOut(kSpellLists + offset * kSpellListSize, kSpellListSize);
+        leaveOut(kEsperIndex + at, 2);
+        leaveOut(kGenjiGlove + offset, 1);
+        leaveOut(kSpellCount + at, 1);
+    }
 }
 
 void DamageOracle::writeBattleState(const battle::BattleState& state, const PartyCells& boosts) {
@@ -238,17 +284,20 @@ void DamageOracle::writeBattleState(const battle::BattleState& state, const Part
     writeStateAsTheCartridgeHoldsIt(state);
 }
 
-DamageOracle::LaidState DamageOracle::layState(const battle::BattleState& state, const PartyCells& boosts) {
+DamageOracle::LaidState DamageOracle::layState(const battle::BattleState& state, const PartyCells& boosts,
+                                               const BattleCells* cartridge) {
     LaidState laid;
     capture_ = &laid;
+    positionsFrom_ = cartridge;
     writeBattleState(state, boosts);
+    positionsFrom_ = nullptr;
     capture_ = nullptr;
     return laid;
 }
 
 std::string DamageOracle::compareBattleState(const battle::BattleState& state, const PartyCells& boosts,
                                              const BattleCells& cartridge) {
-    const LaidState laid = layState(state, boosts);
+    const LaidState laid = layState(state, boosts, &cartridge);
     std::string lines;
     char text[112];
     for (const auto& [cell, bits] : laid.disagreements) {
@@ -281,7 +330,7 @@ std::string DamageOracle::uncoveredWrites(const battle::BattleState& state, cons
     for (const std::uint32_t cell : written) {
         const std::uint8_t compared = laid.cells.contains(cell) ? meaningBits(cell) : 0;
         const auto left = static_cast<std::uint8_t>(~(compared | notComparedBits(cell)));
-        if (left != 0 && !laid.leftOut.contains(cell)) {
+        if (left != 0 && !laid.leftOut.contains(cell) && !laid.positions.contains(cell)) {
             std::snprintf(text, sizeof text, "$7E:%04X written, bits %02X not compared\n", cell & 0xFFFF, left);
             lines += text;
         }
@@ -296,8 +345,10 @@ std::string DamageOracle::carriedReads(const battle::BattleState& state, const P
     std::string lines;
     char text[80];
     for (const UnwrittenRead& read : reads) {
-        const bool held = laid.cells.contains(read.at) && meaningBits(read.at) == 0xFF;
-        if (held || named.contains(read.at)) {
+        // A cell compared in part is held by the bits compared: its row on kCellsNotCompared names
+        // every reader of the rest. A return reads what its own call pushed.
+        const bool held = (laid.cells.contains(read.at) && meaningBits(read.at) != 0) || laid.positions.contains(read.at);
+        if (held || onTheStack(read.at) || named.contains(read.at)) {
             continue;
         }
         named.insert(read.at);
