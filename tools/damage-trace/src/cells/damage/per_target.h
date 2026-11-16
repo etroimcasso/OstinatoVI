@@ -153,9 +153,13 @@ inline constexpr std::uint8_t kImpCriticalBit = 0x40;
 inline constexpr std::uint8_t kHumanBit = 0x10;
 inline constexpr std::uint8_t kNameHiddenBit = 0x04;
 inline constexpr std::uint8_t kDiesAtZeroMpBit = 0x01;
-// The stance byte: Defending, the back row.
+// The stance byte: Defending, the back row, a damage-over-time action waiting, the actions going
+// back in line when the battler can act again, and the next action skipping the advance wait.
 inline constexpr std::uint8_t kDefendingBit = 0x02;
 inline constexpr std::uint8_t kBackRowBit = 0x20;
+inline constexpr std::uint8_t kDamageOverTimeWaitingBit = 0x10;
+inline constexpr std::uint8_t kRequeuePendingBit = 0x80;
+inline constexpr std::uint8_t kSkipAdvanceWaitBit = 0x01;
 // The queue's place for the attack's animation is filled with this before a call, and the port's
 // with an animation of this second value, so a rewrite on either side shows.
 inline constexpr std::uint8_t kUnwritten = 0xEE;

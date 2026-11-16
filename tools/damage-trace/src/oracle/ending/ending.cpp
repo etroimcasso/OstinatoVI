@@ -89,7 +89,6 @@ constexpr std::size_t kActorsWithABattler = 16;
 constexpr std::uint32_t kColosseumCell = kWorkRam + 0x3A97;
 constexpr std::uint8_t kInTheColosseum = 0xFF;
 constexpr std::uint32_t kBattleNumber = kWorkRam + 0x3ED4;
-constexpr std::uint32_t kFieldFlags = kWorkRam + 0x11E4;
 constexpr std::uint32_t kBackgroundCell = kWorkRam + 0x11E2;
 constexpr std::uint32_t kDoomGazeBattler = kWorkRam + 0x33FA;
 constexpr std::uint32_t kVeldtBattles = kWorkRam + 0x1DDD;
@@ -332,8 +331,10 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
     writeByte(kRngPosition, state.rng.position());
     const std::array<std::uint8_t, kMessageVariableBytes> variables{};
     writeInFlightBytes(retropp::MemoryRegion{.at = kEndingMessageVariables, .size = kMessageVariableBytes}, variables);
+    // The field's own record of the battles Gau can find, which no BattleState field holds: the
+    // ending's scenario starts it empty.
     const std::array<std::uint8_t, kVeldtBattleBytes> veldt{};
-    writeBytes(retropp::MemoryRegion{.at = kVeldtBattles, .size = kVeldtBattleBytes}, veldt);
+    writeInFlightBytes(retropp::MemoryRegion{.at = kVeldtBattles, .size = kVeldtBattleBytes}, veldt);
 }
 
 EndingResult DamageOracle::readEndingResult() {

@@ -576,7 +576,8 @@ TEST(AfterAction, ABattlerKilledInTheAirLivesUntilItLands) {
 }
 
 TEST(AfterAction, TheCondemnedCountStartsFromTheAttackersLevel) {
-    // StartCondemn, :1512-1525: 20 + max(0, 60 - (L + random(0..L-1))).
+    // StartCondemn, :1512-1525: 60 - (L + random(0..L-1)), or 0 below it, then + 20 with the
+    // subtraction's carry (:1518-1523): 81 - the roll while the roll is at most 60, 20 above it.
     for (std::uint8_t level : {std::uint8_t{20}, std::uint8_t{99}}) {
         BattleState state = makeBattle();
         RecordingExecutor executor;
@@ -589,7 +590,7 @@ TEST(AfterAction, TheCondemnedCountStartsFromTheAttackersLevel) {
         const std::uint8_t position = state.rng.position();
         battle::stepBattle(state, executor);
         const int rolled = level + ((rngByte(static_cast<std::uint8_t>(position + 1)) * level) >> 8);
-        EXPECT_EQ(state.at(kFriend).condemnedNumber, 20 + std::max(0, 60 - rolled)) << int(level);
+        EXPECT_EQ(state.at(kFriend).condemnedNumber, rolled <= 60 ? 81 - rolled : 20) << int(level);
     }
 }
 

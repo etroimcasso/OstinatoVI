@@ -9,18 +9,23 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <random>
 #include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
+#include <string_view>
+#include <utility>
 #include <vector>
 
+#include "assets/cartridge.h"
 #include "battle/ai.h"
 #include "battle/damage.h"
 #include "data/ai_scripts.h"
 #include "oracle/damage_oracle.h"
+#include "scenarios/battle/start_draw.h"
 
 namespace damage_trace {
 
@@ -54,7 +59,7 @@ std::string numberAnswers(long port, long cartridge) {
 
 }  // namespace
 
-constexpr std::array<Sweep, 34> kSweeps{{
+constexpr std::array<Sweep, 35> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -294,24 +299,47 @@ constexpr std::array<Sweep, 34> kSweeps{{
          differences += unwrittenReadLines(oracle);
          return DrawResult{trace::describe(s), "", differences};
      }},
+    {.name = "start",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::StartScenario s = trace::drawStartScenario(rng, oracle.text(), oracle.monsterSprites());
+         trace::StartCheck check = oracle.checkStart(s);
+         std::vector<std::string_view> reached;
+         if (check.cartridge.reachedTheLoop) {
+             reached = trace::startReached(s, check.port, check.cartridge.cells);
+         }
+         return DrawResult{.described = trace::describe(s),
+                           .answers = "",
+                           .differences = std::move(check.differences),
+                           .reached = std::move(reached)};
+     },
+     .reach = trace::startReachRows},
 }};
 
 int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& directory, const CheckOptions& options) {
     std::ofstream log{directory / "check.log"};
     int mismatches = 0;
     int sweeps = 0;
+    int unreached = 0;
+    // The game's text and the monsters' sprites, which the start's sweep reads.
+    const assets::IngestedContent content = assets::ingestCartridge(image);
     trace::runOnLoop([&] {
         trace::DamageOracle oracle{image};
         oracle.start();
         oracle.trace(options.replayTraced);
+        oracle.useText(content.text);
+        oracle.useMonsterSprites(content.monsterSprites);
         for (const Sweep& sweep : kSweeps) {
             if (!options.only.empty() && std::find(options.only.begin(), options.only.end(), sweep.name) == options.only.end()) {
                 continue;
             }
             ++sweeps;
             std::mt19937 rng{options.seed};
+            std::map<std::string_view, int> reachCounts;
             for (int draw = 0; draw < options.draws; ++draw) {
                 DrawResult result = sweep.draw(oracle, rng);
+                for (const std::string_view row : result.reached) {
+                    ++reachCounts[row];
+                }
                 if (options.replayTraced) {
                     std::string text;
                     for (const std::string& line : oracle.takeTrace()) {
@@ -344,10 +372,25 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                                 result.differences.c_str());
                 }
             }
+            if (sweep.reach != nullptr) {
+                std::printf("%s, what the %d draws reached:\n", std::string{sweep.name}.c_str(), options.draws);
+                for (const std::string_view row : sweep.reach()) {
+                    const int count = reachCounts[row];
+                    std::printf("  %6d  %s%s\n", count, std::string{row}.c_str(), count == 0 ? "  NOT REACHED" : "");
+                    log << sweep.name << " reached " << row << ": " << count << '\n';
+                    if (count == 0) {
+                        ++unreached;
+                    }
+                }
+            }
         }
     });
     std::printf("%d draws through each of %d routines: %d mismatch%s; %s\n", options.draws, sweeps, mismatches,
                 mismatches == 1 ? "" : "es", (directory / "check.log").string().c_str());
+    if (unreached != 0) {
+        std::printf("%d row%s of a reach table no draw reached; the tests' sweeps draw enough to reach every one\n",
+                    unreached, unreached == 1 ? "" : "s");
+    }
     return mismatches == 0 ? 0 : 1;
 }
 

@@ -141,6 +141,7 @@ DamageScenario DamageOracle::readEffectScenario() {
     const std::uint8_t running = readByte(kRunningCell);
     state.counterattackRunning = (running & kCounterattackBit) != 0;
     state.cannotRun = (running & kCannotRunBit) != 0;
+    state.escapeBlockedByMonster = (running & kEscapeBlockedBit) != 0;
     attack.automaticCritical = (readByte(kAttackFlags) & kAutomaticCriticalClearBit) == 0;
     const std::uint8_t spell = readByte(kFollowUpSpell);
     attack.scratch.followUpSpell = spell == kNoOne ? std::nullopt : std::optional<AttackId>(static_cast<AttackId>(spell));

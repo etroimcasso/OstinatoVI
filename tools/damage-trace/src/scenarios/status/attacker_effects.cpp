@@ -194,7 +194,9 @@ DamageScenario drawAttackerEffectScenario(std::mt19937& rng) {
     state.party.steps = static_cast<std::uint32_t>(upTo(rng, static_cast<int>(kMaxSteps)));
     state.playClockFrames = byte(rng);
     state.counterattackRunning = oneIn(rng, 4);
-    state.cannotRun = oneIn(rng, 2);
+    // A monster that cannot be run from keeps the party from running as well (:15205-15210).
+    state.escapeBlockedByMonster = oneIn(rng, 3);
+    state.cannotRun = state.escapeBlockedByMonster || oneIn(rng, 2);
     state.allyCount = upTo(rng, battle::kPartySlots);
     state.golemHp = oneIn(rng, 2) ? static_cast<std::uint16_t>(upTo(rng, battle::kDamageWordMax)) : 0;
     state.endTurnAfterAction = oneIn(rng, 4);

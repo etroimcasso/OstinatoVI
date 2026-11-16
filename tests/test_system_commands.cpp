@@ -660,8 +660,10 @@ TEST(LastAttackLevel, AnActionWithoutAnAttackLevelLeavesTheLastOne) {
 }
 
 TEST(LastAttackLevel, ACountStartedAfterAnActionIsWorkedOutFromItsAttacksLevel) {
-    // AfterAction2 :1324-1377 runs StartCondemn for a battler the action left a count to start.
-    for (const auto& [level, count] : {std::pair{1, 79}, std::pair{99, 20}}) {
+    // AfterAction2 :1324-1377 runs StartCondemn for a battler the action left a count to start: at
+    // level 1 the roll is 1 and the count 81 - 1, the subtraction's carry added with the 20
+    // (:1518-1523); at level 99 the roll passes 60 and the count is 20.
+    for (const auto& [level, count] : {std::pair{1, 80}, std::pair{99, 20}}) {
         BattleState state = makeAimableBattle();
         state.at(kTerra).level = static_cast<std::uint8_t>(level);
         state.at(kTerra).weaponHand = battle::Hand{.battlePower = 10, .hitRate = 255};

@@ -492,6 +492,14 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `win` | `WinBattle`, the win whole — the celebration, the wrap-up, the colosseum, experience, levels, spells, lores, the dance, drops and gold, every message — against `battle::playBattleEnd()` | `tests/oracle/test_battle_end_oracle.cpp` |
 | `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/oracle/test_battle_end_oracle.cpp` |
 | `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/oracle/test_battle_end_oracle.cpp` |
+| `start` | the battle program whole from its entry to the loop's first frame wait, over a drawn start (`drawStartScenario()`), against `battle::startBattle()`: every cell compared, and the write-set, carried-read and read-set gates (`checkStart()`, below) | `tests/oracle/test_battle_start_oracle.cpp` |
+
+`start` also prints, after its draws, how many reached each row of its reach table (`startReachRows()`):
+each battle type, a preemptive strike, the colosseum, the final battle, a scripted setup, Gau's return, an
+empty party slot, a morphed member, a randomized formation, a conditional battle, and each branch of the
+battle type's choice a Back Guard, a Gale Hairpin and a party of fewer than three take. A row no draw
+reached is named. The test's sweep draws 1,300 starts and fails on any row at zero; a short `--check` run
+draws too few to reach every row and only names them.
 
 While one of the reward routines runs, its calls to the graphics program (`ExecBtlGfx`, `$C2:6411`) are
 answered by the oracle at the graphics program's entry (`$C1:0000`): each call is recorded with the cells
@@ -586,7 +594,20 @@ the loop's first frame wait — the first command `$01` — the battle's cells, 
 `StartResult::cells`, with every cell the start read before anything wrote it
 (`StartResult::unwrittenReads`). The battle is then ended by the cartridge's own end-of-battle event 4,
 "end the battle now", so the wrap-up, what the game keeps and the close run, and the call returns:
-`StartResult::returned` is true when the last command asked for is the close, `$09`.
+`StartResult::returned` is true when the last command asked for is the close, `$09`. The loop runs the
+interrupting actions before its end check, so the ones the start left — an opening message, a pose
+reset — are taken off their list (`$340A`) as the battle is ended; the cells read at the wait hold them.
+
+`checkStart(scenario)` runs one start whole and checks it: `battleStart()`, the port's start over the
+same scenario (`portStart()`), the cells compared (`compareBattleState()`), the write-set and
+carried-read gates, and every read before anything wrote it that is not left as the machine has it,
+in the battle's cells or past them. It returns a `StartCheck`: one line per difference, each gate's
+lines under its name, with the cartridge's `StartResult` and the port's `BattleState`. It needs the
+monsters' sprites and the game's text (`useMonsterSprites()`, `useText()`).
+
+The watch past the battle's cells (`$7E:4000-$7F:FFFF`) is armed by a whole battle and left armed, so
+starts called one after another arm it once; any other routine's call disarms it first. Arming or
+disarming it walks every watched page of the machine, about half a second each way.
 
 ### The whole state compared
 
@@ -596,18 +617,22 @@ does the laying, through the writers every routine's scenario is written by — 
 AI's, the scripts' and the ending's — with what those writers also lay of an attack, a command, a
 script or a message left out: a writer lays those through `writeInFlightByte()` and its kin, and only
 `writeByte()` and its kin lay the state. A last pass, `writeStateAsTheCartridgeHoldsIt()`, lays the
-cells where the cartridge holds the state its own way — an empty inventory record, an empty party
-slot's record offset, the formation's first byte with its top four bits turned over, the battle's flags
-at `$B1`, the field flags at `$3AA0` and `$3205`, the reach cells — and leaves out the cells no field
-decides: the hands and control menus of a slot with none, what a battler was last hit with before it
-has been hit, the special attack of a battler with no monster, which way the battlers face. A cell
-two writers lay differently at a bit with meaning is a line of its own.
+cells where the cartridge holds the state its own way — an empty inventory record or hand, which keeps
+the targeting of the record loaded before it, an empty party slot's record offset, the formation's first
+byte with its top four bits turned over, the battle's flags at `$B1` (bit 1 the party cannot run, bit 2 a
+monster cannot be run from), the field's flags at `$11E4`, each battler's flags at `$3AA0`, `$3AA1`,
+`$3205` and `$3E4C` whole, the reach cells, each seated member's record with the HP and MP boosts its
+equipment gives in the top bits of its maximums, and the final battle's line with each place a stage
+took from holding `$FF` — and leaves out the cells no field decides: the hands and control menus of a
+slot with none, what a battler was last hit with before it has been hit, the special attack of a
+battler with no monster, which way the battlers face, the places of a line's ring outside the line. A
+cell two writers lay differently at a bit with meaning is a line of its own.
 
-The same pass lays the cells no routine's scenario writes, in three parts:
+The same pass lays the cells no routine's scenario writes, in four parts:
 
 - `layMenusAsTheCartridgeHoldsIt()` — each party slot's four commands, its spell list (the esper, the
   spells by their places, the lores), the party's own list and every attack's place in it, the espers
-  equipped and the Genji Gloves worn, and the SwdTechs, Blitzes, lores, rages and dances known.
+  summoned and the Genji Gloves worn, and the SwdTechs, Blitzes, lores, rages and dances known.
 - `layBattlersAsTheCartridgeHoldsIt()` — each battler's ATB gauge and rate, advance wait and its
   counter, status timers, damage-over-time beat and poison multiplier, Morph gauge and condemned count,
   speed, equipment statuses and relics, run progress, experience, dance and the name it is listed under.
@@ -615,6 +640,14 @@ The same pass lays the cells no routine's scenario writes, in three parts:
   choice, the run buttons, the sets of battlers the battle keeps between steps, the battlers acting and
   counterattacking, the three lines, the player's records, Mimic's memory, the tools owned and the
   end-of-battle events.
+- `layActionsAsTheCartridgeHoldsIt()` — the battle's one list of actions, 128 slots: the interrupting
+  actions and each battler's turn actions and counterattacks, each a chain of slots from its first. In
+  a comparison each list takes the slots the cartridge's own list of it holds, and a list longer than
+  the cartridge's takes the highest slots no list uses; written into a machine, the lists take the
+  slots from 127 down, the interrupting actions first, as a start hands them out. A command's slot holds
+  its command, attack, targets and cost; a pose reset, a battle message, a spell with no caster, a
+  monster's exit or entrance and Scan hold what the routine that made them stored, their targets left
+  out where that routine stored whatever `$B8` held.
 
 A line and the player's records are rings, laid from where the machine's ring starts: in a
 comparison, the cartridge's. The slots from there hold the battlers, or the records, in order, and the
@@ -624,7 +657,8 @@ out (`docs/contracts/battle_core.md`, the start's seating).
 
 A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
 bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's
-second byte by its bit 7. Every other bit of a cell the battle program writes must be on
+second byte by its bit 7, an item record's fifth byte by its four party slots' bits, `$2F49` without
+bit 7 and `$2F4A` not at all — the scripted setup in force, which the start lays for its own opening. Every other bit of a cell the battle program writes must be on
 `cellsNotCompared()` with its reason; a row the start alone has shown is marked provisional.
 
 Two gates keep the comparison whole. `uncoveredWrites(state, boosts, StartResult::battleWrites)` names
@@ -632,9 +666,12 @@ every cell the battle program wrote up to the loop's first frame wait that the c
 in full. `carriedReads(state, boosts, StartResult::readsAfterThePoint)` names every read the battle
 program made after that wait of a cell the comparison does not hold and nothing had written since. A
 cell compared in part is held by its compared bits, and its row on `cellsNotCompared()` names every
-reader of the rest; a ring's start is held; the stack, `$7E:1500-15FF`, is never carried, since a return
-reads what its own call pushed. A watch is handed the cell and the byte, not the instruction, so a
-gate's line names those two. `StartResult::readsBeyondTheBattlesCells` holds every read of
+reader of the rest; a ring's start is held; the stack — `$7E:1500-15FF` for a battle the field calls,
+`$7E:0100-01FF` for one called from the machine's reset — is never carried, since a return reads what
+its own call pushed; and a cell left as the machine has it is passed, as the read-set gate passes it —
+the field's record of the battles Gau can find on the Veldt among them, which the battle's end reads
+only to set the formation's bit in it. A watch is handed the cell and the byte, not the instruction, so
+a gate's line names those two. `StartResult::readsBeyondTheBattlesCells` holds every read of
 `$7E:4000-$7F:FFFF` not listed — an empty party slot's hands, read through its record offset `$FFFF`
 from bank `$7F`, are listed. `portStart(scenario, text, sprites)` is the port's start over the same
 scenario.
@@ -647,7 +684,13 @@ the first fight's start with the port's, from the machine and from its written s
 setup's start that keeps monster slot 0 out of reach, and the same setup's start with no record for
 the character it seats; checks that the start reads nothing it was not handed but the listed cells;
 checks each gate on cells whose answer is known; and checks both gates empty over the first fight's
-start.
+start. From the first fight's party it then checks, each against what the original says of the case
+and with `checkStart()`, an ordinary front attack with no opening message, a preemptive strike, a back
+attack, a pincer, a colosseum match, the final battle's first stage, a formation chosen from four and a
+party with a slot left empty; then every formation once, the colosseum's with a match and the final
+battle's with the party in line, each scripted setup's cast given a record (`giveTheCastRecords()`);
+and 1,300 drawn starts (`drawStartScenario()`, the `start` sweep's draws) with every row of the reach
+table taken.
 
 ## Files
 
@@ -721,7 +764,9 @@ routines' addresses in namespace `routines`.
 | `ai/own_actions.cpp` | the battle's own actions, `ownAction()` |
 | `ai/ai_replay.cpp` | `readAiScenario()`: a battler's AI rebuilt from a recorded call, and replayed |
 | `battle/start.cpp` | the battle program called whole, `battleStart()`, and a start scenario written and read back |
+| `battle/start_check.cpp` | a start checked whole, `checkStart()`, and the text and sprites it reads |
 | `battle/battle_state.cpp` | the whole state compared: `writeBattleState()`, `compareBattleState()` and the two gates `uncoveredWrites()` and `carriedReads()` |
+| `battle/state_actions.cpp` | the battle's one list of actions, laid as the cartridge holds it |
 | `battle/state_menus.cpp` | the party's command menus, spell lists and skills, laid as the cartridge holds them |
 | `battle/state_battlers.cpp` | each battler's clocks, counters and own cells, laid as the cartridge holds them |
 | `battle/state_battle.cpp` | the battle's flags, settings, lines, records and Mimic's memory, laid as the cartridge holds them |
@@ -746,7 +791,8 @@ routines' addresses in namespace `routines`.
 | `ai/ai_run.{h,cpp}`, `ai_run_shared.h` | a script as the cartridge keeps it; `portAiTurn()` and `portAiCounter()`; `drawAiRunScenario()` |
 | `ai/ai_commands.{h,cpp}` | `portAiCommand()`; `drawAiCommandCase()` |
 | `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
-| `battle/start.{h,cpp}` | `StartScenario` and `StartResult`; `portStart()` |
+| `battle/start.{h,cpp}` | `StartScenario`, `StartResult` and `StartCheck`; `portStart()` |
+| `battle/start_draw.{h,cpp}` | `drawStartScenario()`, `giveTheCastRecords()`, and the reach table: `startReachRows()` and `startReached()` |
 | `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |
 | `battle/cells_not_compared.cpp` | `cellsNotCompared()`, every cell or bit the battle program writes that the comparison does not cover, with its reason; `onTheStack()` |
 

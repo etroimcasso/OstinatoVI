@@ -9,6 +9,7 @@
 #include <cstdint>
 
 #include "cells/damage/per_target.h"
+#include "cells/ending/records.h"
 
 namespace ostinato::trace::cells {
 
@@ -100,8 +101,10 @@ inline constexpr std::uint32_t kMimicSecond = kWorkRam + 0x3F24;
 inline constexpr std::uint32_t kMimicSecondTargets = kWorkRam + 0x3F26;
 inline constexpr std::uint32_t kMimicJump = kWorkRam + 0x3F28;
 inline constexpr std::uint32_t kMimicJumpTargets = kWorkRam + 0x3F2A;
-// The party members with an esper equipped, and those who have used their desperation attack.
-inline constexpr std::uint32_t kEspersEquipped = kWorkRam + 0x3F2E;
+// The party members who have summoned their esper this battle, a party slot's bit each (set by
+// FixPlayerAttack :12700-12703, read by UpdateEnabledMagic :14380-14385, cleared between the final
+// battle's stages :12230), and those who have used their desperation attack.
+inline constexpr std::uint32_t kEspersSummoned = kWorkRam + 0x3F2E;
 inline constexpr std::uint32_t kDesperationUsed = kWorkRam + 0x3F2F;
 // Morph's meter's speed, a word.
 inline constexpr std::uint32_t kMorphCounterSpeed = kWorkRam + 0x3F32;
@@ -167,8 +170,8 @@ inline constexpr std::uint32_t kPartySpells = kWorkRam + 0x3034;
 inline constexpr std::uint32_t kPartyLores = kWorkRam + 0x306A;
 inline constexpr std::uint32_t kSpellPlaces = kWorkRam + 0x3084;
 inline constexpr std::uint32_t kAttackCount = 256;
+// The espers' attacks follow on from here, kEspers of them (cells/ending/records.h).
 inline constexpr std::uint32_t kFirstEsperAttack = 0x36;
-inline constexpr std::uint32_t kEspers = 27;
 // The SwdTechs known less one (InitSkills :14475-14478), the Blitzes and lores known (:14480-14482,
 // InitSpellList :14070), the rages known in order, $FF after the last (:14493-14512), and the dances,
 // each by its own number where known and $FF where not (:14483-14492).

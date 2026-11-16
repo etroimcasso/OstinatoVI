@@ -402,6 +402,29 @@ exactly its hands' battle power.
 
 ---
 
+## A condemned count starts one higher than its formula
+
+**What happens.** A condemned count starts at 20 plus 60 less a roll of the
+level plus a random part below it, or at 20 when the roll passes 60. Whenever the
+roll is 60 or less the count is one higher: a level 1 roll of 1 starts at 80, not
+79, and every count a battle's start gives (at level 20) is one higher too.
+
+**Where the original does it.** `StartCondemn`
+(`battle/battle_main.asm:1512-1525`) subtracts the roll from 60 with `sbc` after
+`sec`, branches past the clear to 0 on the carry the subtraction left, and then adds
+20 with `adc`, so that carry — set whenever nothing was borrowed — is added in.
+
+**Where the port keeps it.** `startCondemnedCount()` in `src/battle/battle_loop.cpp`
+gives 81 less the roll while the roll is 60 or less. `tests/test_battle_loop.cpp`
+(`AfterAction.TheCondemnedCountStartsFromTheAttackersLevel`) and
+`tests/test_system_commands.cpp`
+(`LastAttackLevel.ACountStartedAfterAnActionIsWorkedOutFromItsAttacksLevel`) pin it.
+
+**If you want to change it.** Dropping the one makes every count that starts at 20
+or more start at 20 plus 60 less the roll.
+
+---
+
 ## A strong enough spell does almost nothing at level 99
 
 **What happens.** A spell's base damage is four times its power plus the power

@@ -35,6 +35,20 @@ constexpr std::uint8_t kItemKeptForTheCommandBit = 0x10;
 constexpr std::uint8_t kBattleFlags0Bits = 0xE4;
 // A verdict rotated into bit 7 of a menu row's or a spell entry's second byte.
 constexpr std::uint8_t kVerdictBit = 0x80;
+// An item record's fifth byte: one bit per party slot that cannot hold the item (LoadItemProp
+// :14021-14033), $FF for an item no hand check is made for (:13989-13990, :14016-14020). Its readers test
+// one party slot's bit (btlgfx_main.asm:10957-10958 with _c14b73 :10710, :20956-20960 with :20985-20986).
+constexpr std::uint8_t kHandBits = 0x0F;
+// The formation's third byte as the start keeps it ($2F49), whose bit 7 turns the scripted setup in
+// force on (LoadBattleProp :7973-7977, InitParty :7786-7792).
+constexpr std::uint32_t kFormationScriptFlags = kWorkRam + 0x2F49;
+constexpr std::uint8_t kScriptedSetupOnBit = 0x80;
+// The inventory's records and the hands' (InitInventory :13911-13956), five bytes each.
+constexpr std::uint32_t kInventoryFifthBytes = kWorkRam + 0x268A;
+constexpr std::uint32_t kHandFifthBytes = kWorkRam + 0x2B8A;
+constexpr std::uint32_t kInventoryRecordCount = 256;
+constexpr std::uint32_t kHandRecordCount = 8;
+constexpr std::uint32_t kItemRecordStride = 5;
 
 // Cells whose bits a BattleState field determines only in part.
 constexpr CellMeaning kCellMeanings[] = {
@@ -45,6 +59,13 @@ constexpr CellMeaning kCellMeanings[] = {
      .why = "below the gray bit, the verdicts of the refreshes before"},
     {.at = kWorkRam + 0x208F, .count = 316, .stride = 4, .meaning = kVerdictBit,
      .why = "below the not-castable bit, the verdicts of the refreshes before"},
+    {.at = kFormationScriptFlags, .meaning = static_cast<std::uint8_t>(~kScriptedSetupOnBit),
+     .why = "$2F49 bit 7, the scripted setup in force, the start's for its own opening"},
+    {.at = kFormationScriptFlags + 1, .meaning = 0, .why = "$2F4A, the scripted setup in force, with $2F49 bit 7"},
+    {.at = kInventoryFifthBytes, .count = kInventoryRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,
+     .why = "above the party slots' bits, LoadItemProp's leavings, which no reader tests"},
+    {.at = kHandFifthBytes, .count = kHandRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,
+     .why = "above the party slots' bits, LoadItemProp's leavings, which no reader tests"},
     {.at = kWorkRam + 0x3205, .count = 10, .stride = 2, .meaning = kJumpAnchorNearFatalBits,
      .why = "bits 0 and 3-6 of $3205,x are read by nothing"},
     {.at = kWorkRam + 0x33FC, .meaning = kPartySlotBits, .why = "the bits of a battler mask that name no battler"},

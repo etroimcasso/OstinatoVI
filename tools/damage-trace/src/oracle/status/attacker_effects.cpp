@@ -88,6 +88,7 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
     writeInFlightByte(kSwirlCell, attack.castingSwirlSuppressed ? kSwirlSuppressedBit : 0);
     std::uint8_t running = state.counterattackRunning ? kCounterattackBit : 0;
     running |= state.cannotRun ? kCannotRunBit : 0;
+    running |= state.escapeBlockedByMonster ? kEscapeBlockedBit : 0;
     writeByte(kRunningCell, running);
     std::uint8_t second = readByte(kAttackFlags);
     if (attack.automaticCritical) {

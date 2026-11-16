@@ -71,6 +71,7 @@
 #include "battle/target_effects.h"
 #include "data/ai_scripts.h"
 #include "data/monster_sprites.h"
+#include "data/text_corpus.h"
 #include "game/character_record.h"
 #include "ostinato/character_prop_id.h"
 
@@ -321,6 +322,22 @@ public:
     // pincer. Required before battleStart(); kept by reference.
     void useMonsterSprites(const MonsterSprites& sprites) { monsterSprites_ = &sprites; }
 
+    // The game's text the port's start reads in checkStart(). Kept by reference.
+    void useText(const TextCorpus& text) { text_ = &text; }
+
+    // What useMonsterSprites() and useText() handed the oracle; each throws std::logic_error when it
+    // was handed none.
+    [[nodiscard]] const MonsterSprites& monsterSprites() const;
+    [[nodiscard]] const TextCorpus& text() const;
+
+    // The cartridge's start over `scenario` (battleStart()) against the port's (portStart()): the
+    // cells compared (compareBattleState()), then the three gates — every cell the start wrote is
+    // covered (uncoveredWrites()), the battle's end read nothing after the loop's first frame wait that
+    // the comparison does not hold (carriedReads()), and the start read nothing it was not handed,
+    // in the battle's cells or past them — one line per difference, each gate's lines named. Needs
+    // useMonsterSprites() and useText().
+    [[nodiscard]] StartCheck checkStart(const StartScenario& scenario);
+
     // The scenario's cells as battleStart() writes them, with nothing called: the field's cells the
     // start reads.
     void writeStartScenario(const StartScenario& scenario);
@@ -528,6 +545,9 @@ private:
     void layMenusAsTheCartridgeHoldsIt(const battle::BattleState& state);
     void layBattlersAsTheCartridgeHoldsIt(const battle::BattleState& state);
     void layBattleAsTheCartridgeHoldsIt(const battle::BattleState& state);
+    // The battle's one list of actions: the interrupting actions, and each battler's turn actions and
+    // counterattacks (oracle/battle/state_actions.cpp states where each list's slots go).
+    void layActionsAsTheCartridgeHoldsIt(const battle::BattleState& state);
     // One line, laid from the start the machine holds at `startCell`: its slots in `ring` from there,
     // and its end in the byte after the start.
     void layLine(std::uint32_t startCell, std::uint32_t ring, const battle::BattlerQueue& line);
@@ -625,7 +645,12 @@ private:
     std::set<std::uint32_t> writtenSincePoint_;
     // The cells beyond $7E:3FFF the battle program wrote in the battle being run.
     std::set<std::uint32_t> writtenBeyond_;
+    // Whether the watch past the battle's own cells is armed. A whole battle arms it and leaves it
+    // armed, so battles called one after another arm it once; any other call disarms it first, so it
+    // runs as fast as it did. Arming and disarming it each walk the machine's every watched page.
+    bool beyondArmed_ = false;
     const MonsterSprites* monsterSprites_ = nullptr;
+    const TextCorpus* text_ = nullptr;
     // While layState() lays a state out: the cells laid, instead of writing the machine.
     LaidState* capture_ = nullptr;
     const BattleCells* positionsFrom_ = nullptr;  // while layState() captures against a cartridge

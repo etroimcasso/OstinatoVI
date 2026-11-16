@@ -52,6 +52,14 @@ struct StartResult {
     std::vector<UnwrittenRead> readsBeyondTheBattlesCells;
 };
 
+// A start checked against the cartridge (DamageOracle::checkStart()): every line where the two starts
+// part, empty when they agree, with the cartridge's start and the port's.
+struct StartCheck {
+    std::string differences;
+    StartResult cartridge;
+    battle::BattleState port;
+};
+
 // Every field where two start scenarios differ, one per line naming it and both values; empty when
 // they agree.
 [[nodiscard]] std::string differences(const StartScenario& a, const StartScenario& b);

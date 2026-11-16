@@ -29,7 +29,15 @@ inline constexpr std::uint32_t kMissedByEffect = kWorkRam + 0x3A48;
 inline constexpr std::uint8_t kPresentBit = 0x01;
 inline constexpr std::uint8_t kMenuMayOpenBit = 0x80;
 inline constexpr std::uint8_t kEmptyGaugeBit = 0x40;
+// The first triggers byte ($3E4C,x): 0 Retort, 1 a monster's own Runic and 7 its piranha mark
+// (LoadMonsterProp :7412-7415), 2 a party member's Runic (:4078-4080), 3 the regen, Seize or Phantasm
+// timer fired and 4 the poison timer fired (:14970-14983).
 inline constexpr std::uint8_t kRetortBit = 0x01;
+inline constexpr std::uint8_t kMonsterRunicBit = 0x02;
+inline constexpr std::uint8_t kRunicBit = 0x04;
+inline constexpr std::uint8_t kRegenDueBit = 0x08;
+inline constexpr std::uint8_t kPoisonDueBit = 0x10;
+inline constexpr std::uint8_t kPiranhaBit = 0x80;
 inline constexpr std::uint8_t kOvercastBit = 0x02;
 inline constexpr std::uint8_t kPhantasmBit = 0x40;
 

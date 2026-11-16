@@ -76,10 +76,6 @@ constexpr std::uint32_t kHandBlockEffect = kWorkRam + 0x3CBC;
 constexpr std::uint32_t kLoreList = kWorkRam + 0x310F;
 constexpr std::uint8_t kLoreListFirstEntry = 0x37;
 
-// The triggers byte beside Retort (kTriggers, bit 0): a monster's own Runic, a party member's.
-constexpr std::uint8_t kMonsterRunicBit = 0x02;
-constexpr std::uint8_t kRunicBit = 0x04;
-
 // The name kinds by the number ShowAttackNameTbl (battle_main.asm:8778-8787) gives them; the entry at
 // 3 is a bare return that no command's start writes.
 std::uint8_t nameKindByte(const std::optional<battle::AttackNameKind>& kind) {

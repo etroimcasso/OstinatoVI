@@ -1,6 +1,6 @@
 // The party's command menus, spell lists and skills, laid into the cells as the cartridge's start
 // leaves them: the four command menus, the four spell lists with the party's own list and every
-// attack's place in it, the espers equipped, and the SwdTechs, Blitzes, lores, rages and dances known.
+// attack's place in it, the espers summoned, and the SwdTechs, Blitzes, lores, rages and dances known.
 
 #include "oracle/damage_oracle.h"
 
@@ -93,7 +93,6 @@ std::uint8_t esperNumber(EsperId esper) {
 
 void DamageOracle::layMenusAsTheCartridgeHoldsIt(const battle::BattleState& state) {
     const PartyList party = partyList(state);
-    std::uint8_t espersEquipped = 0;
     for (int position = 0; position < battle::kPartySlots; ++position) {
         const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
         const battle::Battler& member = state.at(slot);
@@ -121,7 +120,6 @@ void DamageOracle::layMenusAsTheCartridgeHoldsIt(const battle::BattleState& stat
         const std::uint32_t first = kSpellLists + offset * kSpellListSize;
         std::array<SpellBytes, kSpellEntries> entries{};
         if (list.esper) {
-            espersEquipped |= static_cast<std::uint8_t>(1u << position);  // the slot's bit (UpdateEnabledMagic :14380-14384)
             entries[kEsperEntry] = SpellBytes{.spell = esperNumber(*list.esper),
                                               .notCastable = list.summon.castable ? std::uint8_t{0} : kNotCastableBit,
                                               .targeting = list.summon.targeting.bits,
@@ -148,7 +146,7 @@ void DamageOracle::layMenusAsTheCartridgeHoldsIt(const battle::BattleState& stat
         layByteAsTheCartridgeHoldsIt(kEsperIndex + at, list.esper ? esperNumber(*list.esper) : kNoSpell);
         layByteAsTheCartridgeHoldsIt(kEsperTargeting + at, list.esper ? list.summon.targeting.bits : kNoSpell);
     }
-    layByteAsTheCartridgeHoldsIt(kEspersEquipped, espersEquipped);
+    layByteAsTheCartridgeHoldsIt(kEspersSummoned, static_cast<std::uint8_t>(maskOf(state.espersSummoned) & 0xFF));
     for (int position = 0; position < battle::kMonsterSlots; ++position) {
         const std::uint32_t at = slotIndex(battle::BattlerSlot::monster(position));
         layByteAsTheCartridgeHoldsIt(kEsperIndex + at, kNoSpell);

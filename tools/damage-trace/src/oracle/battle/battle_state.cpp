@@ -20,6 +20,7 @@
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
 #include "battle/items_obtained.h"
+#include "battle/party_setup.h"
 #include "data/formations.h"
 #include "game/character_record.h"
 #include "ostinato/item_id.h"
@@ -29,6 +30,7 @@
 #include "cells/damage/per_target.h"
 #include "cells/ending/ending.h"
 #include "cells/ending/party.h"
+#include "cells/ending/records.h"
 #include "cells/status/effects.h"
 #include "cells/battle/state.h"
 #include "cells/status/status.h"
@@ -64,8 +66,8 @@ constexpr std::uint8_t kTakesMenuInputBit = 0x02;
 constexpr std::uint8_t kAtbStoppedBit = 0x08;
 constexpr std::uint8_t kActionQueuedBit = 0x20;
 constexpr std::uint8_t kHeldByControlFieldBit = 0x40;
-// $B1's bits beyond the counterattack and the run (kCounterattackBit, kCannotRunBit, kMenusClosedBit).
-constexpr std::uint8_t kEscapeBlockedBit = 0x02;
+// $B1's bits beyond the counterattack, the run (kCounterattackBit, kCannotRunBit, kEscapeBlockedBit) and
+// the menus (kMenusClosedBit).
 constexpr std::uint8_t kBackAttackFlagBit = 0x20;
 constexpr std::uint8_t kMimickingBit = 0x40;
 // A party slot's place in the monsters' index list (kMonsterIndex), $1FF9-$2000: no monster stands there.
@@ -85,6 +87,22 @@ constexpr std::array<std::uint32_t, 33> kLoadedThroughTheRecord{
     kWorkRam + 0x3BB8, kWorkRam + 0x331C, kWorkRam + 0x3330, kWorkRam + 0x3BCC, kWorkRam + 0x3BE0,
     kWorkRam + 0x3CBC, kWorkRam + 0x3CA8, kWorkRam + 0x3CD0, kWorkRam + 0x3CE4, kWorkRam + 0x3C58,
     kWorkRam + 0x3EE4, kWorkRam + 0x3218, kWorkRam + 0x3AC8};
+
+// A boost as a record's maximum HP or MP word holds it in its top two bits (MaxHPMPTbl :6708-6712):
+// 0 none, 1 a quarter more, 2 a half more, 3 an eighth more.
+std::uint16_t boostBits(battle::MaxBoost boost) {
+    switch (boost) {
+        case battle::MaxBoost::None:
+            return 0;
+        case battle::MaxBoost::Plus25Percent:
+            return 1;
+        case battle::MaxBoost::Plus50Percent:
+            return 2;
+        case battle::MaxBoost::Plus12Point5Percent:
+            return 3;
+    }
+    return 0;
+}
 }  // namespace
 
 void DamageOracle::layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes) {
@@ -115,9 +133,9 @@ void DamageOracle::leaveOut(std::uint32_t at, std::uint32_t count) {
 
 void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& state) {
     // The hands, then the inventory, in the order InitInventory loads them (:13914-13941): each shield
-    // and each weapon last party slot first, then the items from the last slot down. An empty record
-    // keeps the targeting the record loaded before it left; a hand read through an empty party slot's
-    // offset (bank $7F, kCellsNotCompared) leaves it unknown.
+    // and each weapon last party slot first, then the items from the last slot down. An empty record,
+    // a hand's or the inventory's, keeps the targeting the record loaded before it left; a hand read
+    // through an empty party slot's offset (bank $7F, kCellsNotCompared) leaves it unknown.
     std::optional<std::uint8_t> targeting = kFilled;
     for (const auto* hands : {&state.inventory.shieldHands, &state.inventory.weaponHands}) {
         const std::uint32_t first = hands == &state.inventory.shieldHands ? kShieldHands : kWeaponHands;
@@ -129,10 +147,15 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
                 continue;
             }
             const battle::BattleItem& hand = (*hands)[static_cast<std::size_t>(position)];
-            const battle::ItemRecord record = battle::recordOf(hand);
-            layAsTheCartridgeHoldsIt(at, record);
+            battle::ItemRecord record = battle::recordOf(hand);
             if (hand.item != ItemId::EMPTY) {
                 targeting = record[kRecordTargeting];
+            } else {
+                record[kRecordTargeting] = targeting.value_or(0);
+            }
+            layAsTheCartridgeHoldsIt(at, record);
+            if (!targeting) {
+                leaveOut(at + kRecordTargeting, 1);
             }
         }
     }
@@ -158,6 +181,20 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         if (!member.actor) {
             layWordAsTheCartridgeHoldsIt(kRecordOffset + at, kNoRecord);
         }
+        // A seated member's record keeps the boosts its equipment gives in the top two bits of its
+        // maximum HP and MP, written there by the start's equipment sums (UpdateEquip :2349-2362,
+        // CheckHPBoost :2456-2472).
+        if (member.actor && member.record) {
+            const game::CharacterRecord& record = state.party.characters[*member.record];
+            const battle::DerivedStats derived = battle::deriveEquipment(record);
+            const std::uint32_t base = kCharacterRecords + static_cast<std::uint32_t>(*member.record) * kRecordSize;
+            layWordAsTheCartridgeHoldsIt(base + kRecordMaxHp,
+                                         static_cast<std::uint16_t>((record.maxHp & kMaximumBits) |
+                                                                    boostBits(derived.hpBoost) << kBoostShift));
+            layWordAsTheCartridgeHoldsIt(base + kRecordMaxMp,
+                                         static_cast<std::uint16_t>((record.maxMp & kMaximumBits) |
+                                                                    boostBits(derived.mpBoost) << kBoostShift));
+        }
         if (!member.controlling) {
             leaveOut(kControlMenus + static_cast<std::uint32_t>(position) * kControlMenuSize, kControlMenuSize);
         }
@@ -182,6 +219,28 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         field |= battler.heldByControl ? kHeldByControlFieldBit : 0;
         field |= battler.menuMayOpen ? kMenuMayOpenBit : 0;
         layByteAsTheCartridgeHoldsIt(kOnTheField + at, field);
+        // $3AA1,x, every bit a field but 3, which nothing sets (the start's zero fill, InitBattle
+        // :6056-6060): 7 its actions go back in line when it can act again (:1345-1349, :1410-1420),
+        // 6 its gauge empties after the action, 5 the back row (:7874), 4 a damage-over-time action is
+        // waiting, 2 instant death cannot touch it (:6361-6371), 1 Def (:1611, :4091), 0 its next action
+        // skips the advance wait (:5738-5741).
+        std::uint8_t stance = battler.requeuePending ? kRequeuePendingBit : 0;
+        stance |= battler.emptyGaugeAfterAction ? kEmptyGaugeBit : 0;
+        stance |= battler.backRow ? kBackRowBit : 0;
+        stance |= battler.dotActionPending ? kDamageOverTimeWaitingBit : 0;
+        stance |= battler.instantDeathProtected ? kInstantDeathProtectedBit : 0;
+        stance |= battler.defending ? kDefendingBit : 0;
+        stance |= battler.skipAdvanceWait ? kSkipAdvanceWaitBit : 0;
+        layByteAsTheCartridgeHoldsIt(kStance + at, stance);
+        // $3E4C,x, every bit a field but 5 and 6, which nothing sets (cells/status).
+        const battle::BattlerTriggers& triggers = battler.triggers;
+        std::uint8_t triggerBits = triggers.retort ? kRetortBit : 0;
+        triggerBits |= triggers.monsterRunic ? kMonsterRunicBit : 0;
+        triggerBits |= triggers.runic ? kRunicBit : 0;
+        triggerBits |= triggers.regenDue ? kRegenDueBit : 0;
+        triggerBits |= triggers.poisonDue ? kPoisonDueBit : 0;
+        triggerBits |= triggers.piranha ? kPiranhaBit : 0;
+        layByteAsTheCartridgeHoldsIt(kTriggers + at, triggerBits);
         if (slot.isMonster() && !battler.monster) {
             layWordAsTheCartridgeHoldsIt(kMonsterIndex + at, kEmptyMonsterSlot);
         }
@@ -210,11 +269,10 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
             leaveOut(kLastHitElement + at, 1);
         }
     }
-    // The battle's flags at $B1: 0 a counterattack is running (:5721-5722, :12413-12414), 1 a monster or a
-    // party member fighting the party makes running harder (CheckRunAway :15188-15191, :15246-15249),
-    // 2 the party cannot run (:15207-15210), 5 a back attack (:7664-7665), 6 the next action is Mimic's
-    // (:325-326, :12975-12976), 7 no battle menu may open (:12074-12075). Bit 4 is one command's own
-    // (InitTarget_01 :6529-6530, cleared :3963-3964).
+    // The battle's flags at $B1: 0 a counterattack is running (:5721-5722, :12413-12414), 1 the party
+    // cannot run and 2 a monster cannot be run from (UpdateMonsterGfxBuf :15179-15249, cells/status), 5 a
+    // back attack (:7664-7665), 6 the next action is Mimic's (:325-326, :12975-12976), 7 no battle menu
+    // may open (:12074-12075). Bit 4 is one command's own (InitTarget_01 :6529-6530, cleared :3963-3964).
     layByteAsTheCartridgeHoldsIt(
         kRunningCell, static_cast<std::uint8_t>((state.counterattackRunning ? kCounterattackBit : 0) |
                                                 (state.escapeBlockedByMonster ? kEscapeBlockedBit : 0) |
@@ -222,6 +280,12 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
                                                 (state.backAttack ? kBackAttackFlagBit : 0) |
                                                 (state.mimicking ? kMimickingBit : 0) |
                                                 (state.menusDisabled ? kMenusClosedBit : 0)));
+    // The field's flags at $11E4: bit 0 Gau may come back after the battle, which the start clears when he
+    // cannot (InitParty :7775-7785) and anything but a front attack clears (InitBattleType :7588-7589);
+    // bit 1 the Veldt; bit 3 the field's music plays on.
+    layByteAsTheCartridgeHoldsIt(kFieldFlags, static_cast<std::uint8_t>((state.gauMayAppear ? kGauMayAppearBit : 0) |
+                                                                        (state.onTheVeldt ? kOnTheVeldtBit : 0) |
+                                                                        (state.keepFieldMusic ? kFieldMusicPlaysOnBit : 0)));
     // Counterattacks are on while $341A is not zero (:12530-12531); every command starts it at $FF
     // (ExecCmd :3106-3109) and a counterattack's end clears it (:9753).
     layByteAsTheCartridgeHoldsIt(kCountersEnabled, state.scratch.countersEnabled ? kFilled : 0);
@@ -238,7 +302,24 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
     // Which way each battler faces is the graphics program's from the opening on; the battle program
     // only reads it (:3230, :3260).
     leaveOut(kFacingRight, 2);
-    if (!state.colosseum) {
+    if (state.finalBattleChain) {
+        // The final battle's line: each place a stage took a fighter from holds $FF (InitParty
+        // :7729-7734), so the fighters still waiting follow the places taken. They are laid from the
+        // first place the machine (in a comparison, the cartridge) still holds a fighter in.
+        std::uint32_t from = 0;
+        while (from < kFinalBattleLineSize && positionByte(kFinalBattleLine + from) == kEndOfLine) {
+            ++from;
+        }
+        if (from + state.finalBattleReserve.size() > kFinalBattleLineSize) {
+            from = 0;
+        }
+        std::array<std::uint8_t, kFinalBattleLineSize> line{};
+        line.fill(kEndOfLine);
+        for (std::size_t k = 0; k < state.finalBattleReserve.size() && from + k < line.size(); ++k) {
+            line[from + k] = static_cast<std::uint8_t>(state.finalBattleReserve[k]);
+        }
+        layAsTheCartridgeHoldsIt(kFinalBattleLine, line);
+    } else if (!state.colosseum) {
         leaveOut(kWagerCell, 1);
         leaveOut(kPrizeCell, 1);
     }
@@ -246,6 +327,7 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
     layMenusAsTheCartridgeHoldsIt(state);
     layBattlersAsTheCartridgeHoldsIt(state);
     layBattleAsTheCartridgeHoldsIt(state);
+    layActionsAsTheCartridgeHoldsIt(state);
 
     // A party member seated with no record: the start finds none for its actor (InitParty :7848-7910),
     // so its record offset keeps the fill's $FFFF and everything loaded through it comes from bank $7F —
@@ -348,7 +430,7 @@ std::string DamageOracle::carriedReads(const battle::BattleState& state, const P
         // A cell compared in part is held by the bits compared: its row on kCellsNotCompared names
         // every reader of the rest. A return reads what its own call pushed.
         const bool held = (laid.cells.contains(read.at) && meaningBits(read.at) != 0) || laid.positions.contains(read.at);
-        if (held || onTheStack(read.at) || named.contains(read.at)) {
+        if (held || onTheStack(read.at) || leftAsTheMachineHasIt(read.at) || named.contains(read.at)) {
             continue;
         }
         named.insert(read.at);

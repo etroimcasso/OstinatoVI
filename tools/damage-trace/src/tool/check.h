@@ -23,22 +23,28 @@ using namespace ostinato;
 // the port's answer parts from the cartridge's, and for an attack's special effect on one target, the
 // target it was worked out for (the oracle calls the routine with no statuses worked out before it, so
 // its trace does not show the target).
+// For a sweep with a reach table, the rows of it the draw reached.
 struct DrawResult {
     std::string described;
     std::string answers;
     std::string differences;
     std::optional<battle::BattlerSlot> target{};
+    std::vector<std::string_view> reached{};
 };
 
 using SweepDraw = DrawResult (*)(trace::DamageOracle&, std::mt19937&);
+using ReachRows = std::span<const std::string_view> (*)();
 
+// A sweep with `reach` prints, after its draws, how many reached each of its rows, and names a row no
+// draw reached.
 struct Sweep {
     std::string_view name;
     SweepDraw draw;
+    ReachRows reach = nullptr;
 };
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-extern const std::array<Sweep, 34> kSweeps;
+extern const std::array<Sweep, 35> kSweeps;
 
 struct CheckOptions {
     int draws = 0;

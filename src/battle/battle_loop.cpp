@@ -340,7 +340,9 @@ void carryOff(BattleState& state, BattlerSlot slot) {
 void startCondemnedCount(BattleState& state, BattlerSlot slot) {
     const int level = state.lastAttackLevel;
     const int rolled = level + state.rng.below(state.lastAttackLevel);
-    state.at(slot).condemnedNumber = static_cast<std::uint8_t>(20 + std::max(0, 60 - rolled));
+    // LEGACY VERBATIM (docs/Bugs.md): the 20 is added with the subtraction's carry, so a roll of 60 or
+    // less gives one more than 20 + (60 - the roll).
+    state.at(slot).condemnedNumber = static_cast<std::uint8_t>(rolled <= 60 ? 81 - rolled : 20);
 }
 
 // A party member whose menu may open opens it if nothing stops it.

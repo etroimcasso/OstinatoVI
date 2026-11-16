@@ -107,7 +107,7 @@ the effect space ends at `$57`.
 | `$11af` the attacker's level as the attack loaded it | `attack.attackerLevel` |
 | `$11b0-$11b1` the damage | `attack.damage` |
 | `$b0.4` the swirl before a spell suppressed | `attack.castingSwirlSuppressed` |
-| `$b1.0` a counterattack running, `$b1.2` the party cannot run | `state.counterattackRunning`, `state.cannotRun` |
+| `$b1.0` a counterattack running, `$b1.1` the party cannot run, `$b1.2` a monster cannot be run from | `state.counterattackRunning`, `state.cannotRun`, `state.escapeBlockedByMonster` |
 | `$b2.1` clear: the attack may be a critical hit | `attack.canBeCritical` |
 | `$b3.1` clear: the attack is a critical hit | `attack.automaticCritical` |
 | `$b5`, `$b6`, `$b7` the animation's command, attack and second value | `attack.command`, `attack.attack`, `attack.secondary` |
@@ -200,7 +200,7 @@ Y is the attacker throughout.
 | `$13` | Sonic Dive | `:10763-10780` | The turn ends with this action. Every battler petrified or asleep (a 16-bit read of statuses 1-2, `$8040`) or stopped, frozen or hidden (statuses 3-4, `$2210`) leaves the targets and the targets hit. The index is Palidor's too; Palidor's rule on its targets is the other table's. |
 | `$15` | Mantra | `:10837-10850` | Ignores defense, no split, no damage modification; the attacker leaves the targets hit; the damage is the attacker's HP over the targets less one, counted in a byte (`ldx $3ec9; dex` with 8-bit index registers) — 65,535 when the attacker was the only one, and the HP over 255 when the attack was aimed at no one. |
 | `$16` | Spiraler | `:10804-10814` | The attacker's bit is read a byte wide, so only a party member's is there: a party member leaves the targets and the targets hit and is gone once the action is over; a monster stays. Either way it is hidden and set to die (§ C.1), its HP and MP 0. |
-| `$18`, `$4d` | Warp, Warp Stone | `:10463-10473` | Where the party cannot run: message 10, "Can't escape!!", and no one is hit. Otherwise the end-of-battle event `$02`: the battle ends as when time runs out. |
+| `$18`, `$4d` | Warp, Warp Stone | `:10463-10473` | Where a monster cannot be run from (`$b1.2`, not the pincer's or an enemy party member's `$b1.1`): message 10, "Can't escape!!", and no one is hit. Otherwise the end-of-battle event `$02`: the battle ends as when time runs out. |
 | `$19` | Exploder | `:10399-10421` | Multiplier 0; the swirl suppressed; no damage modification. The params are aimed at the attacker alone and copied to the script; then aimed at the targets it hit, with the attacker added to them. The damage is the attacker's HP, and the attack's animation is added to the script. The first aim takes the suppression, so the second has the swirl. |
 | `$1a` | Blow Fish | `:10602-10609` | Ignores defense, no split, no damage modification; damage 1,000. |
 | `$1b` | Pearl Wind | `:10266-10273` | Ignores defense, no split, no damage modification; the damage is the attacker's HP. |
@@ -228,7 +228,7 @@ Y is the attacker throughout.
 |---|---|---|---|
 | `$49` | Magicite | `:10352-10356` | An esper drawn at random — 25 to choose from, Odin and Raiden passed over — is cast next; one more attack. |
 | `$4a` | Super Ball | `:10427-10433` | The animation's attack is `$7d` (the attack animation at Bio Blast's index); one to four hits to come, a draw's low two bits plus one; the hits come from the attacker. |
-| `$4b` | Smoke Bomb | `:10559-10567` | Where the party cannot run: no one is hit, the effect is cleared and the message is 9, "Can't run away!!". |
+| `$4b` | Smoke Bomb | `:10559-10567` | Where a monster cannot be run from (`$b1.2`): no one is hit, the effect is cleared and the message is 9, "Can't run away!!". |
 | `$4c` | Elixir, Megalixir | `:10637-10641` | Works on HP; the effect on each target restores the MP. |
 
 ### The commands

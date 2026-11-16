@@ -62,15 +62,15 @@ and the GPU device (lavapipe) is reachable.
 
 ## Baselines
 
-The same 2,150 tests are registered on every platform.
+The same 2,163 tests are registered on every platform.
 
 | Run | Passed / total / skipped | Where |
 |---|---|---|
-| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) | **2028/2150/122** | every CI build job |
-| Everything (unset) | **2142/2150/8** | a developer's machine |
+| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) | **2031/2163/132** | every CI build job |
+| Everything (unset) | **2155/2163/8** | a developer's machine |
 
 Eight skips are in both runs, on every platform: the tests of the Japanese cartridge, which needs a
-Japanese image to check against. The brief run's other 114 are the tests that ask only the cartridge.
+Japanese image to check against. The brief run's other 124 are the tests that ask only the cartridge.
 A run is green only when every build job reports the brief baseline, with the same `(Skipped)` names on
 all five, and the parser job its full suite: **1223** tests.
 

@@ -51,7 +51,12 @@ inline constexpr std::uint32_t kSteps = kWorkRam + 0x1866;
 inline constexpr std::uint32_t kPlayClockFrames = kWorkRam + 0x021E;
 inline constexpr std::uint8_t kSwirlSuppressedBit = 0x10;
 inline constexpr std::uint8_t kCounterattackBit = 0x01;
-inline constexpr std::uint8_t kCannotRunBit = 0x04;
+// $B1 bit 1: the party cannot run — a pincer with monsters standing on both sides, a monster that cannot
+// be run from, or a party member fighting the party (:15184-15191, :15205-15210, :15246-15249), read by
+// the run (:5645-5647, :15070-15072). Bit 2: a monster that cannot be run from (:15205-15210), read by
+// Warp (:10465-10467) and the Smoke Bomb (:10560-10562).
+inline constexpr std::uint8_t kCannotRunBit = 0x02;
+inline constexpr std::uint8_t kEscapeBlockedBit = 0x04;
 inline constexpr std::uint8_t kInBattleMenuBit = 0x04;
 inline constexpr std::uint8_t kAutomaticCriticalClearBit = 0x02;  // $B3 bit 1: clear for an automatic critical
 inline constexpr std::uint8_t kRandomTargetBit = 0x40;

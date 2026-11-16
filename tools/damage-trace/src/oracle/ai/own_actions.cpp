@@ -30,9 +30,6 @@ namespace {
 
 // Per battler, at twice its index: Poison's multiplier, which grows at each beat.
 constexpr std::uint32_t kPoisonMultiplier = kWorkRam + 0x3E24;
-// A battler with a damage-over-time action waiting (the stance byte), and one held by a status from
-// taking it (the field byte).
-constexpr std::uint8_t kDamageOverTimeWaitingBit = 0x10;
 }  // namespace
 
 AttackResult DamageOracle::ownAction(const DamageScenario& scenario, const battle::Action& action) {

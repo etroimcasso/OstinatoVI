@@ -16,7 +16,9 @@
 #include <variant>
 #include <vector>
 
+#include "battle/battle_hooks.h"
 #include "battle/battle_start.h"
+#include "battle/command_executor.h"
 #include "battle/party_setup.h"
 #include "battle_test_support.h"
 #include "data/battle_tables.h"
@@ -406,13 +408,13 @@ TEST(StartBattleType, ABackGuardRulesOutPincerAndBackAttacks) {
 }
 
 TEST(StartBattleType, PreemptiveStrikesComeOneTimeInEightInAFrontAttack) {
-    // InitBattleType_00/03 :7621-7641: Rand below type × 4 + 32 — 32 front, 44 side — doubled by
-    // a Gale Hairpin.
+    // InitBattleType_00/03 :7621-7641: Rand below X × 4 | 32, X the battle type doubled for the jump
+    // table (:7590-7592) — 32 front, 56 side — doubled by a Gale Hairpin.
     const FormationAux& aux = getFormationAux(FormationId::LOBO);
     ASSERT_FALSE(aux.preemptiveDisabled());
     for (BattleType type : {BattleType::Front, BattleType::Side}) {
         for (bool galeHairpin : {false, true}) {
-            const int chance = (32 + 4 * static_cast<int>(type)) * (galeHairpin ? 2 : 1);
+            const int chance = (32 | 2 * static_cast<int>(type) * 4) * (galeHairpin ? 2 : 1);
             for (int position = 0; position < 256; ++position) {
                 BattleState state;
                 state.battleType = type;
@@ -621,6 +623,38 @@ TEST(StartBattle, ThePlayClockCountsOnFromTheFramesTheBattleStartsAt) {
     start.playTimeFrames = 41;
     const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
     EXPECT_EQ(state.playClockFrames, 41);
+}
+
+TEST(StartBattle, MimicsMemoryStartsAsAFightAtNoOne) {
+    // InitRAM zeroes $3EE4-$3F43 (:6319-6323), so the last command and attack are 0, a Fight, at no
+    // one; only X-Magic's second and the Jump are set to Mimic's own command, which names none
+    // (:6329-6331). A party member in Magitek armor would leave Fire Beam (:6640-6647); none here is.
+    battle::NullExecutor executor;
+    const BattleState state =
+        battle::startBattle(startFor(findFormation(ordinary)), threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.mimic.last.command, BattleCommandId::FIGHT);
+    EXPECT_EQ(state.mimic.last.attack, AttackId{});
+    EXPECT_TRUE(state.mimic.last.targets.empty());
+    EXPECT_FALSE(state.mimic.secondSpell.has_value());
+    EXPECT_FALSE(state.mimic.replayJump);
+}
+
+TEST(StartBattle, TheOpeningClearsTheEquipmentChangedFlags) {
+    // Imp going on as the battle starts asks for its wearer's equipment to be worked out again
+    // (:5595-5636 reads the flag at $2F30,x); the opening's graphics init clears $2F30-$2F33
+    // (btlgfx_main.asm:2488-2490), so the loop's first step finds none asked for. The statuses are
+    // put on by the command executor.
+    battle::BattleHooks hooks;
+    const TextCorpus& names = noNames();
+    const MonsterSprites& sprites = noSprites();
+    battle::CommandExecutor executor{hooks, names, sprites};
+    game::Party party = threeMembers();
+    party.characters[0].status.set(StatusId::IMP);
+    const BattleState state = battle::startBattle(startFor(findFormation(ordinary)), party, {}, names, sprites, executor);
+    ASSERT_TRUE(state.at(BattlerSlot::character(0)).status.has(StatusId::IMP));
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        EXPECT_FALSE(state.at(BattlerSlot::character(position)).equipmentChanged) << "party slot " << position;
+    }
 }
 
 TEST(StartBattle, TheOpeningStandsTheFormationsMonstersPresent) {

@@ -7,11 +7,11 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <stdexcept>
 
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
 #include "ostinato/item_id.h"
+#include "ostinato/status_id.h"
 
 #include "cells/battle/state.h"
 #include "cells/status/effects.h"
@@ -30,6 +30,8 @@ constexpr std::uint8_t kNoDance = 0xFF;
 // The equipment's statuses the cells hold: statuses 2 and 3 (StatusSet's second and third bytes).
 constexpr std::size_t kStatus2Byte = 1;
 constexpr std::size_t kStatus3Byte = 2;
+// The equipment's third status byte holds Float in its first bit.
+constexpr std::uint8_t kFloatAsStatus3Bit = 0x01;
 }  // namespace
 
 void DamageOracle::layBattlersAsTheCartridgeHoldsIt(const battle::BattleState& state) {
@@ -61,21 +63,19 @@ void DamageOracle::layBattlersAsTheCartridgeHoldsIt(const battle::BattleState& s
         // start's zero fill (InitBattle :6056-6060), which no field determines.
         if (battler.actor) {
             layByteAsTheCartridgeHoldsIt(kEquipmentStatus23 + at, battler.equipmentStatuses.bytes[kStatus2Byte]);
-            layByteAsTheCartridgeHoldsIt(kEquipmentStatus23 + at + 1, battler.equipmentStatuses.bytes[kStatus3Byte]);
+            // Float, which an item grants as its third status byte's first bit, stays in that bit of
+            // the cell (UpdateEquipBattle :6775-6776), where the immunities read it as Float
+            // (UpdateImmuneStatus :6390-6394).
+            const std::uint8_t status3 =
+                static_cast<std::uint8_t>((battler.equipmentStatuses.bytes[kStatus3Byte] & ~kFloatAsStatus3Bit) |
+                                          (battler.equipmentStatuses.has(StatusId::FLOAT) ? kFloatAsStatus3Bit : 0));
+            layByteAsTheCartridgeHoldsIt(kEquipmentStatus23 + at + 1, status3);
             layByteAsTheCartridgeHoldsIt(kRelics + at, static_cast<std::uint8_t>(battler.relics[0]));
             layByteAsTheCartridgeHoldsIt(kRelics + at + 1, static_cast<std::uint8_t>(battler.relics[1]));
         } else {
             leaveOut(kEquipmentStatus23 + at, 2);
             leaveOut(kRelics + at, 2);
         }
-
-        // The counterattacks waiting. A battle's start has none; a list of them is laid with the
-        // actions' (writeTargetEffectCells()), which lays only the turn's.
-        if (!battler.counterActions.empty()) {
-            throw std::logic_error("a battle state with counterattacks waiting cannot be laid: the counterattack lists "
-                                   "are not written");
-        }
-        layByteAsTheCartridgeHoldsIt(kFirstCounterAction + at, kFreeSlot);
     }
 }
 

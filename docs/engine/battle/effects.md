@@ -103,7 +103,7 @@ from `scratch.messageItem` and `scratch.messageAmount`.
 | Sonic Dive | the turn ends with this action; the petrified, asleep, stopped, frozen and hidden are passed over |
 | Mantra, Pearl Wind, Blow Fish, Revenge, Step Mine, Flare Star | damage from the caster's HP, a fixed 1,000, the HP lost, the party's steps, a target's level |
 | Spiraler | the caster gives up its HP and MP, hides and dies |
-| Warp, Warp Stone | the battle ends, unless the party cannot run |
+| Warp, Warp Stone | the battle ends, unless a monster there cannot be run from (`escapeBlockedByMonster`); a pincer does not stop it |
 | Exploder | the user's HP to everyone it hit and to itself |
 | Reflect???, L? Pearl, N. Cross, Possess | who is hit: only those with Reflect, a level the gil's last digit divides, a random handful kept, two draws in five missing |
 | Escape | a party member's is shown as the party running away |
@@ -115,7 +115,7 @@ from `scratch.messageItem` and `scratch.messageAmount`.
 | Empowerer | on, works on MP and is not shown; off, made again at a quarter of the power |
 | Quick | two turns for the caster, unless someone already has them |
 | Magicite | an esper drawn at random is cast next |
-| Smoke Bomb | does nothing where the party cannot run |
+| Smoke Bomb | does nothing where a monster cannot be run from (`escapeBlockedByMonster`); a pincer does not stop it |
 | Elixir, Megalixir | work on HP first |
 | GP Rain | throws 30 gil per level, from the party's gil or a monster's gold |
 

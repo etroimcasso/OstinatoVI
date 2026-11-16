@@ -264,6 +264,7 @@ add_library(ostinato-battle-scenarios STATIC
     tools/damage-trace/src/scenarios/battle/battle_cells.cpp
     tools/damage-trace/src/scenarios/battle/cells_not_compared.cpp
     tools/damage-trace/src/scenarios/battle/start.cpp
+    tools/damage-trace/src/scenarios/battle/start_draw.cpp
     tools/damage-trace/src/scenarios/common/bytes.cpp
     tools/damage-trace/src/scenarios/common/draws.cpp
     tools/damage-trace/src/scenarios/common/report_text.cpp
@@ -297,6 +298,8 @@ add_library(ostinato-damage-oracle STATIC
     tools/damage-trace/src/oracle/ai/own_actions.cpp
     tools/damage-trace/src/oracle/battle/battle_state.cpp
     tools/damage-trace/src/oracle/battle/start.cpp
+    tools/damage-trace/src/oracle/battle/start_check.cpp
+    tools/damage-trace/src/oracle/battle/state_actions.cpp
     tools/damage-trace/src/oracle/battle/state_battle.cpp
     tools/damage-trace/src/oracle/battle/state_battlers.cpp
     tools/damage-trace/src/oracle/battle/state_menus.cpp

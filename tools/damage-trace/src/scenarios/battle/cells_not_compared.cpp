@@ -25,9 +25,14 @@ constexpr std::uint8_t kMonsterSlotBits = 0x3F;                       // a battl
 constexpr std::uint8_t kSwirlSuppressedBit = 0x10;                    // $B0 bit 4
 constexpr std::uint8_t kNeverSetBits = 0x0B;                          // $B0 bits 3, 1 and 0
 constexpr std::uint8_t kVerdictHistoryBits = 0x7F;                    // below a verdict rotated into bit 7
+constexpr std::uint8_t kAboveTheHandBits = 0xF0;                      // an item record's fifth byte's top four
+constexpr std::uint8_t kScriptedSetupOnBit = 0x80;                    // $2F49 bit 7
 
 constexpr CellsNotCompared kCellsNotCompared[] = {
     // --- direct page -----------------------------------------------------------------------------
+    {.at = kWorkRam + 0x0010,
+     .why = "the graphics command's parameter, the party slot a menu command names, set before each command that "
+            "takes one (:166-167, :1502-1504, :2802-2804, :12067-12069) and read by the graphics program only"},
     {.at = kWorkRam + 0x00B0, .bits = kSwirlSuppressedBit,
      .why = "$B0 bit 4: one command's, set as a command is made (ExecCmd :3094-3095) and cleared by the commands "
             "that show their swirl (:3430, :3641, :3924, :13048, :13341, :14454)"},
@@ -81,9 +86,22 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x2F44,
      .why = "the monsters drawn see-through, the graphics program's, kept with Vanish (:11393, :11405)"},
     {.at = kWorkRam + 0x2F47, .why = "the start's fill; named by no instruction of the battle program"},
+    {.at = kWorkRam + 0x2F49, .bits = kScriptedSetupOnBit,
+     .why = "$2F49 bit 7 and $2F4A, the scripted setup in force — the formation's own, or Gau's return "
+            "(LoadBattleProp :7973-7977, InitParty :7786-7792): the battle program reads them only as it places "
+            "the party (:7793-7795), and the opening places the setup's cast by them (btlgfx_main.asm:2111-2121, "
+            ":41253-41255); the port's start places the cast and leaves the monsters out of reach from the same "
+            "setup (setupInForce())"},
+    {.at = kWorkRam + 0x2F4A, .why = "the scripted setup in force, with $2F49 bit 7 (above)"},
     {.at = kWorkRam + 0x2F52, .why = "the start's fill; named by no instruction of the battle program"},
     {.at = kWorkRam + 0x2F55, .count = 0xAB, .why = "the start's fill; named by no instruction of the battle program"},
     // --- the party's lists -----------------------------------------------------------------------
+    {.at = kWorkRam + 0x268A, .count = 256, .stride = 5, .bits = kAboveTheHandBits,
+     .why = "the top four bits of each inventory record's fifth byte, $F for an item no hand check is made for "
+            "(LoadItemProp :13989-13990, :14016-14020) and 0 otherwise (:14021-14033); the menus test one party "
+            "slot's bit (btlgfx_main.asm:10957-10958, :20956-20960)"},
+    {.at = kWorkRam + 0x2B8A, .count = 8, .stride = 5, .bits = kAboveTheHandBits,
+     .why = "the top four bits of each hand record's fifth byte, as the inventory's (LoadItemProp :13989-14033)"},
     {.at = kWorkRam + 0x202F, .count = 16, .stride = 3, .bits = kVerdictHistoryBits,
      .why = "below each command's gray bit, the verdicts of the refreshes before, rotated down (UpdateCmdList "
             ":13610-13611)"},
@@ -176,6 +194,9 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     // --- the stack -------------------------------------------------------------------------------
     {.at = kWorkRam + 0x1500, .count = 0x100,
      .why = "the interrupts' jump code and the stack: return addresses and saved registers"},
+    {.at = kWorkRam + 0x0100, .count = 0x100,
+     .why = "the stack of a battle called from the machine's reset, the oracle's: return addresses and saved "
+            "registers; the battle program names no cell of the page"},
     // --- beyond the battle's cells ---------------------------------------------------------------
     // An empty party slot's record offset is $FFFF, left by the start's fill: InitInventory reads its
     // shield and weapon through it, sixteen bits wide, from bank $7F (:13919-13920, :13928-13929).
@@ -184,9 +205,12 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
             "(InitInventory :13919-13920, :13928-13929); the slot's hand records are not compared"},
 };
 
-// The stack and the interrupts' jump code.
+// The stack and the interrupts' jump code, where the field calls the battle program from; and the
+// stack's page from the reset, where the oracle calls it from a machine fresh from its reset code.
 constexpr std::uint32_t kStackFirst = kWorkRam + 0x1500;
 constexpr std::uint32_t kStackEnd = kWorkRam + 0x1600;
+constexpr std::uint32_t kResetStackFirst = kWorkRam + 0x0100;
+constexpr std::uint32_t kResetStackEnd = kWorkRam + 0x0200;
 
 bool holds(const CellsNotCompared& row, std::uint32_t cell) {
     return cell >= row.at && (cell - row.at) % row.stride == 0 && (cell - row.at) / row.stride < row.count;
@@ -205,6 +229,8 @@ std::uint8_t notComparedBits(std::uint32_t cell) {
     return bits;
 }
 
-bool onTheStack(std::uint32_t cell) { return cell >= kStackFirst && cell < kStackEnd; }
+bool onTheStack(std::uint32_t cell) {
+    return (cell >= kStackFirst && cell < kStackEnd) || (cell >= kResetStackFirst && cell < kResetStackEnd);
+}
 
 }  // namespace ostinato::trace

@@ -56,15 +56,17 @@ struct CellsNotCompared {
 // its own call pushed, so a read there is never carried from a comparison point.
 [[nodiscard]] bool onTheStack(std::uint32_t cell);
 
-// Cells the attack frame reads that no scenario writes, left as the machine has them: `count` cells
-// from `at`, `stride` apart. Each is a cell whose value reaches nothing the game shows or keeps.
+// Cells a routine reads that no scenario writes, left as the machine has them: `count` cells from
+// `at`, `stride` apart. Each is a cell whose value reaches nothing the battle holds — read and put back,
+// shifted out, or overwritten before anything reads it. The read-set gate passes a read of one before
+// anything wrote it, and the carried-read gate a read of one after the comparison point.
 struct CellsLeftAsTheMachineHasThem {
     std::uint32_t at = 0;
     std::uint32_t count = 1;
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 15> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 17> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -101,6 +103,14 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 15> kCellsLeftAsTheMac
     {.at = 0x7E1A69,
      .why = "the high byte of the last inventory slot's quantity, loaded sixteen bits wide (InitInventory "
             ":13935-13937) and overwritten with $FF before anything reads it (LoadItemProp :13989-13990)"},
+    {.at = 0x7E3720,
+     .why = "the advance-wait line's first place, which the search that takes a battler out of the line looks at "
+            "once even when the line is empty (RemoveAllActions :1583-1591); a match stores $FF in a place the "
+            "line does not hold"},
+    {.at = 0x7E1DDD, .count = 64,
+     .why = "the field's record of the battles Gau can find on the Veldt, which the battle's end reads only to set "
+            "the formation's bit in it and store it back (UpdateSRAM :12163-12178): the bit is "
+            "BattleResult::veldtFormation, and the field keeps the rest"},
 }};
 
 // Whether `cell` is one of kCellsLeftAsTheMachineHasThem.

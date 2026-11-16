@@ -31,6 +31,8 @@ namespace {
 constexpr std::uint16_t kNoBattlers = 0xFFFF;
 constexpr std::uint8_t kRingMask = 0x18;  // the records' ring: four records, eight bytes apart
 constexpr std::uint32_t kMimicRecordSize = 2;
+// A line's ring: 256 places, its start and end a byte each.
+constexpr std::uint32_t kRingPlaces = 256;
 }  // namespace
 
 void DamageOracle::holdPosition(std::uint32_t at, std::uint32_t count) {
@@ -54,6 +56,9 @@ std::uint8_t DamageOracle::positionByte(std::uint32_t at) {
 void DamageOracle::layLine(std::uint32_t startCell, std::uint32_t ring, const battle::BattlerQueue& line) {
     const std::uint8_t start = positionByte(startCell);
     holdPosition(startCell, 1);
+    // The ring's places outside the line hold what the battlers who left it left there, or a search's
+    // $FF (RemoveAllActions :1583-1591): no field determines them.
+    leaveOut(ring, kRingPlaces);
     for (std::size_t i = 0; i < line.size(); ++i) {
         const auto place = static_cast<std::uint8_t>(start + i);
         layByteAsTheCartridgeHoldsIt(ring + place, static_cast<std::uint8_t>(slotIndex(line.at(i))));

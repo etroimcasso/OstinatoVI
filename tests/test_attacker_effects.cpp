@@ -501,13 +501,26 @@ TEST_F(AttackerEffectTest, WarpEndsTheBattleAsTimeRunningOut) {
     EXPECT_EQ(run.after.attack.params.targetsHit, BattlerSet::of(kMonster));
 }
 
-TEST_F(AttackerEffectTest, WarpWhereThePartyCannotRunHitsNoOne) {
+TEST_F(AttackerEffectTest, WarpWhereAMonsterCannotBeRunFromHitsNoOne) {
+    // :10465-10467 test $B1 bit 2, which a monster that cannot be run from sets with bit 1
+    // (:15205-15210).
     DamageScenario s = scenarioWith(SpecialEffect::of(ItemUseEffect::WARP_STONE));
     s.state.cannotRun = true;
+    s.state.escapeBlockedByMonster = true;
     const auto run = checked(s);
     EXPECT_FALSE(run.after.state.endOfBattleEvent);
     EXPECT_TRUE(run.after.attack.params.targetsHit.empty());
     EXPECT_EQ(run.after.attack.scratch.message, battle::kMessageCantEscape);
+}
+
+TEST_F(AttackerEffectTest, WarpWorksWhereOnlyAPincerKeepsThePartyFromRunning) {
+    // A pincer with monsters on both sides, or a party member fighting the party, sets $B1 bit 1 alone
+    // (:15184-15191, :15246-15249): the party cannot run, and Warp still ends the battle.
+    DamageScenario s = scenarioWith(SpecialEffect::of(ItemUseEffect::WARP_STONE));
+    s.state.cannotRun = true;
+    s.state.escapeBlockedByMonster = false;
+    const auto run = checked(s);
+    EXPECT_EQ(run.after.state.endOfBattleEvent, battle::EndOfBattleEvent::RanOutOfTime);
 }
 
 TEST_F(AttackerEffectTest, ExploderIsShownOnItsUserAndThenItsTargets) {
@@ -815,14 +828,19 @@ TEST_F(AttackerEffectTest, MagiciteSummonsAnEspersButNotOdinOrRaiden) {
     EXPECT_EQ(run.after.attack.scratch.attacksLeft, 1);
 }
 
-TEST_F(AttackerEffectTest, ASmokeBombWhereThePartyCannotRunDoesNothing) {
+TEST_F(AttackerEffectTest, ASmokeBombWhereAMonsterCannotBeRunFromDoesNothing) {
+    // :10560-10562 test $B1 bit 2, a monster that cannot be run from (:15205-15210); bit 1 alone, a
+    // pincer's or an enemy party member's (:15184-15191, :15246-15249), leaves the bomb to work.
     DamageScenario s = scenarioWith(SpecialEffect::of(ItemUseEffect::SMOKE_BOMB));
     s.state.cannotRun = true;
+    s.state.escapeBlockedByMonster = true;
     const auto run = checked(s);
     EXPECT_TRUE(run.after.attack.params.targetsHit.empty());
     EXPECT_TRUE(run.after.attack.effect.isNone());
     EXPECT_EQ(run.after.attack.scratch.message, battle::kMessageCantRunAway);
 
+    s.state.escapeBlockedByMonster = false;
+    EXPECT_EQ(checked(s).after.attack.effect, SpecialEffect::of(ItemUseEffect::SMOKE_BOMB));
     s.state.cannotRun = false;
     EXPECT_EQ(checked(s).after.attack.effect, SpecialEffect::of(ItemUseEffect::SMOKE_BOMB));
 }

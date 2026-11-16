@@ -289,9 +289,11 @@ void spiraler(BattleState& state, AttackInFlight& attack, BattlerSlot attacker, 
     battler.mp = 0;
 }
 
-// Warp, and a Warp Stone, end the battle as running out of time does — unless the party cannot run.
+// Warp, and a Warp Stone, end the battle as running out of time does — unless a monster there cannot
+// be run from. A pincer, or a party member fighting the party, keeps the party from running and not
+// from warping.
 void warp(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleScriptBuilder&) {
-    if (state.cannotRun) {
+    if (state.escapeBlockedByMonster) {
         attack.scratch.message = kMessageCantEscape;
         hitsNoOne(attack);
         return;
@@ -544,9 +546,10 @@ void magicite(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleScr
     ++attack.scratch.attacksLeft;
 }
 
-// A Smoke Bomb does nothing where the party cannot run.
+// A Smoke Bomb does nothing where a monster cannot be run from; a pincer, or a party member fighting
+// the party, leaves it to work.
 void smokeBomb(BattleState& state, AttackInFlight& attack, BattlerSlot, BattleScriptBuilder&) {
-    if (!state.cannotRun) {
+    if (!state.escapeBlockedByMonster) {
         return;
     }
     hitsNoOne(attack);

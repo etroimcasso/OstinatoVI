@@ -589,6 +589,9 @@ struct BattleState {
     bool preemptive = false;
     bool actorStillActing = false;  // the current battler has more of its turn to take
     bool counterattackRunning = false;
+    // The party cannot run (a pincer with monsters on both sides, a party member fighting the party,
+    // or a monster that cannot be run from); a monster that cannot be run from also stops Warp and the
+    // Smoke Bomb.
     bool cannotRun = false;
     bool escapeBlockedByMonster = false;
     bool backAttack = false;

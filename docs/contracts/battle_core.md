@@ -205,8 +205,10 @@ once until the loop's next pass (`:15083-15094`, `:111-112`).
 **Run difficulty** (`refreshRunDifficulty()`, from `UpdateMonsterGfxBuf` `:15179-15250`), worked out
 whenever the monster list changes: 2 for each monster present, not fallen, in play and not dead,
 petrified or a zombie, 6 for one that is harder to run from; 0 in a side attack or after a pre-emptive
-strike. The party cannot run when a monster prevents it, when a pincer attack has monsters standing
-on both sides, or when a party member is fighting for the other side.
+strike. The party cannot run (`cannotRun`, `$b1.1`) when a monster prevents it, when a pincer attack
+has monsters standing on both sides, or when a party member is fighting for the other side; only the
+first is a monster that cannot be run from (`escapeBlockedByMonster`, `$b1.2`, `:15205-15210`), which
+is what stops Warp and the Smoke Bomb.
 
 ## The lines and the lists
 
@@ -379,10 +381,11 @@ battler, slot 9 first, while the command has not disabled counters:
    marks cleared and its gauge emptied, and its menu is canceled (below). Its pending updates run
    once each, in this order: carried off by Palidor (marked away, gauge stopped, out of the action
    line, may not act after jumping, an advance wait of 224); its castable spells; removing all its
-   actions (and marking it to go back in line); a condemned count starts — **20 + max(0, 60 − (L +
-   random(0 … L − 1)))** with L the level of the last attack made (`$11af`, which keeps its value
-   from one action to the next until an attack writes it; 20 for counts that start with the battle,
-   `:1512-1525`, `:6131`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
+   actions (and marking it to go back in line); a condemned count starts — with R = L +
+   random(0 … L − 1), **81 − R while R is at most 60, and 20 above it**: 20 + (60 − R) with the
+   subtraction's carry added in (`docs/Bugs.md`) — with L the level of the last attack made (`$11af`,
+   which keeps its value from one action to the next until an attack writes it; 20 for counts that
+   start with the battle, `:1512-1525`, `:6131`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
    after Morph. Then its menu may open (below); then whether it is held (below); a held battler loses
    Def; and the near-fatal relics may cast.
 10. **Battlers leaving** the field are no longer present or standing, are hidden, release their
@@ -634,8 +637,11 @@ status immunity again.
 allows), the party, the battle switches and the game's text, in the original's order (`InitBattle`
 `:6053-6195`), so its random numbers are drawn in the same sequence:
 
-1. Mimic's memory starts as Mimic (`InitRAM` `:6329-6331`); the final battle is recognized when the
-   formation asked for is its first stage (`:6078-6082`).
+1. Mimic's memory starts as a **Fight with attack 0 at no one** — the start zeroes `$3EE4-$3F43`
+   (`InitRAM` `:6319-6323`) — with Mimic's own command, which names nothing, in the places for
+   X-Magic's second spell and for a Jump (`:6329-6331`); a party member in Magitek armor then leaves
+   Fire Beam (below, "HP, MP and statuses"). The final battle is recognized when the formation asked
+   for is its first stage (`:6078-6082`).
 2. The random numbers start at **four times the play clock's frames** (`:6088-6090`), the cell the
    graphics program's interrupt steps from 1 to 60 (below, "What the graphics program hands the
    battle program"); `BattleState::playClockFrames` starts at it.
@@ -663,7 +669,9 @@ allows), the party, the battle switches and the game's text, in the original's o
     opens: its gauge full and stopped, in the action line with a Jump (`:6166-6179`).
 12. The opening: `OpenBattleScene`, and the random numbers move on one entry — the loop's own once-a-
     pass advance, which comes before its first wait (`:67-68`). What the opening lays for the battle
-    program is the start's too: the **monsters standing** become the formation's monsters present
+    program is the start's too: **no party member's equipment is to be worked out again**, whatever a
+    status put on at the start asked for (`btlgfx:2488-2490` clear `$2F30-$2F33`); the **monsters
+    standing** become the formation's monsters present
     (`btlgfx:2011-2013`, `:2203-2205`) — until then every monster stands, which is what the run check
     above reads — and the monsters the scripted setup in force leaves out of its reach byte are **out
     of the AI's reach** (`aiUntargetable`; `btlgfx:2197-2201`, `:41253-41267`). The setup in force is
@@ -735,8 +743,9 @@ four times in five.
 
 `applyBattleType()` (`InitBattleType` `:7584-7666`): anything but a front attack keeps Gau from
 appearing. In a front or side attack, unless the battle menus are shut or the formation forbids
-it, one draw below **32 (front) or 44 (side)** — twice that with a **Gale Hairpin** — is a
-**preemptive strike** (`:7621-7641`). A pincer attack puts every party slot in the front row; a back
+it, one draw below **32 (front) or 56 (side)** — twice that with a **Gale Hairpin** — is a
+**preemptive strike** (`:7621-7641`): the chance is the battle type doubled for the effect's jump
+table (`:7590-7592`), times four, with 32 set. A pincer attack puts every party slot in the front row; a back
 attack swaps every party slot's row; both are back attacks for the battle (`:7646-7666`).
 
 ### The starting gauges

@@ -302,6 +302,10 @@ void DamageOracle::call(const std::function<void()>& routine) {
     if (!reset_) {
         throw std::logic_error("the oracle's cartridge has not been started (DamageOracle::start)");
     }
+    if (beyondArmed_ && !start_) {
+        machine_.watches()[kBeyondKey].armed(false);
+        beyondArmed_ = false;
+    }
     writes_.clear();
     trace_->forgetContextWrites();
     unwrittenReads_.clear();

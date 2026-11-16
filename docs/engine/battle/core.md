@@ -180,8 +180,9 @@ count, the escape try, the Reflect, Freeze and Sleep timers, and the poison and 
 step. The remaining six of the 16 turns are the battle's: Roulette's Doom, the battle counter and the
 battlers' own timers, and the party's escape.
 
-A condemned count that starts is 20 + max(0, 60 − (L + a random 0 … L − 1)), where L is
-`state.lastAttackLevel`: the level the last attack was made at, 20 as the battle starts.
+A condemned count that starts is 81 − R while R is at most 60, and 20 above it, where R is L plus a
+random 0 … L − 1 and L is `state.lastAttackLevel`: the level the last attack was made at, 20 as the
+battle starts. The one more than 20 + (60 − R) is the original's ([`docs/Bugs.md`](../../Bugs.md)).
 `CommandExecutor` keeps it up to date; an action that makes no attack of its own level leaves it.
 
 ## Actions and the lines

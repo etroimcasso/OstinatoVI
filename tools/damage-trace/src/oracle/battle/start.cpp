@@ -120,6 +120,10 @@ void DamageOracle::answerInBattle(const GraphicsCall& call) {
         std::copy(cells.begin(), cells.end(), start.cells.begin());
         start.unwrittenReads = unwrittenReads();
         writtenSincePoint_.clear();
+        // Ended by event 4 with nothing run before it: the interrupting actions the start left (an
+        // opening message, a pose reset) run in the loop before its end check (:78-80, :111-113), so
+        // their list is emptied. The battle running them is the whole battle's to compare.
+        writeByte(kFirstImmediateAction, kFreeSlot);
         writeByte(kEndOfBattleEventsOn, kEventsOn);
         writeByte(kEndOfBattleEvent, kEndTheBattleNow);
     }
@@ -137,9 +141,11 @@ StartResult DamageOracle::battleStartAsItStands() {
     graphicsCalls_.clear();
     unansweredGraphics_.reset();
     machine_.escapes()[kGraphicsKey].armed(true);
-    machine_.watches()[kBeyondKey].armed(true);
+    if (!beyondArmed_) {
+        machine_.watches()[kBeyondKey].armed(true);
+        beyondArmed_ = true;
+    }
     call([&] { battleMain_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
-    machine_.watches()[kBeyondKey].armed(false);
     machine_.escapes()[kGraphicsKey].armed(false);
     StartResult result = std::move(*start_);
     start_.reset();
@@ -162,8 +168,6 @@ namespace {
 // battle's line of fighters (InitParty :7724-7756, InitMonsters :7697).
 constexpr std::uint32_t kFieldFormation = kWorkRam + 0x11E0;
 constexpr std::uint32_t kFieldBackground = kWorkRam + 0x11E2;
-constexpr std::uint32_t kFieldBattleFlags = kWorkRam + 0x11E4;
-constexpr std::uint8_t kGauMayAppearBit = 0x01;
 constexpr std::uint32_t kBattleSettings = kWorkRam + 0x1D4D;
 constexpr std::uint8_t kWaitModeBit = 0x08;
 constexpr std::uint8_t kSpeedBits = 0x07;
@@ -178,13 +182,10 @@ constexpr std::uint32_t kFieldItems = kWorkRam + 0x1869;
 constexpr std::uint32_t kFieldQuantities = kWorkRam + 0x1969;
 constexpr std::uint32_t kSaveHours = kWorkRam + 0x1863;
 constexpr std::uint32_t kSaveMinutes = kWorkRam + 0x1864;
-constexpr std::uint32_t kColosseumWager = kWorkRam + 0x0205;
+constexpr std::uint32_t kColosseumWager = kWagerCell;
 constexpr std::uint32_t kColosseumOpponent = kWorkRam + 0x0206;
-constexpr std::uint32_t kColosseumPrize = kWorkRam + 0x0207;
+constexpr std::uint32_t kColosseumPrize = kPrizeCell;
 constexpr std::uint32_t kColosseumFighter = kWorkRam + 0x0208;
-constexpr std::uint32_t kFinalBattleLine = kWorkRam + 0x0205;
-constexpr std::uint32_t kFinalBattleLineSize = 12;
-constexpr std::uint8_t kEndOfLine = 0xFF;
 // The colosseum's two formations, the last two (InitParty :7748-7750).
 constexpr std::uint16_t kFirstColosseumFormation = 0x023E;
 
@@ -211,7 +212,7 @@ void DamageOracle::writeStartScenario(const StartScenario& scenario) {
 
     writeWord(kFieldFormation, start.formation.raw);
     writeWord(kFieldBackground, static_cast<std::uint16_t>(start.background));
-    writeByte(kFieldBattleFlags, static_cast<std::uint8_t>((start.gauMayAppear ? kGauMayAppearBit : 0) |
+    writeByte(kFieldFlags, static_cast<std::uint8_t>((start.gauMayAppear ? kGauMayAppearBit : 0) |
                                                            (start.onTheVeldt ? kOnTheVeldtBit : 0) |
                                                            (start.keepFieldMusic ? kFieldMusicPlaysOnBit : 0)));
     const std::uint8_t story = readByte(kStoryFlags);
@@ -263,7 +264,7 @@ StartScenario DamageOracle::readStartScenario() {
     battle::BattleStart& start = s.start;
     start.formation = FormationRef{.raw = readWord(kFieldFormation)};
     start.background = static_cast<BattleBackgroundId>(readByte(kFieldBackground));
-    const std::uint8_t flags = readByte(kFieldBattleFlags);
+    const std::uint8_t flags = readByte(kFieldFlags);
     start.gauMayAppear = (flags & kGauMayAppearBit) != 0;
     start.onTheVeldt = (flags & kOnTheVeldtBit) != 0;
     start.keepFieldMusic = (flags & kFieldMusicPlaysOnBit) != 0;

@@ -73,9 +73,9 @@ inventory and known skills; the monsters; the statuses waiting to be set
 the after-command checks once, near-fatal relics included; the battle type; status immunity; the
 starting gauges; the opening message; whether the party can run; everyone placed on the field and
 facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`, and
-with it what the opening lays out: the monsters standing (`monstersStanding`) become the formation's
-monsters present, and the monsters the scripted setup in force leaves out of its reach are out of the
-AI's reach (`aiUntargetable`).
+with it what the opening lays out: no party member's `equipmentChanged` is left set, the monsters
+standing (`monstersStanding`) become the formation's monsters present, and the monsters the scripted
+setup in force leaves out of its reach are out of the AI's reach (`aiUntargetable`).
 
 The run check comes before the battlers are placed, so at that moment a pincer reads every monster
 as standing on both sides: a pincer always opens unrunnable ([`docs/Bugs.md`](../../Bugs.md)).
@@ -311,7 +311,7 @@ possible types (`getFormationAux(id).possibleBattleTypes()`, bits `$10` front, `
 pincer, `$80` side), weighted by the battle-type rates — a front attack about four times in five
 when all four are possible. A Back Guard rules out back and pincer attacks, and fewer than three
 allies a side attack, unless nothing else is possible. `applyBattleType(state, aux)` then rolls for a
-preemptive strike in a front or side attack (32 or 44 in 256, twice that with a Gale Hairpin; never
+preemptive strike in a front or side attack (32 or 56 in 256, twice that with a Gale Hairpin; never
 with the menus shut or where the formation forbids it) and moves the rows for a back or pincer
 attack.
 
@@ -330,6 +330,10 @@ is set.
 A back attack, a pincer, a side attack or a preemptive strike opens with its battle message, a
 `BattleMessageAction` that interrupts the line; a formation that forbids preemptive strikes opens
 with none.
+
+The opening asks for no party member's equipment to be worked out again: an Imp put on as the battle
+starts sets its wearer's `equipmentChanged`, and the opening clears it, so the first loop step
+refreshes no one.
 
 The opening also decides two sets. Until it, every monster stands (the run check above reads them
 so); from it, `monstersStanding` holds the formation's monsters present, and a monster held back for

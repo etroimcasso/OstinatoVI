@@ -42,10 +42,11 @@ constexpr std::size_t kComparedNameBytes = 8;
 // The battle-type rates are the fifth row of the four-way rate table.
 constexpr std::size_t kBattleTypeRates = 4;
 
-// The preemptive-strike chance, out of 256: 32 in a front attack and 44 in a side attack, doubled
-// by a Gale Hairpin.
+// The preemptive-strike chance, out of 256: 32 in a front attack and 56 in a side attack, doubled
+// by a Gale Hairpin. The battle type is doubled for the table the battle type's effect is chosen
+// from, and the chance is that doubled number times four, with 32 set.
 constexpr int kPreemptiveBase = 32;
-constexpr int kPreemptivePerBattleType = 4;
+constexpr int kPreemptivePerBattleType = 8;
 
 // A monster's stamina: 16, plus one for each 512 of its maximum HP, up to 40.
 constexpr int kMonsterStaminaBase = 16;
@@ -549,7 +550,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     } else {
         state.finalBattleChain = start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
         state.finalBattleReserve.assign(start.finalBattleOrder.begin(), start.finalBattleOrder.end());
-        state.mimic.last.command = BattleCommandId::MIMIC;
+        // Mimic's memory starts as a Fight with attack 0 at no one, with no second spell and no Jump.
+        state.mimic = MimicMemory{};
         state.itemsObtained = itemsObtainedAtBattleStart(start.itemsObtainedTail);
     }
 
@@ -645,8 +647,13 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.waitingForScript = ScriptWait{.resume = ScriptResume::NextStep};
     } else {
         state.requests.push_back(OpenBattleScene{});
-        // The opening lays out the formation's monsters present as the monsters standing, and keeps
-        // out of the AI's reach every monster the scripted setup in force leaves out.
+        // The opening asks for no party member's equipment to be worked out again, whatever a status
+        // put on at the start asked for; it lays out the formation's monsters present as the monsters
+        // standing, and keeps out of the AI's reach every monster the scripted setup in force leaves
+        // out.
+        for (int position = 0; position < kPartySlots; ++position) {
+            state.at(BattlerSlot::character(position)).equipmentChanged = false;
+        }
         const Formation& formation = getFormation(state.formation);
         BattlerSet present;
         for (int position = 0; position < kMonsterSlots; ++position) {
