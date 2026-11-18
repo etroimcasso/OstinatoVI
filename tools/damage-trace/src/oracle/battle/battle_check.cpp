@@ -6,10 +6,15 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
+
+#include "battle/battler_set.h"
+#include "battle/party_setup.h"
 
 namespace ostinato::trace {
 
@@ -72,6 +77,32 @@ std::string requestDifferences(const std::vector<std::string>& port, const std::
         }
     }
     return lines;
+}
+
+// A boost as the two top bits of a record's maximum hold it (CheckHPBoost :2456-2472, read by
+// CalcMaxHPMP): 1 for 25% more, 2 for 50%, 3 for 12.5%.
+std::uint8_t boostBits(battle::MaxBoost boost) {
+    switch (boost) {
+        case battle::MaxBoost::None: return 0;
+        case battle::MaxBoost::Plus25Percent: return 1;
+        case battle::MaxBoost::Plus50Percent: return 2;
+        case battle::MaxBoost::Plus12Point5Percent: return 3;
+    }
+    return 0;
+}
+
+// The records of every party member seated at some loop step: the start, and each stage of the final
+// battle, refreshes each one for its equipment.
+std::set<std::size_t> refreshedRecords(const PortBattle& port) {
+    std::set<std::size_t> records;
+    for (const battle::BattleState& state : port.steps) {
+        for (int position = 0; position < battle::kPartySlots; ++position) {
+            if (const std::optional<std::size_t> record = state.at(battle::BattlerSlot::character(position)).record) {
+                records.insert(*record);
+            }
+        }
+    }
+    return records;
 }
 
 }  // namespace
@@ -151,10 +182,17 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         lines += "the battle did not end on both sides\n";
         return check;
     }
-    // What the game keeps: the party's records, the inventory, the switches and the Veldt's battles.
+    // What the game keeps: the party's records, the inventory, the switches and the Veldt's battles. A
+    // record the battle refreshed for its equipment keeps the boosts its equipment gives (UpdateEquip
+    // :2349-2362, CheckHPBoost :2456-2472); every other record keeps the ones it came in with.
     WriteBackResult kept;
     kept.cells = scenario.start.cells;
     kept.cells.party = port.result->party;
+    for (const std::size_t record : refreshedRecords(port)) {
+        const battle::DerivedStats derived = battle::deriveEquipment(port.result->party.characters[record]);
+        kept.cells.hpBoostBits[record] = boostBits(derived.hpBoost);
+        kept.cells.mpBoostBits[record] = boostBits(derived.mpBoost);
+    }
     kept.inventory = port.result->party.inventory;
     kept.switches = port.result->switches;
     kept.veldtBattles = cartridge.veldtBattlesBefore;

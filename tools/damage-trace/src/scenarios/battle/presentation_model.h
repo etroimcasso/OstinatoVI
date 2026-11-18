@@ -40,6 +40,17 @@ struct PresentationModel {
     // The frame, counted from the battle's first, on which a story countdown runs out ($1DD1 bit 5 and
     // BattleState::eventTimerExpired set as the frame begins); none for a battle with no countdown.
     std::optional<std::uint64_t> timerRunsOutAt;
+    // The frame, counted from the battle's first, from which the player holds the run buttons (L and R)
+    // to the battle's end; none for a battle in which they are never held.
+    std::optional<std::uint64_t> runButtonsHeldFrom;
+
+    // Whether the party runs on `frame`, as the graphics program's interrupt sets $2F45
+    // (btlgfx_main.asm:1603-1614) and BattleState::partyRunning stands for it: the run buttons are held,
+    // the formation allows running (FormationAux::runningDisabled(), $2F4B bit 0), and battle time runs
+    // on the frame.
+    [[nodiscard]] bool partyRuns(std::uint64_t frame, bool runningDisabled, Frame played) const {
+        return runButtonsHeldFrom && frame >= *runButtonsHeldFrom && !runningDisabled && played.clockCalled;
+    }
 
     // The opening's frames, in order.
     [[nodiscard]] std::vector<Frame> openingFrames() const;

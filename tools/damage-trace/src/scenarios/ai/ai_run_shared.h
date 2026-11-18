@@ -9,6 +9,7 @@
 #include <string>
 #include <vector>
 
+#include "battle/action_queue.h"
 #include "battle/attack.h"
 #include "data/ai_scripts.h"
 
@@ -39,5 +40,10 @@ std::vector<std::uint8_t> stepBytesFor(const battle::BattleVariableAction& a);
 std::vector<std::uint8_t> stepBytesFor(const battle::BattleSwitchAction& a);
 
 std::vector<std::uint8_t> stepBytesFor(const battle::AiEffectAction& a);
+
+// The cells an action a script queues holds in the cartridge's list: a command's own four, or the
+// command an AI step goes out as with the step's first operand as the attack and the next two as the
+// targets (AICmd_f2-AICmd_fb :4476-4549). None for an action no script queues.
+std::optional<ActionCells> listedActionCells(const battle::Action& action);
 
 }  // namespace ostinato::trace::detail

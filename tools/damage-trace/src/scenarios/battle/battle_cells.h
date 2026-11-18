@@ -123,9 +123,11 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMac
             "which every instruction up to GetMPCost's tdc leaves alone (:12932-12974, the index registers narrow "
             "from :4369), and in the zero flag the action's php saves, which NextAICmd's cmp sets again before "
             "anything tests it (:4345)"},
-    {.at = 0x7E3FE3,
-     .why = "past the first status bytes ($3EE4,x) for an X of $FF: an interrupting action runs with X as the loop "
-            "left it (BattleLoop :78-80, _c22163 :5704-5711), and InitPlayerAction's Imp test reads $3EE4,x "
+    {.at = 0x7E3FE2, .count = 2,
+     .why = "past the first status bytes ($3EE4,x) for an X of $FE or $FF: an interrupting action runs with X as "
+            "the loop left it (BattleLoop :78-80, _c22163 :5704-5711) — $FE after the menus' update steps down the "
+            "four party members two at a time (_c200cc :162-171), $FF otherwise — and InitPlayerAction's Imp test "
+            "reads $3EE4,x "
             "(:410-412); every interrupting action's command is $23 or above (:1224, :1260, :1599, :1636, "
             ":3669, :6160, :9717, :14962, :15061, :15093, :16427), so the test returns either way (:413-415) "
             "and the pla there sets the flags again (:440)"},

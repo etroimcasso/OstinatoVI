@@ -262,6 +262,7 @@ add_library(ostinato-battle-scenarios STATIC
     tools/damage-trace/src/scenarios/ai/ai_targets.cpp
     tools/damage-trace/src/scenarios/ai/own_actions.cpp
     tools/damage-trace/src/scenarios/battle/battle_cells.cpp
+    tools/damage-trace/src/scenarios/battle/battle_draw.cpp
     tools/damage-trace/src/scenarios/battle/cells_not_compared.cpp
     tools/damage-trace/src/scenarios/battle/presentation_model.cpp
     tools/damage-trace/src/scenarios/battle/start.cpp

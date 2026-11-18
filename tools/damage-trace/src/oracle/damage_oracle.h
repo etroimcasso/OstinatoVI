@@ -346,8 +346,10 @@ public:
     // as battleStart() answers them, and the frames the scenario's model gives — the opening's for $00,
     // the script's for $04, one for the loop's frame wait — are run: the frame counter ($0E) and the play
     // clock's frames ($021E) stepped as the interrupt steps them, the story countdown's flag ($1DD1 bit 5)
-    // set on the frame it runs out, and the battle's clock (UpdateBattleTime) called on every frame the
-    // model says it is. The cells are read at each loop step's frame wait, before its frame. A battle not
+    // set on the frame it runs out, the party's running ($2F45) set on every frame the model says it runs,
+    // and the battle's clock (UpdateBattleTime) called on every frame the model says it is. The scenario's
+    // first step (FirstStepLaid) is written as the first loop step's frame wait is reached. The cells are
+    // read at each loop step's frame wait, before its frame. A battle not
     // ended by the scenario's frame cap is ended by the cartridge's own end-of-battle event 4 and marked
     // timed out. Needs useMonsterSprites().
     [[nodiscard]] WholeBattleResult wholeBattle(const BattleScenario& scenario);
@@ -546,9 +548,12 @@ private:
     void runFrame(Frame frame);
     // The loop's frame wait is next: its graphics call reads the step's cells.
     void reachedTheFrameWait();
-    // A whole battle, stepped or in one call, from the cells as they stand.
-    [[nodiscard]] WholeBattleResult runWholeBattle(const PresentationModel& model, std::uint64_t frameCap,
-                                                   bool inOneCall);
+    // `laid` written into the battlers' status and HP cells, as layFirstStep() lays it onto the port's state.
+    void writeFirstStep(const FirstStepLaid& laid);
+    // A whole battle, stepped or in one call, from the cells as they stand, with `firstStep` laid at the
+    // first loop step.
+    [[nodiscard]] WholeBattleResult runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
+                                                   std::uint64_t frameCap, bool inOneCall);
     // The loop's head reached, or TerminateBattle's return, with the stack pointer found there.
     void stepEnded(std::uint16_t stackPointer, bool closed);
     void writeItemsObtained(const battle::ItemsObtained& list);
@@ -702,6 +707,7 @@ private:
     // A whole battle being run (wholeBattle()): its model, what it has made so far, and the step under way.
     struct WholeBattleRun {
         PresentationModel model;
+        FirstStepLaid firstStep;
         std::uint64_t frameCap = 0;
         WholeBattleResult result;
         CartridgeStep pending;        // the writes and reads since the last frame wait

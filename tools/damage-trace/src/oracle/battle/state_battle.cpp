@@ -84,7 +84,10 @@ void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& sta
     layByteAsTheCartridgeHoldsIt(kTimeStoppedByMenu, state.timeStoppedByMenu ? 1 : 0);
     layWordAsTheCartridgeHoldsIt(kRouletteTarget,
                                  state.rouletteTarget ? maskOf(battle::BattlerSet::of(*state.rouletteTarget)) : kNoBattlers);
-    layByteAsTheCartridgeHoldsIt(kPartyRunning, state.partyRunning ? 1 : 0);
+    layByteAsTheCartridgeHoldsIt(kPartyRunning, state.partyRunning ? kPartyRunsByte : 0);
+    // Gau just turned up (GauAppears :12014-12015), until the loop's next step drops the party's choices
+    // (:81-84); between steps the byte's other bits are an attack's and are clear.
+    layByteAsTheCartridgeHoldsIt(kAimFlags, state.gauJoining ? kGauJoiningBit : 0);
     layWordAsTheCartridgeHoldsIt(kJoining, maskOf(state.joiningAfterAction));
     layByteAsTheCartridgeHoldsIt(kActingBattler, slotByte(state.actingBattler));
     layByteAsTheCartridgeHoldsIt(kCounteringBattler, slotByte(state.counteringBattler));

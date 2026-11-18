@@ -4,7 +4,10 @@
 #include "oracle/damage_oracle.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -16,6 +19,7 @@
 #include "cells/damage/per_target.h"
 #include "cells/status/effects.h"
 #include "oracle/routines.h"
+#include "scenarios/common/bytes.h"
 
 namespace ostinato::trace {
 
@@ -34,24 +38,26 @@ constexpr std::uint32_t kScriptQueueSpan = 0x100;
 
 WholeBattleResult DamageOracle::wholeBattle(const BattleScenario& scenario) {
     writeStartScenario(scenario.start);
-    return wholeBattleAsItStands(scenario.model, scenario.frameCap);
+    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, false);
 }
 
 WholeBattleResult DamageOracle::wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap) {
-    return runWholeBattle(model, frameCap, false);
+    return runWholeBattle(model, FirstStepLaid{}, frameCap, false);
 }
 
 WholeBattleResult DamageOracle::wholeBattleInOneCall(const BattleScenario& scenario) {
     writeStartScenario(scenario.start);
-    return runWholeBattle(scenario.model, scenario.frameCap, true);
+    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, true);
 }
 
-WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, std::uint64_t frameCap, bool inOneCall) {
+WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
+                                               std::uint64_t frameCap, bool inOneCall) {
     if (monsterSprites_ == nullptr) {
         throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
     }
     whole_.emplace();
     whole_->model = model;
+    whole_->firstStep = firstStep;
     whole_->frameCap = frameCap;
     whole_->inOneCall = inOneCall;
     whole_->result.veldtBattlesBefore = readWriteBack().veldtBattles;
@@ -132,6 +138,7 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
         if (run.result.steps.empty()) {
             // The start's own read-set: everything it read before writing, up to its first frame wait.
             run.result.unwrittenReads = unwrittenReads();
+            writeFirstStep(run.firstStep);
         }
         CartridgeStep step = std::move(run.pending);
         run.pending = CartridgeStep{};
@@ -167,8 +174,10 @@ void DamageOracle::runFrame(Frame frame) {
     if (run.model.timerRunsOutAt == run.result.frames) {
         writeByte(kFieldTimerFlags, static_cast<std::uint8_t>(readByte(kFieldTimerFlags) | kCountdownRanOutBit));
     }
-    // The interrupt's body (BattleNMI btlgfx_main.asm:1615-1617, :1751): the frame counter steps, and the
-    // play clock's frames.
+    // The interrupt's body (BattleNMI btlgfx_main.asm:1603-1617, :1751): the party running or not, the
+    // frame counter steps, and the play clock's frames.
+    const bool runningDisabled = (readByte(kFormationAudioFlags) & kRunningDisabledBit) != 0;
+    writeByte(kPartyRunning, run.model.partyRuns(run.result.frames, runningDisabled, frame) ? kPartyRunsByte : 0);
     writeByte(kFrameCounter, static_cast<std::uint8_t>(readByte(kFrameCounter) + 1));
     std::uint8_t played = readByte(kPlayClockFrames);
     if (played == kPlayClockFramesPerSecond) {
@@ -181,6 +190,23 @@ void DamageOracle::runFrame(Frame frame) {
         const bool wasAnswering = std::exchange(answering_, false);
         updateBattleTime_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
         answering_ = wasAnswering;
+    }
+}
+
+void DamageOracle::writeFirstStep(const FirstStepLaid& laid) {
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        const std::uint32_t at = detail::slotIndex(battle::BattlerSlot::fromIndex(index));
+        const StatusSet& added = laid.statusesAdded[static_cast<std::size_t>(index)];
+        const std::array<std::uint32_t, 4> statusCells{kStatus12 + at, kStatus12 + at + 1, kStatus34 + at,
+                                                       kStatus34 + at + 1};
+        for (std::size_t byte = 0; byte < statusCells.size(); ++byte) {
+            if (added.bytes[byte] != 0) {
+                writeByte(statusCells[byte], static_cast<std::uint8_t>(readByte(statusCells[byte]) | added.bytes[byte]));
+            }
+        }
+        if (const std::optional<std::uint16_t> hp = laid.hp[static_cast<std::size_t>(index)]) {
+            writeWord(kHp + at, *hp);
+        }
     }
 }
 

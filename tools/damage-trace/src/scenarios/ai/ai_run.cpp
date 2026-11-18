@@ -177,44 +177,52 @@ AiRunResult portRunResult(const battle::BattleState& state, battle::BattlerSlot 
 }
 }  // namespace
 
-std::string listedActionText(const battle::Action& action) {
+namespace detail {
+
+std::optional<ActionCells> listedActionCells(const battle::Action& action) {
     return std::visit(
-        [](const auto& a) -> std::string {
+        [](const auto& a) -> std::optional<ActionCells> {
             using T = std::decay_t<decltype(a)>;
             if constexpr (std::is_same_v<T, battle::CommandAction>) {
-                return cellsText(readCells(static_cast<std::uint8_t>(a.command), static_cast<std::uint8_t>(a.attack),
-                                           maskOf(a.targets), a.mpCost));
+                return readCells(static_cast<std::uint8_t>(a.command), static_cast<std::uint8_t>(a.attack),
+                                 maskOf(a.targets), a.mpCost);
             } else if constexpr (std::is_same_v<T, battle::FormationChange>) {
-                return cellsText(stepCells(kFormationChangeCommand,
-                                           test::aiStepBytes(AiStep::changeBattle({.formation = a.formation,
-                                                                                    .exit = a.exit,
-                                                                                    .restoreMonsters = a.restoreMonsters,
-                                                                                    .scrollBackground = a.scrollBackground}))));
+                return stepCells(kFormationChangeCommand,
+                                 test::aiStepBytes(AiStep::changeBattle({.formation = a.formation,
+                                                                         .exit = a.exit,
+                                                                         .restoreMonsters = a.restoreMonsters,
+                                                                         .scrollBackground = a.scrollBackground})));
             } else if constexpr (std::is_same_v<T, battle::MonsterDialogAction>) {
-                return cellsText(stepCells(kMonsterDialogCommand, test::aiStepBytes(AiStep::dialog(a.dialog))));
+                return stepCells(kMonsterDialogCommand, test::aiStepBytes(AiStep::dialog(a.dialog)));
             } else if constexpr (std::is_same_v<T, battle::BattleEventAction>) {
-                return cellsText(stepCells(kBattleEventCommand, test::aiStepBytes(AiStep::battleEvent(a.event))));
+                return stepCells(kBattleEventCommand, test::aiStepBytes(AiStep::battleEvent(a.event)));
             } else if constexpr (std::is_same_v<T, battle::MonsterVisibilityAction>) {
-                return cellsText(readCells(kMonsterVisibilityCommand, static_cast<std::uint8_t>(a.type),
-                                           static_cast<std::uint16_t>(static_cast<std::uint8_t>(a.mode) |
-                                                                      a.monsters.monsters.bits << 8),
-                                           0));
+                return readCells(kMonsterVisibilityCommand, static_cast<std::uint8_t>(a.type),
+                                 static_cast<std::uint16_t>(static_cast<std::uint8_t>(a.mode) | a.monsters.monsters.bits << 8),
+                                 0);
             } else if constexpr (std::is_same_v<T, battle::MonsterAnimationAction>) {
                 const bool sound = a.animation == MonsterAnimation::SoundEffect;
                 const std::uint16_t targets =
                     sound ? static_cast<std::uint16_t>(a.pan | a.soundEffect << 8) : a.monsters.monsters.bits;
-                return cellsText(readCells(kMonsterAnimationCommand, static_cast<std::uint8_t>(a.animation), targets, 0));
+                return readCells(kMonsterAnimationCommand, static_cast<std::uint8_t>(a.animation), targets, 0);
             } else if constexpr (std::is_same_v<T, battle::BattleVariableAction>) {
-                return cellsText(stepCells(kVariableCommand, stepBytesFor(a)));
+                return stepCells(kVariableCommand, stepBytesFor(a));
             } else if constexpr (std::is_same_v<T, battle::BattleSwitchAction>) {
-                return cellsText(stepCells(kSwitchCommand, stepBytesFor(a)));
+                return stepCells(kSwitchCommand, stepBytesFor(a));
             } else if constexpr (std::is_same_v<T, battle::AiEffectAction>) {
-                return cellsText(stepCells(kEffectCommand, stepBytesFor(a)));
+                return stepCells(kEffectCommand, stepBytesFor(a));
             } else {
-                return "an action no script queues";
+                return std::nullopt;
             }
         },
         action);
+}
+
+}  // namespace detail
+
+std::string listedActionText(const battle::Action& action) {
+    const std::optional<ActionCells> cells = listedActionCells(action);
+    return cells ? cellsText(*cells) : std::string{"an action no script queues"};
 }
 
 AiScriptPlaces portScriptPlaces(const battle::BattleState& state, battle::BattlerSlot slot) {

@@ -7,6 +7,7 @@
 //     const BattleCheck check = oracle.checkBattle(scenario);             // both, compared
 #pragma once
 
+#include <array>
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
@@ -18,8 +19,10 @@
 #include "battle/battle_requests.h"
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
+#include "battle/battler_set.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
+#include "ostinato/status_set.h"
 
 #include "scenarios/battle/presentation_model.h"
 #include "scenarios/battle/start.h"
@@ -30,9 +33,22 @@ namespace ostinato::trace {
 // The most frames a whole battle runs before it is called a failed draw.
 inline constexpr std::uint64_t kBattleFrameCap = 20'000;
 
+// What a scenario lays onto both sides once, as the battle's first loop step is reached and before that
+// step is compared: statuses added to battlers, and battlers' HP. It brings into a battle what no record or
+// equipment can — Berserk, Muddled — and cuts the monsters' HP so a battle is short. A status is laid as
+// its own bit and nothing else, so it suits a status the battle keeps nothing else for.
+struct FirstStepLaid {
+    std::array<StatusSet, battle::kBattlerSlots> statusesAdded{};
+    std::array<std::optional<std::uint16_t>, battle::kBattlerSlots> hp{};
+};
+
+// `laid` laid onto the port's state.
+void layFirstStep(battle::BattleState& state, const FirstStepLaid& laid);
+
 struct BattleScenario {
     StartScenario start;
     PresentationModel model;
+    FirstStepLaid firstStep{};
     std::uint64_t frameCap = kBattleFrameCap;
 };
 

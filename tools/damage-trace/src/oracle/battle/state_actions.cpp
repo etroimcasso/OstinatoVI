@@ -50,6 +50,7 @@
 #include "battle/battler_set.h"
 
 #include "cells/status/effects.h"
+#include "scenarios/ai/ai_run_shared.h"
 #include "scenarios/common/bytes.h"
 
 namespace ostinato::trace {
@@ -166,6 +167,19 @@ SlotContents contentsOf(const battle::Action& action) {
     }
     if (const auto* event = std::get_if<battle::BattleEventAction>(&action)) {
         return SlotContents{.command = kBattleEventCommand, .attack = event->event, .targetsKnown = false};
+    }
+    // The actions only a monster's script queues: a formation change $20, dialog $21, an animation $2B, a
+    // variable $2E, a switch $2F and an effect $30, each the step's own operands (AICmd_f2-AICmd_fb
+    // :4476-4549), compared by the bytes their command reads.
+    if (const std::optional<ActionCells> cells = listedActionCells(action)) {
+        return SlotContents{.command = cells->command,
+                            .attack = cells->attack.value_or(0),
+                            .targets = static_cast<std::uint16_t>(cells->targetsLow.value_or(0) |
+                                                                  cells->targetsHigh.value_or(0) << 8),
+                            .attackKnown = cells->attack.has_value(),
+                            .targetsKnown = cells->targetsLow.has_value(),
+                            .targetsHighKnown = cells->targetsHigh.has_value(),
+                            .mpCost = cells->mpCost};
     }
     throw std::logic_error("an action of this kind cannot be laid: its slot's form is not written (variant " +
                            std::to_string(action.index()) + ")");

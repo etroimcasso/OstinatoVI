@@ -56,7 +56,8 @@ PresentationModel measuredPresentationModel(std::uint64_t seed) {
                              .openingFramesBeforeClock = kMeasuredFramesBeforeClock,
                              .openingClockCalls = kMeasuredClockCalls,
                              .openingWaitsMissed = kMeasuredWaitsMissed,
-                             .timerRunsOutAt = std::nullopt};
+                             .timerRunsOutAt = std::nullopt,
+                             .runButtonsHeldFrom = std::nullopt};
 }
 
 PresentationModel drawPresentationModel(std::uint64_t seed, std::uint64_t framesAtMost) {
@@ -66,7 +67,8 @@ PresentationModel drawPresentationModel(std::uint64_t seed, std::uint64_t frames
                             .openingFramesBeforeClock = drawnUpTo(random, 2 * kMeasuredFramesBeforeClock),
                             .openingClockCalls = drawnUpTo(random, 2 * kMeasuredClockCalls),
                             .openingWaitsMissed = drawnUpTo(random, 2 * kMeasuredWaitsMissed),
-                            .timerRunsOutAt = std::nullopt};
+                            .timerRunsOutAt = std::nullopt,
+                            .runButtonsHeldFrom = std::nullopt};
     if (random() % kBattlesPerCountdown == 0 && framesAtMost > 0) {
         model.timerRunsOutAt = random() % framesAtMost;
     }

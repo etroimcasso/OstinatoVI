@@ -47,8 +47,16 @@ inline constexpr std::uint8_t kGaugeShownByte = 0xFF;
 inline constexpr std::uint32_t kTimeStoppedByMenu = kWorkRam + 0x2F41;
 // Roulette's choice: a word naming one battler, $FFFF none (GlobalCounter_00 :15041-15048).
 inline constexpr std::uint32_t kRouletteTarget = kWorkRam + 0x2F42;
-// The run buttons held (btlgfx_main.asm:1603, :1614).
+// The run buttons held (btlgfx_main.asm:1603, :1614): 1 when the party runs on the frame, 0 otherwise.
 inline constexpr std::uint32_t kPartyRunning = kWorkRam + 0x2F45;
+inline constexpr std::uint8_t kPartyRunsByte = 1;
+// The formation's third byte (FormationAux::audioFlags): bit 0 set where the party cannot run with the
+// run buttons (btlgfx_main.asm:1605-1606).
+inline constexpr std::uint32_t kFormationAudioFlags = kWorkRam + 0x2F4B;
+inline constexpr std::uint8_t kRunningDisabledBit = 0x01;
+// $3A46 (kAimFlags) bit 2: Gau has just turned up on the Veldt (GauAppears :12014-12015), cleared by the
+// loop step that drops the party's choices for him (:81-84).
+inline constexpr std::uint8_t kGauJoiningBit = 0x04;
 // The battlers to be on the field once the action is over (UpdateDead :12293-12297).
 inline constexpr std::uint32_t kJoining = kWorkRam + 0x2F4E;
 // The battler acting and the battler counterattacking, $FF none (:289, :12461).

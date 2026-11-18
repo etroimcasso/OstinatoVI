@@ -25,6 +25,7 @@
 #include "data/monster_properties.h"
 #include "game/character_record.h"
 #include "ostinato/item_id.h"
+#include "ostinato/status_id.h"
 
 #include "cells/ai/ai.h"
 #include "cells/damage/frame.h"
@@ -46,6 +47,8 @@ namespace {
 
 // What the start's fill leaves in a cell of $2000-$341F (InitBattle :6063-6067).
 constexpr std::uint8_t kFilled = 0xFF;
+// A party member's rage, low byte, while no rage is chosen: the fill's.
+constexpr std::uint8_t kNoRageChosen = kFilled;
 // An empty inventory record as LoadItemProp leaves it (:13987-13994): no item, unusable, the targeting
 // of the record loaded before it, the quantity, and no hand that can hold it.
 constexpr std::uint8_t kUnusableItem = 0x80;
@@ -255,9 +258,20 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         if (slot.isMonster() && !battler.monster) {
             layWordAsTheCartridgeHoldsIt(kMonsterIndex + at, kEmptyMonsterSlot);
         }
-        if (!battler.monster && !battler.rage) {
-            leaveOut(kSpecialAttack + at, 1);
-            leaveOut(kNamedMonster + at, 2);
+        if (!battler.monster) {
+            // A party member with no rage chosen holds $FF in the rage's low byte, which a Rage aimed at
+            // random tests for it (RandRage :965-968) and every Rage sets with its high byte cleared
+            // (:964-965, :969-970, Cmd_10 :3342-3345); the high byte nothing reads before that.
+            if (!battler.rage) {
+                layByteAsTheCartridgeHoldsIt(kNamedMonster + at, kNoRageChosen);
+                leaveOut(kNamedMonster + at + 1, 1);
+            }
+            // Its special attack is read only by an attack it makes as a monster (CalcAttackEffect
+            // :8185-8195), after Rage's coming on (SetRage :999-1013, Cmd_10 :3347-3350) or a Sketch
+            // (Cmd_0d :3312-3313) has written it; a rage chosen but not yet begun has not.
+            if (!battler.status.has(StatusId::RAGE)) {
+                leaveOut(kSpecialAttack + at, 1);
+            }
         }
         // A battler with no party member in it holds in its main hand the attack graphic of the monster
         // it is or rages as (LoadMonsterProp :7395-7396, LoadRageProp :1010-1012), and in its off hand the

@@ -619,7 +619,8 @@ disarming it walks every watched page of the machine, about half a second each w
 
 `wholeBattle(scenario)` runs the battle program from its start to its end, a loop step at a time, so no
 call passes the engine's guard on a bound call (1,000,000 instructions). A `BattleScenario` is a
-`StartScenario`, a `PresentationModel` and a frame cap. `InitRAM` and `InitBattle` are called as
+`StartScenario`, a `PresentationModel`, what is laid at the first loop step (`FirstStepLaid`) and a frame
+cap. `InitRAM` and `InitBattle` are called as
 `BattleMain` calls them, then `BattleLoop` (`$C2:0019`) once per step. A step's call ends when the step
 comes back round to the loop's head, where an escape answers in the loop's place, and the last one at
 `TerminateBattle`'s `plp` (`$C2:00CA`), once its close (`$09`) has been made. The stack pointer found at
@@ -634,9 +635,9 @@ const trace::BattleCheck check = oracle.checkBattle(scenario);   // both, compar
 ```
 
 The model (`scenarios/battle/presentation_model.h`) says how the graphics program spends frames, and both
-sides are driven by it. A frame is one run of the interrupt's body: the frame counter (`$0E`) and the play
-clock's frames (`$021E`) step, the story countdown's flag (`$1DD1` bit 5) is set on the frame the model
-says it runs out, and the battle's clock (`UpdateBattleTime`, called through `$C2:0003` from inside the
+sides are driven by it. A frame is one run of the interrupt's body: the party's running (`$2F45`) is set
+or cleared, the frame counter (`$0E`) and the play clock's frames (`$021E`) step, the story countdown's
+flag (`$1DD1` bit 5) is set on the frame the model says it runs out, and the battle's clock (`UpdateBattleTime`, called through `$C2:0003` from inside the
 answer) runs unless time is stopped. The opening (`$00`) takes the model's opening frames; as measured
 (`measuredPresentationModel()`) that is 37 frames with no clock, then 36 clock calls over 38 frames. A
 script (`$04`) takes 1 to 12 frames drawn from the model's seed and its place among the battle's scripts,
@@ -644,7 +645,26 @@ with time stopped on all of them when it plays a battle event other than Gau's (
 (`$1F`). The loop's frame wait (`$01` from `:72-73`) is one frame with the clock. The wrap-up's waits and
 the celebration take none. On the port's side a frame is one `BattleSim::tick`: the opening's frames
 and all but a script's last are ticks with `presentationIdle` false, and `timeRunning` is the frame's
-clock.
+clock. The party runs on a frame (`PresentationModel::partyRuns()`, `BattleState::partyRunning` on the
+port's side) when the model holds the run buttons from an earlier frame (`runButtonsHeldFrom`), the
+formation allows running (`$2F4B` bit 0, `FormationAux::runningDisabled()`) and the frame's clock runs.
+
+`FirstStepLaid` is written into both sides as the first loop step's frame wait is reached, before that
+step is compared: statuses added to battlers (each the status's own bit) and battlers' HP. It brings in
+what no record or equipment can bring into a battle, such as Berserk or Muddled, and cuts the monsters' HP
+so a drawn battle is short.
+
+`drawBattleScenario()` (`scenarios/battle/battle_draw.h`) draws a battle with no player: a start from
+`drawStartScenario()`, then each member seated Berserk or Muddled (laid at the first step), Umaro, or a
+member whose menu opens and is never answered, or a colosseum match. A Berserk member holds Rage among
+their commands now and then, and a Muddled one Rage or Dance, so the battle's own choosers begin a rage or
+a dance for them. The party's HP is cut now and then and every monster's HP is cut, the frame model is
+`drawPresentationModel()`'s with a story countdown now and then, and one battle in eight holds the run
+buttons from a drawn frame. `battleReached()` names the rows of its reach table (`battleReachRows()`) a
+checked battle took: the part each member took — Berserk, Muddled, dancing, raging, Umaro, a member whose
+menu is never answered, the colosseum — and how it ended — won, lost, fled, a final stage scrolled on, Gau
+turning up, Shadow walking off, a story countdown running out, or an ending a battle event or the story
+chose.
 
 At each loop step's frame wait (`lda #$01` at `$C2:0023` marks it) the battle's cells are read into a
 `CartridgeStep`, before the frame runs, with every cell the battle program wrote since the step before
@@ -667,7 +687,9 @@ the frame each step is reached on, the requests made since the step before, name
 (`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
 (`compareBattleState()`) with the write-set gate over the step's writes and the carried-read gate over
 its carried reads against the step before's state, then the steps' count, the end and what the game
-keeps. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
+keeps. A record a party member seated at some step came from keeps the HP and MP boosts its equipment
+gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the record
+(`UpdateEquip` `:2349-2362`); every other record keeps the boosts it came in with. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
 from the step before's, so a ring is laid where the cartridge's stood at that step. It needs
 `useMonsterSprites()` and `useText()`.
 
@@ -842,7 +864,7 @@ routines' addresses in namespace `routines`.
 | `battle/state_menus.cpp` | the party's command menus, spell lists and skills, laid as the cartridge holds them |
 | `battle/state_battlers.cpp` | each battler's clocks, counters and own cells, laid as the cartridge holds them |
 | `battle/state_battle.cpp` | the battle's flags, settings, lines, records and Mimic's memory, laid as the cartridge holds them |
-| `battle/whole_battle.cpp` | a battle run to its end a loop step at a time, `wholeBattle()`, or as one call, `wholeBattleInOneCall()`; the frames each graphics command takes |
+| `battle/whole_battle.cpp` | a battle run to its end a loop step at a time, `wholeBattle()`, or as one call, `wholeBattleInOneCall()`; the frames each graphics command takes, and the first step's laid cells |
 | `battle/battle_check.cpp` | a whole battle checked step by step, `checkBattle()` |
 
 **`src/scenarios/`, the port's side**
@@ -868,8 +890,9 @@ routines' addresses in namespace `routines`.
 | `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
 | `battle/start.{h,cpp}` | `StartScenario`, `StartResult` and `StartCheck`; `portStart()` |
 | `battle/start_draw.{h,cpp}` | `drawStartScenario()`, `giveTheCastRecords()`, and the reach table: `startReachRows()` and `startReached()` |
-| `battle/presentation_model.{h,cpp}` | `PresentationModel` and `Frame`: the opening's and each script's frames; `measuredPresentationModel()` and `drawPresentationModel()` |
-| `battle/whole_battle.{h,cpp}` | `BattleScenario`, `CartridgeStep`, `WholeBattleResult`, `PortBattle` and `BattleCheck`; `portBattle()`, `scriptStopsTime()`, `requestShown()` and `callShown()` |
+| `battle/battle_draw.{h,cpp}` | `drawBattleScenario()`, and the reach table: `battleReachRows()` and `battleReached()` |
+| `battle/presentation_model.{h,cpp}` | `PresentationModel` and `Frame`: the opening's and each script's frames, and the party's running; `measuredPresentationModel()` and `drawPresentationModel()` |
+| `battle/whole_battle.{h,cpp}` | `BattleScenario`, `FirstStepLaid`, `CartridgeStep`, `WholeBattleResult`, `PortBattle` and `BattleCheck`; `portBattle()`, `layFirstStep()`, `scriptStopsTime()`, `requestShown()` and `callShown()` |
 | `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |
 | `battle/cells_not_compared.cpp` | `cellsNotCompared()`, every cell or bit the battle program writes that the comparison does not cover, with its reason; `onTheStack()` |
 

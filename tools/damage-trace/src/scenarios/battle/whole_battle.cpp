@@ -17,6 +17,7 @@
 #include "battle/battle_script.h"
 #include "battle/battle_sim.h"
 #include "battle/command_executor.h"
+#include "data/formations.h"
 
 #include "cells/damage/per_target.h"
 #include "scenarios/common/graphics_commands.h"
@@ -114,6 +115,19 @@ std::optional<std::string> callShown(const GraphicsCall& call) {
     }
 }
 
+void layFirstStep(battle::BattleState& state, const FirstStepLaid& laid) {
+    for (std::size_t index = 0; index < state.battlers.size(); ++index) {
+        battle::Battler& battler = state.battlers[index];
+        for (std::size_t byte = 0; byte < battler.status.bytes.size(); ++byte) {
+            battler.status.bytes[byte] =
+                static_cast<std::uint8_t>(battler.status.bytes[byte] | laid.statusesAdded[index].bytes[byte]);
+        }
+        if (laid.hp[index]) {
+            battler.hp = *laid.hp[index];
+        }
+    }
+}
+
 PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, const MonsterSprites& sprites) {
     battle::BattleHooks hooks;
     battle::CommandExecutor executor{hooks, text, sprites};
@@ -139,14 +153,22 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
         }
     };
     take();
+    // What the graphics program's interrupt sets as a frame begins: the countdown run out, and the party
+    // running.
+    const auto beginFrame = [&](Frame played) {
+        battle::BattleState& state = sim.state();
+        if (scenario.model.timerRunsOutAt == port.frames) {
+            state.eventTimerExpired = true;
+        }
+        state.partyRunning =
+            scenario.model.partyRuns(port.frames, getFormationAux(state.formation).runningDisabled(), played);
+    };
     // The opening plays out before the loop's first frame wait: none of its frames is the battle's.
     const std::size_t openingFrames = playing.size();
     for (std::size_t frame = 0; frame < openingFrames && !sim.result(); ++frame) {
-        if (scenario.model.timerRunsOutAt == port.frames) {
-            sim.state().eventTimerExpired = true;
-        }
         const Frame played = playing.front();
         playing.pop_front();
+        beginFrame(played);
         sim.tick({.timeRunning = played.clockCalled, .presentationIdle = false, .playerActions = {}});
         ++port.frames;
         take();
@@ -159,6 +181,9 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
         Frame played{.clockCalled = true};
         bool idle = true;
         if (playing.empty()) {
+            if (port.steps.empty()) {
+                layFirstStep(sim.state(), scenario.firstStep);
+            }
             port.steps.push_back(sim.state());
             port.stepFrames.push_back(port.frames);
             port.stepRequests.push_back(port.requests.size());
@@ -168,9 +193,7 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
             // The script's last frame is the one the battle goes on from.
             idle = playing.empty();
         }
-        if (scenario.model.timerRunsOutAt == port.frames) {
-            sim.state().eventTimerExpired = true;
-        }
+        beginFrame(played);
         sim.tick({.timeRunning = played.clockCalled, .presentationIdle = idle, .playerActions = {}});
         ++port.frames;
         take();
