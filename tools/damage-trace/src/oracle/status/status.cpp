@@ -19,6 +19,7 @@
 #include "ostinato/status_set.h"
 
 #include "cells/damage/per_target.h"
+#include "cells/status/effects.h"
 #include "cells/status/status.h"
 #include "oracle/routines.h"
 #include "scenarios/common/bytes.h"
@@ -39,7 +40,6 @@ constexpr std::uint32_t kFreezeTimer = kWorkRam + 0x3F0D;
 constexpr std::uint32_t kForCounter12 = kWorkRam + 0x3E60;
 constexpr std::uint32_t kForCounter34 = kWorkRam + 0x3E74;
 constexpr std::uint32_t kDiedThisAction = kWorkRam + 0x3A56;
-constexpr std::uint32_t kStatusChanged = kWorkRam + 0x3A4A;
 }  // namespace
 
 void DamageOracle::writeStatusCells(const DamageScenario& scenario) {
@@ -47,7 +47,7 @@ void DamageOracle::writeStatusCells(const DamageScenario& scenario) {
     writeByte(kMonstersStanding, state.monstersStanding.monsters.bits);
     writeByte(kMonstersFallen, state.monstersFallen.monsters.bits);
     writeWord(kDiedThisAction, maskOf(state.diedAwaitingCounter));
-    writeWord(kStatusChanged, maskOf(state.statusChanged));
+    writeWord(kStatusChangedSet, maskOf(state.statusChanged));
     writeInFlightWord(kMissed, maskOf(scenario.attack.scratch.missed));
     writeInFlightWord(kMissedByEffect, 0);
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
@@ -122,7 +122,7 @@ StatusChangesResult DamageOracle::readStatusChangesResult() {
         result.freezeTimer[i] = readByte(kFreezeTimer + at);
     }
     result.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
-    result.statusChanged = setOf(readWord(kStatusChanged));
+    result.statusChanged = setOf(readWord(kStatusChangedSet));
     result.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));
     result.monstersFallen.monsters = BattleSlotMask(readByte(kMonstersFallen));
     return result;
@@ -193,7 +193,7 @@ DamageScenario DamageOracle::readStatusScenario() {
         }
     }
     state.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
-    state.statusChanged = setOf(readWord(kStatusChanged));
+    state.statusChanged = setOf(readWord(kStatusChangedSet));
     state.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));
     state.monstersFallen.monsters = BattleSlotMask(readByte(kMonstersFallen));
     return s;

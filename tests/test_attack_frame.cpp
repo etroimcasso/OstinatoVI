@@ -14,6 +14,7 @@
 #include "battle/targeting.h"
 #include "battle_test_support.h"
 #include "data/attack_properties.h"
+#include "ostinato/item_id.h"
 
 namespace ostinato::test {
 namespace {
@@ -614,6 +615,57 @@ TEST(CommandExecutor, AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag) 
                      battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
     ASSERT_TRUE(state.lastAttackPhysical);
     executor.execute(state, std::nullopt, battle::Action{battle::ResetBattlePose{.character = kTerra}});
+    EXPECT_TRUE(state.lastAttackPhysical);
+}
+
+// Queuing a command aims it, and aiming loads its record: CalcCmdDelay runs InitTarget for every command
+// below $1E (:621-622, :637), and InitTarget loads the record into $11A0 (LoadMagicProp :6550) — so the
+// last attack's physical flag is the queued command's from then on, whether or not it already has targets.
+TEST(CommandExecutor, AQueuedFightLoadsTheBattleRecordsPhysicalFlag) {
+    BattleState state = armedBattle();
+    state.lastAttackPhysical = false;
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    CommandAction fight{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)};
+    executor.aim(state, kTerra, fight);
+    EXPECT_TRUE(state.lastAttackPhysical);
+}
+
+TEST(CommandExecutor, AQueuedSpellLoadsTheSpellsRecord) {
+    BattleState state = armedBattle();
+    state.lastAttackPhysical = true;
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    CommandAction fire{.command = BattleCommandId::MAGIC, .attack = AttackId::FIRE};
+    executor.aim(state, kTerra, fire);
+    EXPECT_FALSE(state.lastAttackPhysical);
+    EXPECT_FALSE(fire.targets.empty()) << "a command queued with no targets is still aimed";
+}
+
+// A battler's pending actions are aimed in turn (:517-533), so the last one's record stays.
+TEST(CommandExecutor, TheLastOfTwoPendingActionsLeavesItsRecord) {
+    BattleState state = armedBattle();
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    CommandAction fight{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)};
+    CommandAction fire{.command = BattleCommandId::MAGIC, .attack = AttackId::FIRE, .targets = BattlerSet::of(kGuard)};
+    executor.aim(state, kTerra, fight);
+    executor.aim(state, kTerra, fire);
+    EXPECT_FALSE(state.lastAttackPhysical);
+    executor.aim(state, kTerra, fire);
+    executor.aim(state, kTerra, fight);
+    EXPECT_TRUE(state.lastAttackPhysical);
+}
+
+// An item used as itself is aimed by its own targeting and loads no record (InitTarget_01 :6525-6527).
+TEST(CommandExecutor, AQueuedItemUsedAsItselfLoadsNoRecord) {
+    BattleState state = armedBattle();
+    state.lastAttackPhysical = true;
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    CommandAction potion{.command = BattleCommandId::ITEM, .attack = static_cast<AttackId>(ItemId::POTION),
+                         .targets = BattlerSet::of(kTerra)};
+    executor.aim(state, kTerra, potion);
     EXPECT_TRUE(state.lastAttackPhysical);
 }
 

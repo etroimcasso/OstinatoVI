@@ -289,8 +289,9 @@ nothing.
 
 Before `execute` runs, the battle resets `state.scratch`; the command reports there who it ended up
 hitting, whether Interceptor guarded someone, which characters a Black Belt may answer for, and whether
-counters are disabled. Whether the hit was physical is `state.lastAttackPhysical`, which only an action
-that makes an attack sets, so after one that makes none it still holds the last attack's. The start
+counters are disabled. Whether the hit was physical is `state.lastAttackPhysical`, which only a loaded
+record sets — an action that makes an attack, and a command being aimed as it is queued (`aim`) — so
+after an action that makes none it still holds the last record's. The start
 sets it, and a party member's equipment refresh writes it too, at the battle's start and after an
 equipment change: it becomes whether that member's stamina is odd. The counterattack checks read both straight after.
 

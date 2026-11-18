@@ -351,8 +351,12 @@ public:
     // first step (FirstStepLaid) is written as the first loop step's frame wait is reached. The cells are
     // read at each loop step's frame wait, before its frame. A battle not
     // ended by the scenario's frame cap is ended by the cartridge's own end-of-battle event 4 and marked
-    // timed out. Needs useMonsterSprites().
-    [[nodiscard]] WholeBattleResult wholeBattle(const BattleScenario& scenario);
+    // timed out. With `facings` — the port's battle's (PortBattle::facings), a mask a frame — each frame
+    // writes its mask to $2F50-$2F51 before the clock is called, as the graphics program writes its
+    // sprites' facings on every frame wait (UpdateFacingDir btlgfx_main.asm:39958-39976, from BtlGfx_01
+    // :403 and WaitFrame :433); past the last mask, the last. Needs useMonsterSprites().
+    [[nodiscard]] WholeBattleResult wholeBattle(const BattleScenario& scenario,
+                                                std::span<const std::uint16_t> facings = {});
 
     // The same from the cells as they stand, for a machine restored to the tick before a battle.
     [[nodiscard]] WholeBattleResult wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap);
@@ -410,10 +414,14 @@ public:
     // a ring's start is held by what is laid from it, and the stack is never carried. Empty when the
     // battle read nothing the comparison did not hold. The lines are laid from the ring positions in
     // `cartridge` where given (the cells at the step the reads carry from), else from the machine as it
-    // stands.
+    // stands. A read carried from a whole battle's step passes the rows of
+    // kCellsLeftAsTheMachineHasThem a step holds (leftAsTheMachineHasItInAStep()); one carried from the
+    // start, every row.
+    enum class CarriedFrom { TheStart, AStep };
     [[nodiscard]] std::string carriedReads(const battle::BattleState& state, const PartyCells& boosts,
                                            const std::vector<UnwrittenRead>& reads,
-                                           const BattleCells* cartridge = nullptr);
+                                           const BattleCells* cartridge = nullptr,
+                                           CarriedFrom from = CarriedFrom::TheStart);
 
     // Every cell of the battle's work RAM ($7E:0000-3FFF) the last call read before anything wrote
     // it — the oracle's own writes since the call before, or the guest's during the call — with the
@@ -548,12 +556,31 @@ private:
     void runFrame(Frame frame);
     // The loop's frame wait is next: its graphics call reads the step's cells.
     void reachedTheFrameWait();
+    // CreateAction's copy of the targets is next (kCreateActionTargetsCopy): its reads of $B8-$B9 and its
+    // store into the new action's slot follow.
+    void targetsCopyNext();
+    // CreateAction's copy as it runs: its two reads of $B8-$B9, then its two writes into the slot's targets.
+    struct TargetsCopy {
+        enum class Stage { None, Reading, Storing };
+        Stage stage = Stage::None;
+        int accesses = 0;     // the reads, then the writes, of this stage made so far
+        bool carried = false; // a read found a byte carried into the step
+    };
+    TargetsCopy targetsCopy_;
+    // The copy's part in an access the battle program makes: true where the access is the copy's read of a
+    // carried byte, which the carried-read gate leaves to the copy rule.
+    bool noteTargetsCopy(std::uint32_t cell, std::uint8_t value, bool write);
+    // The copy rule at a step: a slot whose targets a copy of a carried $B8-$B9 filled must be one whose
+    // targets `state` leaves out. A line per slot whose targets are compared, naming its command.
+    [[nodiscard]] std::string carriedTargetsCompared(const battle::BattleState& state, const PartyCells& boosts,
+                                                     const CartridgeStep& step);
     // `laid` written into the battlers' status and HP cells, as layFirstStep() lays it onto the port's state.
     void writeFirstStep(const FirstStepLaid& laid);
     // A whole battle, stepped or in one call, from the cells as they stand, with `firstStep` laid at the
     // first loop step.
     [[nodiscard]] WholeBattleResult runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
-                                                   std::uint64_t frameCap, bool inOneCall);
+                                                   std::uint64_t frameCap, bool inOneCall,
+                                                   std::span<const std::uint16_t> facings = {});
     // The loop's head reached, or TerminateBattle's return, with the stack pointer found there.
     void stepEnded(std::uint16_t stackPointer, bool closed);
     void writeItemsObtained(const battle::ItemsObtained& list);
@@ -570,6 +597,9 @@ private:
     [[nodiscard]] EndingResult callEnding(const EndingScenario& scenario, const SnapshotRoutine& snapshot,
                                           const std::function<void()>& routine);
     void writeAiCells(const AiScenario& scenario);
+    // The field's party played ($1A6D) and each record's party byte ($1850-$185F), which Gau's joining
+    // reads and writes (MiscAIEffect_03 :5213-5227).
+    void writePartyMembership(const game::Party& party);
     void writeAiScriptCells(const battle::BattleState& state);
     void writeAiRunCells(const AiScenario& scenario, bool counter);
     void emptyActionLists(battle::BattlerSlot actor);
@@ -631,7 +661,15 @@ private:
         // Cells left out whose value a later read carries to nothing the battle holds, for the state laid:
         // the carried-read gate passes a read of one.
         std::set<std::uint32_t> carriedToNothing;
+        // Bits of laid cells that have no meaning in the state laid, left out of the comparison and the
+        // write-set gate for it.
+        std::map<std::uint32_t, std::uint8_t> bitsLeftOut;
     };
+    // The bits of `cell` the comparison holds for the state laid: its meaning (meaningBits()) less any
+    // the state leaves out.
+    [[nodiscard]] static std::uint8_t comparedBits(const LaidState& laid, std::uint32_t cell);
+    // Leave `bits` of the cell at `at` out of the comparison for the state being laid (LaidState::bitsLeftOut).
+    void leaveOutBits(std::uint32_t at, std::uint8_t bits);
     // Hold `count` cells from `at` as a ring's position (LaidState::positions).
     void holdPosition(std::uint32_t at, std::uint32_t count);
     // Leave `count` cells from `at` out, as cells a later read carries to nothing
@@ -716,8 +754,12 @@ private:
         bool stepEnded = false;       // this step came back to the loop's head
         bool closed = false;          // TerminateBattle was reached
         std::size_t scripts = 0;      // the scripts played so far
+        std::vector<std::uint16_t> facings;  // the facings written each frame (wholeBattle())
     };
     std::optional<WholeBattleRun> whole_;
+    // While checkBattle() compares: the cartridge's frames were handed the port's facings, so the state
+    // laid compares them ($2F50-$2F51).
+    bool facingsHandedOver_ = false;
     // A whole battle's last accesses by the battle program, a ring, for naming the reader of a carried read.
     struct RecentAccess {
         std::uint32_t cell = 0;

@@ -249,7 +249,6 @@ std::optional<BattlerSlot> lastIn(BattlerSet set) {
 }  // namespace
 
 bool initTargeting(AttackInFlight& attack, BattleCommandId command, AttackId attackOrItem) {
-    attack.recordLoaded = true;
     attack.rules = {};
     attack.targeting = Targeting::of(TargetFlags::ENEMY);
     CommandAttackLoad load = CommandAttackLoad::PlainHit;

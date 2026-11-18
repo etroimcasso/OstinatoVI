@@ -35,22 +35,28 @@ struct DrawResult {
 using SweepDraw = DrawResult (*)(trace::DamageOracle&, std::mt19937&);
 using ReachRows = std::span<const std::string_view> (*)();
 
+// The most draws a brief check (--brief) runs of a sweep that names no fewer.
+inline constexpr int kBriefDraws = 20;
+
 // A sweep with `reach` prints, after its draws, how many reached each of its rows, and names a row no
-// draw reached.
+// draw reached. A brief check draws at most `briefDraws` of it: a sweep whose draws take seconds each
+// names fewer.
 struct Sweep {
     std::string_view name;
     SweepDraw draw;
     ReachRows reach = nullptr;
+    int briefDraws = kBriefDraws;
 };
 
 // Every routine the oracle runs, by the name --only takes, in the order --check runs them.
-extern const std::array<Sweep, 35> kSweeps;
+extern const std::array<Sweep, 36> kSweeps;
 
 struct CheckOptions {
     int draws = 0;
     std::uint32_t seed = trace::kSweepSeed;
     std::vector<std::string> only;  // the sweeps to run, by name; every one when empty
     bool replayTraced = false;      // also replay against the port the calls the cartridge made in each draw
+    bool brief = false;             // each sweep draws no more than its own briefDraws
 };
 
 int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& directory, const CheckOptions& options);

@@ -26,12 +26,16 @@
 // (:392-393), and no such command reads $B8 before setting it — the pose reset, the battle message, Scan
 // and the story event never read it (Cmd_2c :13373-13379, Cmd_25 :13250, Cmd_27 :13274, Cmd_23
 // :13019-13024), damage over time sets it through ExecSelfAttack (Cmd_22 :13198, :8006-8007), the escape
-// sets it from $3A38 (:5650). After the command, CheckRetal stores $B8 before it reads it (:12532-12543),
-// and every action made there either sets $B8 first (ReraiseEffect :1223, the dead monsters' exits
-// :1256-1266, NearFatalEffect :1635-1651, CheckRetal) or stores it into another action whose targets are
-// left out (the pose reset :1599-1600, the escape :15093-15094). The one exception is the Revert a morph
-// running out makes during the command's script (DecMorphCounter :2827-2829, from the clock :2689): it
-// stores $B8 as its targets, and Cmd_04 reads them nowhere (:4030-4040, ExecSelfAttack :8006-8007).
+// sets it from $3A38 (:5650). After the command, CheckRetal clears $B8 for each battler it considers before
+// it tests it (:12532-12533, read at :12554-12555 and :12584), and for a battler it skips (:12527-12531)
+// neither reads nor writes it. The actions made with $B8 as a step left it — the Gau and Shadow events
+// (_48c4 :12003-12006), the timer's Revert (DecMorphCounter :2827-2829), damage over time (:15015-15018),
+// the party's escape (:15093-15094), the pose reset (:1595-1600) — have their targets left out; the timer's
+// Revert is the one in a battler's counterattacks (CreateRetalAction), and Cmd_04 reaches ExecSelfAttack,
+// which sets $B8 to the member, or queues a script command, without reading them (:4031-4058, :8005-8007).
+// A slot whose low byte alone is known was stored a byte wide over the high byte a step left: a spell with
+// no caster, timers run out (:13032, :13343-13355); the high byte reaches nothing (ExecSelfAttack's wide
+// store replaces it, or the command returns).
 
 #include "oracle/damage_oracle.h"
 
@@ -48,6 +52,7 @@
 #include "battle/action_queue.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "ostinato/battle_command_id.h"
 
 #include "cells/status/effects.h"
 #include "scenarios/ai/ai_run_shared.h"
@@ -109,11 +114,16 @@ std::uint8_t damageOverTimeBit(battle::DamageOverTimeKind kind) {
     return 0;
 }
 
-SlotContents contentsOf(const battle::Action& action) {
+// `counterattack`: the action is in a battler's counterattacks.
+SlotContents contentsOf(const battle::Action& action, bool counterattack) {
     if (const auto* command = std::get_if<battle::CommandAction>(&action)) {
+        // A Revert among the counterattacks is the one a morph running out makes (CreateRetalAction
+        // :2829), with $B8 as the step left it; a chosen Revert is a turn action (:12641).
+        const bool timersRevert = counterattack && command->command == BattleCommandId::REVERT;
         return SlotContents{.command = static_cast<std::uint8_t>(command->command),
                             .attack = static_cast<std::uint8_t>(command->attack),
                             .targets = maskOf(command->targets),
+                            .targetsKnown = !timersRevert,
                             .mpCost = command->mpCost};
     }
     if (const auto* pose = std::get_if<battle::ResetBattlePose>(&action)) {
@@ -192,12 +202,13 @@ void DamageOracle::layActionsAsTheCartridgeHoldsIt(const battle::BattleState& st
     struct ListToLay {
         std::uint32_t head;
         const std::deque<battle::Action>* actions;
+        bool counterattacks = false;
     };
     std::vector<ListToLay> lists{{kFirstImmediateAction, &state.immediateActions}};
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         const auto at = static_cast<std::uint32_t>(i * 2);
         lists.push_back({kFirstAction + at, &state.battlers[i].actions});
-        lists.push_back({kFirstAction + at + 1, &state.battlers[i].counterActions});
+        lists.push_back({kFirstAction + at + 1, &state.battlers[i].counterActions, true});
     }
 
     // Each list's slots: the cartridge's own list's, in a comparison.
@@ -247,7 +258,7 @@ void DamageOracle::layActionsAsTheCartridgeHoldsIt(const battle::BattleState& st
         for (std::size_t k = 0; k < list.size(); ++k) {
             const std::uint8_t slot = list[k];
             links[slot] = k + 1 < list.size() ? list[k + 1] : slot;
-            const SlotContents contents = contentsOf((*lists[l].actions)[k]);
+            const SlotContents contents = contentsOf((*lists[l].actions)[k], lists[l].counterattacks);
             const std::uint32_t word = static_cast<std::uint32_t>(slot) * 2;
             layByteAsTheCartridgeHoldsIt(kActionCommand + word, contents.command);
             if (contents.attackKnown) {
@@ -257,6 +268,9 @@ void DamageOracle::layActionsAsTheCartridgeHoldsIt(const battle::BattleState& st
                 layByteAsTheCartridgeHoldsIt(kActionTargets + word, static_cast<std::uint8_t>(contents.targets & 0xFF));
                 if (contents.targetsHighKnown) {
                     layByteAsTheCartridgeHoldsIt(kActionTargets + word + 1, static_cast<std::uint8_t>(contents.targets >> 8));
+                } else {
+                    // The high byte the maker's byte-wide store left as it was (see the file's head).
+                    leaveOutAsCarriedToNothing(kActionTargets + word + 1, 1);
                 }
             } else {
                 // Targets the maker stored as $B8 held them: the action's run loads them into $B8

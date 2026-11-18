@@ -109,6 +109,11 @@ void CommandExecutor::aim(BattleState& state, BattlerSlot actor, CommandAction& 
     }
     AttackInFlight attack = startAttack(command);
     initTargeting(attack, command.command, command.attack);
+    // Aiming a command loads its record, so the last attack's physical flag is the queued command's
+    // from here, whether or not it already has targets.
+    if (attack.recordLoaded) {
+        state.lastAttackPhysical = attack.record.traits.has(AttackTrait::PHYSICAL);
+    }
     attack.rules.keepTargetsThatAreGone = false;
     if (!command.targets.empty()) {
         return;

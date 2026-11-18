@@ -135,6 +135,17 @@ void DamageOracle::leaveOut(std::uint32_t at, std::uint32_t count) {
     }
 }
 
+void DamageOracle::leaveOutBits(std::uint32_t at, std::uint8_t bits) {
+    if (capture_ != nullptr) {
+        capture_->bitsLeftOut[at] |= bits;
+    }
+}
+
+std::uint8_t DamageOracle::comparedBits(const LaidState& laid, std::uint32_t cell) {
+    const auto leftOut = laid.bitsLeftOut.find(cell);
+    return static_cast<std::uint8_t>(meaningBits(cell) & ~(leftOut == laid.bitsLeftOut.end() ? 0 : leftOut->second));
+}
+
 void DamageOracle::leaveOutAsCarriedToNothing(std::uint32_t at, std::uint32_t count) {
     leaveOut(at, count);
     if (capture_ == nullptr) {
@@ -329,9 +340,15 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
 
     const FormationAux& aux = getFormationAux(state.formation);
     layByteAsTheCartridgeHoldsIt(kFormationBytes, static_cast<std::uint8_t>(aux.entranceAndTypes ^ kFormationFirstByteToggled));
-    // Which way each battler faces is the graphics program's from the opening on; the battle program
-    // only reads it (:3230, :3260).
-    leaveOut(kFacingRight, 2);
+    // Which way each battler faces: the graphics program writes it on every frame from its sprites'
+    // facings (UpdateFacingDir btlgfx_main.asm:39958-39976), and the battle program only reads it, to find
+    // who is hit in the back (:3229-3236, :3253-3260). A whole battle hands each frame the port's facings
+    // and compares them; a start runs no frame, so the start's fill stands and they are left out.
+    if (facingsHandedOver_) {
+        layWordAsTheCartridgeHoldsIt(kFacingRight, maskOf(state.facingRight));
+    } else {
+        leaveOut(kFacingRight, 2);
+    }
     if (state.finalBattleChain) {
         // The final battle's line: each place a stage took a fighter from holds $FF (InitParty
         // :7729-7734), so the fighters still waiting follow the places taken. They are laid from the
@@ -353,6 +370,9 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         leaveOut(kWagerCell, 1);
         leaveOut(kPrizeCell, 1);
     }
+
+    // The party played and the records' party bytes, which the battle reads and writes only as Gau joins.
+    writePartyMembership(state.party);
 
     layMenusAsTheCartridgeHoldsIt(state);
     layBattlersAsTheCartridgeHoldsIt(state);
@@ -413,9 +433,9 @@ std::string DamageOracle::compareBattleState(const battle::BattleState& state, c
     std::string lines;
     char text[112];
     for (const auto& [cell, bits] : laid.disagreements) {
-        if ((bits & meaningBits(cell)) != 0) {
+        if ((bits & comparedBits(laid, cell)) != 0) {
             std::snprintf(text, sizeof text, "$7E:%04X two writers lay it differently (bits %02X)\n", cell & 0xFFFF,
-                          bits & meaningBits(cell));
+                          bits & comparedBits(laid, cell));
             lines += text;
         }
     }
@@ -424,7 +444,7 @@ std::string DamageOracle::compareBattleState(const battle::BattleState& state, c
         if (cell < kWorkRam || offset >= cartridge.size()) {
             continue;
         }
-        const std::uint8_t meaning = meaningBits(cell);
+        const std::uint8_t meaning = comparedBits(laid, cell);
         if (((cartridge[offset] ^ port) & meaning) != 0) {
             std::snprintf(text, sizeof text, "$7E:%04X port %02X cartridge %02X (bits %02X)\n", offset, port,
                           cartridge[offset], meaning);
@@ -440,8 +460,12 @@ std::string DamageOracle::uncoveredWrites(const battle::BattleState& state, cons
     std::string lines;
     char text[80];
     for (const std::uint32_t cell : written) {
-        const std::uint8_t compared = laid.cells.contains(cell) ? meaningBits(cell) : 0;
-        const auto left = static_cast<std::uint8_t>(~(compared | notComparedBits(cell)));
+        // A bit the state laid leaves out has no meaning in that state: written, it is still covered.
+        const auto bitsLeftOut = laid.bitsLeftOut.find(cell);
+        const std::uint8_t compared =
+            laid.cells.contains(cell) ? meaningBits(cell) : 0;
+        const std::uint8_t stateless = bitsLeftOut == laid.bitsLeftOut.end() ? 0 : bitsLeftOut->second;
+        const auto left = static_cast<std::uint8_t>(~(compared | stateless | notComparedBits(cell)));
         if (left != 0 && !laid.leftOut.contains(cell) && !laid.positions.contains(cell)) {
             std::snprintf(text, sizeof text, "$7E:%04X written, bits %02X not compared\n", cell & 0xFFFF, left);
             lines += text;
@@ -451,7 +475,8 @@ std::string DamageOracle::uncoveredWrites(const battle::BattleState& state, cons
 }
 
 std::string DamageOracle::carriedReads(const battle::BattleState& state, const PartyCells& boosts,
-                                       const std::vector<UnwrittenRead>& reads, const BattleCells* cartridge) {
+                                       const std::vector<UnwrittenRead>& reads, const BattleCells* cartridge,
+                                       CarriedFrom from) {
     const LaidState laid = layState(state, boosts, cartridge);
     std::set<std::uint32_t> named;
     std::string lines;
@@ -459,9 +484,11 @@ std::string DamageOracle::carriedReads(const battle::BattleState& state, const P
     for (const UnwrittenRead& read : reads) {
         // A cell compared in part is held by the bits compared: its row on kCellsNotCompared names
         // every reader of the rest. A return reads what its own call pushed.
-        const bool held = (laid.cells.contains(read.at) && meaningBits(read.at) != 0) || laid.positions.contains(read.at) ||
-                          laid.carriedToNothing.contains(read.at);
-        if (held || onTheStack(read.at) || leftAsTheMachineHasIt(read.at) || named.contains(read.at)) {
+        const bool held = (laid.cells.contains(read.at) && comparedBits(laid, read.at) != 0) ||
+                          laid.positions.contains(read.at) || laid.carriedToNothing.contains(read.at);
+        const bool leftAsItIs =
+            from == CarriedFrom::AStep ? leftAsTheMachineHasItInAStep(read.at) : leftAsTheMachineHasIt(read.at);
+        if (held || onTheStack(read.at) || leftAsItIs || named.contains(read.at)) {
             continue;
         }
         named.insert(read.at);

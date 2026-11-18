@@ -1,6 +1,7 @@
 // Whole battles on the oracle (docs/contracts/battle_core.md § The battle whole): the frame model's
-// opening as the recorded fights measured it, and a script's frames; and the battle program driven a
-// loop step at a time adds up to the same battle called once.
+// opening as the recorded fights measured it, and a script's frames; the battle program driven a loop
+// step at a time adds up to the same battle called once; and the first fight runs to its end the same on
+// both sides.
 //
 // Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
 // (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -234,6 +235,7 @@ TEST_F(BattleWholeOracleTest, TheFirstFightIsThePorts) {
         EXPECT_FALSE(check.cartridge.timedOut);
     });
 }
+
 
 }  // namespace
 }  // namespace ostinato::test

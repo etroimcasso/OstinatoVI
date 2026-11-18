@@ -9,7 +9,7 @@
 //     ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]
 //     ostinato-damage-trace <rom> <directory> --check-state <ticks>
 //     ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]
-//                                             [--replay-traced]
+//                                             [--replay-traced] [--brief]
 //     ostinato-damage-trace <rom> <directory> --replay [--log <file>]
 //
 // Without another mode the cartridge is run on the engine's SNES machine in a window, played from
@@ -76,7 +76,8 @@
 // bound where it holds them, and <draws> scenarios drawn from a fixed seed (or --seed) are run
 // through each routine (or those --only names) and through the port. Every scenario is logged to
 // `check.log`; a disagreement is printed and fails the run. --replay-traced also traces the
-// cartridge's calls and endings in each draw and replays them against the port.
+// cartridge's calls and endings in each draw and replays them against the port. With --brief each
+// routine draws no more than its own brief count (Sweep::briefDraws): a whole battle draws 2.
 //
 // This file reads the command line and runs the mode it names: the trace in a window is in
 // starting_state.cpp, --to-battle in pictures.cpp, --headless and --check-state in seam_log.cpp,
@@ -161,6 +162,7 @@ struct Options {
     bool seeded = false;                                 // --check
     std::vector<std::string> only;                       // --check
     bool replayTraced = false;                           // --check
+    bool brief = false;                                  // --check
 };
 
 constexpr const char* kUsage =
@@ -171,7 +173,7 @@ constexpr const char* kUsage =
     "       ostinato-damage-trace <rom> <directory> --to-battle <inputs> [--twice]\n"
     "       ostinato-damage-trace <rom> <directory> --check-state <ticks>\n"
     "       ostinato-damage-trace <rom> <directory> --check <draws> [--only <routine>[,<routine>]...] [--seed <n>]\n"
-    "                                               [--replay-traced]\n"
+    "                                               [--replay-traced] [--brief]\n"
     "       ostinato-damage-trace <rom> <directory> --replay [--log <file>]\n";
 
 // Why these options cannot go together, or nothing.
@@ -202,8 +204,8 @@ std::optional<std::string> refusal(const Options& o) {
     if (o.twice && !o.inputsToBattle) {
         return "--twice goes with --to-battle";
     }
-    if (!o.draws && (o.seeded || !o.only.empty() || o.replayTraced)) {
-        return "--only, --seed and --replay-traced go with --check";
+    if (!o.draws && (o.seeded || !o.only.empty() || o.replayTraced || o.brief)) {
+        return "--only, --seed, --replay-traced and --brief go with --check";
     }
     for (const std::string& name : o.only) {
         const bool known = std::any_of(kSweeps.begin(), kSweeps.end(), [&](const Sweep& sweep) { return sweep.name == name; });
@@ -244,7 +246,8 @@ int runMode(const Options& options, std::span<const std::uint8_t> image, const s
                         CheckOptions{.draws = static_cast<int>(*options.draws),
                                      .seed = options.seed,
                                      .only = options.only,
-                                     .replayTraced = options.replayTraced});
+                                     .replayTraced = options.replayTraced,
+                                     .brief = options.brief});
     }
     if (!options.from && !options.inputsToBattle && !options.stateCheckTicks && !options.headless) {
         return runTrace(image, directory, options.quitAfterFrames, std::nullopt);
@@ -321,6 +324,8 @@ int main(int argc, char** argv) {
             options.seam = true;
         } else if (flag == "--replay-traced") {
             options.replayTraced = true;
+        } else if (flag == "--brief") {
+            options.brief = true;
         } else if (flag == "--quit-after-frames") {
             if (!(options.quitAfterFrames = count(i, argv[i]))) {
                 return 2;

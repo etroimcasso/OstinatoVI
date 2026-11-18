@@ -299,8 +299,9 @@ changeFormation(state, executor, FormationId::LOBO_X2_MARSHAL, MonsterHp::FromRe
 The battle's own `FormationChange` action calls it and shows the change ([commands.md](commands.md)).
 
 The part of that a party member raging as the monster takes on too — its special attack, metamorph,
-weak, absorbed and nullified elements, the statuses it cannot be given, the statuses its record keeps
-on it and its True Knight cover — is `loadMonsterTraits(battler, id)`. It returns the statuses the
+its nature (dying at zero MP, its name hidden, human, the Imp critical, undead), weak, absorbed and
+nullified elements, the statuses it cannot be given, the statuses its record keeps on it and its True
+Knight cover — is `loadMonsterTraits(battler, id)`. It returns the statuses the
 monster starts with rather than setting them: `loadMonster()` makes them the monster's
 `statusesToSet`, and a Rage makes them the rager's, so they go on when the statuses take effect
 ([commands.md](commands.md#sketch-rage-and-control)).

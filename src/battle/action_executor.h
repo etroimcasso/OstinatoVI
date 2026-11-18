@@ -42,8 +42,9 @@ public:
         return {};
     }
 
-    // Aim a command that has no targets yet, or whose targets have to be chosen again: when it is
-    // chosen and whenever it is re-timed.
+    // Aim a command as it is queued and whenever it is re-timed: set up its attack, which loads its
+    // record (the last record's physical flag, BattleState::lastAttackPhysical), and choose its targets
+    // when it has none yet or they have to be chosen again.
     virtual void aim(BattleState&, BattlerSlot /*actor*/, CommandAction&) {}
 
     // Choose what a party member does when it acts on its own — berserk, confused, dancing,

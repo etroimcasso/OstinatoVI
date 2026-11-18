@@ -1,6 +1,7 @@
 # Runs ostinato-damage-trace's check as a test: the cartridge FF6_VANILLA_ROM names is started on the
-# engine's machine and 20 drawn scenarios go through each routine the tool traces, the cartridge's
-# answer compared with the port's (tools/damage-trace/README.md, § Checking).
+# engine's machine and up to 20 drawn scenarios go through each routine the tool traces, each routine
+# drawing no more than its own brief count (a whole battle 2), the cartridge's answer compared with the
+# port's (tools/damage-trace/README.md, § Checking).
 #
 # The test passes on the tool's exit code alone. The directory the tool writes its log into is removed
 # whatever the outcome; nothing the tool writes is read or kept.
@@ -23,10 +24,10 @@ if("$ENV{FF6_VANILLA_ROM}" STREQUAL "")
 endif()
 
 execute_process(
-    COMMAND "${TOOL}" "$ENV{FF6_VANILLA_ROM}" "${DIRECTORY}" --check 20
+    COMMAND "${TOOL}" "$ENV{FF6_VANILLA_ROM}" "${DIRECTORY}" --check 20 --brief
     RESULT_VARIABLE checked)
 file(REMOVE_RECURSE "${DIRECTORY}")
 
 if(NOT checked STREQUAL "0")
-    message(FATAL_ERROR "ostinato-damage-trace --check 20 exited with ${checked}")
+    message(FATAL_ERROR "ostinato-damage-trace --check 20 --brief exited with ${checked}")
 endif()

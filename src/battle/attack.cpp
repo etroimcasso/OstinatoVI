@@ -414,6 +414,7 @@ AttackInFlight startAttack(const CommandAction& command) {
 void loadAttackRecord(AttackInFlight& attack, AttackId id) {
     attack.record = getAttackProperties(id);
     attack.effect = SpecialEffect::of(attack.record.specialEffect);
+    attack.recordLoaded = true;
 }
 
 void rememberTargets(AttackInFlight& attack) {

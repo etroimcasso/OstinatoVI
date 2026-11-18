@@ -8,7 +8,8 @@
 // execute() runs a battle command — startAttack(), then its body (runCommand() in
 // battle/commands.h) — or one of the actions the battle takes on its own
 // (battle/system_commands.h), and returns the battle script it wrote. aim() sets up a command's
-// attack and chooses its targets when it was chosen without any. chooseAutomaticAction() and the
+// attack, which loads its record and so sets the last record's physical flag, and chooses its
+// targets when it was chosen without any. chooseAutomaticAction() and the
 // three menu choosers are battle/automatic_actions.h. runAi() reads a battler's AI script on its
 // turn, except that a berserk, confused, charmed or colosseum monster picks its own attack instead;
 // runCounterAi() reads the script's counterattack part and initAi() readies the script

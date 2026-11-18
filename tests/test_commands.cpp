@@ -15,12 +15,15 @@
 #include "battle/attack.h"
 #include "battle/command_executor.h"
 #include "battle/commands.h"
+#include "battle/party_setup.h"
 #include "battle_test_support.h"
 #include "data/attack_properties.h"
 #include "data/battle_tables.h"
 #include "data/monster_properties.h"
 #include "data/monster_special_anim.h"
 #include "game/battle_switches.h"
+#include "ostinato/item_effects.h"
+#include "ostinato/monster_flags.h"
 
 namespace ostinato::test {
 namespace {
@@ -846,6 +849,82 @@ TEST(Commands, RageTakesOnTheMonsterAndMakesItsAttack) {
     ASSERT_FALSE(shown.empty());
     EXPECT_EQ(shown[0].what, Shown{BattleCommandId::FIGHT});
     EXPECT_EQ(shown[0].secondary, static_cast<std::uint8_t>(getMonsterProperties(flier).attackGraphic) + 1);
+}
+
+// The first monster whose nature has `flag` set, and the first with it clear.
+MonsterId monsterWith(MonsterTraitFlag flag, bool set) {
+    for (const MonsterPropertiesEntry& entry : monsterProperties()) {
+        if (entry.record.traitFlags.has(flag) == set) {
+            return entry.id;
+        }
+    }
+    ADD_FAILURE() << "no monster's nature fits";
+    return MonsterId{};
+}
+
+// A Rage lays the monster's whole nature over the party member's — the metamorph byte's neighbor, stored
+// with it sixteen bits wide (LoadRageProp :7518, :7546-7548): dying at zero MP, its name hidden, human,
+// the Imp critical and undead, each as the monster has it.
+TEST(Commands, ARageTakesTheMonstersWholeNature) {
+    struct Nature {
+        MonsterTraitFlag flag;
+        bool Battler::*field;
+    };
+    const Nature natures[] = {{MonsterTraitFlag::DIES_AT_ZERO_MP, &Battler::diesAtZeroMp},
+                              {MonsterTraitFlag::DONT_DISPLAY_NAME, &Battler::nameHidden},
+                              {MonsterTraitFlag::HUMAN, &Battler::human},
+                              {MonsterTraitFlag::IMP_CRITICAL, &Battler::impCritical},
+                              {MonsterTraitFlag::UNDEAD, &Battler::undead}};
+    for (const Nature& nature : natures) {
+        for (const bool set : {true, false}) {
+            BattleState state = commandBattle();
+            Battler& gau = state.at(kTerra);
+            gau.actor = CharacterPropId::GAU;
+            gau.human = true;
+            const MonsterId monster = monsterWith(nature.flag, set);
+            gau.rage = monster;
+            battle::AttackHooks hooks;
+            run(state, hooks, kTerra,
+                CommandAction{.command = BattleCommandId::RAGE, .attack = AttackId::BATTLE,
+                              .targets = BattlerSet::of(kGuard)});
+            const MonsterTraitFlags& traits = getMonsterProperties(monster).traitFlags;
+            EXPECT_EQ(gau.*nature.field, set) << "monster " << static_cast<int>(monster);
+            EXPECT_EQ(gau.diesAtZeroMp, traits.has(MonsterTraitFlag::DIES_AT_ZERO_MP));
+            EXPECT_EQ(gau.nameHidden, traits.has(MonsterTraitFlag::DONT_DISPLAY_NAME));
+            EXPECT_EQ(gau.human, traits.has(MonsterTraitFlag::HUMAN));
+            EXPECT_EQ(gau.impCritical, traits.has(MonsterTraitFlag::IMP_CRITICAL));
+            EXPECT_EQ(gau.undead, traits.has(MonsterTraitFlag::UNDEAD));
+        }
+    }
+}
+
+// A Relic Ring's undead goes to a living monster's Rage, and comes back with the next equipment refresh,
+// which writes the party member's whole nature again: human, undead with the ring, and none of a
+// monster's (UpdateEquipBattle :6779-6782).
+TEST(Commands, ARelicRingsUndeadIsLostToALivingMonstersRageUntilTheNextRefresh) {
+    BattleState state = commandBattle();
+    Battler& gau = state.at(kTerra);
+    gau.actor = CharacterPropId::GAU;
+    gau.human = true;
+    gau.undead = true;
+    const MonsterId living = monsterWith(MonsterTraitFlag::UNDEAD, false);
+    gau.rage = living;
+    battle::AttackHooks hooks;
+    run(state, hooks, kTerra,
+        CommandAction{.command = BattleCommandId::RAGE, .attack = AttackId::BATTLE, .targets = BattlerSet::of(kGuard)});
+    EXPECT_FALSE(gau.undead);
+
+    battle::DerivedStats ring{};
+    ring.relicEffects5.set(RelicEffect5::MAKE_UNDEAD);
+    gau.diesAtZeroMp = true;
+    gau.nameHidden = true;
+    gau.impCritical = true;
+    battle::applyDerivedStats(state, kTerra, ring);
+    EXPECT_TRUE(gau.undead);
+    EXPECT_TRUE(gau.human);
+    EXPECT_FALSE(gau.diesAtZeroMp);
+    EXPECT_FALSE(gau.nameHidden);
+    EXPECT_FALSE(gau.impCritical);
 }
 
 TEST(Commands, ARageWithNoMonsterChosenTakesTheLastRagers) {

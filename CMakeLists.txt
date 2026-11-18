@@ -885,9 +885,9 @@ target_compile_definitions(ostinato-vi-battle-whole-tests PRIVATE
 target_link_libraries(ostinato-vi-battle-whole-tests PRIVATE ostinato-damage-oracle GTest::gtest_main)
 gtest_discover_tests(ostinato-vi-battle-whole-tests)
 
-# The damage trace run as a test: its check over 20 drawn scenarios through every routine it traces,
-# passing on the tool's exit code (cmake/run_damage_trace_check.cmake). It runs in every run of the
-# tests, a brief one included.
+# The damage trace run as a test: its brief check, up to 20 drawn scenarios through every routine it
+# traces (2 whole battles), passing on the tool's exit code (cmake/run_damage_trace_check.cmake). It
+# runs in every run of the tests, a brief one included.
 add_test(NAME DamageTraceTool.ChecksEveryRoutineBriefly
     COMMAND ${CMAKE_COMMAND}
         -DTOOL=$<TARGET_FILE:ostinato-damage-trace>

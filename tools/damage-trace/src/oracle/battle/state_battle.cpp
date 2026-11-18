@@ -39,6 +39,8 @@ constexpr std::uint32_t kRingPlaces = 256;
 constexpr std::size_t kDamageWordsBytes = 2 * 2 * battle::kBattlerSlots;
 constexpr std::uint8_t kNothingWaiting = 0xFF;
 constexpr std::uint32_t kNextAttackCostHigh = kWorkRam + 0x3A4D;
+// The bits below bit 7 of the acting or counterattacking battler's byte while no battler is.
+constexpr std::uint8_t kRotateLeavings = 0x7F;
 }  // namespace
 
 void DamageOracle::holdPosition(std::uint32_t at, std::uint32_t count) {
@@ -89,8 +91,17 @@ void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& sta
     // (:81-84); between steps the byte's other bits are an attack's and are clear.
     layByteAsTheCartridgeHoldsIt(kAimFlags, state.gauJoining ? kGauJoiningBit : 0);
     layWordAsTheCartridgeHoldsIt(kJoining, maskOf(state.joiningAfterAction));
+    // The battler acting, and the one counterattacking: with none, bit 7 is set (ExecAction's sec; ror
+    // :195-196, :12411-12412) and the other bits are the rotate's leavings, the slot last kept halved. The
+    // one reader tests bit 7 and, set, goes to a line that loads the byte again (ldx; bpl :133-135, :88-89).
     layByteAsTheCartridgeHoldsIt(kActingBattler, slotByte(state.actingBattler));
     layByteAsTheCartridgeHoldsIt(kCounteringBattler, slotByte(state.counteringBattler));
+    if (!state.actingBattler) {
+        leaveOutBits(kActingBattler, kRotateLeavings);
+    }
+    if (!state.counteringBattler) {
+        leaveOutBits(kCounteringBattler, kRotateLeavings);
+    }
     layByteAsTheCartridgeHoldsIt(kPartyJustEscaped, static_cast<std::uint8_t>(maskOf(state.partyJustEscaped)));
     layWordAsTheCartridgeHoldsIt(kTurnCounter, state.turnCounter);
     // The frame count the graphics program's interrupt steps, and its value when battle time last ran.

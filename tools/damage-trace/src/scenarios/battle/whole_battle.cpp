@@ -18,8 +18,11 @@
 #include "battle/battle_sim.h"
 #include "battle/command_executor.h"
 #include "data/formations.h"
+#include "ostinato/status_id.h"
+#include "ostinato/status_set.h"
 
 #include "cells/damage/per_target.h"
+#include "scenarios/common/bytes.h"
 #include "scenarios/common/graphics_commands.h"
 
 namespace ostinato::trace {
@@ -118,9 +121,19 @@ std::optional<std::string> callShown(const GraphicsCall& call) {
 void layFirstStep(battle::BattleState& state, const FirstStepLaid& laid) {
     for (std::size_t index = 0; index < state.battlers.size(); ++index) {
         battle::Battler& battler = state.battlers[index];
+        const StatusSet& added = laid.statusesAdded[index];
         for (std::size_t byte = 0; byte < battler.status.bytes.size(); ++byte) {
-            battler.status.bytes[byte] =
-                static_cast<std::uint8_t>(battler.status.bytes[byte] | laid.statusesAdded[index].bytes[byte]);
+            battler.status.bytes[byte] = static_cast<std::uint8_t>(battler.status.bytes[byte] | added.bytes[byte]);
+        }
+        // What Muddled's set handler leaves beside the bit (SetStatus_0d :11366-11383): the battler drawn
+        // facing the other way, and a party member's statuses marked changed. Berserk's leaves nothing
+        // (SetStatusTbl :11673, SetStatusNoEffect).
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(index));
+        if (added.has(StatusId::CONFUSE)) {
+            state.flippedByControl.add(slot);
+            if (slot.isCharacter()) {
+                state.statusChanged.add(slot);
+            }
         }
         if (laid.hp[index]) {
             battler.hp = *laid.hp[index];
@@ -154,9 +167,10 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
     };
     take();
     // What the graphics program's interrupt sets as a frame begins: the countdown run out, and the party
-    // running.
+    // running; and the facings it hands over, kept for the cartridge's run.
     const auto beginFrame = [&](Frame played) {
         battle::BattleState& state = sim.state();
+        port.facings.push_back(detail::maskOf(state.facingRight));
         if (scenario.model.timerRunsOutAt == port.frames) {
             state.eventTimerExpired = true;
         }

@@ -53,14 +53,18 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
      .why = "the script command an action is shown with and the command, attack and second value being made, the "
             "action's: ExecCmd sets the first (:3096-3097), InitPlayerAction the rest (:394-396) (provisional)"},
     {.at = kWorkRam + 0x00B8, .count = 2,
-     .why = "the targets of the action being made, set by every action as it is made (:406-407, :489-490, "
-            ":561-562)"},
+     .why = "the targets of the action being made: an action that runs loads its own (InitPlayerAction :392-393), a "
+            "battler joining the line clears them (:489-490), a player's record sets them (:12662-12663), and "
+            "CheckRetal clears them for each battler it considers (:12532-12533); the one read of them carried into "
+            "a step is CreateAction's copy into the new action's slot (:12960-12961), held by the copy rule "
+            "(carriedTargetsCompared())"},
     {.at = kWorkRam + 0x00BA, .count = 4,
      .why = "the aiming rules and the damage multipliers of the attack being made, the attack's: each attack sets its "
             "rules and multiplier, and every command clears the extra multiplier (ExecCmd :3098) (provisional)"},
-    {.at = kWorkRam + 0x00E8, .count = 3,
+    {.at = kWorkRam + 0x00E8, .count = 4,
      .why = "the arithmetic routines' operands and products (MultAB, the divide), set by each caller before the call "
-            "(:7227 and on) (provisional)"},
+            "(:7227 and on); $00EB is the top byte of the multiply's scratch, and LsrA's shift of $EA runs with the "
+            "accumulator wide from CalcRatio (:2145-2154), so it writes $EB too (provisional)"},
     {.at = kWorkRam + 0x00EC, .count = 2,
      .why = "the arithmetic routines' products, above the multiply's scratch byte $00EB (provisional)"},
     {.at = kWorkRam + 0x00EE, .count = 18,

@@ -59,14 +59,16 @@ struct CellsNotCompared {
 // Cells a routine reads that no scenario writes, left as the machine has them: `count` cells from
 // `at`, `stride` apart. Each is a cell whose value reaches nothing the battle holds — read and put back,
 // shifted out, or overwritten before anything reads it. The read-set gate passes a read of one before
-// anything wrote it, and the carried-read gate a read of one after the comparison point.
+// anything wrote it, and the carried-read gate a read of one after the comparison point. A row marked
+// `startOnly` holds for a battle's start alone: a whole battle's steps do not pass a read of it.
 struct CellsLeftAsTheMachineHasThem {
     std::uint32_t at = 0;
     std::uint32_t count = 1;
     std::uint32_t stride = 1;
     const char* why = "";
+    bool startOnly = false;
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 23> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -95,7 +97,16 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMac
     {.at = 0x7E3A81, .why = "the byte before the Golem's block, loaded with it where only the next byte's sign is tested"},
     {.at = 0x7E00B9,
      .why = "the byte above the start's party-member test, read by a sixteen-bit bit test against a party member's "
-            "bit whose high byte is zero (LoadCharProp battle_main.asm:6622-6623)"},
+            "bit whose high byte is zero (LoadCharProp battle_main.asm:6622-6623), called once, from InitBattle "
+            "(:6217); a step's reads of it are held by CreateAction's copy alone (carriedReads())",
+     .startOnly = true},
+    {.at = 0x7E00B7,
+     .why = "the fourth byte of the script command being made, which ExecCmd does not reset (:3096-3109): set by the "
+            "attacks that have one — the hand's item for a Fight (:6958-6960), a special attack's animation "
+            "(:8193-8194), the monster sketched (:9538-9541), the Atma Weapon's length (:2275), a dance's (:3712, "
+            ":3724), the dice (:10685-10694) — and read back by the battle program only inside the attack that set "
+            "it (:9188 after :6960; :10693 and :10719 after :10685); every other attack's script command carries "
+            "the last one's into the script's block (_c235d4 :8566-8569), the graphics program's"},
     {.at = 0x7E11DF,
      .why = "the field's equipment field effects, which the start's equipment sums OR into and never clear "
             "(CalcEquipEffect :2487-2488; UpdateEquip clears $11A0-$11DE only, :2302-2304); the battle reads it "
@@ -141,7 +152,9 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMac
             "(ExecMonsterAction :447-463) nor the party's escape reads before the next command sets them"},
 }};
 
-// Whether `cell` is one of kCellsLeftAsTheMachineHasThem.
+// Whether `cell` is one of kCellsLeftAsTheMachineHasThem; in a whole battle's step, the rows not
+// marked startOnly.
 [[nodiscard]] bool leftAsTheMachineHasIt(std::uint32_t cell);
+[[nodiscard]] bool leftAsTheMachineHasItInAStep(std::uint32_t cell);
 
 }  // namespace ostinato::trace

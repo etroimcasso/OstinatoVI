@@ -349,7 +349,12 @@ battler, slot 9 first, while the command has not disabled counters:
    `$11a2` (`:12565-12569`), `BattleState::lastAttackPhysical`. The attack's record sets it whenever an
    action loads one (`InitTarget` `:6452-6480`, the port's `initTargeting()`); an action that loads none
    — the pose reset, a battle message, Scan, a story event — leaves it, so the check reads the attack
-   before. The byte is also spell-list and equipment scratch: the start fills it with `$FF` as it
+   before. Queuing a command below `$1E` loads its record as well: `CalcCmdDelay` runs `InitTarget` for
+   it before it looks at the targets (`:621-622`, `:637`, `:640-642`) — an automatic command
+   (`:546-568`), a monster's own choice (`:1053-1054`), an AI's attack (`:4441-4442`) and, in turn, each
+   action already waiting for the battler, the last one's record left (`:517-533`); the port's
+   `CommandExecutor::aim()`. An item used as itself loads none (`InitTarget_01` `:6525-6527`). The
+   byte is also spell-list and equipment scratch: the start fills it with `$FF` as it
    builds the spell lists (`InitSpellList` `:14055-14059`), then each party member's equipment refresh
    (`UpdateEquip` `:2334-2339`), at the start for party slot 3 down to 0 (`InitChars` `:6204-6221`) and
    after an equipment change (`UpdateCharProp` `:5621-5624`), leaves the member's stamina there. So the
@@ -870,7 +875,8 @@ The battle program asks the graphics program for a frame, a script or a menu (`E
 `:16369-16387` → `ExecBtlGfx_ext` `btlgfx:76-82`), and the graphics program, with its interrupt
 (`BattleNMI` `btlgfx:1629-1790`), writes cells the battle program then reads. Measured over seven fights
 played on the cartridge, those cells are the first nine rows, and no others besides the stack. The last
-two are read from the listing: none of the seven fights is a pincer or throws the Fixed Dice.
+three are read from the listing: none of the seven fights is a side attack or a pincer, or throws the
+Fixed Dice.
 
 | Cells | Written by | Read by the battle program | The port |
 |---|---|---|---|
@@ -885,6 +891,7 @@ two are read from the listing: none of the seven fights is a pincer or throws th
 | `$2F46` the monsters that can be aimed at | the opening: every one, or the reach byte of the scripted setup in force — the formation's own, or Gau's return, which `InitParty` turns on when Gau may appear (`:7786-7792`) — (`btlgfx:2197-2201`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
 | `$021E` the play clock's frames | the interrupt, each frame its body runs — not while one is in progress (`btlgfx:1642-1643`) nor while the battle is paused (`btlgfx:1717-1718`) — through `IncGameTime` (`btlgfx:1751`, `menu_common.asm:3488-3519`): a cell at 60 goes to 0 and the seconds step, then the cell steps by one, so it reads 1 to 60 in turn | the start's seed (`:6088`), the Fixed Dice's third die (`:10705-10710`) | `BattleState::playClockFrames`, stepped by `tickBattleTime()` on every frame |
 | `$2EAC`, `$2EAD` the monsters on each side of a pincer | the opening and a formation change (`InitMonsterPos` `btlgfx:2854-2857`, from `btlgfx:2310` and `:22149`) | `CheckTargetsBattleType` (`:14748-14753`) and the run check (`:15181-15189`), both only in a pincer (`$201F` = 2) | `BattleState::pincerSides`, from `layOutMonsters()` |
+| `$2F50-$2F51` the battlers facing right | every frame wait, from the graphics program's own sprites' facings, just before the clock is called (`UpdateFacingDir` `btlgfx:39958-39976`, from `BtlGfx_01` `btlgfx:403` and `WaitFrame` `btlgfx:433`); the start's fill leaves `$FF` (`:6063-6067`) | `UpdateFacingDirection` (`:3229-3236`, `:3253-3260`), finding who is hit in the back: a party member's blow in a side attack, a monster's in a pincer (`:3226-3228`, `:3250-3252`) | `BattleState::facingRight`, from `layOutParty()` and `layOutMonsters()`, and turned as each script's attackers face their targets (`turnToFaceTargets()`) |
 
 The opening, graphics command `$00`, is not one frame: from the call at the end of `InitBattle`
 (`:6193`) to its return it runs 159 pictures on the first fight in Narshe, the interrupt off for most of

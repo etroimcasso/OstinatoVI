@@ -95,6 +95,8 @@ inline constexpr std::uint32_t kPartyLeft = kWorkRam + 0x3A39;
 // The battlers drawn facing the other way, a word as the statuses and Control set it: party members
 // in its low byte (Confuse), monsters in its high byte (kFlipped).
 inline constexpr std::uint32_t kFlippedSet = kWorkRam + 0x2F53;
+// The party members whose statuses changed, whose next command is aimed again ($3A4A, a word).
+inline constexpr std::uint32_t kStatusChangedSet = kWorkRam + 0x3A4A;
 inline constexpr std::uint32_t kZingerMonster = kWorkRam + 0x33F8;
 inline constexpr std::uint32_t kZingerSwallowed = kWorkRam + 0x33F9;
 inline constexpr std::uint32_t kSketched = kWorkRam + 0x3417;

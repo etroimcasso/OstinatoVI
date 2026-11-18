@@ -70,6 +70,17 @@ void DamageOracle::writeCommandStart() {
     writeBytes(retropp::MemoryRegion{.at = kLastSpell, .size = kPerCommandCells}, perCommand);
 }
 
+void DamageOracle::writePartyMembership(const game::Party& party) {
+    writeByte(kPartyPlayed, party.currentParty);
+    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
+        const game::PartyMembership& m = party.membership[record];
+        writeByte(kPartyBytes + static_cast<std::uint32_t>(record),
+                  static_cast<std::uint8_t>((m.party & kPartyNumberBits) | (m.slot & kPartySlotBits) << kPartySlotShift |
+                                            (m.backRow ? kPartyRowBit : 0) | (m.enabled ? kRecordEnabledBit : 0) |
+                                            (m.visible ? kRecordShownBit : 0)));
+    }
+}
+
 AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle::Action& action) {
     const battle::BattleState& state = scenario.state;
     // Every cell the attack frame reads, from the attack a command starts with (CommandExecutor):
@@ -85,14 +96,7 @@ AiCommandResult DamageOracle::aiCommand(const AiScenario& scenario, const battle
     writeWord(kInvincible, maskOf(state.invincible));
     writeByte(kEndOfBattleEvent,
               state.endOfBattleEvent ? static_cast<std::uint8_t>(static_cast<int>(*state.endOfBattleEvent) * 2) : 0);
-    writeByte(kPartyPlayed, state.party.currentParty);
-    for (std::size_t record = 0; record < game::kCharacterRecords; ++record) {
-        const game::PartyMembership& m = state.party.membership[record];
-        writeByte(kPartyBytes + static_cast<std::uint32_t>(record),
-                  static_cast<std::uint8_t>((m.party & kPartyNumberBits) | (m.slot & kPartySlotBits) << kPartySlotShift |
-                                            (m.backRow ? kPartyRowBit : 0) | (m.enabled ? kRecordEnabledBit : 0) |
-                                            (m.visible ? kRecordShownBit : 0)));
-    }
+    writePartyMembership(state.party);
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
         const battle::Battler& battler = state.at(battle::BattlerSlot::fromIndex(index));
         const auto at = static_cast<std::uint32_t>(index * 2);

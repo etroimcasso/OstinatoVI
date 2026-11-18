@@ -193,6 +193,10 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
                              .armed = false},
         retropp::GuestEscape{.key = kLoopHeadKey, .at = kBattleLoop, .replaces = stepEnd(false), .armed = false},
         retropp::GuestEscape{.key = kBattleClosedKey, .at = kTerminateBattleReturn, .replaces = stepEnd(true),
+                             .armed = false},
+        retropp::GuestEscape{.key = kTargetsCopyKey,
+                             .at = kCreateActionTargetsCopy,
+                             .handler = [this](retropp::Vm&, std::uint32_t) { targetsCopyNext(); },
                              .armed = false}));
 
     // While a reward routine runs, the graphics program's entry answers here: the command in the

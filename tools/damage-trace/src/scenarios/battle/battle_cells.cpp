@@ -20,6 +20,14 @@ bool leftAsTheMachineHasIt(std::uint32_t cell) {
                                   (cell - row.at) / row.stride < row.count;
                        });
 }
+
+bool leftAsTheMachineHasItInAStep(std::uint32_t cell) {
+    return std::any_of(kCellsLeftAsTheMachineHasThem.begin(), kCellsLeftAsTheMachineHasThem.end(),
+                       [cell](const CellsLeftAsTheMachineHasThem& row) {
+                           return !row.startOnly && cell >= row.at && (cell - row.at) % row.stride == 0 &&
+                                  (cell - row.at) / row.stride < row.count;
+                       });
+}
 namespace {
 
 // The bits of $3205,x the battle reads and writes: 7, 2 and 1 (:264-266, :1129-1131, :1626-1629,

@@ -11,6 +11,8 @@
 
 #include "retropp/memory_region.h"
 
+#include "cells/damage/per_target.h"
+#include "cells/status/effects.h"
 #include "oracle/routines.h"
 
 namespace ostinato::trace {
@@ -132,7 +134,10 @@ void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool 
             recentNext_ = (recentNext_ + 1) % kRecentAccesses;
         }
         CartridgeStep& pending = whole_->pending;
-        if (write) {
+        const bool copiedCarried = !answering_ && noteTargetsCopy(cell, value, write);
+        if (copiedCarried) {
+            // The copy's read of a carried byte: held by the copy rule, not the carried-read gate.
+        } else if (write) {
             writtenSincePoint_.insert(cell);
             if (!answering_) {
                 pending.writes.insert(cell);
@@ -147,7 +152,7 @@ void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool 
             pending.carriedReads.push_back(UnwrittenRead{.at = cell, .value = value});
             // The first read the gate reports: a cell wholly on kCellsNotCompared. A cell compared in part is
             // held by its compared bits (carriedReads()).
-            if (pending.stackAtFirstCarriedRead.empty() && !onTheStack(cell) && !leftAsTheMachineHasIt(cell) &&
+            if (pending.stackAtFirstCarriedRead.empty() && !onTheStack(cell) && !leftAsTheMachineHasItInAStep(cell) &&
                 notComparedBits(cell) == kEveryBit) {
                 pending.stackAtFirstCarriedRead.assign(stackPages_.begin(), stackPages_.end());
                 if (!traced_.empty()) {
@@ -168,6 +173,47 @@ void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool 
     } else if (!gateWritten_.contains(cell)) {
         unwrittenReads_.emplace(cell, value);
     }
+}
+
+bool DamageOracle::noteTargetsCopy(std::uint32_t cell, std::uint8_t value, bool write) {
+    CartridgeStep& pending = whole_->pending;
+    const bool inTargets = cell >= cells::kActionTargets && cell < cells::kActionTargets + cells::kActionSlots * 2;
+    const auto slot = static_cast<std::uint8_t>((cell - cells::kActionTargets) / 2);
+    switch (targetsCopy_.stage) {
+    case TargetsCopy::Stage::Reading:
+        if (!write && (cell == cells::kTargets || cell == cells::kTargets + 1)) {
+            const bool carried = !whole_->result.steps.empty() && !writtenSincePoint_.contains(cell);
+            if (++targetsCopy_.accesses == 2) {
+                targetsCopy_.stage = TargetsCopy::Stage::Storing;
+                targetsCopy_.accesses = 0;
+            }
+            if (carried) {
+                targetsCopy_.carried = true;
+                pending.carriedTargetCopies.push_back(UnwrittenRead{.at = cell, .value = value});
+                return true;
+            }
+        }
+        return false;
+    case TargetsCopy::Stage::Storing:
+        if (write && inTargets) {
+            if (targetsCopy_.carried) {
+                pending.slotsHoldingCarriedTargets.insert(slot);
+            } else {
+                pending.slotsHoldingCarriedTargets.erase(slot);
+            }
+            if (++targetsCopy_.accesses == 2) {
+                targetsCopy_ = TargetsCopy{};
+            }
+        }
+        return false;
+    case TargetsCopy::Stage::None:
+        // Anything else that writes a slot's targets replaces what a copy left there.
+        if (write && inTargets) {
+            pending.slotsHoldingCarriedTargets.erase(slot);
+        }
+        return false;
+    }
+    return false;
 }
 
 std::vector<UnwrittenRead> DamageOracle::unwrittenReads() const {

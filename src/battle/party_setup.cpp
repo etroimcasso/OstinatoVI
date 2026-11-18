@@ -417,7 +417,12 @@ void applyDerivedStats(BattleState& state, BattlerSlot slot, const DerivedStats&
     battler.magicBlockFactor = hitCheckFactor(stats.magicBlock);
     battler.equipmentStatuses = stats.equipmentStatuses;
     battler.runFactor = stats.runFactor;
+    // The equipment writes the party member's whole nature: human always, undead with a Relic Ring,
+    // and none of a monster's — which takes back whatever a Rage gave.
+    battler.diesAtZeroMp = false;
+    battler.nameHidden = false;
     battler.human = true;
+    battler.impCritical = false;
     battler.undead = stats.relicEffects5.has(RelicEffect5::MAKE_UNDEAD);
 
     battler.relicEffects1 = stats.relicEffects1;

@@ -144,8 +144,9 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
                  const TextCorpus& text, MonsterHp hp = MonsterHp::FromRecord);
 
 // What a monster brings to whoever takes it on — a monster loaded into its slot, or a party member
-// raging as it: its special attack and metamorph, its elements and immunities added to the
-// battler's, the statuses its record keeps on it, and its True Knight cover. Returns the statuses
+// raging as it: its special attack, its metamorph and its nature (dying at zero MP, its name hidden,
+// human, the Imp critical, undead), its elements and immunities added to the battler's, the statuses
+// its record keeps on it, and its True Knight cover. Returns the statuses
 // the monster starts with (Float for a flier, Reraise and Float of its fourth status byte); the
 // caller decides when they are put on.
 StatusSet loadMonsterTraits(Battler& battler, MonsterId id);

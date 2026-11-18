@@ -178,8 +178,9 @@ MonsterId nameGroupFor(const BattleState& state, BattlerSlot slot, const TextCor
     return own;
 }
 
-// What a monster's record says about it beyond what a Rage takes on: its name, whether it is
-// human or undead, the Imp critical and dying at zero MP.
+// The monster's nature, the byte its record keeps beside its metamorph: dying at zero MP, its name
+// hidden, human, the Imp critical and undead. A Rage takes all of it, over what the party member's
+// equipment gave (human always, undead with a Relic Ring), until the equipment is next refreshed.
 void loadMonsterNature(Battler& battler, const MonsterProperties& record) {
     battler.diesAtZeroMp = record.traitFlags.has(MonsterTraitFlag::DIES_AT_ZERO_MP);
     battler.nameHidden = record.traitFlags.has(MonsterTraitFlag::DONT_DISPLAY_NAME);
@@ -235,6 +236,7 @@ StatusSet loadMonsterTraits(Battler& battler, MonsterId id) {
     battler.elementsAbsorbed = unionOf(battler.elementsAbsorbed, record.absorbElements);
     battler.elementsNullified = unionOf(battler.elementsNullified, record.nullifyElements);
     battler.metamorph = record.metamorph;
+    loadMonsterNature(battler, record);
     return starts;
 }
 
@@ -280,7 +282,6 @@ void loadMonster(BattleState& state, ActionExecutor& executor, BattlerSlot slot,
     battler.triggers.piranha = battler.triggers.piranha || (special & 0x80) != 0;
     battler.monsterFlags = record.battleFlags;
     battler.statusesToSet = loadMonsterTraits(battler, id);
-    loadMonsterNature(battler, record);
     battler.specialAttackAnimation = monsterSpecialAnim(id);
     checkFirstStrike(state, slot);
     battler.vigor = static_cast<std::uint8_t>(kMonsterVigorBase + (state.rng.next() & (kMonsterVigorSpread - 1)));

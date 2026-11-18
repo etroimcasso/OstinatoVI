@@ -7,6 +7,7 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -25,7 +26,9 @@
 #include "battle/damage.h"
 #include "data/ai_scripts.h"
 #include "oracle/damage_oracle.h"
+#include "scenarios/battle/battle_draw.h"
 #include "scenarios/battle/start_draw.h"
+#include "scenarios/battle/whole_battle.h"
 
 namespace damage_trace {
 
@@ -59,7 +62,7 @@ std::string numberAnswers(long port, long cartridge) {
 
 }  // namespace
 
-constexpr std::array<Sweep, 35> kSweeps{{
+constexpr std::array<Sweep, 36> kSweeps{{
     {.name = "base-damage",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
          const trace::DamageScenario s = trace::drawScenario(rng);
@@ -313,6 +316,27 @@ constexpr std::array<Sweep, 35> kSweeps{{
                            .reached = std::move(reached)};
      },
      .reach = trace::startReachRows},
+    {.name = "battle",
+     .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
+         const trace::BattleScenario s = trace::drawBattleScenario(rng, oracle.text(), oracle.monsterSprites());
+         trace::BattleCheck check;
+         try {
+             check = oracle.checkBattle(s);
+         } catch (const std::exception& error) {
+             // A battle the oracle cannot run or lay is a failed draw, reported like a difference.
+             check.differences = std::string{"the battle could not be run: "} + error.what() + "\n";
+         }
+         std::vector<std::string_view> reached;
+         if (check.differences.empty()) {
+             reached = trace::battleReached(s, check);
+         }
+         return DrawResult{.described = trace::describe(s),
+                           .answers = " in " + std::to_string(check.cartridge.frames) + " frames",
+                           .differences = std::move(check.differences),
+                           .reached = std::move(reached)};
+     },
+     .reach = trace::battleReachRows,
+     .briefDraws = 2},
 }};
 
 int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& directory, const CheckOptions& options) {
@@ -335,7 +359,8 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
             ++sweeps;
             std::mt19937 rng{options.seed};
             std::map<std::string_view, int> reachCounts;
-            for (int draw = 0; draw < options.draws; ++draw) {
+            const int draws = options.brief ? std::min(options.draws, sweep.briefDraws) : options.draws;
+            for (int draw = 0; draw < draws; ++draw) {
                 DrawResult result = sweep.draw(oracle, rng);
                 for (const std::string_view row : result.reached) {
                     ++reachCounts[row];
@@ -373,7 +398,7 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                 }
             }
             if (sweep.reach != nullptr) {
-                std::printf("%s, what the %d draws reached:\n", std::string{sweep.name}.c_str(), options.draws);
+                std::printf("%s, what the %d draws reached:\n", std::string{sweep.name}.c_str(), draws);
                 for (const std::string_view row : sweep.reach()) {
                     const int count = reachCounts[row];
                     std::printf("  %6d  %s%s\n", count, std::string{row}.c_str(), count == 0 ? "  NOT REACHED" : "");

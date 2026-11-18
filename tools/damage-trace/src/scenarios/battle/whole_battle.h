@@ -35,8 +35,10 @@ inline constexpr std::uint64_t kBattleFrameCap = 20'000;
 
 // What a scenario lays onto both sides once, as the battle's first loop step is reached and before that
 // step is compared: statuses added to battlers, and battlers' HP. It brings into a battle what no record or
-// equipment can — Berserk, Muddled — and cuts the monsters' HP so a battle is short. A status is laid as
-// its own bit and nothing else, so it suits a status the battle keeps nothing else for.
+// equipment can — Berserk, Muddled — and cuts the monsters' HP so a battle is short. A status is laid with
+// what its set handler leaves beside its bit: Muddled draws the battler facing the other way and marks a
+// party member's statuses changed (SetStatus_0d battle_main.asm:11366-11383); Berserk's handler leaves
+// nothing (SetStatusNoEffect).
 struct FirstStepLaid {
     std::array<StatusSet, battle::kBattlerSlots> statusesAdded{};
     std::array<std::optional<std::uint16_t>, battle::kBattlerSlots> hp{};
@@ -61,8 +63,12 @@ struct CartridgeStep {
     // Every cell of $7E:0000-3FFF the battle program wrote from the step before's frame wait to this one.
     std::set<std::uint32_t> writes;
     // Every read the battle program made from the step before's frame wait to this one of a cell nothing
-    // had written since that wait.
+    // had written since that wait, but CreateAction's copy of the targets.
     std::vector<UnwrittenRead> carriedReads;
+    // CreateAction's copies of $B8-$B9 carried from the step before into an action's slot (:12960-12961):
+    // the reads, and the slots whose targets hold a carried byte at this step's frame wait.
+    std::vector<UnwrittenRead> carriedTargetCopies;
+    std::set<std::uint8_t> slotsHoldingCarriedTargets;
     // The stack's two pages ($7E:0100-01FF, used by a battle called from the reset code, then $7E:1500-15FF,
     // used by one the field calls) as they stood at the first of those reads the carried-read gate reports,
     // a read of a cell wholly on kCellsNotCompared: the returns on them name the routine reading.
@@ -107,6 +113,9 @@ struct PortBattle {
     std::optional<battle::BattleResult> result;
     std::uint64_t frames = 0;
     bool timedOut = false;
+    // The battlers facing right as each frame began, one mask a frame ($2F50-$2F51's form): the facings
+    // the graphics program hands the battle program on every frame (DamageOracle::wholeBattle()).
+    std::vector<std::uint16_t> facings;
 };
 
 [[nodiscard]] PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text,

@@ -605,9 +605,13 @@ none) — Mimic's Rage. The rager becomes the last; Rage status (status-4 `$01`)
 hands' item, then `LoadRageProp :7504-7550` — special attack, weak elements, absorbed and nullified
 elements, the blocked statuses of bytes 1-3, the record's statuses as statuses to set (status 1-2
 whole, 3-4 masked `$84fe` with the flying flag as Float), status 2-3 kept on it, True Knight,
-metamorph. `loadMonsterTraits()` is the shared part, as `LoadMonsterProp :7418` calls the same
-routine. Then `FixImmuneStatus`, the attack chosen for it as its own command (`_c21554`), and
-`UpdateImmuneStatus`.
+metamorph and, with it, the monster's nature: `LoadRageProp` stores the metamorph byte with the
+accumulator sixteen bits wide (`longa :7518` to the `plp` at `:7548`), so `:7546-7547` lays bytes
+17 and 18 into `$3c94-$3c95` — dies at zero MP, name hidden, human, the Imp critical, undead. It
+replaces what the equipment refresh left in `$3c95` (`:6779-6782`: human always, undead with the
+Relic Ring) until the next refresh writes the whole byte again (`docs/Bugs.md`). `loadMonsterTraits()`
+is the shared part, as `LoadMonsterProp :7418` calls the same routine. Then `FixImmuneStatus`, the
+attack chosen for it as its own command (`_c21554`), and `UpdateImmuneStatus`.
 
 ### Bushido, Blitz and Jump
 

@@ -696,17 +696,26 @@ the player sees.
 
 **What happens.** After every action the battle decides who answers it, and a
 party member's Retort, Interceptor and Black Belt answer only a physical hit.
-Whether the hit was physical is read from the last attack made, not from the
+Whether the hit was physical is read from the last record loaded, not from the
 action just run. An action that makes no attack (a pose reset, a battle message,
 Scan, a story event) leaves the flag as the attack before it set it, so a party
-member it reaches is judged on that attack. The flag shares its byte with the
+member it reaches is judged on that attack. Queuing a command loads its record
+too: a battler that queues one with no player choosing — a Muddled or Berserk
+party member, a monster, an AI's attack — sets the flag to that command's,
+and each action already waiting for the battler is aimed again in turn, the last
+one's left. The flag shares its byte with the
 start's spell lists and an equipment sum, so at the battle's start, and after an
 equipment change, it says whether the refreshed party member's stamina is odd
 until the next attack, and a start that refreshes no member leaves it set.
 
 **Where the original does it.** `CheckRetal` reads bit 0 of `$11a2`
 (`battle/battle_main.asm:12565-12569`). The attack's record lands there when an
-action loads one (`InitTarget`, `:6452-6480`); `ExecCmd` resets the action's other
+action loads one (`InitTarget`, `:6452-6480`), and when a command below `$1E` is
+queued: `CalcCmdDelay` runs `InitTarget` for it before it looks at the targets
+(`:621-622`, `:637`, `:640-642`), for an automatic command (`:546-568`), a
+monster's own choice (`:1053-1054`), an AI's attack (`:4441-4442`) and each
+action already waiting (`:517-533`). An item used as itself loads none
+(`InitTarget_01`, `:6525-6527`). `ExecCmd` resets the action's other
 cells (`:3103-3109`) but not this one. `InitSpellList` fills `$11a0-$11d5` with
 `$ff` (`:14055-14059`) before the party is refreshed; `UpdateEquip` clears `$11a0-$11de` and
 leaves the member's stamina in `$11a2` (`:2302-2304`, `:2334-2339`), for each party
@@ -714,10 +723,15 @@ member at the start, slot 3 first (`InitChars`, `:6204-6221`), and after an
 equipment change (`UpdateCharProp`, `:5621-5624`).
 
 **Where the port keeps it.** `BattleState::lastAttackPhysical`, set in
-`CommandExecutor::execute()` only when the action loaded a record
-(`AttackInFlight::recordLoaded`, set by `initTargeting()`), and by the equipment
-refresh and `loadParty()` in `src/battle/party_setup.cpp`. `tests/test_attack_frame.cpp`
-(`CommandExecutor.AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag`) and
+`CommandExecutor::execute()` and `CommandExecutor::aim()` only when a record was
+loaded (`AttackInFlight::recordLoaded`, set by `loadAttackRecord()` and
+`itemAttack()`), and by the equipment refresh and `loadParty()` in
+`src/battle/party_setup.cpp`. `tests/test_attack_frame.cpp`
+(`CommandExecutor.AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag`,
+`CommandExecutor.AQueuedFightLoadsTheBattleRecordsPhysicalFlag`,
+`CommandExecutor.AQueuedSpellLoadsTheSpellsRecord`,
+`CommandExecutor.TheLastOfTwoPendingActionsLeavesItsRecord`,
+`CommandExecutor.AQueuedItemUsedAsItselfLoadsNoRecord`) and
 `tests/test_battle_start.cpp`
 (`StartBattle.TheLastAttacksPhysicalFlagStartsAsWhetherTheLowestMembersStaminaIsOdd`)
 and `tests/test_party_setup.cpp` (`EquipmentChanges.TheRefreshLeavesTheMembersStaminaAsTheLastAttacksPhysicalFlag`,
@@ -992,3 +1006,29 @@ accumulator.
 (`BattleEndOracleTest.WriteBackSweep`) pin it, against the cartridge as well.
 
 **If you want to change it.** Keeping the wager as the item looked for takes one from every slot holding it.
+
+---
+
+## A Rage takes the monster's nature over the party member's own
+
+**What happens.** A party member who rages takes on the monster's whole nature: whether it dies at
+0 MP, whether its name is hidden, whether it is human, the Imp critical, and whether it is undead.
+That replaces what the member's equipment gave — human always, undead with a Relic Ring — so a Relic
+Ring wearer raging as a living monster is no longer undead, and one raging as a monster that is not
+human is no longer human, until the equipment is next refreshed.
+
+**Where the original does it.** `LoadRageProp` stores the monster's metamorph byte with the
+accumulator sixteen bits wide (`battle/battle_main.asm:7518`, the `plp` at `:7548`), so
+`lda f:MonsterProp+17,x` / `sta $3c94,y` (`:7546-7547`) lays the record's bytes 17 and 18 into
+`$3c94-$3c95`; byte 18 is the nature. `SetRage` runs it for the member raging (`:1013`), over what
+`UpdateEquipBattle` left in `$3c95` (`:6779-6782`), and the next refresh writes the whole byte again.
+Its readers: `:1828`, `:3027`, `:5838`, `:6980`, `:8305`, `:9115`, `:9161`, `:9914`, `:11107`.
+
+**Where the port keeps it.** `loadMonsterTraits()` in `src/battle/battle_start.cpp` loads the nature
+with the rest of what a Rage takes (`loadMonsterNature()`), and `applyDerivedStats()` in
+`src/battle/party_setup.cpp` writes all five again. `tests/test_commands.cpp`
+(`Commands.ARageTakesTheMonstersWholeNature`,
+`Commands.ARelicRingsUndeadIsLostToALivingMonstersRageUntilTheNextRefresh`) pins it.
+
+**If you want to change it.** Leaving `human` and `undead` out of what `loadMonsterTraits()` takes for a
+party member keeps the equipment's through a Rage.

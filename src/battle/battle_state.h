@@ -311,6 +311,8 @@ struct Battler {
     // --- a monster's record -------------------------------------------------------------------
     std::optional<MonsterId> monster;     // which monster it is
     MonsterBattleFlags monsterFlags;      // first strike, harder to run from, can't run, the immunities
+    // With `human` and `undead`, the monster's nature: a party member raging as a monster takes all
+    // five from it until its equipment is next refreshed (loadMonsterTraits(), applyDerivedStats()).
     bool diesAtZeroMp = false;
     bool impCritical = false;
     bool nameHidden = false;              // left out of the list of monsters' names
@@ -627,10 +629,12 @@ struct BattleState {
     // The level the last attack was made at (AttackInFlight::attackerLevel), kept until an action
     // makes another; a condemned count that starts is worked out from it. 20 as the battle starts.
     std::uint8_t lastAttackLevel = 20;
-    // Whether the last attack was a physical hit, which the counterattack check tests (Retort, Interceptor
-    // and a Black Belt answer a physical hit only). An action that makes no attack keeps it. The original
-    // holds it in a byte an equipment refresh also writes: the start sets it, then each party member's
-    // refresh, there and after an equipment change, leaves it as whether that member's stamina is odd.
+    // Whether the last record loaded was a physical hit's, which the counterattack check tests (Retort,
+    // Interceptor and a Black Belt answer a physical hit only). An action that makes an attack sets it, and
+    // so does a command being aimed as it is queued (ActionExecutor::aim()); an action that makes no attack
+    // keeps it. The original holds it in a byte an equipment refresh also writes: the start sets it, then
+    // each party member's refresh, there and after an equipment change, leaves it as whether that member's
+    // stamina is odd.
     bool lastAttackPhysical = false;
 
     // The battle switches, as the battle started with them; monster AI changes them as it goes,

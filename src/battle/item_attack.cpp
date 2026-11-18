@@ -93,6 +93,7 @@ void addConsumableEffects(AttackInFlight& attack, const ItemProperties& properti
 void itemAttack(BattleState& state, AttackInFlight& attack, BattlerSlot user, ItemId item, ItemUse use) {
     AttackProperties& record = attack.record;
     record = AttackProperties{};
+    attack.recordLoaded = true;
     record.specialEffect = AttackSpecialEffect::NONE;
     record.traits = AttackTraitSet::of(AttackTrait::PHYSICAL, AttackTrait::IGNORE_DEFENSE);
     record.flags1 = AttackFlags1::of(AttackFlag1::RETARGET_IF_INVALID, AttackFlag1::IGNORE_REFLECT);

@@ -496,13 +496,23 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/oracle/test_battle_end_oracle.cpp` |
 | `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/oracle/test_battle_end_oracle.cpp` |
 | `start` | the battle program whole from its entry to the loop's first frame wait, over a drawn start (`drawStartScenario()`), against `battle::startBattle()`: every cell compared, and the write-set, carried-read and read-set gates (`checkStart()`, below) | `tests/oracle/test_battle_start_oracle.cpp` |
+| `battle` | the battle program whole from its start to its end, a loop step at a time, over a drawn battle with no player (`drawBattleScenario()`), against `battle::BattleSim`: every step compared with both gates, the requests, the end and what the game keeps (`checkBattle()`, below) | — |
 
 `start` also prints, after its draws, how many reached each row of its reach table (`startReachRows()`):
 each battle type, a preemptive strike, the colosseum, the final battle, a scripted setup, Gau's return, an
 empty party slot, a morphed member, a randomized formation, a conditional battle, and each branch of the
 battle type's choice a Back Guard, a Gale Hairpin and a party of fewer than three take. A row no draw
 reached is named. The test's sweep draws 1,300 starts and fails on any row at zero; a short `--check` run
-draws too few to reach every row and only names them.
+draws too few to reach every row and only names them. `battle` prints its reach table the same way
+(`battleReachRows()`, below). A battle the oracle cannot run or lay is reported as a difference, with
+the reason.
+
+With `--brief` each routine draws no more than its own brief count, 20 for every routine but `battle`,
+whose battles take about a second each and which draws 2:
+
+```sh
+./build/ostinato-damage-trace rom/cartridge.sfc /tmp/damage --check 20 --brief
+```
 
 While one of the reward routines runs, its calls to the graphics program (`ExecBtlGfx`, `$C2:6411`) are
 answered by the oracle at the graphics program's entry (`$C1:0000`): each call is recorded with the cells
@@ -564,9 +574,9 @@ ctest --test-dir build -j 3                                    # everything
 OSTINATO_CARTRIDGE_CHECKS=brief ctest --test-dir build -j 3    # brief
 ```
 
-`DamageTraceTool.ChecksEveryRoutineBriefly` runs the tool itself, `--check 20` through every routine
-above, in both runs (`cmake/run_damage_trace_check.cmake`); it passes on the tool's exit code, and the
-directory the tool writes is removed after.
+`DamageTraceTool.ChecksEveryRoutineBriefly` runs the tool itself, `--check 20 --brief` through every
+routine above, in both runs (`cmake/run_damage_trace_check.cmake`); it passes on the tool's exit code, and
+the directory the tool writes is removed after.
 
 A new hand check takes its cartridge from `withCartridge()` and asks it through a helper that does
 nothing where there is no cartridge to ask; a new test that asks only the cartridge goes in
@@ -648,11 +658,22 @@ and all but a script's last are ticks with `presentationIdle` false, and `timeRu
 clock. The party runs on a frame (`PresentationModel::partyRuns()`, `BattleState::partyRunning` on the
 port's side) when the model holds the run buttons from an earlier frame (`runButtonsHeldFrom`), the
 formation allows running (`$2F4B` bit 0, `FormationAux::runningDisabled()`) and the frame's clock runs.
+Which way each battler faces (`$2F50-$2F51`) the graphics program writes on every frame wait from its own
+sprites, just before the clock (`UpdateFacingDir`, `btlgfx_main.asm:39958-39976`). `checkBattle()` runs the
+port's battle first and hands its facings, one mask a frame as each frame began (`PortBattle::facings`),
+to `wholeBattle()`, which writes each frame's mask before the clock is called; the state compares them at
+every step. A start runs no frame, so `checkStart()` leaves them out.
 
 `FirstStepLaid` is written into both sides as the first loop step's frame wait is reached, before that
-step is compared: statuses added to battlers (each the status's own bit) and battlers' HP. It brings in
-what no record or equipment can bring into a battle, such as Berserk or Muddled, and cuts the monsters' HP
-so a drawn battle is short.
+step is compared: statuses added to battlers and battlers' HP. It brings in what no record or equipment
+can bring into a battle, such as Berserk or Muddled, and cuts the monsters' HP so a drawn battle is short.
+A status is laid with what its set handler leaves beside its bit (`SetStatusTbl`,
+`battle_main.asm:11661-11693`):
+
+| Status laid | What its handler leaves | Lines |
+|---|---|---|
+| Berserk | nothing (`SetStatusNoEffect`) | `:11673` |
+| Muddled | the battler in the flipped set (`$2F53`, `BattleState::flippedByControl`) and, for a party member, in the status-changed set (`$3A4A`, `BattleState::statusChanged`) | `SetStatus_0d` `:11366-11383` |
 
 `drawBattleScenario()` (`scenarios/battle/battle_draw.h`) draws a battle with no player: a start from
 `drawStartScenario()`, then each member seated Berserk or Muddled (laid at the first step), Umaro, or a
@@ -677,6 +698,16 @@ bits and keeps none. A battle not ended by the frame
 cap is ended by the cartridge's event 4 at its next end check and marked `timedOut`. What the game keeps
 (`WriteBackResult`) is read from the cells once the battle returns.
 
+One carried read is held by a rule of its own. `CreateAction` copies the targets being made, `$B8-$B9`,
+into the new action's slot (`lda $b8` at `$C2:4F00`, then `sta $3520,y`, `:12960-12961`), and some of the
+battle's own actions are made with `$B8` as a step before left it (the Gau and Shadow events, the timer's
+Revert, damage over time, the party's escape, the pose reset). An escape at the copy marks its two reads:
+read carried, they are kept apart (`CartridgeStep::carriedTargetCopies`) and the slot they went into is
+noted (`slotsHoldingCarriedTargets`, until anything else writes its targets). At the step's comparison
+such a slot must be one whose targets the state leaves out; one whose targets are compared fails the
+check, naming the slot and its command. Any other carried read of `$B8` or `$B9` fails the carried-read
+gate.
+
 `wholeBattleInOneCall(scenario)` runs the same battle as one call of `Battle_ext`, with the same answers,
 frames and frame waits. A battle short enough for one call gives the same graphics calls, steps and end
 as the stepped run, which is how the steps are proved to add up to the whole; a longer one is abandoned
@@ -685,9 +716,10 @@ at the guard.
 `checkBattle(scenario)` runs both sides and compares them step by step until the first step that parts:
 the frame each step is reached on, the requests made since the step before, named alike on both sides
 (`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
-(`compareBattleState()`) with the write-set gate over the step's writes and the carried-read gate over
-its carried reads against the step before's state, then the steps' count, the end and what the game
-keeps. A record a party member seated at some step came from keeps the HP and MP boosts its equipment
+(`compareBattleState()`) with the write-set gate over the step's writes, the carried-read gate over its
+carried reads against the step before's state and the copy rule above, then whether either side ran past
+the frame cap, the steps' count, the end and what the game keeps. A step's carried reads pass the rows of
+`kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). A record a party member seated at some step came from keeps the HP and MP boosts its equipment
 gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the record
 (`UpdateEquip` `:2349-2362`); every other record keeps the boosts it came in with. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
 from the step before's, so a ring is laid where the cartridge's stood at that step. It needs
@@ -715,8 +747,9 @@ monster cannot be run from), the field's flags at `$11E4`, each battler's flags 
 equipment gives in the top bits of its maximums, and the final battle's line with each place a stage
 took from holding `$FF` — and leaves out the cells no field decides: the hands and control menus of a
 slot with none, what a battler was last hit with before it has been hit, the special attack of a
-battler with no monster, which way the battlers face, the places of a line's ring outside the line. A
-cell two writers lay differently at a bit with meaning is a line of its own.
+battler with no monster, the places of a line's ring outside the line. It also lays the party played
+(`$1A6D`) and each record's party byte (`$1850-$185F`), which Gau's joining reads and writes. A cell two
+writers lay differently at a bit with meaning is a line of its own.
 
 The same pass lays the cells no routine's scenario writes, in four parts:
 
@@ -738,9 +771,11 @@ The same pass lays the cells no routine's scenario writes, in four parts:
   slots from 127 down, the interrupting actions first, as a start hands them out. A command's slot holds
   its command, attack, targets and cost; a pose reset, a battle message, a spell with no caster, a
   monster's exit or entrance and Scan hold what the routine that made them stored, their targets left
-  out where that routine stored whatever `$B8` held. Those targets reach nothing once the action runs,
-  so a read of them is passed by the carried-read gate (`LaidState::carriedToNothing`): the reasoning,
-  command by command, heads `oracle/battle/state_actions.cpp`.
+  out where that routine stored whatever `$B8` held — a Revert among a battler's counterattacks, the one
+  a morph running out makes, among them — and the high byte left out where the routine stored the low
+  byte alone. Those targets reach nothing once the action runs, so a read of them is passed by the
+  carried-read gate (`LaidState::carriedToNothing`): the reasoning, command by command, heads
+  `oracle/battle/state_actions.cpp`.
 
 A line and the player's records are rings, laid from where the machine's ring starts: in a
 comparison, the cartridge's. The slots from there hold the battlers, or the records, in order, and the
@@ -752,7 +787,10 @@ A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()
 bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's
 second byte by its bit 7, an item record's fifth byte by its four party slots' bits, `$11A2` by its bit 0
 (the last attack physical), `$2F49` without
-bit 7 and `$2F4A` not at all — the scripted setup in force, which the start lays for its own opening. Every other bit of a cell the battle program writes must be on
+bit 7 and `$2F4A` not at all — the scripted setup in force, which the start lays for its own opening. A
+state can leave bits of a cell out for itself (`LaidState::bitsLeftOut`, `comparedBits()`): with no battler
+acting, the acting battler's byte (`$3406`) is compared by bit 7 alone, the other bits being the rotate's
+leavings (`:195-196`), and the counterattacking battler's (`$3407`) the same. Every other bit of a cell the battle program writes must be on
 `cellsNotCompared()` with its reason; a row the start alone has shown is marked provisional.
 
 Two gates keep the comparison whole. `uncoveredWrites(state, boosts, StartResult::battleWrites)` names

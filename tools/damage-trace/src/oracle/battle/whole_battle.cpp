@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -15,7 +16,11 @@
 
 #include "retropp/memory_region.h"
 
+#include "battle/battler_set.h"
+#include "ostinato/status_id.h"
+
 #include "cells/battle/state.h"
+#include "cells/damage/frame.h"
 #include "cells/damage/per_target.h"
 #include "cells/status/effects.h"
 #include "oracle/routines.h"
@@ -36,9 +41,9 @@ constexpr std::uint32_t kScriptQueueSpan = 0x100;
 
 }  // namespace
 
-WholeBattleResult DamageOracle::wholeBattle(const BattleScenario& scenario) {
+WholeBattleResult DamageOracle::wholeBattle(const BattleScenario& scenario, std::span<const std::uint16_t> facings) {
     writeStartScenario(scenario.start);
-    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, false);
+    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, false, facings);
 }
 
 WholeBattleResult DamageOracle::wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap) {
@@ -51,12 +56,14 @@ WholeBattleResult DamageOracle::wholeBattleInOneCall(const BattleScenario& scena
 }
 
 WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
-                                               std::uint64_t frameCap, bool inOneCall) {
+                                               std::uint64_t frameCap, bool inOneCall,
+                                               std::span<const std::uint16_t> facings) {
     if (monsterSprites_ == nullptr) {
         throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
     }
     whole_.emplace();
     whole_->model = model;
+    whole_->facings.assign(facings.begin(), facings.end());
     whole_->firstStep = firstStep;
     whole_->frameCap = frameCap;
     whole_->inOneCall = inOneCall;
@@ -69,6 +76,8 @@ WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, c
     machine_.escapes()[kGraphicsKey].armed(true);
     machine_.escapes()[kLoopFrameWaitKey].armed(true);
     machine_.escapes()[kBattleClosedKey].armed(!inOneCall);
+    machine_.escapes()[kTargetsCopyKey].armed(true);
+    targetsCopy_ = TargetsCopy{};
     if (!beyondArmed_) {
         machine_.watches()[kBeyondKey].armed(true);
         beyondArmed_ = true;
@@ -100,6 +109,7 @@ WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, c
     machine_.escapes()[kLoopFrameWaitKey].armed(false);
     machine_.escapes()[kLoopHeadKey].armed(false);
     machine_.escapes()[kBattleClosedKey].armed(false);
+    machine_.escapes()[kTargetsCopyKey].armed(false);
     WholeBattleResult result = std::move(whole_->result);
     whole_.reset();
     result.calls = graphicsCalls_;
@@ -184,6 +194,10 @@ void DamageOracle::runFrame(Frame frame) {
         played = 0;
     }
     writeByte(kPlayClockFrames, static_cast<std::uint8_t>(played + 1));
+    // The facings the graphics program hands over on every frame wait, just before it calls the clock.
+    if (!run.facings.empty()) {
+        writeWord(kFacingRight, run.facings[std::min<std::size_t>(run.result.frames, run.facings.size() - 1)]);
+    }
     ++run.result.frames;
     if (frame.clockCalled) {
         // The clock is the battle program's: its reads and writes are the battle's, not the answer's.
@@ -204,9 +218,24 @@ void DamageOracle::writeFirstStep(const FirstStepLaid& laid) {
                 writeByte(statusCells[byte], static_cast<std::uint8_t>(readByte(statusCells[byte]) | added.bytes[byte]));
             }
         }
+        // Muddled with what its set handler leaves (SetStatus_0d :11366-11383), as layFirstStep() lays it.
+        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
+        if (added.has(StatusId::CONFUSE)) {
+            const std::uint16_t mask = detail::maskOf(battle::BattlerSet::of(slot));
+            writeWord(kFlippedSet, static_cast<std::uint16_t>(readWord(kFlippedSet) | mask));
+            if (slot.isCharacter()) {
+                writeWord(kStatusChangedSet, static_cast<std::uint16_t>(readWord(kStatusChangedSet) | mask));
+            }
+        }
         if (const std::optional<std::uint16_t> hp = laid.hp[static_cast<std::size_t>(index)]) {
             writeWord(kHp + at, *hp);
         }
+    }
+}
+
+void DamageOracle::targetsCopyNext() {
+    if (whole_ && !answering_) {
+        targetsCopy_ = TargetsCopy{.stage = TargetsCopy::Stage::Reading};
     }
 }
 

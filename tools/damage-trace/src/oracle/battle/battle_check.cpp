@@ -11,10 +11,13 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "battle/battler_set.h"
 #include "battle/party_setup.h"
+
+#include "cells/status/effects.h"
 
 namespace ostinato::trace {
 
@@ -107,10 +110,43 @@ std::set<std::size_t> refreshedRecords(const PortBattle& port) {
 
 }  // namespace
 
+std::string DamageOracle::carriedTargetsCompared(const battle::BattleState& state, const PartyCells& boosts,
+                                                 const CartridgeStep& step) {
+    if (step.slotsHoldingCarriedTargets.empty()) {
+        return {};
+    }
+    const LaidState laid = layState(state, boosts, &step.cells);
+    std::string lines;
+    for (const std::uint8_t slot : step.slotsHoldingCarriedTargets) {
+        const std::uint32_t word = static_cast<std::uint32_t>(slot) * 2;
+        bool compared = false;
+        for (std::uint32_t byte = 0; byte < 2; ++byte) {
+            const std::uint32_t cell = cells::kActionTargets + word + byte;
+            compared = compared || (laid.cells.contains(cell) && comparedBits(laid, cell) != 0);
+        }
+        if (compared) {
+            char text[160];
+            std::snprintf(text, sizeof text,
+                          "slot %u, command $%02X: its targets came from $B8 carried into the step "
+                          "(CreateAction :12960-12961) and are compared\n",
+                          slot, step.cells[cells::kActionCommand + word - kWorkRam]);
+            lines += text;
+        }
+    }
+    return lines;
+}
+
 BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     const TextCorpus& corpus = text();
-    BattleCheck check{.differences = {}, .cartridge = wholeBattle(scenario),
-                      .port = portBattle(scenario, corpus, monsterSprites())};
+    // The port's battle first: its facings are what the cartridge's frames are handed.
+    PortBattle portRun = portBattle(scenario, corpus, monsterSprites());
+    WholeBattleResult cartridgeRun = wholeBattle(scenario, portRun.facings);
+    BattleCheck check{.differences = {}, .cartridge = std::move(cartridgeRun), .port = std::move(portRun)};
+    facingsHandedOver_ = true;
+    struct HandBack {
+        bool& handed;
+        ~HandBack() { handed = false; }
+    } handBack{facingsHandedOver_};
     std::string& lines = check.differences;
     const WholeBattleResult& cartridge = check.cartridge;
     const PortBattle& port = check.port;
@@ -148,8 +184,9 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         lines += named(at + ", write-set gate", uncoveredWrites(ours, boosts, theirs.writes, &theirs.cells));
         if (step > 0) {
             const std::string carried = carriedReads(port.steps[step - 1], boosts, theirs.carriedReads,
-                                                     &cartridge.steps[step - 1].cells);
+                                                     &cartridge.steps[step - 1].cells, CarriedFrom::AStep);
             lines += named(at + ", carried-read gate", carried);
+            lines += named(at + ", the copy rule", carriedTargetsCompared(ours, boosts, theirs));
             if (!carried.empty() && !theirs.stackAtFirstCarriedRead.empty()) {
                 lines += "the stack's top at the first such read, each page from $E0: " +
                          stackTops(theirs.stackAtFirstCarriedRead) + "\n";
@@ -169,13 +206,14 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     if (!lines.empty()) {
         return check;
     }
+    // A battle past the frame cap is ended by the cartridge's own event 4 a step after the port stops.
+    if (cartridge.timedOut || port.timedOut) {
+        lines += "the battle did not end within " + std::to_string(scenario.frameCap) + " frames\n";
+        return check;
+    }
     if (cartridge.steps.size() != port.steps.size()) {
         lines += "the cartridge's battle took " + std::to_string(cartridge.steps.size()) + " steps, the port's " +
                  std::to_string(port.steps.size()) + "\n";
-        return check;
-    }
-    if (cartridge.timedOut || port.timedOut) {
-        lines += "the battle did not end within " + std::to_string(scenario.frameCap) + " frames\n";
         return check;
     }
     if (!cartridge.ended || !port.result) {

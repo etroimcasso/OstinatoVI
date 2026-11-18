@@ -43,8 +43,10 @@ takes on its own ([below](#the-battles-own-actions)). Mimic, which the battle co
 command it mimics before running it, shows nothing. After an action it reports to the battle core
 who it ended up hitting (`state.scratch.finalTargets`), and an action that made an attack sets whether
 that attack was physical (`state.lastAttackPhysical`); an action that makes no attack leaves the flag
-as it was. `aim()` aims a command chosen with no targets: Fight chosen by a
-berserk party member, say, gets one monster. `chooseAutomaticAction()` and `runAi()` choose for the
+as it was. `aim()` aims a command as it is queued: a command chosen with no targets gets them (Fight
+chosen by a berserk party member, say, gets one monster), and every command it aims loads its record,
+so the physical flag becomes the queued command's whether or not it had targets. An item used as itself
+loads no record and leaves the flag. `chooseAutomaticAction()` and `runAi()` choose for the
 battlers no one chooses for ([below](#automatic-actions)), and `chooseDanceStep()`,
 `chooseRageAttack()` and `chooseRandomEsper()` settle the menu choices that come down to chance.
 `refreshCommandList()` decides which of a party member's commands can be chosen
@@ -168,7 +170,10 @@ These three make a second command inside the first, into the same script.
 - **Rage** rages as the monster chosen, or as the last party member to rage did (`state.lastRager`).
   `setRage()` takes on the monster: its special attack and animation, its attack's look in both hands,
   and what `loadMonsterTraits()` gives — elements, immunities and statuses, the statuses put on when
-  the action's statuses take effect. Then the attack chosen for it is made.
+  the action's statuses take effect, and the monster's whole nature (`diesAtZeroMp`, `nameHidden`,
+  `human`, `impCritical`, `undead`) in place of the party member's, so a Relic Ring's undead is gone
+  until the next equipment refresh (`applyDerivedStats()`) writes the member's own again. Then the
+  attack chosen for it is made.
 - **Control** tries to take hold of the target. A party member already controlling a monster (its
   Chant status) goes back to standing and has the monster make the attack picked for it.
 
