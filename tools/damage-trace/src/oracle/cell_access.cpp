@@ -3,6 +3,7 @@
 
 #include "oracle/damage_oracle.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <span>
@@ -15,6 +16,25 @@
 namespace ostinato::trace {
 
 using namespace routines;
+
+namespace {
+
+// The stack's two pages: a battle called from the reset code's, and one the field calls.
+constexpr std::uint32_t kResetStackPage = DamageOracle::kWorkRam + 0x0100;
+constexpr std::uint32_t kFieldStackPage = DamageOracle::kWorkRam + 0x1500;
+constexpr std::uint32_t kStackPageSize = 0x100;
+// A cell's bits, all of them: a cell wholly on kCellsNotCompared.
+constexpr std::uint8_t kEveryBit = 0xFF;
+
+}  // namespace
+
+void DamageOracle::keepTheStackPages() {
+    static_assert(kStackPagesSize == 2 * kStackPageSize);
+    const std::vector<std::uint8_t> reset = machine_.read(retropp::MemoryRegion{.at = kResetStackPage, .size = kStackPageSize});
+    const std::vector<std::uint8_t> field = machine_.read(retropp::MemoryRegion{.at = kFieldStackPage, .size = kStackPageSize});
+    std::copy(reset.begin(), reset.end(), stackPages_.begin());
+    std::copy(field.begin(), field.end(), stackPages_.begin() + kStackPageSize);
+}
 
 void DamageOracle::writeBytes(const retropp::MemoryRegion& place, std::span<const std::uint8_t> bytes) {
     writeCells(place, bytes, CellWrite::State);
@@ -53,7 +73,7 @@ void DamageOracle::writeCells(const retropp::MemoryRegion& place, std::span<cons
         return;
     }
     machine_.write(place, bytes);
-    if (start_ && start_->reachedTheLoop) {
+    if ((start_ && start_->reachedTheLoop) || whole_) {
         for (std::uint32_t cell = place.at; cell < place.at + place.size; ++cell) {
             writtenSincePoint_.insert(cell);
         }
@@ -69,13 +89,15 @@ void DamageOracle::writeCells(const retropp::MemoryRegion& place, std::span<cons
 }
 
 void DamageOracle::noteAccessBeyond(std::uint32_t cell, std::uint8_t value, bool write) {
-    if (!start_ || !gateCalling_ || answering_) {
+    if ((!start_ && !whole_) || !gateCalling_ || answering_) {
         return;
     }
     if (write) {
         writtenBeyond_.insert(cell);
     } else if (!writtenBeyond_.contains(cell) && notComparedBits(cell) == 0) {
-        start_->readsBeyondTheBattlesCells.push_back(UnwrittenRead{.at = cell, .value = value});
+        std::vector<UnwrittenRead>& reads =
+            start_ ? start_->readsBeyondTheBattlesCells : whole_->result.readsBeyondTheBattlesCells;
+        reads.push_back(UnwrittenRead{.at = cell, .value = value});
     }
 }
 
@@ -99,6 +121,46 @@ void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool 
             writtenSincePoint_.insert(cell);
         } else if (!answering_ && !writtenSincePoint_.contains(cell)) {
             start.readsAfterThePoint.push_back(UnwrittenRead{.at = cell, .value = value});
+        }
+    }
+    // A whole battle's gates, step by step: the battle program's writes since the last frame wait, and
+    // its reads since then of a cell nothing has written since. Before the first frame wait there is no
+    // point to carry from, and the reads are the start's read-set gate's.
+    if (whole_ && cell < kGateEnd) {
+        if (!answering_) {
+            recentAccesses_[recentNext_] = RecentAccess{.cell = cell, .value = value, .write = write};
+            recentNext_ = (recentNext_ + 1) % kRecentAccesses;
+        }
+        CartridgeStep& pending = whole_->pending;
+        if (write) {
+            writtenSincePoint_.insert(cell);
+            if (!answering_) {
+                pending.writes.insert(cell);
+            }
+            // The stack's pages as the guest writes them: a read of the machine here answers a tick old.
+            if (cell >= kResetStackPage && cell < kResetStackPage + kStackPageSize) {
+                stackPages_[cell - kResetStackPage] = value;
+            } else if (cell >= kFieldStackPage && cell < kFieldStackPage + kStackPageSize) {
+                stackPages_[kStackPageSize + cell - kFieldStackPage] = value;
+            }
+        } else if (!answering_ && !whole_->result.steps.empty() && !writtenSincePoint_.contains(cell)) {
+            pending.carriedReads.push_back(UnwrittenRead{.at = cell, .value = value});
+            // The first read the gate reports: a cell wholly on kCellsNotCompared. A cell compared in part is
+            // held by its compared bits (carriedReads()).
+            if (pending.stackAtFirstCarriedRead.empty() && !onTheStack(cell) && !leftAsTheMachineHasIt(cell) &&
+                notComparedBits(cell) == kEveryBit) {
+                pending.stackAtFirstCarriedRead.assign(stackPages_.begin(), stackPages_.end());
+                if (!traced_.empty()) {
+                    pending.tracedBeforeFirstCarriedRead = traced_.back();
+                }
+                for (std::size_t i = 0; i < kRecentAccesses; ++i) {
+                    const RecentAccess& access = recentAccesses_[(recentNext_ + i) % kRecentAccesses];
+                    char text[24];
+                    std::snprintf(text, sizeof text, "%c %04X %02X", access.write ? 'w' : 'r', access.cell & 0xFFFF,
+                                  access.value);
+                    pending.accessesBeforeFirstCarriedRead.emplace_back(text);
+                }
+            }
         }
     }
     if (write) {

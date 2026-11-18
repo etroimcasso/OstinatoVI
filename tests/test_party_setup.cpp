@@ -938,6 +938,33 @@ TEST(EquipmentChanges, TheItemMenusSwapIsWrittenToTheRecordAndTheMemberReDerived
     EXPECT_NE(state.at(kFirst).weaponHand.battlePower, bare);
 }
 
+TEST(EquipmentChanges, TheRefreshLeavesTheMembersStaminaAsTheLastAttacksPhysicalFlag) {
+    // UpdateCharProp :5621-5624 runs UpdateEquip, which leaves the member's stamina in $11A2
+    // (:2334-2339); CheckRetal reads its bit 0 as the last attack's physical flag (:12567-12569).
+    for (int raised : {0, 1}) {
+        BattleState state = battleWithParty({CharacterPropId::LOCKE});
+        state.party.characters[0].stamina = static_cast<std::uint8_t>(state.party.characters[0].stamina + raised);
+        battle::placeParty(state, {});
+        battle::loadParty(state, {}, {});
+        battle::loadBattleInventory(state);
+        const bool odd = (state.at(kFirst).stamina & 1) != 0;
+        state.lastAttackPhysical = !odd;
+        state.at(kFirst).equipmentChanged = true;
+        RecordingExecutor executor;
+        battle::applyEquipmentChanges(state, executor);
+        EXPECT_EQ(state.lastAttackPhysical, odd) << "stamina raised by " << raised;
+    }
+}
+
+TEST(EquipmentChanges, AStartThatRefreshesNoMemberLeavesTheLastAttacksPhysicalFlagSet) {
+    // InitChars builds the spell lists over $FF in $11A0-$11D5 (InitSpellList :14055-14059) before it
+    // refreshes each member (:6204-6221): with no member seated, $11A2 keeps the fill.
+    BattleState state;
+    state.lastAttackPhysical = false;
+    battle::loadParty(state, {}, {});
+    EXPECT_TRUE(state.lastAttackPhysical);
+}
+
 TEST(EquipmentChanges, RunAtTheStartOfEveryLoopStep) {
     // BattleLoop :67-80: the change is taken in before the menus refresh and the line is served.
     BattleState state = battleWithParty({CharacterPropId::LOCKE});

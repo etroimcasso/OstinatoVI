@@ -32,6 +32,7 @@
 #include "ostinato/monster_id.h"
 
 #include "cells/ai/ai.h"
+#include "cells/battle/state.h"
 #include "cells/damage/per_target.h"
 #include "cells/ending/ending.h"
 #include "cells/ending/party.h"
@@ -47,11 +48,6 @@ using namespace routines;
 using namespace detail;
 
 namespace {
-
-// The graphics commands a whole battle's answers act on: the battle's opening (BtlGfx_00) and one
-// frame (BtlGfx_01).
-constexpr std::uint8_t kOpenBattleScene = 0x00;
-constexpr std::uint8_t kOneFrame = 0x01;
 
 // What the graphics program's opening lays into the battle's cells for the battle program to read
 // (BtlGfx_00 → InitBattleGfx → _c10fe0, btlgfx_main.asm:2180-2211): the monsters standing, from the
@@ -69,48 +65,12 @@ constexpr std::uint8_t kFormationScriptOn = 0x80;
 constexpr std::uint8_t kPresentMonsters = 0x3F;
 constexpr std::uint8_t kEveryMonster = 0xFF;
 
-// The end-of-battle event CheckBattleEnd jumps through (:11892-11897, kEndOfBattleEvent), event 4
-// "end the battle now" (BattleEnd_04 :11983-11985) at twice its number, and the cell that turns the
-// events on.
-constexpr std::uint32_t kEndOfBattleEventsOn = kWorkRam + 0x3EE0;
-constexpr std::uint8_t kEndTheBattleNow = 2 * 4;
-constexpr std::uint8_t kEventsOn = 0xFF;
-
-// The graphics command that closes the battle (TerminateBattle :150-152): the last one a battle
-// that returned asks for.
-constexpr std::uint8_t kCloseBattle = 0x09;
 }  // namespace
 
 void DamageOracle::answerInBattle(const GraphicsCall& call) {
     StartResult& start = *start_;
     if (call.command == kOpenBattleScene) {
-        const auto formation = static_cast<FormationId>(readWord(kFormationCell));
-        writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
-        std::uint8_t targetable = kEveryMonster;
-        if ((readByte(kFormationScriptFlags) & kFormationScriptOn) != 0) {
-            targetable = charAiSetup(static_cast<CharAiId>(readByte(kFormationScript))).validMonsterTargets.bits;
-        }
-        writeByte(kMonstersTargetable, targetable);
-        const std::array<std::uint8_t, kEquipmentChangedFlagCount> unchanged{};
-        writeBytes(retropp::MemoryRegion{.at = kEquipmentChangedFlagCells, .size = kEquipmentChangedFlagCount}, unchanged);
-        // The monsters on each side of a pincer, which the opening lays out (InitMonsterPos
-        // btlgfx_main.asm:2854-2857): from the port's own layout of the monsters the start loaded.
-        if (monsterSprites_ == nullptr) {
-            throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
-        }
-        battle::BattleState placed;
-        placed.formation = formation;
-        placed.battleType = static_cast<battle::BattleType>(readByte(kBattleType));
-        for (int position = 0; position < battle::kMonsterSlots; ++position) {
-            const battle::BattlerSlot slot = battle::BattlerSlot::monster(position);
-            const std::uint16_t monster = readWord(kMonsterIndex + slotIndex(slot));
-            if (monster != kEmptyMonsterSlot) {
-                placed.at(slot).monster = static_cast<MonsterId>(monster);
-            }
-        }
-        battle::layOutMonsters(placed, *monsterSprites_);
-        writeByte(kPincerFirstSide, placed.pincerSides[0].bits);
-        writeByte(kPincerSecondSide, placed.pincerSides[1].bits);
+        layTheOpening();
         return;
     }
     if (call.command == kOneFrame && !start.reachedTheLoop) {
@@ -124,9 +84,46 @@ void DamageOracle::answerInBattle(const GraphicsCall& call) {
         // opening message, a pose reset) run in the loop before its end check (:78-80, :111-113), so
         // their list is emptied. The battle running them is the whole battle's to compare.
         writeByte(kFirstImmediateAction, kFreeSlot);
-        writeByte(kEndOfBattleEventsOn, kEventsOn);
+        writeByte(kEndOfBattleEventsOn, kEventsOnByte);
         writeByte(kEndOfBattleEvent, kEndTheBattleNow);
     }
+}
+
+void DamageOracle::layTheOpening() {
+    const auto formation = static_cast<FormationId>(readWord(kFormationCell));
+    writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
+    std::uint8_t targetable = kEveryMonster;
+    if ((readByte(kFormationScriptFlags) & kFormationScriptOn) != 0) {
+        targetable = charAiSetup(static_cast<CharAiId>(readByte(kFormationScript))).validMonsterTargets.bits;
+    }
+    writeByte(kMonstersTargetable, targetable);
+    const std::array<std::uint8_t, kEquipmentChangedFlagCount> unchanged{};
+    writeBytes(retropp::MemoryRegion{.at = kEquipmentChangedFlagCells, .size = kEquipmentChangedFlagCount}, unchanged);
+    // The items obtained: the graphics program's start zeroes the two counts (btlgfx_main.asm:43456-43460)
+    // and empties the first thirteen places, leaving the last three as they are (:2472-2480).
+    writeByte(kItemsAdded, 0);
+    writeByte(kItemsMerged, 0);
+    std::array<std::uint8_t, kItemsObtainedEmptiedBytes> emptied{};
+    emptied.fill(kNoItemObtained);
+    writeBytes(retropp::MemoryRegion{.at = kItemsObtainedRecords, .size = kItemsObtainedEmptiedBytes}, emptied);
+    // The monsters on each side of a pincer, which the opening lays out (InitMonsterPos
+    // btlgfx_main.asm:2854-2857): from the port's own layout of the monsters the start loaded.
+    if (monsterSprites_ == nullptr) {
+        throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
+    }
+    battle::BattleState placed;
+    placed.formation = formation;
+    placed.battleType = static_cast<battle::BattleType>(readByte(kBattleType));
+    for (int position = 0; position < battle::kMonsterSlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::monster(position);
+        const std::uint16_t monster = readWord(kMonsterIndex + slotIndex(slot));
+        if (monster != kEmptyMonsterSlot) {
+            placed.at(slot).monster = static_cast<MonsterId>(monster);
+        }
+    }
+    battle::layOutMonsters(placed, *monsterSprites_);
+    writeByte(kPincerFirstSide, placed.pincerSides[0].bits);
+    writeByte(kPincerSecondSide, placed.pincerSides[1].bits);
 }
 
 StartResult DamageOracle::battleStart(const StartScenario& scenario) {
@@ -161,7 +158,8 @@ namespace {
 
 // The field's cells a battle's start reads (battle/battle_main.asm InitBattle :6053-6195 and the
 // routines it calls): the formation asked for, the background and the field's flags (:6078,
-// LoadBattleProp :7940-7992); the play clock's frames (:6088); the battle settings — wait mode and
+// LoadBattleProp :7940-7992); the play clock's frames (:6088); the frame count the clock's first
+// update waits on (UpdateBattleTime :2675-2681); the battle settings — wait mode and
 // speed, the gauge, the spell order (:6108-6123, :14101); the battle switches (:6083-6087); the story's
 // flags for Shadow and Gau (:7775, :11958); the party played (:7761); the inventory (InitInventory
 // :13911-13956); the play time at the last save (:14189-14191); and a colosseum match or the final
@@ -222,6 +220,8 @@ void DamageOracle::writeStartScenario(const StartScenario& scenario) {
     writeByte(kAvailableCharacters, static_cast<std::uint8_t>(start.shadowAvailable ? available | kShadowAvailableBit
                                                                                     : available & ~kShadowAvailableBit));
     writeByte(kPlayClockFrames, start.playTimeFrames);
+    writeByte(kFrameCounter, start.frameCount);
+    writeItemsObtainedTail(start.itemsObtainedTail);
     writeByte(kBattleSettings, static_cast<std::uint8_t>((start.config.waitMode ? kWaitModeBit : 0) |
                                                          (start.config.speedSetting & kSpeedBits)));
     writeByte(kGaugeSetting, start.config.gaugeShown ? 0 : kGaugeHiddenBit);
@@ -271,6 +271,8 @@ StartScenario DamageOracle::readStartScenario() {
     start.gauRecruited = (readByte(kStoryFlags) & kGauRecruitedBit) != 0;
     start.shadowAvailable = (readByte(kAvailableCharacters) & kShadowAvailableBit) != 0;
     start.playTimeFrames = readByte(kPlayClockFrames);
+    start.frameCount = readByte(kFrameCounter);
+    start.itemsObtainedTail = readItemsObtainedTail();
     const std::uint8_t settings = readByte(kBattleSettings);
     start.config = battle::BattleConfig{.waitMode = (settings & kWaitModeBit) != 0,
                                         .speedSetting = static_cast<std::uint8_t>(settings & kSpeedBits),

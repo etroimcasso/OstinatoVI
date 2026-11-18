@@ -33,6 +33,15 @@ inline constexpr std::uint8_t kGauMayAppearBit = 0x01;
 inline constexpr std::uint8_t kOnTheVeldtBit = 0x02;
 inline constexpr std::uint32_t kFormationBytes = kWorkRam + 0x2F48;
 inline constexpr std::uint32_t kRecordBytes = battle::kItemRecordBytes;
+// The items obtained, five-byte records from $7E:602D. The opening empties the first 64 bytes, every item
+// byte of the first thirteen places (btlgfx_main.asm:2472-2480, which stops short of the list's 80 bytes).
+inline constexpr std::uint32_t kItemsObtainedRecords = kWorkRam + 0x602D;
+inline constexpr std::uint32_t kItemsObtainedEmptiedBytes = 0x40;
+inline constexpr std::uint8_t kNoItemObtained = 0xFF;
+// The list's two counts: the items added, and the items merged into the inventory. Each indexes the list by
+// its low four bits; the graphics program's start zeroes both (btlgfx_main.asm:43456-43460).
+inline constexpr std::uint32_t kItemsAdded = kWorkRam + 0x64DA;
+inline constexpr std::uint32_t kItemsMerged = kWorkRam + 0x64DB;
 inline constexpr std::uint8_t kFieldMusicPlaysOnBit = 0x08;
 
 }  // namespace ostinato::trace::cells

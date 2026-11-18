@@ -185,7 +185,7 @@ struct RecordingHooks : battle::AttackHooks {
 
 // Run exactly one time update: enough frames for the two-frame gate to open.
 inline void runTimeUpdate(battle::BattleState& state, battle::ActionExecutor& executor) {
-    state.framesSinceTimeUpdate = 1;
+    state.lastTimeUpdateFrame = static_cast<std::uint8_t>(state.frameCount - 1);
     battle::tickBattleTime(state, true, executor);
 }
 

@@ -11,6 +11,7 @@
 #include <functional>
 
 #include "oracle/damage_oracle.h"
+#include "scenarios/common/graphics_commands.h"
 
 namespace ostinato::trace::routines {
 
@@ -77,6 +78,22 @@ inline constexpr std::uint32_t kExecBtlGfxExt = 0xC10000;
 // The battle program's entry for the field (Battle_ext, `jmp BattleMain`) and BattleMain itself.
 inline constexpr std::uint32_t kBattleExt = 0xC20000;
 inline constexpr std::uint32_t kBattleMain = 0xC2000C;
+// A whole battle driven a loop step at a time: the start's two routines as BattleMain calls them
+// (battle/battle_main.asm:61, :64), the loop's head (BattleLoop :67-68) called once per step and ended
+// when the step comes back round to it, and TerminateBattle's `plp` (:153), where the last step ends
+// once its graphics command $09 is made. The graphics program calls the battle's clock through its entry
+// for it (UpdateBattleTime_ext :42-43, a JSL, returning by RTL).
+inline constexpr std::uint32_t kInitRam = 0xC2261E;
+inline constexpr std::uint32_t kInitBattle = 0xC223ED;
+inline constexpr std::uint32_t kBattleLoop = 0xC20019;
+// The loop's frame wait (`lda #$01` before `jsr ExecBtlGfx`, :72-73): the next graphics call is the step's
+// frame wait, the point a step's cells are read at.
+inline constexpr std::uint32_t kLoopFrameWait = 0xC20023;
+inline constexpr const char* kLoopFrameWaitKey = "the loop's frame wait";
+inline constexpr std::uint32_t kTerminateBattleReturn = 0xC200CA;
+inline constexpr std::uint32_t kUpdateBattleTimeExt = 0xC20003;
+inline constexpr const char* kLoopHeadKey = "the loop's head";
+inline constexpr const char* kBattleClosedKey = "the battle closed";
 inline constexpr std::uint32_t kGraphicsCommandTable = 0xC10008;
 inline constexpr std::uint32_t kGraphicsProgramBank = 0xC10000;
 // Where each command's handler sits on the US cartridges (BtlGfx_00 to BtlGfx_0d); the table must
@@ -84,11 +101,16 @@ inline constexpr std::uint32_t kGraphicsProgramBank = 0xC10000;
 inline constexpr std::array<std::uint16_t, 14> kGraphicsCommandHandlers{{
     0x01EC, 0x01FB, 0x0257, 0x024C, 0x950F, 0x01CC, 0x0197, 0x0170, 0x0117, 0x00AF, 0x00AB, 0x0171, 0x002D, 0x0024,
 }};
-// The two commands that keep the items obtained, which run as the cartridge holds them, and the one
-// that answers the menu queue's position, which nothing the oracle runs calls.
-inline constexpr std::uint8_t kAddItemObtained = 0x05;
-inline constexpr std::uint8_t kMergeItemsObtained = 0x0A;
-inline constexpr std::uint8_t kMenuQueuePosition = 0x0D;
+// The commands the oracle's answers act on (scenarios/common/graphics_commands.h): the opening, one
+// frame, the script and the battle closed; the two that keep the items obtained, which run as the
+// cartridge holds them; and the one that answers the menu queue's position, which nothing the oracle
+// runs calls.
+using graphics::kAddItemObtained;
+using graphics::kCloseBattle;
+using graphics::kMenuQueuePosition;
+using graphics::kMergeItemsObtained;
+using graphics::kOneFrame;
+using graphics::kOpenBattleScene;
 inline constexpr const char* kGraphicsKey = "graphics";
 // The AI's routines among kTracedRoutines.
 inline constexpr const TracedRoutine& kTracedInitAi = kTracedRoutines[9];
@@ -138,9 +160,15 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-inline constexpr std::array<RoutineOpening, 51> kOpenings{{
+inline constexpr std::array<RoutineOpening, 57> kOpenings{{
     {"Battle_ext", kBattleExt, {0x4C, 0x0C, 0x00, 0x00}, 3},                         // jmp BattleMain
     {"BattleMain", kBattleMain, {0x08, 0xE2, 0x30, 0x00}, 3},                        // php; shortai
+    {"InitRAM", kInitRam, {0x7B, 0xA2, 0x5F, 0x9D}, 4},                              // tdc; ldx #$5f; sta
+    {"InitBattle", kInitBattle, {0x08, 0xC2, 0x30, 0xA2}, 4},                        // php; longai; ldx
+    {"BattleLoop", kBattleLoop, {0xE6, 0xBE, 0xAD, 0x02}, 4},                        // inc $be; lda $3402
+    {"the loop's frame wait", kLoopFrameWait, {0xA9, 0x01, 0x20, 0x11}, 4},          // lda #$01; jsr ExecBtlGfx
+    {"TerminateBattle's return", kTerminateBattleReturn, {0x28, 0x6B, 0x00, 0x00}, 2},  // plp; rtl
+    {"UpdateBattleTime_ext", kUpdateBattleTimeExt, {0x4C, 0x1B, 0x11, 0x00}, 3},     // jmp UpdateBattleTime
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4

@@ -62,14 +62,8 @@ constexpr std::uint32_t kMorphMeter = kWorkRam + 0x3F30;
 constexpr std::uint32_t kMorphMeterShown = kWorkRam + 0x3B04;
 constexpr std::uint32_t kPartyMemberBit = kWorkRam + 0x3A20;
 constexpr std::uint32_t kEndingFlags = kWorkRam + 0x00B1;
-constexpr std::uint32_t kItemsObtainedRecords = kWorkRam + 0x602D;
-constexpr std::uint32_t kItemsAdded = kWorkRam + 0x64DA;
-constexpr std::uint32_t kItemsMerged = kWorkRam + 0x64DB;
 // The record the battle program hands an item to the graphics program in.
 constexpr std::uint32_t kItemHandedOver = kWorkRam + 0x2E72;
-// The graphics commands an ending makes beyond the two that keep the items obtained.
-constexpr std::uint8_t kWaitForFrame = 0x01;
-constexpr std::uint8_t kCloseMenu = 0x03;
 // The four equipment-changed flags, one per party slot.
 constexpr std::uint32_t kEquipmentChangedFlags = 4;
 // The party slots' bits of the byte marking who holds an item.
@@ -131,8 +125,7 @@ const SnapshotRoutine& kSnapshotWrapUp = kSnapshotRoutines[2];
 static_assert(kSnapshotRoutines[0].entry == kWinBattle && kSnapshotRoutines[1].entry == kLoseBattle &&
               kSnapshotRoutines[2].entry == kWrapUp);
 
-// The graphics command that celebrates a win, and the battle script command a step back is.
-constexpr std::uint8_t kVictoryCommand = 0x08;
+// The battle script command a step back is.
 constexpr std::uint8_t kStepBackScriptCommand = 0x0D;
 // The formation's flags bit that turns the fanfare off, and the field's flag that keeps its music
 // playing (BtlGfx_08, btlgfx_main.asm:248-261).
@@ -149,7 +142,7 @@ std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls, std::uin
     bool puttingAway = false;
     for (const GraphicsCall& call : calls) {
         switch (call.command) {
-            case kWaitForFrame:
+            case graphics::kOneFrame:
                 if (!out.empty() && out.back().kind == EndingCall::Kind::Wait) {
                     ++out.back().frames;
                 } else {
@@ -157,7 +150,7 @@ std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls, std::uin
                 }
                 puttingAway = true;
                 break;
-            case kCloseMenu:
+            case graphics::kCloseMenu:
                 out.push_back(EndingCall{.kind = EndingCall::Kind::CloseMenu, .slot = call.slot});
                 break;
             case kAddItemObtained:
@@ -169,7 +162,7 @@ std::vector<EndingCall> guestCalls(std::span<const GraphicsCall> calls, std::uin
             case kMergeItemsObtained:
                 puttingAway = false;
                 break;
-            case kVictoryCommand: {
+            case graphics::kVictory: {
                 const bool on = (formationFlags & kFanfareOffBit) == 0;
                 out.push_back(EndingCall{.kind = EndingCall::Kind::Celebration,
                                          .fanfare = on && (fieldFlags & kFieldMusicPlaysOnBit) == 0,
@@ -241,6 +234,16 @@ ItemsObtainedResult DamageOracle::mergeItemsObtained(const ItemsObtainedScenario
 
 battle::ItemsObtainedTail DamageOracle::itemsObtainedTailAtPowerOn() {
     call([&] { decompCutsceneProg_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readItemsObtainedTail();
+}
+
+void DamageOracle::writeItemsObtainedTail(const battle::ItemsObtainedTail& tail) {
+    const std::vector<std::uint8_t> bytes = recordsOf(tail);
+    writeBytes(retropp::MemoryRegion{.at = kItemsObtainedTailRecords, .size = static_cast<std::uint32_t>(bytes.size())},
+               bytes);
+}
+
+battle::ItemsObtainedTail DamageOracle::readItemsObtainedTail() {
     const std::vector<std::uint8_t> bytes = machine_.read(retropp::MemoryRegion{
         .at = kItemsObtainedTailRecords,
         .size = static_cast<std::uint32_t>(battle::kItemsObtainedTailPlaces * kRecordBytes)});
@@ -534,6 +537,10 @@ std::string DamageOracle::replayEnding(const TracedEnding& ending) {
 WriteBackResult DamageOracle::writeBack(const EndingScenario& scenario) {
     writeEndingScenario(scenario);
     call([&] { updateSram_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage); });
+    return readWriteBack();
+}
+
+WriteBackResult DamageOracle::readWriteBack() {
     WriteBackResult result;
     result.cells = readParty();
     for (std::size_t slot = 0; slot < game::kInventorySlots; ++slot) {

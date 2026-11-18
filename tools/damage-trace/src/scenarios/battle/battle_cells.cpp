@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <span>
 
+#include "cells/battle/state.h"
 #include "cells/damage/per_target.h"
 
 namespace ostinato::trace {
@@ -62,6 +63,10 @@ constexpr CellMeaning kCellMeanings[] = {
     {.at = kFormationScriptFlags, .meaning = static_cast<std::uint8_t>(~kScriptedSetupOnBit),
      .why = "$2F49 bit 7, the scripted setup in force, the start's for its own opening"},
     {.at = kFormationScriptFlags + 1, .meaning = 0, .why = "$2F4A, the scripted setup in force, with $2F49 bit 7"},
+    {.at = kAttackRecordFlags, .meaning = kPhysicalHitBit,
+     .why = "the attack's first flags but bit 0, the attack's own, loaded with its record"},
+    {.at = kFieldTimerFlags, .meaning = kCountdownRanOutBit,
+     .why = "the field's timer flags: bit 5, a story countdown run out, is the battle's to read"},
     {.at = kInventoryFifthBytes, .count = kInventoryRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,
      .why = "above the party slots' bits, LoadItemProp's leavings, which no reader tests"},
     {.at = kHandFifthBytes, .count = kHandRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,

@@ -263,8 +263,10 @@ add_library(ostinato-battle-scenarios STATIC
     tools/damage-trace/src/scenarios/ai/own_actions.cpp
     tools/damage-trace/src/scenarios/battle/battle_cells.cpp
     tools/damage-trace/src/scenarios/battle/cells_not_compared.cpp
+    tools/damage-trace/src/scenarios/battle/presentation_model.cpp
     tools/damage-trace/src/scenarios/battle/start.cpp
     tools/damage-trace/src/scenarios/battle/start_draw.cpp
+    tools/damage-trace/src/scenarios/battle/whole_battle.cpp
     tools/damage-trace/src/scenarios/common/bytes.cpp
     tools/damage-trace/src/scenarios/common/draws.cpp
     tools/damage-trace/src/scenarios/common/report_text.cpp
@@ -296,6 +298,7 @@ add_library(ostinato-damage-oracle STATIC
     tools/damage-trace/src/oracle/ai/ai_run.cpp
     tools/damage-trace/src/oracle/ai/ai_targets.cpp
     tools/damage-trace/src/oracle/ai/own_actions.cpp
+    tools/damage-trace/src/oracle/battle/battle_check.cpp
     tools/damage-trace/src/oracle/battle/battle_state.cpp
     tools/damage-trace/src/oracle/battle/start.cpp
     tools/damage-trace/src/oracle/battle/start_check.cpp
@@ -303,6 +306,7 @@ add_library(ostinato-damage-oracle STATIC
     tools/damage-trace/src/oracle/battle/state_battle.cpp
     tools/damage-trace/src/oracle/battle/state_battlers.cpp
     tools/damage-trace/src/oracle/battle/state_menus.cpp
+    tools/damage-trace/src/oracle/battle/whole_battle.cpp
     tools/damage-trace/src/oracle/cell_access.cpp
     tools/damage-trace/src/oracle/damage/attack.cpp
     tools/damage-trace/src/oracle/damage/cover.cpp
@@ -870,7 +874,8 @@ gtest_discover_tests(ostinato-vi-battle-rewards-tests)
 # the port's at the loop's first frame wait (tools/damage-trace/src/oracle/damage_oracle.h). Own binary
 # so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-whole-tests
-    tests/oracle/test_battle_start_oracle.cpp)
+    tests/oracle/test_battle_start_oracle.cpp
+    tests/oracle/test_battle_whole_oracle.cpp)
 target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)
 target_compile_options(ostinato-vi-battle-whole-tests PRIVATE ${_ostinato_warn})
 target_include_directories(ostinato-vi-battle-whole-tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

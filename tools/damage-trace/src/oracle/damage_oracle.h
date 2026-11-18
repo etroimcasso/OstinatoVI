@@ -82,6 +82,7 @@
 #include "scenarios/ai/own_actions.h"
 #include "scenarios/battle/battle_cells.h"
 #include "scenarios/battle/start.h"
+#include "scenarios/battle/whole_battle.h"
 #include "scenarios/damage/attack.h"
 #include "scenarios/damage/cover.h"
 #include "scenarios/damage/damage.h"
@@ -338,6 +339,34 @@ public:
     // useMonsterSprites() and useText().
     [[nodiscard]] StartCheck checkStart(const StartScenario& scenario);
 
+    // The battle program's whole battle over `scenario`, from its start to its end, a loop step at a
+    // time: InitRAM and InitBattle called as BattleMain calls them, then BattleLoop called once per step,
+    // each call ended when the step comes back round to the loop's head, the last ended at
+    // TerminateBattle once its graphics command $09 is made. The graphics program's commands are answered
+    // as battleStart() answers them, and the frames the scenario's model gives — the opening's for $00,
+    // the script's for $04, one for the loop's frame wait — are run: the frame counter ($0E) and the play
+    // clock's frames ($021E) stepped as the interrupt steps them, the story countdown's flag ($1DD1 bit 5)
+    // set on the frame it runs out, and the battle's clock (UpdateBattleTime) called on every frame the
+    // model says it is. The cells are read at each loop step's frame wait, before its frame. A battle not
+    // ended by the scenario's frame cap is ended by the cartridge's own end-of-battle event 4 and marked
+    // timed out. Needs useMonsterSprites().
+    [[nodiscard]] WholeBattleResult wholeBattle(const BattleScenario& scenario);
+
+    // The same from the cells as they stand, for a machine restored to the tick before a battle.
+    [[nodiscard]] WholeBattleResult wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap);
+
+    // The same battle as one call of the battle program's entry (Battle_ext), as the field makes it, with
+    // the same answers and frames and the cells read at the same frame waits: for proving the steps add up
+    // to the whole. A battle longer than the engine's guard on one bound call cannot be run so; the
+    // result then holds what was made before the call was abandoned.
+    [[nodiscard]] WholeBattleResult wholeBattleInOneCall(const BattleScenario& scenario);
+
+    // The cartridge's whole battle over `scenario` (wholeBattle()) against the port's (portBattle()):
+    // the steps counted alike, each step's state compared (compareBattleState()) with the write-set and
+    // carried-read gates, the requests compared in order, and the battle's end — one line per difference,
+    // stopping at the first step that parts. Needs useMonsterSprites() and useText().
+    [[nodiscard]] BattleCheck checkBattle(const BattleScenario& scenario);
+
     // The scenario's cells as battleStart() writes them, with nothing called: the field's cells the
     // start reads.
     void writeStartScenario(const StartScenario& scenario);
@@ -365,18 +394,24 @@ public:
     // The write-set gate: every cell in `written` that compareBattleState() does not cover in full —
     // its bits with meaning and its bits on kCellsNotCompared between them short of the whole byte,
     // and the cell neither left out as no field determines it nor a ring's start — one line per cell
-    // naming it and the bits left. Empty when every cell written is covered.
+    // naming it and the bits left. Empty when every cell written is covered. The lines are laid from
+    // the ring positions in `cartridge` where given (a whole battle's step), else from the machine as it
+    // stands (the start, parked at its point).
     [[nodiscard]] std::string uncoveredWrites(const battle::BattleState& state, const PartyCells& boosts,
-                                              const std::set<std::uint32_t>& written);
+                                              const std::set<std::uint32_t>& written,
+                                              const BattleCells* cartridge = nullptr);
 
     // The carried-read gate: every read in `reads` (StartResult::readsAfterThePoint) of a cell
     // compareBattleState() does not hold for `state` — on kCellsNotCompared, or left out as no field
     // determines it — one line per cell naming it and the byte the read found. A cell compared in
     // part is held by its compared bits (its row on kCellsNotCompared names every reader of the rest),
     // a ring's start is held by what is laid from it, and the stack is never carried. Empty when the
-    // battle read nothing the comparison did not hold.
+    // battle read nothing the comparison did not hold. The lines are laid from the ring positions in
+    // `cartridge` where given (the cells at the step the reads carry from), else from the machine as it
+    // stands.
     [[nodiscard]] std::string carriedReads(const battle::BattleState& state, const PartyCells& boosts,
-                                           const std::vector<UnwrittenRead>& reads);
+                                           const std::vector<UnwrittenRead>& reads,
+                                           const BattleCells* cartridge = nullptr);
 
     // Every cell of the battle's work RAM ($7E:0000-3FFF) the last call read before anything wrote
     // it — the oracle's own writes since the call before, or the guest's during the call — with the
@@ -498,10 +533,30 @@ private:
     [[nodiscard]] RewardScenario readRewardScenario();
     [[nodiscard]] std::string replayRewardCall(const TracedCall& call, const TracedRoutine& routine);
     void answerGraphics(const GraphicsCall& call);
+    // What the game keeps from a battle as the party's cells now hold it (after UpdateSRAM).
+    [[nodiscard]] WriteBackResult readWriteBack();
     // What the graphics program does for the battle program in a whole battle, beyond answering.
     void answerInBattle(const GraphicsCall& call);
+    // What the opening ($00) lays into the battle's cells for the battle program to read.
+    void layTheOpening();
+    // A whole battle's answer: the frames its command takes, and at a loop step's frame wait the step's
+    // cells read.
+    void answerInWholeBattle(const GraphicsCall& call);
+    // One frame of a whole battle, as the interrupt's body and the frame wait run it.
+    void runFrame(Frame frame);
+    // The loop's frame wait is next: its graphics call reads the step's cells.
+    void reachedTheFrameWait();
+    // A whole battle, stepped or in one call, from the cells as they stand.
+    [[nodiscard]] WholeBattleResult runWholeBattle(const PresentationModel& model, std::uint64_t frameCap,
+                                                   bool inOneCall);
+    // The loop's head reached, or TerminateBattle's return, with the stack pointer found there.
+    void stepEnded(std::uint16_t stackPointer, bool closed);
     void writeItemsObtained(const battle::ItemsObtained& list);
     [[nodiscard]] battle::ItemsObtained readItemsObtained();
+    // The items-obtained list's last three places, which a battle's start leaves as they are
+    // (BattleStart::itemsObtainedTail).
+    void writeItemsObtainedTail(const battle::ItemsObtainedTail& tail);
+    [[nodiscard]] battle::ItemsObtainedTail readItemsObtainedTail();
     void writeInventory(const std::array<battle::BattleItem, game::kInventorySlots>& inventory);
     [[nodiscard]] std::array<battle::BattleItem, game::kInventorySlots> readInventory();
     [[nodiscard]] ItemsObtainedResult callItemsObtained(const ItemsObtainedScenario& scenario, std::uint8_t command);
@@ -568,9 +623,15 @@ private:
         // The rings' positions: where a line starts and where the next record is read. Each is the
         // machine's own, and what follows it is laid from it, so the comparison holds it.
         std::set<std::uint32_t> positions;
+        // Cells left out whose value a later read carries to nothing the battle holds, for the state laid:
+        // the carried-read gate passes a read of one.
+        std::set<std::uint32_t> carriedToNothing;
     };
     // Hold `count` cells from `at` as a ring's position (LaidState::positions).
     void holdPosition(std::uint32_t at, std::uint32_t count);
+    // Leave `count` cells from `at` out, as cells a later read carries to nothing
+    // (LaidState::carriedToNothing).
+    void leaveOutAsCarriedToNothing(std::uint32_t at, std::uint32_t count);
     // `cartridge`, where given, holds the ring positions the lines and records are laid from.
     [[nodiscard]] LaidState layState(const battle::BattleState& state, const PartyCells& boosts,
                                      const BattleCells* cartridge = nullptr);
@@ -632,6 +693,40 @@ private:
     retropp::Routine<Call> decompCutsceneProg_;
     // The battle program's entry, called as the field calls it (a JSL, returning by RTL).
     retropp::Routine<Call> battleMain_;
+    // A whole battle a step at a time: the start's two routines, the loop, and the clock the graphics
+    // program calls.
+    retropp::Routine<Call> initRam_;
+    retropp::Routine<Call> initBattle_;
+    retropp::Routine<Call> battleLoop_;
+    retropp::Routine<Call> updateBattleTime_;
+    // A whole battle being run (wholeBattle()): its model, what it has made so far, and the step under way.
+    struct WholeBattleRun {
+        PresentationModel model;
+        std::uint64_t frameCap = 0;
+        WholeBattleResult result;
+        CartridgeStep pending;        // the writes and reads since the last frame wait
+        bool inOneCall = false;       // the battle is one call of Battle_ext, not a call per step
+        bool atFrameWait = false;     // the next graphics call is the loop's frame wait
+        bool stepEnded = false;       // this step came back to the loop's head
+        bool closed = false;          // TerminateBattle was reached
+        std::size_t scripts = 0;      // the scripts played so far
+    };
+    std::optional<WholeBattleRun> whole_;
+    // A whole battle's last accesses by the battle program, a ring, for naming the reader of a carried read.
+    struct RecentAccess {
+        std::uint32_t cell = 0;
+        std::uint8_t value = 0;
+        bool write = false;
+    };
+    static constexpr std::size_t kRecentAccesses = 24;
+    std::array<RecentAccess, kRecentAccesses> recentAccesses_{};
+    std::size_t recentNext_ = 0;
+    // A whole battle's two stack pages ($7E:0100-01FF, then $7E:1500-15FF), read once as the battle starts
+    // on the parked machine and kept from the guest's writes after (a read of the running machine answers a
+    // tick old): the returns on them name the routine making an access.
+    static constexpr std::size_t kStackPagesSize = 0x200;
+    std::array<std::uint8_t, kStackPagesSize> stackPages_{};
+    void keepTheStackPages();
     std::vector<GraphicsCall> graphicsCalls_;
     // A graphics command the oracle has no answer for was called (the menu queue's position, $0D).
     std::optional<std::uint8_t> unansweredGraphics_;

@@ -66,7 +66,7 @@ struct CellsLeftAsTheMachineHasThem {
     std::uint32_t stride = 1;
     const char* why = "";
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 17> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -103,14 +103,40 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 17> kCellsLeftAsTheMac
     {.at = 0x7E1A69,
      .why = "the high byte of the last inventory slot's quantity, loaded sixteen bits wide (InitInventory "
             ":13935-13937) and overwritten with $FF before anything reads it (LoadItemProp :13989-13990)"},
-    {.at = 0x7E3720,
-     .why = "the advance-wait line's first place, which the search that takes a battler out of the line looks at "
-            "once even when the line is empty (RemoveAllActions :1583-1591); a match stores $FF in a place the "
-            "line does not hold"},
+    {.at = 0x7E3720, .count = 256,
+     .why = "the advance-wait line's places outside the line: the search that takes a battler out of the line "
+            "looks once at the place its start points to even when the line is empty (RemoveAllActions "
+            ":1583-1591), and a match stores $FF in a place the line does not hold; the places in the line are "
+            "laid from its start and compared"},
     {.at = 0x7E1DDD, .count = 64,
      .why = "the field's record of the battles Gau can find on the Veldt, which the battle's end reads only to set "
             "the formation's bit in it and store it back (UpdateSRAM :12163-12178): the bit is "
             "BattleResult::veldtFormation, and the field keeps the rest"},
+    {.at = 0x7E3A7B,
+     .why = "the attack byte of an action whose routine sets only its command (an AI's turn :504-506, its "
+            "counterattack :12561-12563, the party's escape :15093-15094): CreateAction copies $3A7A-$3A7B as a word "
+            "into the action's slot (:12958-12959), whose attack byte the comparison leaves out for those actions"},
+    {.at = 0x7E00B2,
+     .why = "the high byte of the counterattack flag's load: CreateDefaultAction reads $B1 sixteen bits wide when "
+            "an AI command calls it with the accumulator wide (AICmd_f0 :4432-4443, AICmd_f9 :4513-4518, AICmd_fa "
+            ":4544-4548) and branches on bit 0 alone (:12901-12903); the byte lands in the accumulator's high byte, "
+            "which every instruction up to GetMPCost's tdc leaves alone (:12932-12974, the index registers narrow "
+            "from :4369), and in the zero flag the action's php saves, which NextAICmd's cmp sets again before "
+            "anything tests it (:4345)"},
+    {.at = 0x7E3FE3,
+     .why = "past the first status bytes ($3EE4,x) for an X of $FF: an interrupting action runs with X as the loop "
+            "left it (BattleLoop :78-80, _c22163 :5704-5711), and InitPlayerAction's Imp test reads $3EE4,x "
+            "(:410-412); every interrupting action's command is $23 or above (:1224, :1260, :1599, :1636, "
+            ":3669, :6160, :9717, :14962, :15061, :15093, :16427), so the test returns either way (:413-415) "
+            "and the pla there sets the flags again (:440)"},
+    {.at = 0x7E3ECB,
+     .why = "the high byte of the count of the monsters' names, read and stored back by the count's sixteen-bit "
+            "step (UpdateMonsterGfxBuf :15221, :15227), which never carries into it; the flags the step sets are "
+            "set again by the next instruction's cmp (:15228)"},
+    {.at = 0x7E3421, .count = 128, .stride = 2,
+     .why = "an action slot's attack byte where the routine that made the action set only its command: the action's "
+            "run loads it into $3A7D and $B6 (InitPlayerAction :394-396), which neither an AI's turn "
+            "(ExecMonsterAction :447-463) nor the party's escape reads before the next command sets them"},
 }};
 
 // Whether `cell` is one of kCellsLeftAsTheMachineHasThem.

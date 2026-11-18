@@ -41,8 +41,9 @@ place them; they must outlive the executor.
 `execute()` runs every command a party member or a monster can choose, and every action the battle
 takes on its own ([below](#the-battles-own-actions)). Mimic, which the battle core replaces with the
 command it mimics before running it, shows nothing. After an action it reports to the battle core
-whether the attack was physical and who it ended up hitting (`state.scratch.physical`,
-`state.scratch.finalTargets`). `aim()` aims a command chosen with no targets: Fight chosen by a
+who it ended up hitting (`state.scratch.finalTargets`), and an action that made an attack sets whether
+that attack was physical (`state.lastAttackPhysical`); an action that makes no attack leaves the flag
+as it was. `aim()` aims a command chosen with no targets: Fight chosen by a
 berserk party member, say, gets one monster. `chooseAutomaticAction()` and `runAi()` choose for the
 battlers no one chooses for ([below](#automatic-actions)), and `chooseDanceStep()`,
 `chooseRageAttack()` and `chooseRandomEsper()` settle the menu choices that come down to chance.

@@ -13,6 +13,7 @@
 #include "battle/battle_state.h"
 #include "battle/command_executor.h"
 #include "battle/items_obtained.h"
+#include "battle/items_obtained.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 #include "game/battle_switches.h"
@@ -41,6 +42,15 @@ std::string differences(const StartScenario& a, const StartScenario& b) {
     field("Gau recruited", x.gauRecruited, y.gauRecruited);
     field("Shadow available", x.shadowAvailable, y.shadowAvailable);
     field("play clock's frames", x.playTimeFrames, y.playTimeFrames);
+    field("frame count", x.frameCount, y.frameCount);
+    for (std::size_t place = 0; place < x.itemsObtainedTail.size(); ++place) {
+        const battle::ItemRecord ours = battle::recordOf(x.itemsObtainedTail[place]);
+        const battle::ItemRecord theirs = battle::recordOf(y.itemsObtainedTail[place]);
+        for (std::size_t byte = 0; byte < ours.size(); ++byte) {
+            const std::string name = "items obtained tail " + std::to_string(place) + " byte " + std::to_string(byte);
+            field(name.c_str(), ours[byte], theirs[byte]);
+        }
+    }
     field("wait mode", x.config.waitMode, y.config.waitMode);
     field("battle speed", x.config.speedSetting, y.config.speedSetting);
     field("gauge shown", x.config.gaugeShown, y.config.gaugeShown);

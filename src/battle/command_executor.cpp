@@ -94,7 +94,9 @@ std::vector<BattleScriptCommand> CommandExecutor::execute(BattleState& state, st
             runAiEffect(state, hooks_, script, attack, *actor, *effect);
         }
     }
-    state.scratch.physical = attack.record.traits.has(AttackTrait::PHYSICAL);
+    if (attack.recordLoaded) {
+        state.lastAttackPhysical = attack.record.traits.has(AttackTrait::PHYSICAL);
+    }
     state.scratch.finalTargets = attack.targets;
     state.lastAttackLevel = attack.attackerLevel;
     state.awayFromTheFieldUnreachable = attack.scratch.awayFromTheFieldUnreachable;

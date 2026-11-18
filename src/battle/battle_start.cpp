@@ -519,6 +519,9 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     state.config = start.config;
     state.party = std::move(party);
     state.switches = switches;
+    // The end check reads the field's own switch (its timer flags, $1DD1 bit 5), which the start leaves as
+    // it is: a battle entered with a countdown already run out ends at its first check.
+    state.eventTimerExpired = switches.isSet(game::kTimerExpiredSwitch);
     state.background = start.background;
     state.keepFieldMusic = start.keepFieldMusic;
     state.onTheVeldt = start.onTheVeldt;
@@ -557,6 +560,7 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
 
     state.rng = BattleRng(static_cast<std::uint8_t>(start.playTimeFrames * 4));
     state.playClockFrames = start.playTimeFrames;
+    state.frameCount = start.frameCount;
     state.formation = chooseFormation(state, start.formation);
     state.startingFormation = carry != nullptr ? carry->startingFormation : state.formation;
     const FormationAux& aux = getFormationAux(state.formation);

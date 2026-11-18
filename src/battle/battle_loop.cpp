@@ -210,7 +210,7 @@ void checkCounterattacks(BattleState& state) {
             addCounterAction(state, slot, AiTurn{.answering = answerTo});
             return;
         }
-        if (slot.isMonster() || !state.scratch.physical) {
+        if (slot.isMonster() || !state.lastAttackPhysical) {
             return;
         }
         if (battler.triggers.retort) {

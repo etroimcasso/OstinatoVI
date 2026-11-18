@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <span>
 
+#include "cells/battle/state.h"
 #include "cells/damage/per_target.h"
 #include "scenarios/battle/battle_cells.h"
 
@@ -41,15 +42,36 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x00B1, .bits = kItemKeptForTheCommandBit,
      .why = "$B1 bit 4: an item kept for one command, set by InitTarget_01 (:6529-6530) and cleared as the next "
             "command is aimed (:3963-3964)"},
+    {.at = kWorkRam + 0x00A0, .count = 16,
+     .why = "the params block of the animation being worked out, one attack's: InitGfxParams lays it out for every "
+            "attack (:14430-14466) and CopyGfxParamsToBuf hands it on (provisional)"},
     {.at = kWorkRam + 0x00B2, .count = 2,
-     .why = "one command's flags: every command sets both to $FF before anything reads them (ExecCmd :3103-3105)"},
+     .why = "one command's flags: every command sets both to $FF before its body reads them (ExecCmd :3103-3105); "
+            "the one read before, of $B2 as the high byte of an AI command's load of $B1, reaches nothing "
+            "(kCellsLeftAsTheMachineHasThem)"},
+    {.at = kWorkRam + 0x00B4, .count = 4,
+     .why = "the script command an action is shown with and the command, attack and second value being made, the "
+            "action's: ExecCmd sets the first (:3096-3097), InitPlayerAction the rest (:394-396) (provisional)"},
     {.at = kWorkRam + 0x00B8, .count = 2,
      .why = "the targets of the action being made, set by every action as it is made (:406-407, :489-490, "
             ":561-562)"},
+    {.at = kWorkRam + 0x00BA, .count = 4,
+     .why = "the aiming rules and the damage multipliers of the attack being made, the attack's: each attack sets its "
+            "rules and multiplier, and every command clears the extra multiplier (ExecCmd :3098) (provisional)"},
+    {.at = kWorkRam + 0x00E8, .count = 3,
+     .why = "the arithmetic routines' operands and products (MultAB, the divide), set by each caller before the call "
+            "(:7227 and on) (provisional)"},
+    {.at = kWorkRam + 0x00EC, .count = 2,
+     .why = "the arithmetic routines' products, above the multiply's scratch byte $00EB (provisional)"},
     {.at = kWorkRam + 0x00EE, .count = 18,
      .why = "the battle program's scratch: each routine sets the cells it reads (:793, :1028, :1819, :1860, :4219)"},
     // --- the attack's record and the field's shared cells ----------------------------------------
-    {.at = kWorkRam + 0x11A0, .count = 15,
+    {.at = kWorkRam + 0x11A0, .count = 2,
+     .why = "the attack's record and the equipment sums of the last party member the start summed: every attack "
+            "loads its record before reading it, and UpdateEquip clears $11A0-$11DE before it sums (:2302-2304)"},
+    {.at = kAttackRecordFlags, .bits = static_cast<std::uint8_t>(~kPhysicalHitBit),
+     .why = "the attack's first flags but bit 0: the attack's own, loaded with its record before it reads them"},
+    {.at = kWorkRam + 0x11A3, .count = 12,
      .why = "the attack's record and the equipment sums of the last party member the start summed: every attack "
             "loads its record before reading it, and UpdateEquip clears $11A0-$11DE before it sums (:2302-2304)"},
     {.at = kWorkRam + 0x11B0, .count = 47,
@@ -58,6 +80,9 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x11DF,
      .why = "the field's equipment effects, which the start's equipment sums OR into (CalcEquipEffect :2487-2488) "
             "and the battle program reads nowhere"},
+    {.at = kFieldTimerFlags, .bits = static_cast<std::uint8_t>(~kCountdownRanOutBit),
+     .why = "the field's timer flags but bit 5: the field's own timers', which CheckBattleEnd masks away "
+            "(:11900-11901); the battle program reads the cell nowhere else"},
     // --- the graphics program's cells ------------------------------------------------------------
     {.at = kWorkRam + 0x200D, .count = 18,
      .why = "the monsters' names, their counts and the battlers shown, written for the graphics program "
@@ -118,13 +143,9 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x327D, .count = 10, .stride = 2,
      .why = "the byte after each battler's last damager, the start's fill; named by no instruction"},
     {.at = kWorkRam + 0x33BC, .count = 20, .why = "the start's fill; named by no instruction of the battle program"},
-    {.at = kWorkRam + 0x33D0, .count = 40,
-     .why = "the damage each target takes and is healed by, set for every attack's targets as it hits"},
     {.at = kWorkRam + 0x33FB,
      .why = "the high byte of Doom Gaze's slot, stored with it sixteen bits wide (:7381) and read as one byte "
             "(:12152)"},
-    {.at = kWorkRam + 0x3400, .count = 2,
-     .why = "the follow-up spell and the battle message, one command's"},
     {.at = kWorkRam + 0x3408, .bits = static_cast<std::uint8_t>(~kPartySlotBits),
      .why = "the bits of the counted battlers' mask that name no battler (TargetMaskTbl)"},
     {.at = kWorkRam + 0x3409, .bits = static_cast<std::uint8_t>(~kMonsterSlotBits),
@@ -151,16 +172,14 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
      .why = "the top byte of $3A46: bit 7 set by a scene change (Cmd_20 :13210-13214) for the next formation's "
             "load; the rest named by no instruction"},
     {.at = kWorkRam + 0x3A48, .count = 2, .why = "the targets an attack missed, the attack's"},
-    {.at = kWorkRam + 0x3A4C, .count = 10,
+    {.at = kWorkRam + 0x3A4C,
      .why = "the cost the next attack takes, which every action sets (InitPlayerAction :408-409) and the attack "
-            "clears (:8161-8166); the backup targets and the targets hit in the back, the attack's; $3A50-$3A53 "
-            "named by no instruction"},
+            "clears (:8161-8166)"},
+    {.at = kWorkRam + 0x3A4E, .count = 8,
+     .why = "the backup targets and the targets hit in the back, the attack's; $3A50-$3A53 named by no "
+            "instruction"},
     {.at = kWorkRam + 0x3A5A, .count = 10,
      .why = "the targets missed and Mind Blast's picks, the attack's; $3A5E-$3A63 named by no instruction"},
-    {.at = kWorkRam + 0x3A6C,
-     .why = "the frame counter as the clock last ran, which the start leaves as its zero fill whatever the frame "
-            "counter holds: the clock's first call runs or not by it (UpdateBattleTime :2675-2681), as the "
-            "opening's frames are counted"},
     {.at = kWorkRam + 0x3A70, .count = 3, .why = "the attacks left and the script queue's places, the action's"},
     {.at = kWorkRam + 0x3A7A, .count = 6, .why = "the command and attack being made, the action's (:617-619, :12674)"},
     {.at = kWorkRam + 0x3A81,
@@ -184,7 +203,11 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x3E38, .count = 20, .why = "the start's zero fill; named by no instruction"},
     {.at = kWorkRam + 0x3E88, .count = 40, .why = "the start's zero fill; named by no instruction"},
     {.at = kWorkRam + 0x3EC9, .why = "the number of targets, the attack's"},
-    {.at = kWorkRam + 0x3ECB, .count = 9, .why = "the start's zero fill; named by no instruction"},
+    {.at = kWorkRam + 0x3ECB,
+     .why = "the high byte of the count of the monsters' names, stepped sixteen bits wide (UpdateMonsterGfxBuf "
+            ":15221, :15227) and never carried into: the count is cleared first (:15193) and reaches four at most "
+            "(:15232-15234)"},
+    {.at = kWorkRam + 0x3ECC, .count = 8, .why = "the start's zero fill; named by no instruction"},
     {.at = kWorkRam + 0x3ED6, .count = 2, .why = "the start's $FF fill (:6326); named by no instruction"},
     {.at = kWorkRam + 0x3EE3, .why = "the start's $FF fill (:6326); named by no instruction"},
     {.at = kWorkRam + 0x3F34, .count = 16, .why = "named by no instruction of the battle program"},

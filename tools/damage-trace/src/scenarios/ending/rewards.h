@@ -18,6 +18,8 @@
 #include "ostinato/character_prop_id.h"
 #include "ostinato/monster_id.h"
 
+#include "scenarios/common/graphics_commands.h"
+
 namespace ostinato::trace {
 
 // One call the battle program made to the graphics program (ExecBtlGfx, $C2:6411), as the call
@@ -34,7 +36,7 @@ struct GraphicsCall {
 };
 
 // The graphics command that plays the battle script, and the script command that shows a message.
-inline constexpr std::uint8_t kPlayBattleScript = 0x04;
+using graphics::kPlayBattleScript;
 inline constexpr std::uint8_t kShowMessageScriptCommand = 0x02;
 
 // A battle message as the player reads it: the message, and the numbers its text shows — its first

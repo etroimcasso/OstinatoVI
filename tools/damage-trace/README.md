@@ -339,6 +339,7 @@ program makes of a cell whose last write was one of theirs, with the code that w
 ```
 battle entered <frame>
 graphics <frame> <command>
+clock <frame>
 write <frame> <writer> $7E:AAAA <byte>
 read <frame> <reader> $7E:AAAA <byte> <writer>
 battle returned <frame>
@@ -348,7 +349,8 @@ The code running is told apart by where it is entered. The battle program runs f
 (`$C2:0000`) to `TerminateBattle`'s return (`$C2:00CB`), and nothing outside it is logged. The graphics
 program runs from its entry (`$C1:0000`) to the battle program's instruction after the call to it
 (`$C2:6429`); inside a graphics call, the battle program's clock runs from its entry (`$C2:0003`) to the
-graphics program's instruction after either call of it (`$C1:0223`, `$C1:0249`) and is logged as `clock`;
+graphics program's instruction after either call of it (`$C1:0223`, `$C1:0249`), each entry is a `clock`
+line, and its reads are logged as `clock`;
 the interrupt runs from `BattleNMI` (`$C1:0BA7`) to its return (`$C1:0D4A`) and is logged as
 `interrupt-in-graphics`, `interrupt-in-battle` or `interrupt-in-clock`, by what it interrupted. A
 `graphics` line names the command a call asks for, the first of the graphics program's handlers entered
@@ -366,7 +368,8 @@ counter `$0E`; the player's records `$2BAE-$2BCD`; the menu's time stop `$2F41`;
 `$2F45`; the four equipment-changed flags `$2F30-$2F33`; the inventory, after an obtained item is merged
 into it; the field's timer flags `$1DD1`, from the interrupt; the monsters standing `$2F2F` and the
 monsters that can be aimed at `$2F46`, from the opening command `$00`; the multiply's scratch `$00EB`;
-and the stack. The opening `$00` runs for about 160 frames, and the clock runs on its last 38 or so.
+and the stack. In all seven the opening `$00` runs 159 pictures, the interrupt's body 75 times: 37 with no
+clock call, then 36 clock calls over the last 38, two of the waits taking two frames.
 Two more cells the graphics side writes for the battle program are read only where none of the seven
 fights goes: the play clock's frames `$021E`, which its interrupt steps and the Fixed Dice read, and
 the monsters on each side of a pincer `$2EAC-$2EAD`, which its opening lays out.
@@ -577,8 +580,9 @@ nothing where there is no cartridge to ask; a new test that asks only the cartri
 battle's start reads that the field sets first — the `battle::BattleStart` the port's own start takes,
 the party with the HP and MP boost bits the port keeps no field for, and the battle switches — and
 `writeStartScenario()` lays it into those cells: the formation, the background and the field's flags, the
-play clock's frames, the battle settings and the spell order, the switches, the story's flags for
-Shadow and Gau, the party played, the inventory, the play time at the last save, and a colosseum match
+play clock's frames, the frame count, the story countdown's flag cleared, the battle settings and the spell order, the switches, the story's flags for
+Shadow and Gau, the party played, the inventory, the play time at the last save, the last three places of
+the items obtained (`BattleStart::itemsObtainedTail`, as five-byte item records), and a colosseum match
 or the final battle's line of fighters. `readStartScenario()` reads them back, from a written machine or
 from one restored to the tick before a battle; `trace::differences()` names every field two scenarios
 part on. `battleStartAsItStands()` makes the same call from the cells as they stand.
@@ -588,7 +592,9 @@ are, each with no frame and the battle's time stopped. The answer to the opening
 lays what the graphics program's own opening lays for the battle program: the monsters standing
 (`$2F2F`), the formation's monsters present; the monsters that can be aimed at (`$2F46`), every one, or
 the reach byte of the scripted setup the start turned on; the four equipment-changed flags, cleared;
-and the monsters on each side of a pincer (`$2EAC-$2EAD`), from the port's own `layOutMonsters()` with the
+the items obtained, its two counts (`$64DA-$64DB`) zeroed and its first 64 bytes (`$602D-$606C`, every
+item of the first thirteen places) emptied to `$FF`, the last three places left as they are; and the
+monsters on each side of a pincer (`$2EAC-$2EAD`), from the port's own `layOutMonsters()` with the
 monsters' sprites handed over by `useMonsterSprites()`, which a whole battle needs before its call. At
 the loop's first frame wait — the first command `$01` — the battle's cells, `$7E:0000-3FFF`, are read into
 `StartResult::cells`, with every cell the start read before anything wrote it
@@ -608,6 +614,68 @@ monsters' sprites and the game's text (`useMonsterSprites()`, `useText()`).
 The watch past the battle's cells (`$7E:4000-$7F:FFFF`) is armed by a whole battle and left armed, so
 starts called one after another arm it once; any other routine's call disarms it first. Arming or
 disarming it walks every watched page of the machine, about half a second each way.
+
+### A battle run to its end
+
+`wholeBattle(scenario)` runs the battle program from its start to its end, a loop step at a time, so no
+call passes the engine's guard on a bound call (1,000,000 instructions). A `BattleScenario` is a
+`StartScenario`, a `PresentationModel` and a frame cap. `InitRAM` and `InitBattle` are called as
+`BattleMain` calls them, then `BattleLoop` (`$C2:0019`) once per step. A step's call ends when the step
+comes back round to the loop's head, where an escape answers in the loop's place, and the last one at
+`TerminateBattle`'s `plp` (`$C2:00CA`), once its close (`$09`) has been made. The stack pointer found at
+each end is kept in `WholeBattleResult::stackPointers`, one value when every step left the stack as it
+found it.
+
+```cpp
+const trace::BattleScenario scenario{.start = start, .model = trace::measuredPresentationModel(seed)};
+const trace::WholeBattleResult cartridge = oracle.wholeBattle(scenario);
+const trace::PortBattle port = trace::portBattle(scenario, text, sprites);
+const trace::BattleCheck check = oracle.checkBattle(scenario);   // both, compared
+```
+
+The model (`scenarios/battle/presentation_model.h`) says how the graphics program spends frames, and both
+sides are driven by it. A frame is one run of the interrupt's body: the frame counter (`$0E`) and the play
+clock's frames (`$021E`) step, the story countdown's flag (`$1DD1` bit 5) is set on the frame the model
+says it runs out, and the battle's clock (`UpdateBattleTime`, called through `$C2:0003` from inside the
+answer) runs unless time is stopped. The opening (`$00`) takes the model's opening frames; as measured
+(`measuredPresentationModel()`) that is 37 frames with no clock, then 36 clock calls over 38 frames. A
+script (`$04`) takes 1 to 12 frames drawn from the model's seed and its place among the battle's scripts,
+with time stopped on all of them when it plays a battle event other than Gau's (`$1B`) and Wrexsoul's
+(`$1F`). The loop's frame wait (`$01` from `:72-73`) is one frame with the clock. The wrap-up's waits and
+the celebration take none. On the port's side a frame is one `BattleSim::tick`: the opening's frames
+and all but a script's last are ticks with `presentationIdle` false, and `timeRunning` is the frame's
+clock.
+
+At each loop step's frame wait (`lda #$01` at `$C2:0023` marks it) the battle's cells are read into a
+`CartridgeStep`, before the frame runs, with every cell the battle program wrote since the step before
+and every read it made since then of a cell nothing had written since. For the first such read of a cell
+wholly on `cellsNotCompared()`, the step also keeps the stack's two pages (read once from the parked
+machine as the battle starts and kept from the battle program's writes after, since a read of the
+running machine answers a tick old), the trace's last line and the battle program's last 24 accesses,
+which the check prints to name the reader. A read of a cell compared in part is held by its compared
+bits and keeps none. A battle not ended by the frame
+cap is ended by the cartridge's event 4 at its next end check and marked `timedOut`. What the game keeps
+(`WriteBackResult`) is read from the cells once the battle returns.
+
+`wholeBattleInOneCall(scenario)` runs the same battle as one call of `Battle_ext`, with the same answers,
+frames and frame waits. A battle short enough for one call gives the same graphics calls, steps and end
+as the stepped run, which is how the steps are proved to add up to the whole; a longer one is abandoned
+at the guard.
+
+`checkBattle(scenario)` runs both sides and compares them step by step until the first step that parts:
+the frame each step is reached on, the requests made since the step before, named alike on both sides
+(`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
+(`compareBattleState()`) with the write-set gate over the step's writes and the carried-read gate over
+its carried reads against the step before's state, then the steps' count, the end and what the game
+keeps. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
+from the step before's, so a ring is laid where the cartridge's stood at that step. It needs
+`useMonsterSprites()` and `useText()`.
+
+`tests/oracle/test_battle_whole_oracle.cpp` checks the measured opening against the seven recorded fights'
+counts, that a script's frames come from its place and number 1 to 12, that the first fight called a step
+at a time adds up to the same fight called once, and the first fight in Narshe, from its written scenario
+with the measured opening, run to its end with `checkBattle()` showing no difference: 7,012 loop steps over
+7,444 frames.
 
 ### The whole state compared
 
@@ -636,7 +704,8 @@ The same pass lays the cells no routine's scenario writes, in four parts:
 - `layBattlersAsTheCartridgeHoldsIt()` — each battler's ATB gauge and rate, advance wait and its
   counter, status timers, damage-over-time beat and poison multiplier, Morph gauge and condemned count,
   speed, equipment statuses and relics, run progress, experience, dance and the name it is listed under.
-- `layBattleAsTheCartridgeHoldsIt()` — the flags at `$B0`, the last attack's level, the settings, Roulette's
+- `layBattleAsTheCartridgeHoldsIt()` — the flags at `$B0`, the last attack's level and whether it was
+  physical (`$11A2` bit 0), the settings, Roulette's
   choice, the run buttons, the sets of battlers the battle keeps between steps, the battlers acting and
   counterattacking, the three lines, the player's records, Mimic's memory, the tools owned and the
   end-of-battle events.
@@ -647,7 +716,9 @@ The same pass lays the cells no routine's scenario writes, in four parts:
   slots from 127 down, the interrupting actions first, as a start hands them out. A command's slot holds
   its command, attack, targets and cost; a pose reset, a battle message, a spell with no caster, a
   monster's exit or entrance and Scan hold what the routine that made them stored, their targets left
-  out where that routine stored whatever `$B8` held.
+  out where that routine stored whatever `$B8` held. Those targets reach nothing once the action runs,
+  so a read of them is passed by the carried-read gate (`LaidState::carriedToNothing`): the reasoning,
+  command by command, heads `oracle/battle/state_actions.cpp`.
 
 A line and the player's records are rings, laid from where the machine's ring starts: in a
 comparison, the cartridge's. The slots from there hold the battlers, or the records, in order, and the
@@ -657,7 +728,8 @@ out (`docs/contracts/battle_core.md`, the start's seating).
 
 A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
 bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's
-second byte by its bit 7, an item record's fifth byte by its four party slots' bits, `$2F49` without
+second byte by its bit 7, an item record's fifth byte by its four party slots' bits, `$11A2` by its bit 0
+(the last attack physical), `$2F49` without
 bit 7 and `$2F4A` not at all — the scripted setup in force, which the start lays for its own opening. Every other bit of a cell the battle program writes must be on
 `cellsNotCompared()` with its reason; a row the start alone has shown is marked provisional.
 
@@ -770,6 +842,8 @@ routines' addresses in namespace `routines`.
 | `battle/state_menus.cpp` | the party's command menus, spell lists and skills, laid as the cartridge holds them |
 | `battle/state_battlers.cpp` | each battler's clocks, counters and own cells, laid as the cartridge holds them |
 | `battle/state_battle.cpp` | the battle's flags, settings, lines, records and Mimic's memory, laid as the cartridge holds them |
+| `battle/whole_battle.cpp` | a battle run to its end a loop step at a time, `wholeBattle()`, or as one call, `wholeBattleInOneCall()`; the frames each graphics command takes |
+| `battle/battle_check.cpp` | a whole battle checked step by step, `checkBattle()` |
 
 **`src/scenarios/`, the port's side**
 
@@ -778,6 +852,7 @@ routines' addresses in namespace `routines`.
 | `common/bytes.{h,cpp}` | the port's values as the bytes the cartridge keeps them in |
 | `common/report_text.{h,cpp}` | the text a report shows a value as |
 | `common/draws.{h,cpp}` | the random draws every sweep makes its scenarios from |
+| `common/graphics_commands.h` | the graphics commands the battle program asks for, by number |
 | `damage/damage.{h,cpp}`, `damage_shared.h` | `DamageScenario` and the damage results; `portTargetDamage()`, `portApplyDamage()`, `portReflectedAttack()`; `drawScenario()`, `drawTargetScenario()`, `drawApplyScenario()`, `drawReflectScenario()` |
 | `damage/cover.{h,cpp}` | `portInitParams()` and `portCoverTarget()`; `drawCoverScenario()` |
 | `damage/attack.{h,cpp}`, `attack_shared.h` | `portAttack()`, `portSelfAttack()` and `attackResult()`; `drawAttackScenario()` and `drawSelfAttackScenario()` |
@@ -793,6 +868,8 @@ routines' addresses in namespace `routines`.
 | `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
 | `battle/start.{h,cpp}` | `StartScenario`, `StartResult` and `StartCheck`; `portStart()` |
 | `battle/start_draw.{h,cpp}` | `drawStartScenario()`, `giveTheCastRecords()`, and the reach table: `startReachRows()` and `startReached()` |
+| `battle/presentation_model.{h,cpp}` | `PresentationModel` and `Frame`: the opening's and each script's frames; `measuredPresentationModel()` and `drawPresentationModel()` |
+| `battle/whole_battle.{h,cpp}` | `BattleScenario`, `CartridgeStep`, `WholeBattleResult`, `PortBattle` and `BattleCheck`; `portBattle()`, `scriptStopsTime()`, `requestShown()` and `callShown()` |
 | `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |
 | `battle/cells_not_compared.cpp` | `cellsNotCompared()`, every cell or bit the battle program writes that the comparison does not cover, with its reason; `onTheStack()` |
 

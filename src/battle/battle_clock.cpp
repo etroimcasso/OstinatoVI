@@ -265,19 +265,20 @@ void tickBattleTime(BattleState& state, bool timeRunning, ActionExecutor& execut
         state.playClockFrames = 0;
     }
     ++state.playClockFrames;
-    ++state.framesSinceTimeUpdate;
+    ++state.frameCount;
     if (!timeRunning) {
         return;
     }
     takePlayerActions(state, executor);
     if (state.config.waitMode && state.timeStoppedByMenu) {
-        state.framesSinceTimeUpdate = 0;
+        state.lastTimeUpdateFrame = state.frameCount;
         return;
     }
-    if (state.framesSinceTimeUpdate < kFramesPerTimeUpdate) {
+    const auto framesSince = static_cast<std::uint8_t>(state.frameCount - state.lastTimeUpdateFrame);
+    if (framesSince < kFramesPerTimeUpdate) {
         return;
     }
-    state.framesSinceTimeUpdate = 0;
+    state.lastTimeUpdateFrame = state.frameCount;
     updateBattleTime(state, executor);
 }
 

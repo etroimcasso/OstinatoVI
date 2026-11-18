@@ -323,6 +323,13 @@ void seat(BattleState& state, BattlerSlot slot, const Placement& placement) {
     }
 }
 
+// A party member's equipment refresh leaves the member's stamina in the byte that holds the last
+// attack's physical flag (UpdateEquip :2334-2339 into $11A2, read by CheckRetal :12567-12569).
+void refreshTheLastAttackPhysical(BattleState& state, const DerivedStats& stats) {
+    constexpr int kPhysicalBit = 0x01;
+    state.lastAttackPhysical = (stats.stamina & kPhysicalBit) != 0;
+}
+
 }  // namespace
 
 std::uint8_t hitCheckFactor(int rating) {
@@ -623,6 +630,9 @@ void buildCommandList(BattleState& state, BattlerSlot slot) {
 
 void loadParty(BattleState& state, BattlerSet joinedFromSetup, game::PlayTime savedPlayTime) {
     buildSpellLists(state, savedPlayTime);
+    // The spell lists are built over $FF in the byte that holds the last attack's physical flag
+    // (InitSpellList :14055-14059); each member's refresh below writes it again.
+    state.lastAttackPhysical = true;
     for (int position = kPartySlots - 1; position >= 0; --position) {
         const BattlerSlot slot = BattlerSlot::character(position);
         Battler& battler = state.at(slot);
@@ -636,6 +646,7 @@ void loadParty(BattleState& state, BattlerSet joinedFromSetup, game::PlayTime sa
         }
         const DerivedStats stats = deriveEquipment(state.party.characters[*battler.record]);
         applyDerivedStats(state, slot, stats);
+        refreshTheLastAttackPhysical(state, stats);
         loadPartyMember(state, slot, stats, joinedFromSetup.has(slot));
         loadSpellList(state, slot);
         buildCommandList(state, slot);
@@ -653,7 +664,9 @@ void applyEquipmentChanges(BattleState& state, ActionExecutor& executor) {
         record.weapon = state.inventory.weaponHands[position].item;
         record.shield = state.inventory.shieldHands[position].item;
         record.status = replaceStatuses(record.status, battler.status, kFirstStatusByte);
-        applyDerivedStats(state, slot, deriveEquipment(record));
+        const DerivedStats stats = deriveEquipment(record);
+        applyDerivedStats(state, slot, stats);
+        refreshTheLastAttackPhysical(state, stats);
         executor.refreshCommandList(state, slot);
         refreshStatusImmunity(state, slot);
     }

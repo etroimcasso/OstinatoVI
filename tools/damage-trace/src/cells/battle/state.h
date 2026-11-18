@@ -24,8 +24,21 @@ inline constexpr std::uint8_t kStillActingBit = 0x80;
 inline constexpr std::uint8_t kPreemptiveBit = 0x40;
 inline constexpr std::uint8_t kMonsterNamesChangedBit = 0x20;
 inline constexpr std::uint8_t kRunActionWaitingBit = 0x04;
+// The end-of-battle event "end the battle now" as kEndOfBattleEvent holds it, at twice its number
+// (CheckBattleEnd :11892-11897, BattleEnd_04 :11983-11985); kEndOfBattleEventsOn below turns the events
+// on.
+inline constexpr std::uint8_t kEndTheBattleNow = 2 * 4;
+// The field's timer flags: bit 5 a story countdown ran out (set by the field's timers the interrupt runs,
+// DecTimersMenuBattle field/event.asm:5562-5650; read by CheckBattleEnd :11900-11904).
+inline constexpr std::uint32_t kFieldTimerFlags = kWorkRam + 0x1DD1;
+inline constexpr std::uint8_t kCountdownRanOutBit = 0x20;
 // The level of the last attack made (InitBattle sets 20, :6130-6131).
 inline constexpr std::uint32_t kLastAttackLevel = kWorkRam + 0x11AF;
+// The attack's first flags byte: bit 0 a physical hit, which CheckRetal reads (:12567-12569). Loaded with
+// the attack's record (InitTarget :6452-6480); an equipment refresh leaves the member's stamina there
+// (UpdateEquip :2334-2339).
+inline constexpr std::uint32_t kAttackRecordFlags = kWorkRam + 0x11A2;
+inline constexpr std::uint8_t kPhysicalHitBit = 0x01;
 // The gauge setting: $FF shown, 0 hidden (:6121-6123).
 inline constexpr std::uint32_t kGaugeShown = kWorkRam + 0x2021;
 inline constexpr std::uint8_t kGaugeShownByte = 0xFF;

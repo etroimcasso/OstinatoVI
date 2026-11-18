@@ -79,7 +79,7 @@ The test binaries, one per area:
 | `ostinato-vi-battle-espers-tests` | An esper's spells learned and its level-up bonus. |
 | `ostinato-vi-battle-ai-tests` | Monster AI: targets, conditions, turns, counterattacks and the script-only commands. |
 | `ostinato-vi-battle-rewards-tests` | What a battle's end gives: experience, levels, spells, items obtained, every ending, and the traced recordings. |
-| `ostinato-vi-battle-whole-tests` | The cartridge's battle program called whole, as the field calls it: its entry, the scenario it starts from, and its start compared cell by cell with the port's: eight cases by hand, every formation once, and 1,300 drawn starts. |
+| `ostinato-vi-battle-whole-tests` | The cartridge's battle program called whole, as the field calls it: its entry, the scenario it starts from, and its start compared cell by cell with the port's: eight cases by hand, every formation once, and 1,300 drawn starts; the frames a whole battle's graphics program spends, a battle run to its end a loop step at a time against the same battle called once, and the first fight in Narshe whole against the port's. |
 
 Every data table is tested over its whole corpus against a fixture generated from the original. The
 battle binaries check each rule three ways — the port, the value worked out from the original, and the
@@ -99,11 +99,11 @@ How much of the cartridge a run asks is chosen when the tests run, by `OSTINATO_
 
 | Run | Passed / total / skipped |
 |---|---|
-| Everything (`OSTINATO_CARTRIDGE_CHECKS` unset) — a developer's machine | 2155/2163/8 |
-| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) — every CI build job | 2031/2163/132 |
+| Everything (`OSTINATO_CARTRIDGE_CHECKS` unset) — a developer's machine | 2166/2174/8 |
+| Brief (`OSTINATO_CARTRIDGE_CHECKS=brief`) — every CI build job | 2040/2174/134 |
 
 Eight skips are in both runs: the Japanese-cartridge cases, until a Japanese cartridge is available.
-The brief run's other 124 are the tests that host the cartridge and have nothing but the cartridge to
+The brief run's other 126 are the tests that host the cartridge and have nothing but the cartridge to
 check.
 
 ### C++ standard & compiler minimums

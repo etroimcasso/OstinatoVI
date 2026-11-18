@@ -600,8 +600,21 @@ TEST(CommandExecutor, FightRunsAndReportsItsBlow) {
     const auto script = executor.execute(
         state, kTerra, battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
     EXPECT_EQ(animations(script).size(), 2u);
-    EXPECT_TRUE(state.scratch.physical);
+    EXPECT_TRUE(state.lastAttackPhysical);
     EXPECT_EQ(state.scratch.finalTargets, BattlerSet::of(kGuard));
+}
+
+TEST(CommandExecutor, AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag) {
+    // $11A2 bit 0 is the attack record's, loaded only by InitTarget (:6452-6480); the pose reset runs no
+    // InitTarget (Cmd_2c :13373-13379), so CheckRetal reads the attack's before it (:12567-12569).
+    BattleState state = armedBattle();
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    executor.execute(state, kTerra,
+                     battle::Action{CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(kGuard)}});
+    ASSERT_TRUE(state.lastAttackPhysical);
+    executor.execute(state, std::nullopt, battle::Action{battle::ResetBattlePose{.character = kTerra}});
+    EXPECT_TRUE(state.lastAttackPhysical);
 }
 
 TEST(CommandExecutor, ACommandWithNoBodyShowsNothing) {

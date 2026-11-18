@@ -692,6 +692,44 @@ the player sees.
 
 ---
 
+## A party member answers an action that made no attack as if it were the attack before
+
+**What happens.** After every action the battle decides who answers it, and a
+party member's Retort, Interceptor and Black Belt answer only a physical hit.
+Whether the hit was physical is read from the last attack made, not from the
+action just run. An action that makes no attack (a pose reset, a battle message,
+Scan, a story event) leaves the flag as the attack before it set it, so a party
+member it reaches is judged on that attack. The flag shares its byte with the
+start's spell lists and an equipment sum, so at the battle's start, and after an
+equipment change, it says whether the refreshed party member's stamina is odd
+until the next attack, and a start that refreshes no member leaves it set.
+
+**Where the original does it.** `CheckRetal` reads bit 0 of `$11a2`
+(`battle/battle_main.asm:12565-12569`). The attack's record lands there when an
+action loads one (`InitTarget`, `:6452-6480`); `ExecCmd` resets the action's other
+cells (`:3103-3109`) but not this one. `InitSpellList` fills `$11a0-$11d5` with
+`$ff` (`:14055-14059`) before the party is refreshed; `UpdateEquip` clears `$11a0-$11de` and
+leaves the member's stamina in `$11a2` (`:2302-2304`, `:2334-2339`), for each party
+member at the start, slot 3 first (`InitChars`, `:6204-6221`), and after an
+equipment change (`UpdateCharProp`, `:5621-5624`).
+
+**Where the port keeps it.** `BattleState::lastAttackPhysical`, set in
+`CommandExecutor::execute()` only when the action loaded a record
+(`AttackInFlight::recordLoaded`, set by `initTargeting()`), and by the equipment
+refresh and `loadParty()` in `src/battle/party_setup.cpp`. `tests/test_attack_frame.cpp`
+(`CommandExecutor.AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag`) and
+`tests/test_battle_start.cpp`
+(`StartBattle.TheLastAttacksPhysicalFlagStartsAsWhetherTheLowestMembersStaminaIsOdd`)
+and `tests/test_party_setup.cpp` (`EquipmentChanges.TheRefreshLeavesTheMembersStaminaAsTheLastAttacksPhysicalFlag`,
+`EquipmentChanges.AStartThatRefreshesNoMemberLeavesTheLastAttacksPhysicalFlagSet`) pin it; the cartridge checks compare the flag with `$11a2` at every loop step of
+a whole battle and at every start.
+
+**If you want to change it.** Setting `lastAttackPhysical` to false for an action
+that makes no attack, and leaving it alone at the start and in the equipment
+refresh, judges each action on its own hit.
+
+---
+
 ## A failed Steal is remembered as a Fight
 
 **What happens.** A battler records the command it was last hit with, and a

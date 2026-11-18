@@ -43,6 +43,7 @@ namespace {
 //
 //     battle entered <frame>
 //     graphics <frame> <command>
+//     clock <frame>
 //     write <frame> <writer> $7E:AAAA <byte>
 //     read <frame> <reader> $7E:AAAA <byte> <writer>
 //     battle returned <frame>
@@ -91,6 +92,7 @@ public:
         }));
         marks.declarations.push_back(mark("seam: clock entry", kClockEntry, [this] {
             if (top() == Who::Graphics) {
+                log_ << "clock " << frame_ << '\n';
                 running_.push_back(Who::Clock);
             }
         }));

@@ -625,6 +625,67 @@ TEST(StartBattle, ThePlayClockCountsOnFromTheFramesTheBattleStartsAt) {
     EXPECT_EQ(state.playClockFrames, 41);
 }
 
+TEST(StartBattle, TheFirstTimeUpdateWaitsOnTheFrameCountTheBattleStartsWith) {
+    // The start zeroes the last update's frame ($3A6C, InitBattle :6056-6060) whatever the frame
+    // counter ($0E, the graphics program's) holds: from 255 the count reads 0 and then 1 on the first
+    // two frames, neither two past 0, and the third updates (UpdateBattleTime :2675-2681).
+    battle::NullExecutor executor;
+    battle::BattleStart start = startFor(findFormation(ordinary));
+    start.frameCount = 255;
+    BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.frameCount, 255);
+    EXPECT_EQ(state.lastTimeUpdateFrame, 0);
+    const std::uint16_t before = state.turnCounter;
+    battle::tickBattleTime(state, true, executor);
+    battle::tickBattleTime(state, true, executor);
+    EXPECT_EQ(state.turnCounter, before);
+    battle::tickBattleTime(state, true, executor);
+    EXPECT_EQ(state.turnCounter, before + 1);
+}
+
+TEST(StartBattle, TheLastAttacksPhysicalFlagStartsAsWhetherTheLowestMembersStaminaIsOdd) {
+    // InitChars refreshes the party from slot 3 down (:6204-6221); each refresh leaves the member's
+    // stamina in $11A2 (UpdateEquip :2334-2339), whose bit 0 CheckRetal reads as the last attack's
+    // physical flag (:12567-12569). The lowest seated member is refreshed last.
+    battle::NullExecutor executor;
+    const battle::BattleStart start = startFor(findFormation(ordinary));
+    std::optional<bool> before;
+    for (int raised : {0, 1}) {
+        game::Party party = threeMembers();
+        for (game::CharacterRecord& record : party.characters) {
+            if (record.actor == CharacterPropId::TERRA) {
+                record.stamina = static_cast<std::uint8_t>(record.stamina + raised);
+            }
+        }
+        const BattleState state = battle::startBattle(start, party, {}, noNames(), noSprites(), executor);
+        std::optional<BattlerSlot> lowest;
+        for (int position = 0; position < battle::kPartySlots && !lowest; ++position) {
+            if (state.at(BattlerSlot::character(position)).actor == CharacterPropId::TERRA) {
+                lowest = BattlerSlot::character(position);
+            }
+        }
+        ASSERT_TRUE(lowest);
+        ASSERT_EQ(lowest->position(), 0) << "Terra is seated first";
+        EXPECT_EQ(state.lastAttackPhysical, (state.at(*lowest).stamina & 1) != 0) << "stamina raised by " << raised;
+        if (before) {
+            EXPECT_NE(state.lastAttackPhysical, *before);
+        }
+        before = state.lastAttackPhysical;
+    }
+}
+
+TEST(StartBattle, ACountdownAlreadyRunOutIsTheBattlesFromItsStart) {
+    // CheckBattleEnd reads the field's own switch byte at $1DD1 (:11900-11904), switch 69, which InitBattle
+    // leaves as it is (it clears bits 7, 4 and 0 of the battle's copy only, :6095-6096): a battle entered
+    // with it set ends at its first end check.
+    battle::NullExecutor executor;
+    const battle::BattleStart start = startFor(findFormation(ordinary));
+    game::BattleSwitches switches;
+    EXPECT_FALSE(battle::startBattle(start, threeMembers(), switches, noNames(), noSprites(), executor).eventTimerExpired);
+    switches.set(game::kTimerExpiredSwitch);
+    EXPECT_TRUE(battle::startBattle(start, threeMembers(), switches, noNames(), noSprites(), executor).eventTimerExpired);
+}
+
 TEST(StartBattle, MimicsMemoryStartsAsAFightAtNoOne) {
     // InitRAM zeroes $3EE4-$3F43 (:6319-6323), so the last command and attack are 0, a Fight, at no
     // one; only X-Magic's second and the Jump are set to Mimic's own command, which names none

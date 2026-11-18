@@ -60,6 +60,7 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `config` | the player's battle settings (`BattleConfig`) |
 | `version` | the cartridge's `GameVersion` |
 | `playTimeFrames` | the play clock's frames, 1 to 60; the battle's random numbers start at four times it, and `BattleState::playClockFrames` counts on from it |
+| `frameCount` | the presentation's frame count, a byte stepped every frame; `BattleState::frameCount` counts on from it, and battle time's first update waits until it is two past 0 ([core.md](core.md)) |
 | `itemsObtainedTail` | the last three places of the items obtained, which a battle's start does not empty: the last battle's `BattleResult::itemsObtainedTail` ([rewards.md](rewards.md#items-obtained)); empty when left as it is |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a

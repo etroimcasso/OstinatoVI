@@ -439,7 +439,6 @@ enum class EndOfBattleEvent : std::uint8_t {
 // command.
 struct ActionScratch {
     bool countersEnabled = true;                    // something in the action can disable them
-    bool physical = false;                          // the attack was a physical hit
     std::optional<BattlerSlot> interceptorGuarding; // the character Interceptor stepped in for
     BattlerSet blackBeltEligible;                   // characters a Black Belt may counter for
     BattlerSet finalTargets;                        // who the action ended up hitting
@@ -526,7 +525,11 @@ struct BattleState {
     std::optional<std::uint8_t> quickTurnsLeft;
 
     // --- the clocks --------------------------------------------------------------------------
-    int framesSinceTimeUpdate = 0;  // frames since the ATB last advanced
+    // The frame count, a byte stepped every frame from BattleStart::frameCount, and its value when battle
+    // time last advanced or was held by a sub-menu, which a battle starts at 0. Time advances only when
+    // the count is two or more past it, counted in a byte: a count 256 past it waits as one just reached.
+    std::uint8_t frameCount = 0;
+    std::uint8_t lastTimeUpdateFrame = 0;
     // The play clock's frames: 1 to 60, stepped every frame, a 60 going to 0 before the step; a value
     // above 60 counts on to 255 and round. It starts at BattleStart::playTimeFrames. The Fixed Dice read
     // their third die from it.
@@ -624,6 +627,11 @@ struct BattleState {
     // The level the last attack was made at (AttackInFlight::attackerLevel), kept until an action
     // makes another; a condemned count that starts is worked out from it. 20 as the battle starts.
     std::uint8_t lastAttackLevel = 20;
+    // Whether the last attack was a physical hit, which the counterattack check tests (Retort, Interceptor
+    // and a Black Belt answer a physical hit only). An action that makes no attack keeps it. The original
+    // holds it in a byte an equipment refresh also writes: the start sets it, then each party member's
+    // refresh, there and after an equipment change, leaves it as whether that member's stamina is odd.
+    bool lastAttackPhysical = false;
 
     // The battle switches, as the battle started with them; monster AI changes them as it goes,
     // and the battle hands them back when it ends.
@@ -637,7 +645,9 @@ struct BattleState {
     bool gauObtained = false;       // Gau has joined the party at least once
     bool shadowStays = false;       // Shadow will not walk off after this battle
     bool shadowAvailable = false;
-    bool eventTimerExpired = false; // a story countdown ran out during the battle
+    // A story countdown ran out: the field's switch game::kTimerExpiredSwitch, which the battle starts with
+    // and its end check reads; the host sets it on the frame a countdown runs out.
+    bool eventTimerExpired = false;
 
     // Facts about the story that shape the party's commands.
     bool magicOnly = false;         // only magic works here (Fanatics' Tower)

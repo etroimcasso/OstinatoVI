@@ -92,6 +92,14 @@ the player saw it.
 Within a frame, call `tickBattleTime()` first and `stepBattle()` second. The two clocks share the
 random numbers, and that order keeps their draws in the original's sequence.
 
+Battle time advances at most once every two frames. `tickBattleTime()` steps `state.frameCount` on
+every call, time running or not, and runs a time update only when the count is two or more past
+`state.lastTimeUpdateFrame`. Both are bytes and the difference is a byte's, so a count exactly 256
+past the last update reads as just updated and waits two more frames. In wait mode an open sub-menu
+(`state.timeStoppedByMenu`) holds time and moves `lastTimeUpdateFrame` up to the count on every frame
+it holds. A battle starts with the count at `BattleStart::frameCount` and the last update at 0
+([start.md](start.md)).
+
 ## Battle slots and sets
 
 `BattlerSlot` names one of the ten places: `BattlerSlot::character(0..3)` and
@@ -279,10 +287,12 @@ nothing.
 | `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
 | `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back; `CommandExecutor` plays out the win, the loss or the special ending ([rewards.md](rewards.md#the-battles-end)) |
 
-Before `execute` runs, the battle resets `state.scratch`; the command reports there whether its hit
-was physical, who it ended up hitting, whether Interceptor guarded someone, which characters a Black
-Belt may answer for, and whether counters are disabled. The counterattack checks read it straight
-after.
+Before `execute` runs, the battle resets `state.scratch`; the command reports there who it ended up
+hitting, whether Interceptor guarded someone, which characters a Black Belt may answer for, and whether
+counters are disabled. Whether the hit was physical is `state.lastAttackPhysical`, which only an action
+that makes an attack sets, so after one that makes none it still holds the last attack's. The start
+sets it, and a party member's equipment refresh writes it too, at the battle's start and after an
+equipment change: it becomes whether that member's stamina is odd. The counterattack checks read both straight after.
 
 ```cpp
 struct Swing : ActionExecutor {
@@ -298,7 +308,7 @@ struct Swing : ActionExecutor {
                     hit.retaliationPending = true;
                 }
             }
-            state.scratch.physical = true;
+            state.lastAttackPhysical = true;
         }
         return {};
     }
@@ -335,7 +345,10 @@ stage's monsters coming in); the actions write the rest — names, animations, m
 `stepBattle()` returns a `BattleOutcome` once the battle is over, and keeps returning it:
 `BattleWon`, `BattleLost` (with the message shown, if any) or `BattleEnded` (with a
 `BattleEndReason`: the story's time ran out, Gau leapt, ended at once, rages learned, the final
-battle's next stage with its formation, a story countdown, Zone Eater). Gau joining on the Veldt and
+battle's next stage with its formation, a story countdown, Zone Eater). A story countdown ends the
+battle at the first check after `state.eventTimerExpired` is set: the host sets it on the frame the
+countdown runs out, and a battle entered with the countdown's switch (`game::kTimerExpiredSwitch`) set
+starts with it. Gau joining on the Veldt and
 Shadow walking off happen in place of a win (Gau, to a party of fewer than two standing, only once
 he has joined the party before — `state.gauObtained`); they start a battle event and the battle goes on until
 the next check finds it won.

@@ -1,0 +1,209 @@
+// The cartridge's battle program run whole, a loop step at a time, with the graphics program's frames
+// run as the scenario's model spends them.
+
+#include "oracle/damage_oracle.h"
+
+#include <algorithm>
+#include <cstdint>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "retropp/memory_region.h"
+
+#include "cells/battle/state.h"
+#include "cells/damage/per_target.h"
+#include "cells/status/effects.h"
+#include "oracle/routines.h"
+
+namespace ostinato::trace {
+
+using namespace cells;
+using namespace routines;
+
+namespace {
+
+// The play clock's frames run 1 to 60: a frame that finds 60 sets 0, then steps (IncGameTime
+// menu/menu_common.asm:3488-3519).
+constexpr std::uint8_t kPlayClockFramesPerSecond = 60;
+// The most of a script queue a battle script reaches: 64 commands of four bytes.
+constexpr std::uint32_t kScriptQueueSpan = 0x100;
+
+}  // namespace
+
+WholeBattleResult DamageOracle::wholeBattle(const BattleScenario& scenario) {
+    writeStartScenario(scenario.start);
+    return wholeBattleAsItStands(scenario.model, scenario.frameCap);
+}
+
+WholeBattleResult DamageOracle::wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap) {
+    return runWholeBattle(model, frameCap, false);
+}
+
+WholeBattleResult DamageOracle::wholeBattleInOneCall(const BattleScenario& scenario) {
+    writeStartScenario(scenario.start);
+    return runWholeBattle(scenario.model, scenario.frameCap, true);
+}
+
+WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, std::uint64_t frameCap, bool inOneCall) {
+    if (monsterSprites_ == nullptr) {
+        throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
+    }
+    whole_.emplace();
+    whole_->model = model;
+    whole_->frameCap = frameCap;
+    whole_->inOneCall = inOneCall;
+    whole_->result.veldtBattlesBefore = readWriteBack().veldtBattles;
+    writtenSincePoint_.clear();
+    writtenBeyond_.clear();
+    graphicsCalls_.clear();
+    unansweredGraphics_.reset();
+    keepTheStackPages();
+    machine_.escapes()[kGraphicsKey].armed(true);
+    machine_.escapes()[kLoopFrameWaitKey].armed(true);
+    machine_.escapes()[kBattleClosedKey].armed(!inOneCall);
+    if (!beyondArmed_) {
+        machine_.watches()[kBeyondKey].armed(true);
+        beyondArmed_ = true;
+    }
+    // A step that does not come back round to the loop's head or close the battle was abandoned at the
+    // engine's guard on a bound call: the battle goes no further.
+    bool abandoned = false;
+    call([&] {
+        if (inOneCall) {
+            battleMain_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+            whole_->result.ended = !graphicsCalls_.empty() && graphicsCalls_.back().command == kCloseBattle;
+            abandoned = !whole_->result.ended;
+            return;
+        }
+        // As BattleMain calls them (:56-64): both register widths narrow, data bank $7E.
+        initRam_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+        initBattle_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+        while (!whole_->closed) {
+            machine_.escapes()[kLoopHeadKey].armed(false);
+            whole_->stepEnded = false;
+            battleLoop_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+            if (!whole_->stepEnded) {
+                abandoned = true;
+                break;
+            }
+        }
+    });
+    machine_.escapes()[kGraphicsKey].armed(false);
+    machine_.escapes()[kLoopFrameWaitKey].armed(false);
+    machine_.escapes()[kLoopHeadKey].armed(false);
+    machine_.escapes()[kBattleClosedKey].armed(false);
+    WholeBattleResult result = std::move(whole_->result);
+    whole_.reset();
+    result.calls = graphicsCalls_;
+    result.kept = readWriteBack();
+    if (inOneCall) {
+        const std::vector<std::uint8_t> cells =
+            machine_.read(retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(result.endCells.size())});
+        std::copy(cells.begin(), cells.end(), result.endCells.begin());
+        return result;
+    }
+    if (abandoned) {
+        throw std::runtime_error("a loop step of the battle did not come back to the loop's head: the engine's "
+                                 "guard on a bound call ended it at step " +
+                                 std::to_string(result.steps.size()));
+    }
+    if (unansweredGraphics_) {
+        throw std::runtime_error("the battle called graphics command " + std::to_string(*unansweredGraphics_) +
+                                 ", which the oracle has no answer for");
+    }
+    return result;
+}
+
+void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
+    WholeBattleRun& run = *whole_;
+    if (call.command == kOpenBattleScene) {
+        layTheOpening();
+        for (const Frame frame : run.model.openingFrames()) {
+            runFrame(frame);
+        }
+        return;
+    }
+    // The loop's frame wait (:72-73): every path back to the loop's head passes it first. The cells are
+    // read before its frame runs, and in a stepped battle the loop's head answers from here on.
+    if (run.atFrameWait && call.command == kOneFrame) {
+        run.atFrameWait = false;
+        if (run.result.steps.empty()) {
+            // The start's own read-set: everything it read before writing, up to its first frame wait.
+            run.result.unwrittenReads = unwrittenReads();
+        }
+        CartridgeStep step = std::move(run.pending);
+        run.pending = CartridgeStep{};
+        const std::vector<std::uint8_t> cells =
+            machine_.read(retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(step.cells.size())});
+        std::copy(cells.begin(), cells.end(), step.cells.begin());
+        step.frame = run.result.frames;
+        step.firstCall = graphicsCalls_.size() - 1;
+        run.result.steps.push_back(std::move(step));
+        writtenSincePoint_.clear();
+        if (!run.inOneCall) {
+            machine_.escapes()[kLoopHeadKey].armed(true);
+        }
+        if (run.result.frames >= run.frameCap && !run.result.timedOut) {
+            // Past the frame cap: the cartridge's own event 4 ends the battle at the loop's end check.
+            run.result.timedOut = true;
+            writeByte(kEndOfBattleEventsOn, kEventsOnByte);
+            writeByte(kEndOfBattleEvent, kEndTheBattleNow);
+        }
+        runFrame(Frame{.clockCalled = true});
+        return;
+    }
+    if (call.command == kPlayBattleScript) {
+        const std::vector<std::uint8_t> queue = machine_.read(retropp::MemoryRegion{.at = kQueue, .size = kScriptQueueSpan});
+        for (const Frame frame : run.model.scriptFrames(run.scripts++, scriptStopsTime(queue))) {
+            runFrame(frame);
+        }
+    }
+}
+
+void DamageOracle::runFrame(Frame frame) {
+    WholeBattleRun& run = *whole_;
+    if (run.model.timerRunsOutAt == run.result.frames) {
+        writeByte(kFieldTimerFlags, static_cast<std::uint8_t>(readByte(kFieldTimerFlags) | kCountdownRanOutBit));
+    }
+    // The interrupt's body (BattleNMI btlgfx_main.asm:1615-1617, :1751): the frame counter steps, and the
+    // play clock's frames.
+    writeByte(kFrameCounter, static_cast<std::uint8_t>(readByte(kFrameCounter) + 1));
+    std::uint8_t played = readByte(kPlayClockFrames);
+    if (played == kPlayClockFramesPerSecond) {
+        played = 0;
+    }
+    writeByte(kPlayClockFrames, static_cast<std::uint8_t>(played + 1));
+    ++run.result.frames;
+    if (frame.clockCalled) {
+        // The clock is the battle program's: its reads and writes are the battle's, not the answer's.
+        const bool wasAnswering = std::exchange(answering_, false);
+        updateBattleTime_(0, kByteWideStatus, kBattleDataBank, kBattleDirectPage);
+        answering_ = wasAnswering;
+    }
+}
+
+void DamageOracle::reachedTheFrameWait() {
+    if (whole_) {
+        whole_->atFrameWait = true;
+    }
+}
+
+void DamageOracle::stepEnded(std::uint16_t stackPointer, bool closed) {
+    if (!whole_) {
+        return;
+    }
+    WholeBattleRun& run = *whole_;
+    run.result.stackPointers.insert(stackPointer);
+    run.stepEnded = true;
+    if (closed) {
+        run.closed = true;
+        run.result.ended = true;
+        const std::vector<std::uint8_t> cells = machine_.read(
+            retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(run.result.endCells.size())});
+        std::copy(cells.begin(), cells.end(), run.result.endCells.begin());
+    }
+}
+
+}  // namespace ostinato::trace

@@ -87,15 +87,17 @@ pass, so the random numbers each clock draws come out in the same sequence.
 
 ### The two-frame update
 
-Battle time advances only when **at least two frames have passed** since its last update
-(`:2675-2681`), so the gauges move at half the frame rate. While time is stopped the frames still
-pass, so the first running frame afterwards updates at once. In wait mode, a command's sub-menu
-being open (`BattleState::timeStoppedByMenu`) holds time, and every frame it holds counts as an
-update (`:2672-2674`, `:2717-2718`), so two running frames are needed after it closes. In active
-mode the sub-menu does not stop time.
-
-The original counts frames in a byte, so a stop lasting exactly 256*k* or 256*k* + 1 frames would
-delay one update by a frame; the port counts in an `int` and does not reproduce that.
+Battle time advances only when **the frame count is two or more past its value at the last update**
+(`:2675-2681`), so the gauges move at half the frame rate. The frame count is the graphics program's
+(`$0E`, stepped by its interrupt every frame, `btlgfx:1615-1617`), `BattleState::frameCount`, starting
+at `BattleStart::frameCount`; its value at the last update is `$3A6C`, `BattleState::lastTimeUpdateFrame`,
+which the start's fill leaves 0 whatever the count holds (`InitBattle :6056-6060`). Both are bytes and
+the comparison is a byte's: a count 256*k* past the last update reads as equal and 256*k* + 1 past as one
+past, and neither updates. While time is stopped the frames still pass, so the first running frame
+afterwards updates at once. In wait mode, a command's sub-menu being open
+(`BattleState::timeStoppedByMenu`) holds time, and every frame it holds is stored as the last update's
+(`:2672-2674`, `:2717-2718`), so two running frames are needed after it closes. In active mode the
+sub-menu does not stop time.
 
 ### One update
 
@@ -343,7 +345,16 @@ battler, slot 9 first, while the command has not disabled counters:
    or with no one to answer.
 3. A battler with a counter AI script and no counterattack waiting adds an AI turn to its
    counterattack list.
-4. Otherwise only a party member hit by a **physical** attack can answer: **Retort** answers with
+4. Otherwise only a party member can answer, and only when the last attack was **physical**: bit 0 of
+   `$11a2` (`:12565-12569`), `BattleState::lastAttackPhysical`. The attack's record sets it whenever an
+   action loads one (`InitTarget` `:6452-6480`, the port's `initTargeting()`); an action that loads none
+   — the pose reset, a battle message, Scan, a story event — leaves it, so the check reads the attack
+   before. The byte is also spell-list and equipment scratch: the start fills it with `$FF` as it
+   builds the spell lists (`InitSpellList` `:14055-14059`), then each party member's equipment refresh
+   (`UpdateEquip` `:2334-2339`), at the start for party slot 3 down to 0 (`InitChars` `:6204-6221`) and
+   after an equipment change (`UpdateCharProp` `:5621-5624`), leaves the member's stamina there. So the
+   flag starts set when no member is refreshed, and otherwise reads whether the last refreshed member's
+   stamina is odd until an attack loads its record. **Retort** answers with
    Bushido's Retort; then, only against a monster: guarded by **Interceptor**, one random entry
    decides — odd: Interceptor answers, with Wild Fang if bit 1 is set and Takedown if not, both
    under the Magic command; and a **Black Belt** wearer the action allows, when the next entry is
@@ -354,8 +365,8 @@ battler, slot 9 first, while the command has not disabled counters:
 
 `ExecCmd` (`:3089-3129`), in this order:
 
-1. The action's report is reset: counters enabled, not physical, no Interceptor guard, no Black Belt
-   allowed, the targets it hit = its targets.
+1. The action's report is reset: counters enabled, no Interceptor guard, no Black Belt allowed, the
+   targets it hit = its targets. The last attack's physical flag is not reset (above).
 2. The command runs (`executor.execute`).
 3. **The fallen** (`AfterAction1`), for each present battler not just joining, slot 9 first: control
    links are checked; a dead or zombie battler's HP is 0; a dead, petrified or zombie battler is
@@ -869,16 +880,19 @@ two are read from the listing: none of the seven fights is a pincer or throws th
 | `$2F45` the run buttons are held | the interrupt (`btlgfx:1603`, `:1614`) | the clock (`:2699`) and `CheckRunAway` | `BattleState::partyRunning` |
 | `$2F30-$2F33` a party member's equipment changed | the graphics program: cleared by the opening, set by the Item menu | `UpdateCharProp` (`:5595-5636`) | `Battler::equipmentChanged` |
 | the inventory (`$2686-$2B85`) | the graphics program, merging the items obtained (command `$0A`) and the Item menu | `UpdateSRAM` and the commands | `BattleState::inventory` |
-| `$1DD1` the field's timer flags | the interrupt, each unpaused frame (`btlgfx:1622` → the field's timers), and the opening (`btlgfx:2219`) | `CheckBattleEnd` (`:11900`, bit 5: a story countdown ran out) | `BattleState::eventTimerExpired` |
+| `$1DD1` the field's timer flags, byte 8 of the field's battle switches (bit 5 is switch 69, `game::kTimerExpiredSwitch`) | the interrupt, each unpaused frame (`btlgfx:1622` → the field's timers), and the opening (`btlgfx:2219`) | `CheckBattleEnd` (`:11900`, bit 5: a story countdown ran out) | `BattleState::eventTimerExpired`, which the start takes from the switch: `InitBattle` clears bits 7, 4 and 0 of its own copy only (`:6095-6096`), so a battle entered with it set ends at its first end check |
 | `$2F2F` the monsters standing | the opening: the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`); a formation change (`btlgfx:22142`, `:22157`) | the loop (`:100-103`), the monsters' names (`:15185-15188`) | `BattleState::monstersStanding` |
 | `$2F46` the monsters that can be aimed at | the opening: every one, or the reach byte of the scripted setup in force — the formation's own, or Gau's return, which `InitParty` turns on when Gau may appear (`:7786-7792`) — (`btlgfx:2197-2201`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
 | `$021E` the play clock's frames | the interrupt, each frame its body runs — not while one is in progress (`btlgfx:1642-1643`) nor while the battle is paused (`btlgfx:1717-1718`) — through `IncGameTime` (`btlgfx:1751`, `menu_common.asm:3488-3519`): a cell at 60 goes to 0 and the seconds step, then the cell steps by one, so it reads 1 to 60 in turn | the start's seed (`:6088`), the Fixed Dice's third die (`:10705-10710`) | `BattleState::playClockFrames`, stepped by `tickBattleTime()` on every frame |
 | `$2EAC`, `$2EAD` the monsters on each side of a pincer | the opening and a formation change (`InitMonsterPos` `btlgfx:2854-2857`, from `btlgfx:2310` and `:22149`) | `CheckTargetsBattleType` (`:14748-14753`) and the run check (`:15181-15189`), both only in a pincer (`$201F` = 2) | `BattleState::pincerSides`, from `layOutMonsters()` |
 
 The opening, graphics command `$00`, is not one frame: from the call at the end of `InitBattle`
-(`:6193`) to its return it runs about 160 frames on the first fight in Narshe, and the graphics program
-calls the battle's clock (`UpdateBattleTime`, with `GetPlayerAction`) on its last 38 or so, so the
-gauges and the timer jobs move during the monsters' entrance, before the loop's first frame wait.
+(`:6193`) to its return it runs 159 pictures on the first fight in Narshe, the interrupt off for most of
+them (`$46` = `$FF`, `btlgfx:2249-2250`, tested at `btlgfx:1642-1643`). Its body runs 75 times: 37 with
+no clock call, then the graphics program's waits call the battle's clock (`UpdateBattleTime`, with
+`GetPlayerAction`) 36 times over the last 38, two of the waits taking two frames. So the gauges and the
+timer jobs move during the monsters' entrance, before the loop's first frame wait. The same counts came
+from all seven recorded fights, which start from one machine.
 
 ## The battle switches
 

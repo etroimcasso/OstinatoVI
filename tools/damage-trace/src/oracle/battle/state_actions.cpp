@@ -16,8 +16,22 @@
 // message command $25 with the message (InitBattle :6158-6161); a spell with no caster command $26 with
 // its target and the spell in the targets' low byte (ReraiseEffect :1222-1225, NearFatalEffect
 // :1630-1653); a monster's exit or entrance command $24 with its entrance type, its mode and monsters as
-// the targets (:1255-1266); Scan command $27 with its target. Their targets, where the routine stored
-// whatever $B8 held, and the cost's high byte, which CreateAction never stores, are left out.
+// the targets (:1255-1266); Scan command $27 with its target; an AI's turn or counterattack command $1F
+// with the attacker it answers; damage over time command $22 with the status bit; a story event $23 with
+// the event; timers run out $29 with the battler and which ran out; the party's escape $2A; Seize's drain
+// $2D with the battler seized. Their attacks and targets, where the routine stored whatever $3A7B or $B8
+// held, and the cost's high byte, which CreateAction never stores, are left out.
+//
+// Targets stored as $B8 held them reach nothing once the action runs: InitPlayerAction loads them into $B8
+// (:392-393), and no such command reads $B8 before setting it — the pose reset, the battle message, Scan
+// and the story event never read it (Cmd_2c :13373-13379, Cmd_25 :13250, Cmd_27 :13274, Cmd_23
+// :13019-13024), damage over time sets it through ExecSelfAttack (Cmd_22 :13198, :8006-8007), the escape
+// sets it from $3A38 (:5650). After the command, CheckRetal stores $B8 before it reads it (:12532-12543),
+// and every action made there either sets $B8 first (ReraiseEffect :1223, the dead monsters' exits
+// :1256-1266, NearFatalEffect :1635-1651, CheckRetal) or stores it into another action whose targets are
+// left out (the pose reset :1599-1600, the escape :15093-15094). The one exception is the Revert a morph
+// running out makes during the command's script (DecMorphCounter :2827-2829, from the clock :2689): it
+// stores $B8 as its targets, and Cmd_04 reads them nowhere (:4030-4040, ExecSelfAttack :8006-8007).
 
 #include "oracle/damage_oracle.h"
 
@@ -53,15 +67,46 @@ constexpr std::uint32_t kTopSlot = kActionSlots - 1;
 // The list's cells: the links, then the commands, targets and costs, a word a slot.
 constexpr std::uint32_t kWordCells = kActionSlots * 2;
 
-// One action as its slot holds it, with which of its targets' bytes the action determines.
+// The commands the battle's own actions carry: an AI's turn or counterattack ($1F, set at :504 and
+// :12561), damage over time ($22, :15015-15018), a story event ($23, Cmd_23's own, set by AICmd_f7
+// :4528 and :12005), timers run out ($29, :14962), the party's escape ($2A, CreateRunAwayAction :15093)
+// and Seize's drain ($2D, :15025).
+constexpr std::uint8_t kAiTurnCommand = 0x1F;
+constexpr std::uint8_t kDamageOverTimeCommand = 0x22;
+constexpr std::uint8_t kBattleEventCommand = 0x23;
+constexpr std::uint8_t kTimersRanOutCommand = 0x29;
+constexpr std::uint8_t kPartyEscapeCommand = 0x2A;
+constexpr std::uint8_t kSeizeDrainCommand = 0x2D;
+// Damage over time's attack byte: the status bit that set it off (:15000-15015) — Poison in the first
+// status byte, Regen in the third, Phantasm or Seize in the second's or the seized byte's.
+constexpr std::uint8_t kPoisonBit = 0x04;
+constexpr std::uint8_t kRegenBit = 0x02;
+constexpr std::uint8_t kSapBit = 0x40;
+// Timers run out: the targets' low byte names which (_c25b06 :14933-14963).
+constexpr std::uint8_t kStopRanOutBit = 0x01;
+constexpr std::uint8_t kReflectRanOutBit = 0x02;
+constexpr std::uint8_t kFreezeRanOutBit = 0x04;
+constexpr std::uint8_t kSleepRanOutBit = 0x08;
+
+// One action as its slot holds it, with which of its attack's and targets' bytes the action determines.
 struct SlotContents {
     std::uint8_t command = 0;
     std::uint8_t attack = 0;
     std::uint16_t targets = 0;
+    bool attackKnown = true;
     bool targetsKnown = true;
     bool targetsHighKnown = true;
     std::uint8_t mpCost = 0;
 };
+
+std::uint8_t damageOverTimeBit(battle::DamageOverTimeKind kind) {
+    switch (kind) {
+        case battle::DamageOverTimeKind::Poison: return kPoisonBit;
+        case battle::DamageOverTimeKind::Regen: return kRegenBit;
+        case battle::DamageOverTimeKind::Sap: return kSapBit;
+    }
+    return 0;
+}
 
 SlotContents contentsOf(const battle::Action& action) {
     if (const auto* command = std::get_if<battle::CommandAction>(&action)) {
@@ -94,6 +139,33 @@ SlotContents contentsOf(const battle::Action& action) {
         return SlotContents{.command = kScanCommand,
                             .attack = static_cast<std::uint8_t>(slotIndex(scan->target)),
                             .targetsKnown = false};
+    }
+    // An AI's turn takes its targets from $B8, cleared for a turn (:489-490) and holding the attacker
+    // answered for a counterattack (CheckRetal :12550-12563); its attack byte is whatever $3A7B held.
+    if (const auto* turn = std::get_if<battle::AiTurn>(&action)) {
+        return SlotContents{.command = kAiTurnCommand, .targets = maskOf(turn->answering), .attackKnown = false};
+    }
+    if (const auto* hurt = std::get_if<battle::DamageOverTime>(&action)) {
+        return SlotContents{.command = kDamageOverTimeCommand, .attack = damageOverTimeBit(hurt->kind),
+                            .targetsKnown = false};
+    }
+    if (const auto* drain = std::get_if<battle::SeizeDrain>(&action)) {
+        return SlotContents{.command = kSeizeDrainCommand, .attack = 0, .targets = maskOf(battle::BattlerSet::of(drain->seized))};
+    }
+    if (const auto* timers = std::get_if<battle::StatusTimersExpired>(&action)) {
+        return SlotContents{.command = kTimersRanOutCommand,
+                            .attack = static_cast<std::uint8_t>(slotIndex(timers->battler)),
+                            .targets = static_cast<std::uint8_t>((timers->stop ? kStopRanOutBit : 0) |
+                                                                 (timers->reflect ? kReflectRanOutBit : 0) |
+                                                                 (timers->freeze ? kFreezeRanOutBit : 0) |
+                                                                 (timers->sleep ? kSleepRanOutBit : 0)),
+                            .targetsHighKnown = false};
+    }
+    if (std::holds_alternative<battle::PartyEscape>(action)) {
+        return SlotContents{.command = kPartyEscapeCommand, .attackKnown = false, .targetsKnown = false};
+    }
+    if (const auto* event = std::get_if<battle::BattleEventAction>(&action)) {
+        return SlotContents{.command = kBattleEventCommand, .attack = event->event, .targetsKnown = false};
     }
     throw std::logic_error("an action of this kind cannot be laid: its slot's form is not written (variant " +
                            std::to_string(action.index()) + ")");
@@ -163,13 +235,20 @@ void DamageOracle::layActionsAsTheCartridgeHoldsIt(const battle::BattleState& st
             links[slot] = k + 1 < list.size() ? list[k + 1] : slot;
             const SlotContents contents = contentsOf((*lists[l].actions)[k]);
             const std::uint32_t word = static_cast<std::uint32_t>(slot) * 2;
-            const std::array<std::uint8_t, 2> commandAndAttack{contents.command, contents.attack};
-            layAsTheCartridgeHoldsIt(kActionCommand + word, commandAndAttack);
+            layByteAsTheCartridgeHoldsIt(kActionCommand + word, contents.command);
+            if (contents.attackKnown) {
+                layByteAsTheCartridgeHoldsIt(kActionCommand + word + 1, contents.attack);
+            }
             if (contents.targetsKnown) {
                 layByteAsTheCartridgeHoldsIt(kActionTargets + word, static_cast<std::uint8_t>(contents.targets & 0xFF));
                 if (contents.targetsHighKnown) {
                     layByteAsTheCartridgeHoldsIt(kActionTargets + word + 1, static_cast<std::uint8_t>(contents.targets >> 8));
                 }
+            } else {
+                // Targets the maker stored as $B8 held them: the action's run loads them into $B8
+                // (InitPlayerAction :392-393), and neither its command nor anything ExecCmd runs after it
+                // reads $B8 before setting it (see the file's head).
+                leaveOutAsCarriedToNothing(kActionTargets + word, 2);
             }
             layByteAsTheCartridgeHoldsIt(kActionMp + word, contents.mpCost);
         }

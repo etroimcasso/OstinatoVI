@@ -80,6 +80,10 @@ struct BattleStart {
     // numbers begin, and BattleState::playClockFrames counts on from it.
     std::uint8_t playTimeFrames = 0;
 
+    // The presentation's frame count, a byte stepped every frame, when the battle starts:
+    // BattleState::frameCount counts on from it, and battle time's first update waits on it.
+    std::uint8_t frameCount = 0;
+
     // The last three places of the items the party comes away with, which no battle's start empties:
     // what the last battle handed back (BattleResult::itemsObtainedTail), or on a console just
     // switched on itemsObtainedTailAtPowerOn() (battle/items_obtained.h). Empty by default.

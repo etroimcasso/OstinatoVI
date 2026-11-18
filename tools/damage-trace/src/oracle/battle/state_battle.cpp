@@ -20,6 +20,7 @@
 #include "ostinato/item_id.h"
 
 #include "cells/battle/state.h"
+#include "cells/status/effects.h"
 #include "scenarios/common/bytes.h"
 
 namespace ostinato::trace {
@@ -33,6 +34,11 @@ constexpr std::uint8_t kRingMask = 0x18;  // the records' ring: four records, ei
 constexpr std::uint32_t kMimicRecordSize = 2;
 // A line's ring: 256 places, its start and end a byte each.
 constexpr std::uint32_t kRingPlaces = 256;
+// Each battler's damage taken and damage healed, a word each per battler, and the byte that marks
+// nothing waiting.
+constexpr std::size_t kDamageWordsBytes = 2 * 2 * battle::kBattlerSlots;
+constexpr std::uint8_t kNothingWaiting = 0xFF;
+constexpr std::uint32_t kNextAttackCostHigh = kWorkRam + 0x3A4D;
 }  // namespace
 
 void DamageOracle::holdPosition(std::uint32_t at, std::uint32_t count) {
@@ -73,6 +79,7 @@ void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& sta
                                                            (state.monsterListChanged ? kMonsterNamesChangedBit : 0) |
                                                            (state.runActionQueued ? kRunActionWaitingBit : 0)));
     layByteAsTheCartridgeHoldsIt(kLastAttackLevel, state.lastAttackLevel);
+    layByteAsTheCartridgeHoldsIt(kAttackRecordFlags, state.lastAttackPhysical ? kPhysicalHitBit : 0);
     layByteAsTheCartridgeHoldsIt(kGaugeShown, state.config.gaugeShown ? kGaugeShownByte : 0);
     layByteAsTheCartridgeHoldsIt(kTimeStoppedByMenu, state.timeStoppedByMenu ? 1 : 0);
     layWordAsTheCartridgeHoldsIt(kRouletteTarget,
@@ -83,6 +90,24 @@ void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& sta
     layByteAsTheCartridgeHoldsIt(kCounteringBattler, slotByte(state.counteringBattler));
     layByteAsTheCartridgeHoldsIt(kPartyJustEscaped, static_cast<std::uint8_t>(maskOf(state.partyJustEscaped)));
     layWordAsTheCartridgeHoldsIt(kTurnCounter, state.turnCounter);
+    // The frame count the graphics program's interrupt steps, and its value when battle time last ran.
+    layByteAsTheCartridgeHoldsIt(kFrameCounter, state.frameCount);
+    layByteAsTheCartridgeHoldsIt(kLastClockFrame, state.lastTimeUpdateFrame);
+    // A story countdown that ran out (bit 5 of the field's timer flags; the other bits are the field's).
+    layByteAsTheCartridgeHoldsIt(kFieldTimerFlags, state.eventTimerExpired ? kCountdownRanOutBit : 0);
+    // Between actions no damage waits to be shown: the start's fill, and after every attack's numerals
+    // the apply-and-show routine marks every target's taken and healed words empty (:16265-16271). No
+    // follow-up spell or message waits either: the fill, and each attack's use of them stores $FF again
+    // (ExecAttack :8111-8118 for the message).
+    std::array<std::uint8_t, kDamageWordsBytes> noDamage{};
+    noDamage.fill(kNothingWaiting);
+    layAsTheCartridgeHoldsIt(kTaken, noDamage);
+    layByteAsTheCartridgeHoldsIt(kFollowUpSpell, kNothingWaiting);
+    layByteAsTheCartridgeHoldsIt(kMessage, kNothingWaiting);
+    // The high byte of the next attack's cost: the attack takes the cost sixteen bits wide and clears it
+    // (CalcAttackEffect :8147, :8161-8166), while every action stores only its low byte
+    // (InitPlayerAction :408-409), so it holds the start's zero fill throughout.
+    layByteAsTheCartridgeHoldsIt(kNextAttackCostHigh, 0);
     layWordAsTheCartridgeHoldsIt(kAliveEnemyCharacters, maskOf(state.aliveEnemyCharacters));
     layWordAsTheCartridgeHoldsIt(kMenusToRefresh, maskOf(state.menusToRefresh));
     layWordAsTheCartridgeHoldsIt(kCounterAiNotRunState, static_cast<std::uint16_t>(~maskOf(state.counterAiRanThisStep)));

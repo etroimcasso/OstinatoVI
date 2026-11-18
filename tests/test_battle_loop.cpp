@@ -374,7 +374,7 @@ void heroHits(BattleState& state, RecordingExecutor& executor, BattlerSlot targe
     executor.onExecute = [=](BattleState& s, std::optional<BattlerSlot> actor, const battle::Action&) {
         s.at(target).lastAttacker = actor;
         s.at(target).retaliationPending = true;
-        s.scratch.physical = physical;
+        s.lastAttackPhysical = physical;
     };
     readyToAct(state, kHero, CommandAction{.command = BattleCommandId::FIGHT, .targets = BattlerSet::of(target)});
     battle::stepBattle(state, executor);
@@ -431,7 +431,7 @@ TEST(Counterattack, RetortAnswersAPhysicalHit) {
     executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
         s.at(kFriend).lastAttacker = kMonster;
         s.at(kFriend).retaliationPending = true;
-        s.scratch.physical = true;
+        s.lastAttackPhysical = true;
     };
     readyToAct(state, kMonster, CommandAction{});
     battle::stepBattle(state, executor);
@@ -452,7 +452,7 @@ TEST(Counterattack, ABlackBeltAnswersAMonsterThreeTimesInFour) {
         executor.onExecute = [](BattleState& s, std::optional<BattlerSlot>, const battle::Action&) {
             s.at(kFriend).lastAttacker = kMonster;
             s.at(kFriend).retaliationPending = true;
-            s.scratch.physical = true;
+            s.lastAttackPhysical = true;
             s.scratch.blackBeltEligible.add(kFriend);
         };
         readyToAct(state, kMonster, CommandAction{});

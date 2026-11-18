@@ -176,6 +176,24 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
     updateSram_ = machine_.bindRoutine<Call>(kUpdateSram, byteWide);
     decompCutsceneProg_ = machine_.bindRoutine<Call>(kDecompCutsceneProg, byteWide);
     battleMain_ = machine_.bindRoutine<Call>(retropp::snes::rtl(kBattleExt), byteWide);
+    initRam_ = machine_.bindRoutine<Call>(kInitRam, byteWide);
+    initBattle_ = machine_.bindRoutine<Call>(kInitBattle, byteWide);
+    battleLoop_ = machine_.bindRoutine<Call>(kBattleLoop, byteWide);
+    updateBattleTime_ = machine_.bindRoutine<Call>(retropp::snes::rtl(kUpdateBattleTimeExt), byteWide);
+    // A whole battle's steps end at the loop's head and at TerminateBattle's return, each answering in
+    // place of the code there with the stack pointer the step left.
+    const auto stepEnd = [this](bool closed) {
+        return retropp::routine(retropp::RoutineBinding{.inputs = {retropp::snes::S}},
+                                [this, closed](std::uint16_t stackPointer) { stepEnded(stackPointer, closed); });
+    };
+    machine_.registerEscapes(retropp::escapes(
+        retropp::GuestEscape{.key = kLoopFrameWaitKey,
+                             .at = kLoopFrameWait,
+                             .handler = [this](retropp::Vm&, std::uint32_t) { reachedTheFrameWait(); },
+                             .armed = false},
+        retropp::GuestEscape{.key = kLoopHeadKey, .at = kBattleLoop, .replaces = stepEnd(false), .armed = false},
+        retropp::GuestEscape{.key = kBattleClosedKey, .at = kTerminateBattleReturn, .replaces = stepEnd(true),
+                             .armed = false}));
 
     // While a reward routine runs, the graphics program's entry answers here: the command in the
     // accumulator, the cells the graphics program reads at their places.
@@ -212,6 +230,9 @@ void DamageOracle::answerGraphics(const GraphicsCall& call) {
     answering_ = true;
     if (start_) {
         answerInBattle(call);
+    }
+    if (whole_) {
+        answerInWholeBattle(call);
     }
     // The handlers are entered as the graphics program's entry leaves them: the command's place in its
     // table in X, the accumulator narrow and the index registers wide.

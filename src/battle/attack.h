@@ -184,6 +184,7 @@ struct AttackInFlight {
     SpecialEffect effect;            // the special effect it carries
     std::uint8_t attackerStat = 0;   // the attacker's vigor for a physical attack, magic power for a spell
     std::uint8_t attackerLevel = 0;
+    bool recordLoaded = false;       // its aim was set up and a record loaded (initTargeting())
     int damage = 0;                  // the damage worked out before it is split or multiplied
 
     AimingRules rules;

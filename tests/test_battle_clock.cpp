@@ -75,6 +75,25 @@ TEST(BattleTime, ResumesAtOnceAfterTimeWasStopped) {
     EXPECT_EQ(state.turnCounter, 2);
 }
 
+TEST(BattleTime, TheFrameCountIsAByteSoAStopOf256FramesWaitsAsIfJustUpdated) {
+    // :2675-2681 compare the frame counter ($0E) with its value at the last update ($3A6C) a byte at a
+    // time: a count 256 past it reads as equal and one 257 past as one past, so neither updates.
+    BattleState state = makeBattle();
+    battle::NullExecutor executor;
+    battle::tickBattleTime(state, true, executor);
+    battle::tickBattleTime(state, true, executor);
+    ASSERT_EQ(state.turnCounter, 1);
+    for (int frame = 0; frame < 255; ++frame) {
+        battle::tickBattleTime(state, false, executor);
+    }
+    battle::tickBattleTime(state, true, executor);
+    EXPECT_EQ(state.turnCounter, 1) << "256 frames on";
+    battle::tickBattleTime(state, true, executor);
+    EXPECT_EQ(state.turnCounter, 1) << "257 frames on";
+    battle::tickBattleTime(state, true, executor);
+    EXPECT_EQ(state.turnCounter, 2) << "258 frames on";
+}
+
 TEST(BattleTime, AnOpenSubMenuStopsTimeOnlyInWaitMode) {
     // :2672-2674: the menu's stop is honored only in wait mode, and each stopped frame counts as
     // the last update.

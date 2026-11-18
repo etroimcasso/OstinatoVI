@@ -1,0 +1,239 @@
+// Whole battles on the oracle (docs/contracts/battle_core.md § The battle whole): the frame model's
+// opening as the recorded fights measured it, and a script's frames; and the battle program driven a
+// loop step at a time adds up to the same battle called once.
+//
+// Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
+// (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
+
+#include <gtest/gtest.h>
+
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "assets/cartridge.h"
+#include "machine/machine_state.h"
+#include "oracle/damage_oracle.h"
+#include "retropp/guest_escape.h"
+#include "retropp/snes.h"
+#include "retropp/vm.h"
+#include "scenarios/battle/presentation_model.h"
+#include "scenarios/battle/whole_battle.h"
+#include "vanilla_rom.h"
+#include "with_cartridge.h"
+
+namespace ostinato::test {
+namespace {
+
+namespace fs = std::filesystem;
+using trace::DamageOracle;
+
+// The battle program's entry, as the field's jump to it lands (battle/battle_main.asm:39-40).
+constexpr std::uint32_t kBattleEntry = 0xC20000;
+// How far past first-fight.inputs's last line a run looks for its battle.
+constexpr std::uint64_t kRunOutFrames = 600;
+// A battle short enough for one bound call: the opening, then the steps up to this many frames, when the
+// cartridge's own event 4 ends it.
+constexpr std::uint64_t kShortBattleFrames = 120;
+constexpr std::uint64_t kModelSeed = 1;
+
+class BattleWholeOracleTest : public ::testing::Test {
+protected:
+    static void SetUpTestSuite() {
+        image_ = new std::vector<std::uint8_t>{vanillaRom()};
+        content_ = new assets::IngestedContent{assets::ingestCartridge(image())};
+    }
+    static void TearDownTestSuite() {
+        delete content_;
+        content_ = nullptr;
+        delete image_;
+        image_ = nullptr;
+        delete firstFight_;
+        firstFight_ = nullptr;
+    }
+
+    static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
+    static const assets::IngestedContent& content() { return *content_; }
+
+    // The machine on the tick before the first fight in Narshe's battle program is entered, played from
+    // power-on by first-fight.inputs.
+    static const std::vector<std::uint8_t>& firstFight() {
+        if (firstFight_ == nullptr) {
+            std::ifstream inputs{fs::path{OSTINATO_DAMAGE_TRACE_RECORDINGS} / "../../../tools/damage-trace/inputs/first-fight.inputs"};
+            if (!inputs) {
+                throw std::runtime_error("first-fight.inputs could not be read");
+            }
+            const std::vector<trace::InputStep> script = trace::readInputScript(inputs);
+            const std::uint64_t lastFrame = script.back().frame + kRunOutFrames;
+            firstFight_ = new std::vector<std::uint8_t>{};
+            trace::runOnLoop([&] {
+                retropp::Vm::SNES machine{retropp::VmConfig{}};
+                machine.hostRom(image());
+                bool entered = false;
+                machine.registerEscapes(retropp::escapes(retropp::GuestEscape{
+                    .key = "battle entry", .at = kBattleEntry, .handler = [&](retropp::Vm&, std::uint32_t) { entered = true; }}));
+                machine.run(retropp::Vm::Advance::OnTick);
+                std::vector<std::uint8_t> kept;
+                for (std::uint64_t frame = 0; !entered && frame <= lastFrame; ++frame) {
+                    machine.buttons(retropp::snes::Ports{.one = trace::buttonsAt(script, frame), .two = std::nullopt});
+                    machine.advanceTick();
+                    if (!entered) {
+                        kept = machine.state();
+                    }
+                }
+                machine.stop();
+                if (!entered) {
+                    throw std::runtime_error("first-fight.inputs reached no battle");
+                }
+                *firstFight_ = std::move(kept);
+            });
+        }
+        return *firstFight_;
+    }
+
+    // The first fight's start, read off the machine as the field leaves it the tick before.
+    static trace::StartScenario firstFightScenario() {
+        trace::StartScenario scenario;
+        trace::runOnLoop([&] {
+            DamageOracle oracle{image()};
+            oracle.start();
+            if (!oracle.machine().restore(firstFight())) {
+                throw std::runtime_error("the first fight's state did not restore");
+            }
+            scenario = oracle.readStartScenario();
+        });
+        return scenario;
+    }
+
+    static void ready(DamageOracle& oracle) {
+        oracle.start();
+        oracle.useText(content().text);
+        oracle.useMonsterSprites(content().monsterSprites);
+    }
+
+    static std::vector<std::uint8_t>* image_;
+    static assets::IngestedContent* content_;
+    static std::vector<std::uint8_t>* firstFight_;
+};
+
+std::vector<std::uint8_t>* BattleWholeOracleTest::image_ = nullptr;
+assets::IngestedContent* BattleWholeOracleTest::content_ = nullptr;
+std::vector<std::uint8_t>* BattleWholeOracleTest::firstFight_ = nullptr;
+
+// The stack's pages, where a battle called a step at a time holds the call made for the step: page $01
+// for a battle called on a machine fresh from its reset code, page $15 for one the field calls.
+constexpr std::size_t kPageSize = 0x100;
+constexpr std::size_t kResetStackPage = 0x0100;
+constexpr std::size_t kFieldStackPage = 0x1500;
+
+bool onTheStack(std::size_t cell) {
+    const std::size_t page = cell & ~(kPageSize - 1);
+    return page == kResetStackPage || page == kFieldStackPage;
+}
+
+// Every cell off the stack's pages where two battles' cells part, one per line.
+std::string differingCells(const trace::BattleCells& a, const trace::BattleCells& b) {
+    std::string lines;
+    for (std::size_t cell = 0; cell < a.size(); ++cell) {
+        if (!onTheStack(cell) && a[cell] != b[cell]) {
+            char text[48];
+            std::snprintf(text, sizeof text, "$7E:%04zX %02X / %02X\n", cell, a[cell], b[cell]);
+            lines += text;
+        }
+    }
+    return lines;
+}
+
+std::vector<std::uint8_t> commandsOf(const std::vector<trace::GraphicsCall>& calls) {
+    std::vector<std::uint8_t> commands;
+    for (const trace::GraphicsCall& call : calls) {
+        commands.push_back(call.command);
+    }
+    return commands;
+}
+
+// The opening as the seven recorded fights measured it: 75 runs of the interrupt's body, 38 of them up to
+// and with the first clock call's, then 36 clock calls in all, two waits taking two frames each.
+TEST(BattleWholeModelTest, TheMeasuredOpeningIsTheRecordedFightsOpening) {
+    const trace::PresentationModel model = trace::measuredPresentationModel(kModelSeed);
+    const std::vector<trace::Frame> frames = model.openingFrames();
+    ASSERT_EQ(frames.size(), 75u);
+    EXPECT_EQ(std::count_if(frames.begin(), frames.end(), [](trace::Frame frame) { return frame.clockCalled; }), 36);
+    EXPECT_TRUE(std::none_of(frames.begin(), frames.begin() + 37, [](trace::Frame frame) { return frame.clockCalled; }));
+    EXPECT_TRUE(frames[37].clockCalled) << "the 38th frame is the first clock call's";
+    EXPECT_TRUE(frames.back().clockCalled);
+}
+
+// A script's frames depend on the seed and its place only, number 1 to 12, and run the clock unless the
+// script stops time.
+TEST(BattleWholeModelTest, AScriptsFramesComeFromItsPlace) {
+    const trace::PresentationModel model = trace::measuredPresentationModel(kModelSeed);
+    for (std::size_t index = 0; index < 50; ++index) {
+        const std::vector<trace::Frame> frames = model.scriptFrames(index, false);
+        EXPECT_GE(frames.size(), 1u);
+        EXPECT_LE(frames.size(), static_cast<std::size_t>(trace::kLongestScript));
+        EXPECT_EQ(frames, model.scriptFrames(index, false));
+        EXPECT_TRUE(std::all_of(frames.begin(), frames.end(), [](trace::Frame frame) { return frame.clockCalled; }));
+        const std::vector<trace::Frame> stopped = model.scriptFrames(index, true);
+        EXPECT_EQ(stopped.size(), frames.size());
+        EXPECT_TRUE(std::none_of(stopped.begin(), stopped.end(), [](trace::Frame frame) { return frame.clockCalled; }));
+    }
+}
+
+// The first fight, from its written scenario, driven a loop step at a time and called once as the field
+// calls it: the same graphics calls in the same order, the same steps' cells, and the same cells at the
+// end; every step left the stack as it found it.
+TEST_F(BattleWholeOracleTest, TheStepsAddUpToTheBattleCalledOnce) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const trace::BattleScenario scenario{.start = firstFightScenario(),
+                                         .model = trace::measuredPresentationModel(kModelSeed),
+                                         .frameCap = kShortBattleFrames};
+    trace::runOnLoop([&] {
+        DamageOracle stepped{image()};
+        ready(stepped);
+        const trace::WholeBattleResult steps = stepped.wholeBattle(scenario);
+        DamageOracle once{image()};
+        ready(once);
+        const trace::WholeBattleResult whole = once.wholeBattleInOneCall(scenario);
+        ASSERT_TRUE(whole.ended) << "the battle did not fit one bound call";
+        EXPECT_TRUE(steps.ended);
+        EXPECT_TRUE(steps.timedOut);
+        EXPECT_EQ(steps.stackPointers.size(), 1u);
+        EXPECT_EQ(commandsOf(steps.calls), commandsOf(whole.calls));
+        ASSERT_EQ(steps.steps.size(), whole.steps.size());
+        for (std::size_t step = 0; step < steps.steps.size(); ++step) {
+            EXPECT_EQ(differingCells(steps.steps[step].cells, whole.steps[step].cells), "") << "step " << step;
+            EXPECT_EQ(steps.steps[step].frame, whole.steps[step].frame) << "step " << step;
+        }
+        EXPECT_EQ(differingCells(steps.endCells, whole.endCells), "") << "at the end";
+    });
+}
+
+// The first fight in Narshe, from its written scenario with the measured opening, run to its end on both
+// sides: every loop step's state, its requests and the frame it is reached on, both gates, and what the
+// game keeps.
+TEST_F(BattleWholeOracleTest, TheFirstFightIsThePorts) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const trace::BattleScenario scenario{.start = firstFightScenario(),
+                                         .model = trace::measuredPresentationModel(kModelSeed)};
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = oracle.checkBattle(scenario);
+        EXPECT_EQ(check.differences, "");
+        EXPECT_TRUE(check.cartridge.ended);
+        EXPECT_FALSE(check.cartridge.timedOut);
+    });
+}
+
+}  // namespace
+}  // namespace ostinato::test

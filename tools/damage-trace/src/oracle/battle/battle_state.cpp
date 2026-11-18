@@ -22,6 +22,7 @@
 #include "battle/items_obtained.h"
 #include "battle/party_setup.h"
 #include "data/formations.h"
+#include "data/monster_properties.h"
 #include "game/character_record.h"
 #include "ostinato/item_id.h"
 
@@ -128,6 +129,16 @@ void DamageOracle::leaveOut(std::uint32_t at, std::uint32_t count) {
         capture_->cells.erase(cell);
         capture_->disagreements.erase(cell);
         capture_->leftOut.insert(cell);
+    }
+}
+
+void DamageOracle::leaveOutAsCarriedToNothing(std::uint32_t at, std::uint32_t count) {
+    leaveOut(at, count);
+    if (capture_ == nullptr) {
+        return;
+    }
+    for (std::uint32_t cell = at; cell < at + count; ++cell) {
+        capture_->carriedToNothing.insert(cell);
     }
 }
 
@@ -248,10 +259,15 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
             leaveOut(kSpecialAttack + at, 1);
             leaveOut(kNamedMonster + at, 2);
         }
-        // A battler with no party member in it holds nothing in its hands: the zero fill
-        // (InitBattle :6056-6060), and for a monster whatever LoadMonsterProp leaves.
+        // A battler with no party member in it holds in its main hand the attack graphic of the monster
+        // it is or rages as (LoadMonsterProp :7395-7396, LoadRageProp :1010-1012), and in its off hand the
+        // zero fill (InitBattle :6056-6060) or the rage's graphic again; an empty slot holds the fill.
         if (!battler.actor) {
-            leaveOut(kHandItems + at, 2);
+            const std::optional<MonsterId> shown = battler.rage ? battler.rage : battler.monster;
+            const std::uint8_t graphic =
+                shown ? static_cast<std::uint8_t>(getMonsterProperties(*shown).attackGraphic) : std::uint8_t{0};
+            const std::array<std::uint8_t, 2> hands{graphic, static_cast<std::uint8_t>(battler.rage ? graphic : 0)};
+            layAsTheCartridgeHoldsIt(kHandItems + at, hands);
         }
         // What a battler was last hit with is read only once it has been hit (AICond_01/_02 :4669-4671,
         // AICond_04 :4693-4695 test the "by" cell first, which the fill leaves empty).
@@ -405,8 +421,8 @@ std::string DamageOracle::compareBattleState(const battle::BattleState& state, c
 }
 
 std::string DamageOracle::uncoveredWrites(const battle::BattleState& state, const PartyCells& boosts,
-                                          const std::set<std::uint32_t>& written) {
-    const LaidState laid = layState(state, boosts);
+                                          const std::set<std::uint32_t>& written, const BattleCells* cartridge) {
+    const LaidState laid = layState(state, boosts, cartridge);
     std::string lines;
     char text[80];
     for (const std::uint32_t cell : written) {
@@ -421,15 +437,16 @@ std::string DamageOracle::uncoveredWrites(const battle::BattleState& state, cons
 }
 
 std::string DamageOracle::carriedReads(const battle::BattleState& state, const PartyCells& boosts,
-                                       const std::vector<UnwrittenRead>& reads) {
-    const LaidState laid = layState(state, boosts);
+                                       const std::vector<UnwrittenRead>& reads, const BattleCells* cartridge) {
+    const LaidState laid = layState(state, boosts, cartridge);
     std::set<std::uint32_t> named;
     std::string lines;
     char text[80];
     for (const UnwrittenRead& read : reads) {
         // A cell compared in part is held by the bits compared: its row on kCellsNotCompared names
         // every reader of the rest. A return reads what its own call pushed.
-        const bool held = (laid.cells.contains(read.at) && meaningBits(read.at) != 0) || laid.positions.contains(read.at);
+        const bool held = (laid.cells.contains(read.at) && meaningBits(read.at) != 0) || laid.positions.contains(read.at) ||
+                          laid.carriedToNothing.contains(read.at);
         if (held || onTheStack(read.at) || leftAsTheMachineHasIt(read.at) || named.contains(read.at)) {
             continue;
         }
