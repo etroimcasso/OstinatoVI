@@ -1,7 +1,8 @@
 // Whole battles on the oracle (docs/contracts/battle_core.md § The battle whole): the frame model's
 // opening as the recorded fights measured it, and a script's frames; the battle program driven a loop
-// step at a time adds up to the same battle called once; and the first fight runs to its end the same on
-// both sides.
+// step at a time adds up to the same battle called once; the first fight runs to its end the same on
+// both sides; and the cells the carried-read gate passes by a rule of its own reach nothing, each proved by
+// an aimed battle run twice with the cell written two ways.
 //
 // Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
 // (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -20,9 +21,12 @@
 #include <stdexcept>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "assets/cartridge.h"
+#include "battle/action_queue.h"
+#include "battle/commands.h"
 #include "battle/items_obtained.h"
 #include "machine/machine_state.h"
 #include "oracle/damage_oracle.h"
@@ -34,6 +38,7 @@
 #include "scenarios/battle/presentation_model.h"
 #include "scenarios/battle/whole_battle.h"
 #include "scenarios/damage/damage.h"
+#include "items_obtained_test_support.h"
 #include "vanilla_rom.h"
 #include "with_cartridge.h"
 
@@ -247,7 +252,6 @@ TEST_F(BattleWholeOracleTest, TheFirstFightIsThePorts) {
 // sets ($07) and a fifth byte's high four ($F0).
 TEST_F(BattleWholeOracleTest, ATailNoRecordCouldFillIsHandedBackAsItCame) {
     OSTINATO_SKIP_WHEN_BRIEF();
-    constexpr battle::ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
     const battle::ItemsObtainedTail handed{kNoRecordSaysThis, battle::kEmptyItemRecord, kNoRecordSaysThis};
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -260,6 +264,91 @@ TEST_F(BattleWholeOracleTest, ATailNoRecordCouldFillIsHandedBackAsItCame) {
         EXPECT_EQ(check.cartridge.itemsObtainedTail, handed);
         ASSERT_TRUE(check.port.result.has_value());
         EXPECT_EQ(check.port.result->itemsObtainedTail, handed);
+    });
+}
+
+// The cells the proofs below write, and the two ways each is written.
+constexpr std::uint32_t kAttackThirdFlags = 0x7E11A4;
+constexpr std::uint32_t kScriptFourthByte = 0x7E00B7;
+constexpr std::uint32_t kTargetsBeingMade = 0x7E00B8;
+
+// The step at whose frame wait a proof writes its cell: the one before the first step whose state holds
+// battle event `event` among the actions that jump the line, so the write is in place through the step
+// that queues it. Nothing when no step does.
+std::optional<std::size_t> stepBeforeTheEventIsQueued(const trace::PortBattle& port, std::uint8_t event) {
+    for (std::size_t step = 1; step < port.steps.size(); ++step) {
+        const auto& queued = port.steps[step].immediateActions;
+        if (std::any_of(queued.begin(), queued.end(), [event](const battle::Action& action) {
+                const auto* played = std::get_if<battle::BattleEventAction>(&action);
+                return played != nullptr && played->event == event;
+            })) {
+            return step - 1;
+        }
+    }
+    return std::nullopt;
+}
+
+// A battle aimed at `aim`, then run twice on the cartridge with `at` written as `first` and then as
+// `second` at the frame wait of the step before battle event `event` is queued: both runs agree with the
+// port to the battle's end, so nothing the battle reads depends on what the cell held.
+void expectTheCellReachesNothing(DamageOracle& oracle, const assets::IngestedContent& content, trace::BattleAim aim,
+                                 std::uint8_t event, std::uint32_t at, const std::vector<std::uint8_t>& first,
+                                 const std::vector<std::uint8_t>& second) {
+    std::mt19937 rng{trace::kSweepSeed};
+    const trace::AimedBattle drawn = trace::drawAimedBattleScenario(rng, content.text, content.monsterSprites, aim);
+    ASSERT_TRUE(drawn.reached) << "no battle of " << trace::kAimTries << " drawn reached " << trace::aimName(aim);
+    const trace::PortBattle port = trace::portBattle(drawn.scenario, content.text, content.monsterSprites);
+    const std::optional<std::size_t> step = stepBeforeTheEventIsQueued(port, event);
+    ASSERT_TRUE(step.has_value()) << "the port's battle queues no event " << int{event};
+    for (const std::vector<std::uint8_t>& bytes : {first, second}) {
+        trace::BattleScenario written = drawn.scenario;
+        written.cartridgeWrites = {trace::StepCellWrite{.step = *step, .at = at, .bytes = bytes}};
+        const trace::BattleCheck check = oracle.checkBattle(written);
+        EXPECT_EQ(check.differences, "") << trace::describe(written) << ", written " << int{bytes.front()} << " at step "
+                                         << *step;
+        EXPECT_TRUE(check.cartridge.ended);
+    }
+}
+
+// Terra casting while battle switch 65 calls for her event: the event is queued and then `tsb $11a4` sets
+// the undodgeable bit in whatever the last record left (Cmd_02 battle/battle_main.asm:3660-3672); the
+// spell's own record replaces the byte before anything reads it (InitCmdTarget :4150-4152, LoadMagicProp
+// :6858-6868). The byte written 0 and 255 at that step changes nothing.
+TEST_F(BattleWholeOracleTest, WhatTerrasMagicFindsInTheAttacksThirdFlagsReachesNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectTheCellReachesNothing(oracle, content(), trace::BattleAim::TerrasMagicEvent,
+                                    battle::kBattleEventTerraMagicScene, kAttackThirdFlags, {0x00}, {0xFF});
+    });
+}
+
+// A script command's fourth byte ($B7) is set only by the attacks that have one, and every other attack's
+// command carries the last one's into the graphics program's block (_c235d4 :8566-8569; ExecCmd does not
+// reset it, :3096-3109). Terra's Magic sets none: the byte written 0 and 255 at that step changes nothing
+// the battle program reads.
+TEST_F(BattleWholeOracleTest, AScriptCommandsCarriedFourthByteReachesNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectTheCellReachesNothing(oracle, content(), trace::BattleAim::TerrasMagicEvent,
+                                    battle::kBattleEventTerraMagicScene, kScriptFourthByte, {0x00}, {0xFF});
+    });
+}
+
+// Gau's event is made with the targets being made ($B8-$B9) as a step before left them (GauAppears
+// :12010-12017 to _48c4 :12003-12006), and CreateAction copies them into the action's slot
+// (:12960-12961); a story event never reads the targets it stored (Cmd_23 :13019-13024). The pair written
+// 0 and 65,535 at that step changes nothing.
+TEST_F(BattleWholeOracleTest, TheTargetsGausEventCopiesReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectTheCellReachesNothing(oracle, content(), trace::BattleAim::GauTurnsUp, battle::kGauJoinsEvent,
+                                    kTargetsBeingMade, {0x00, 0x00}, {0xFF, 0xFF});
     });
 }
 

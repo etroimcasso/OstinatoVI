@@ -411,4 +411,4 @@ party byte cleared** — party, slot, row, enabled (bit 6) and visible (bit 7): 
 slot holding it, last slot first, until a slot runs out, after which the search looks for empty slots
 (`:12135-12150`: the emptied slot's `lda #$ff` replaces the wager the loop compares with); Doom Gaze's HP; the
 twenty battle variables; and the battle found on the Veldt. Shadow walking off (`ShadowLeaves
-:11990-12007`) clears his party byte the same way.
+:11990-12007`) clears his party byte the same way, at the end check that sends him off.

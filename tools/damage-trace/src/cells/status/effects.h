@@ -88,6 +88,9 @@ inline constexpr std::uint32_t kFirstAction = kWorkRam + 0x32CC;
 // monster and the party member it swallowed, the monster Sketch caught, the message's item and
 // amount, and whether an attack with no one left is shown (negative: shown).
 inline constexpr std::uint32_t kFormationFlags = kWorkRam + 0x2F49;
+// The formation's flags bit that turns the fanfare off (BtlGfx_08, btlgfx_main.asm:248-261), which the
+// battle also sets as Shadow leaves (ShadowLeaves battle_main.asm:12000-12001): BattleState::noVictoryFanfare.
+inline constexpr std::uint8_t kFanfareOffBit = 0x02;
 inline constexpr std::uint32_t kHoldingItem = kWorkRam + 0x3A8C;
 inline constexpr std::uint32_t kEngulfed = kWorkRam + 0x3A8A;
 inline constexpr std::uint32_t kTakenFromTheParty = kWorkRam + 0x3A88;

@@ -13,6 +13,7 @@
 #include "data/battle_tables.h"
 #include "data/rng_table.h"
 #include "ostinato/battle_command_flags.h"
+#include "ostinato/esper_id.h"
 
 namespace ostinato::test {
 namespace {
@@ -879,6 +880,30 @@ TEST(BattleEnd, ShadowMayWalkOff) {
         EXPECT_FALSE(state.at(kFriend).present);
         EXPECT_EQ(std::get<battle::BattleEventAction>(state.immediateActions.at(0)).event, battle::kShadowLeavesEvent);
     }
+}
+
+TEST(BattleEnd, ShadowWalkingOffTakesHisRecordOutOfThePartyAsHeLeaves) {
+    // ShadowLeaves :11990-11997: RemoveChar clears his record's whole party byte (:11879-11885) and his
+    // record's esper becomes none, inside the battle, before his event plays. Another record is left.
+    BattleState state = makeBattle();
+    state.enemyCount = 0;
+    state.at(kFriend).actor = CharacterPropId::SHADOW;
+    state.at(kFriend).record = 3;
+    state.party.characters[3].actor = CharacterPropId::SHADOW;
+    state.party.characters[3].esper = EsperId::RAMUH;
+    state.party.membership[3] = {.party = 1, .slot = 1, .backRow = true};
+    state.party.characters[5].esper = EsperId::SIREN;
+    state.party.membership[5] = {.party = 1, .slot = 0};
+    state.shadowAvailable = true;
+    state.rng = battle::BattleRng(positionDrawing(8, 16));
+    ASSERT_FALSE(stepOnce(state).has_value());
+    ASSERT_TRUE(state.shadowLeftParty);
+    EXPECT_EQ(state.party.membership[3].party, 0);
+    EXPECT_EQ(state.party.membership[3].slot, 0);
+    EXPECT_FALSE(state.party.membership[3].backRow);
+    EXPECT_FALSE(state.party.characters[3].esper.has_value());
+    EXPECT_EQ(state.party.membership[5].party, 1);
+    EXPECT_EQ(state.party.characters[5].esper, EsperId::SIREN);
 }
 
 TEST(BattleEnd, ShadowStaysAfterAnythingButAFrontAttack) {

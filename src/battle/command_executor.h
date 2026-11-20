@@ -18,7 +18,8 @@
 // the loss, or a special ending (battle/battle_end.h).
 //
 // The level an action's attack is made at stays as BattleState::lastAttackLevel until an action makes
-// another attack with a level of its own; a condemned count that starts reads it.
+// another attack with a level of its own, or an equipment refresh writes it (applyEquipmentChanges());
+// a condemned count that starts reads it.
 //
 // The text and the monster sprites are what a formation change needs to load and place the new
 // monsters; they must outlive the executor.

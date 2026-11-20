@@ -318,7 +318,8 @@ constexpr std::array<Sweep, 36> kSweeps{{
      .reach = trace::startReachRows},
     {.name = "battle",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
-         const trace::BattleScenario s = trace::drawBattleScenario(rng, oracle.text(), oracle.monsterSprites());
+         const trace::AimedBattle drawn = trace::drawBattle(rng, oracle.text(), oracle.monsterSprites());
+         const trace::BattleScenario& s = drawn.scenario;
          trace::BattleCheck check;
          try {
              check = oracle.checkBattle(s);
@@ -330,10 +331,18 @@ constexpr std::array<Sweep, 36> kSweeps{{
          if (check.differences.empty()) {
              reached = trace::battleReached(s, check);
          }
-         return DrawResult{.described = trace::describe(s),
+         const bool aimed = drawn.aim != trace::BattleAim::None;
+         std::string described = trace::describe(s);
+         if (aimed) {
+             described += std::string{", aimed at "} + std::string{trace::aimName(drawn.aim)} +
+                          (drawn.reached ? "" : " (missed)");
+         }
+         return DrawResult{.described = std::move(described),
                            .answers = " in " + std::to_string(check.cartridge.frames) + " frames",
                            .differences = std::move(check.differences),
-                           .reached = std::move(reached)};
+                           .reached = std::move(reached),
+                           .aimedAt = aimed ? std::optional(trace::aimName(drawn.aim)) : std::nullopt,
+                           .aimMissed = aimed && !drawn.reached};
      },
      .reach = trace::battleReachRows,
      .briefDraws = 2},
@@ -359,11 +368,18 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
             ++sweeps;
             std::mt19937 rng{options.seed};
             std::map<std::string_view, int> reachCounts;
+            // For each row draws were aimed at: how many were, and how many missed it.
+            std::map<std::string_view, std::pair<int, int>> aimCounts;
             const int draws = options.brief ? std::min(options.draws, sweep.briefDraws) : options.draws;
             for (int draw = 0; draw < draws; ++draw) {
                 DrawResult result = sweep.draw(oracle, rng);
                 for (const std::string_view row : result.reached) {
                     ++reachCounts[row];
+                }
+                if (result.aimedAt) {
+                    auto& [aimedCount, missedCount] = aimCounts[*result.aimedAt];
+                    ++aimedCount;
+                    missedCount += result.aimMissed ? 1 : 0;
                 }
                 if (options.replayTraced) {
                     std::string text;
@@ -406,6 +422,11 @@ int runCheck(std::span<const std::uint8_t> image, const std::filesystem::path& d
                     if (count == 0) {
                         ++unreached;
                     }
+                }
+                for (const auto& [row, counts] : aimCounts) {
+                    std::printf("  aimed at %s: %d, %d missed\n", std::string{row}.c_str(), counts.first, counts.second);
+                    log << sweep.name << " aimed at " << row << ": " << counts.first << ", " << counts.second
+                        << " missed\n";
                 }
             }
         }

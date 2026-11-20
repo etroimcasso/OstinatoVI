@@ -53,7 +53,8 @@ constexpr std::uint32_t kFlipped = kWorkRam + 0x2F54;
 void DamageOracle::writeTargetEffectCells(const DamageScenario& scenario) {
     const battle::BattleState& state = scenario.state;
     const battle::AttackInFlight& attack = scenario.attack;
-    writeByte(kFormationFlags, getFormationAux(state.formation).flags);
+    writeByte(kFormationFlags, static_cast<std::uint8_t>(getFormationAux(state.formation).flags |
+                                                         (state.noVictoryFanfare ? kFanfareOffBit : 0)));
     writeByte(kHoldingItem, state.holdingItem.characters.bits);
     writeByte(kEngulfed, state.engulfed.characters.bits);
     writeByte(kTakenFromTheParty, state.takenFromTheParty.characters.bits);

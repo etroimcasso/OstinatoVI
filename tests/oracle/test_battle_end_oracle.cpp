@@ -28,6 +28,7 @@
 #include "game/character_record.h"
 #include "ostinato/character_prop_id.h"
 #include "ostinato/status_id.h"
+#include "items_obtained_test_support.h"
 #include "party_test_support.h"
 #include "ostinato/item_id.h"
 #include "with_cartridge.h"
@@ -59,10 +60,6 @@ BattleItem itemOf(ItemId id, std::uint8_t quantity) {
 
 // A place of the list holding that item's record.
 battle::ItemRecord placeOf(ItemId id, std::uint8_t quantity) { return battle::recordOf(itemOf(id, quantity)); }
-
-// A place no item's record could fill: flags bits no record sets ($07) and the fifth byte's high four
-// ($F0), as another program can leave the last three places between battles.
-constexpr battle::ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
 
 // --- where the routines are ----------------------------------------------------------------------
 

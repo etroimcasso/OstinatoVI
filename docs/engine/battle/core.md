@@ -191,7 +191,10 @@ battlers' own timers, and the party's escape.
 A condemned count that starts is 81 − R while R is at most 60, and 20 above it, where R is L plus a
 random 0 … L − 1 and L is `state.lastAttackLevel`: the level the last attack was made at, 20 as the
 battle starts. The one more than 20 + (60 − R) is the original's ([`docs/Bugs.md`](../../Bugs.md)).
-`CommandExecutor` keeps it up to date; an action that makes no attack of its own level leaves it.
+`CommandExecutor` keeps it up to date; an action that makes no attack of its own level leaves it. A
+party member's equipment refresh writes it too: after an equipment change it is the hit rate of what
+the last member refreshed holds in the shield hand — a second weapon's, the empty hand's 200, or 0 —
+until the next attack sets a level ([`docs/Bugs.md`](../../Bugs.md)).
 
 ## Actions and the lines
 
@@ -293,7 +296,8 @@ counters are disabled. Whether the hit was physical is `state.lastAttackPhysical
 record sets — an action that makes an attack, and a command being aimed as it is queued (`aim`) — so
 after an action that makes none it still holds the last record's. The start
 sets it, and a party member's equipment refresh writes it too, at the battle's start and after an
-equipment change: it becomes whether that member's stamina is odd. The counterattack checks read both straight after.
+equipment change: it becomes whether that member's stamina is odd, and `state.lastAttackLevel` becomes
+their shield hand's hit rate. The counterattack checks read both straight after.
 
 ```cpp
 struct Swing : ActionExecutor {
@@ -352,7 +356,8 @@ countdown runs out, and a battle entered with the countdown's switch (`game::kTi
 starts with it. Gau joining on the Veldt and
 Shadow walking off happen in place of a win (Gau, to a party of fewer than two standing, only once
 he has joined the party before — `state.gauObtained`); they start a battle event and the battle goes on until
-the next check finds it won.
+the next check finds it won. Shadow's record leaves `state.party` as he walks off — its membership
+cleared and its esper none — so the party the battle hands back holds him out of it.
 
 ## Random numbers
 

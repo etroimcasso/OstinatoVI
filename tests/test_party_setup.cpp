@@ -956,6 +956,64 @@ TEST(EquipmentChanges, TheRefreshLeavesTheMembersStaminaAsTheLastAttacksPhysical
     }
 }
 
+// The level an attack is made at stands at this before the refreshes below, a value no hand holds.
+constexpr std::uint8_t kLevelBeforeTheRefresh = 77;
+
+// A weapon whose hit rate is neither the empty hand's, nor 0, nor kLevelBeforeTheRefresh.
+ItemId aWeaponWithItsOwnHitRate() {
+    return firstItem(ItemType::WEAPON, [](const ItemProperties& properties) {
+        return properties.hitRateOrDefense != 0 && properties.hitRateOrDefense != kLevelBeforeTheRefresh &&
+               properties.hitRateOrDefense != item(ItemId::EMPTY).hitRateOrDefense;
+    });
+}
+
+// The last attack's level once the loop's equipment step has refreshed the members whose shield hands
+// are given: Locke in slot 0 and Terra in slot 1, each refresh's change pending.
+std::uint8_t levelAfterTheRefresh(std::initializer_list<ItemId> shieldHands) {
+    BattleState state = battleWithParty({CharacterPropId::LOCKE, CharacterPropId::TERRA});
+    std::size_t record = 0;
+    for (ItemId shield : shieldHands) {
+        state.party.characters[record++].shield = shield;
+    }
+    battle::placeParty(state, {});
+    battle::loadParty(state, {}, {});
+    battle::loadBattleInventory(state);
+    state.lastAttackLevel = kLevelBeforeTheRefresh;
+    for (std::size_t position = 0; position < shieldHands.size(); ++position) {
+        state.at(BattlerSlot::character(static_cast<int>(position))).equipmentChanged = true;
+    }
+    RecordingExecutor executor;
+    battle::applyEquipmentChanges(state, executor);
+    return state.lastAttackLevel;
+}
+
+TEST(EquipmentChanges, TheRefreshLeavesASecondWeaponsHitRateAsTheLastAttacksLevel) {
+    // UpdateEquip clears $11a0-$11de (:2301-2304); CalcEquipEffect stores a weapon's hit rate at
+    // $11ae,y, Y 1 for the shield hand (:2611-2641), so $11af holds the shield hand's. StartCondemn
+    // reads $11af as the last attack's level (:1513-1516).
+    const ItemId weapon = aWeaponWithItsOwnHitRate();
+    EXPECT_EQ(levelAfterTheRefresh({weapon}), item(weapon).hitRateOrDefense);
+}
+
+TEST(EquipmentChanges, TheRefreshLeavesNoLevelWithAShieldInTheShieldHand) {
+    // A shield takes the other branch of CalcEquipEffect (:2546-2573), which writes no $11ae,y: the byte
+    // keeps the clear's 0.
+    ASSERT_EQ(item(ItemId::BUCKLER).typeAndUsage.type(), ItemType::SHIELD);
+    EXPECT_EQ(levelAfterTheRefresh({ItemId::BUCKLER}), 0);
+}
+
+TEST(EquipmentChanges, TheRefreshLeavesTheBareHandsHitRateWithNothingInTheShieldHand) {
+    // The empty item is typed a weapon and takes the weapon branch (:2624-2628), its hit rate 200.
+    EXPECT_EQ(levelAfterTheRefresh({ItemId::EMPTY}), item(ItemId::EMPTY).hitRateOrDefense);
+}
+
+TEST(EquipmentChanges, OfTwoMembersRefreshedTheLowerSlotLeavesTheLevel) {
+    // UpdateCharProp refreshes from slot 3 down (:5595-5631): slot 0's refresh is the last.
+    const ItemId weapon = aWeaponWithItsOwnHitRate();
+    EXPECT_EQ(levelAfterTheRefresh({weapon, ItemId::EMPTY}), item(weapon).hitRateOrDefense);
+    EXPECT_EQ(levelAfterTheRefresh({ItemId::EMPTY, weapon}), item(ItemId::EMPTY).hitRateOrDefense);
+}
+
 TEST(EquipmentChanges, AStartThatRefreshesNoMemberLeavesTheLastAttacksPhysicalFlagSet) {
     // InitChars builds the spell lists over $FF in $11A0-$11D5 (InitSpellList :14055-14059) before it
     // refreshes each member (:6204-6221): with no member seated, $11A2 keeps the fill.

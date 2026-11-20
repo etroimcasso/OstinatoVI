@@ -32,7 +32,13 @@ inline constexpr std::uint8_t kEndTheBattleNow = 2 * 4;
 // DecTimersMenuBattle field/event.asm:5562-5650; read by CheckBattleEnd :11900-11904).
 inline constexpr std::uint32_t kFieldTimerFlags = kWorkRam + 0x1DD1;
 inline constexpr std::uint8_t kCountdownRanOutBit = 0x20;
-// The level of the last attack made (InitBattle sets 20, :6130-6131).
+// The field's available characters: bit 3, Shadow available, which a win's end check tests and Shadow's
+// leaving clears (CheckBattleEnd :11958, ShadowLeaves :11991); BattleState::shadowAvailable.
+inline constexpr std::uint32_t kAvailableCharacters = kWorkRam + 0x1EDE;
+inline constexpr std::uint8_t kShadowAvailableBit = 0x08;
+// The level of the last attack made (InitBattle sets 20, :6130-6131). A party member's equipment refresh
+// leaves the shield hand's hit rate there until an attack sets a level (UpdateEquip :2301-2304,
+// CalcEquipEffect :2640-2641).
 inline constexpr std::uint32_t kLastAttackLevel = kWorkRam + 0x11AF;
 // The attack's first flags byte: bit 0 a physical hit, which CheckRetal reads (:12567-12569). Loaded with
 // the attack's record (InitTarget :6452-6480); an equipment refresh leaves the member's stamina there

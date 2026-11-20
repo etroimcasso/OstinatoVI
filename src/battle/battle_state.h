@@ -639,7 +639,10 @@ struct BattleState {
     std::optional<std::uint8_t> finalBattleScroll;
     std::optional<EndOfBattleEvent> endOfBattleEvent;
     // The level the last attack was made at (AttackInFlight::attackerLevel), kept until an action
-    // makes another; a condemned count that starts is worked out from it. 20 as the battle starts.
+    // makes another; a condemned count that starts is worked out from it. 20 as the battle starts. A
+    // party member's equipment refresh writes it too: after an equipment change it is the hit rate of
+    // what the last member refreshed holds in the shield hand, a second weapon's, the empty hand's 200,
+    // or 0 (docs/Bugs.md).
     std::uint8_t lastAttackLevel = 20;
     // Whether the last record loaded was a physical hit's, which the counterattack check tests (Retort,
     // Interceptor and a Black Belt answer a physical hit only). An action that makes an attack sets it, and

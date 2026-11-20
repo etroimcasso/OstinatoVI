@@ -1,4 +1,4 @@
-// The battle sweep's draws and the reach table's rows.
+// The battle sweep's draws, aimed and plain, and the reach table's rows.
 
 #include "scenarios/battle/battle_draw.h"
 
@@ -11,15 +11,20 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <variant>
 #include <vector>
 
 #include "battle/battle_requests.h"
+#include "battle/battle_script.h"
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "battle/commands.h"
+#include "data/attack_properties.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
+#include "ostinato/attack_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/character_prop_id.h"
 #include "ostinato/item_id.h"
@@ -40,6 +45,8 @@ namespace {
 constexpr int kPartyHpMost = 300;
 // A monster's HP cut to at most this.
 constexpr int kMonsterHpMost = 400;
+// A monster's HP cut to at most this in a battle aimed at a win: Gau's and Shadow's.
+constexpr int kAimedWinMonsterHpMost = 100;
 // One record in this many of the party played becomes Umaro, while no record holds him.
 constexpr unsigned kUmaroOneIn = 6;
 // One battle in this many holds the run buttons, from a frame up to this one.
@@ -54,10 +61,11 @@ constexpr std::uint64_t kCountdownSpread = 4'000;
 // The drawn battle switches hold the field's countdown run out ($1DD1 bit 5) half the time, which ends a
 // battle at its first end check; all but one battle in this many has it cleared.
 constexpr unsigned kCountdownAlreadyOutOneIn = 8;
-// One battle in this many seats Shadow, free to walk off at a win (shadowAvailable, the shadow-stays switch
-// clear), with every member Berserk and the monsters' HP cut further, so the battle is likely won.
-constexpr unsigned kShadowOneIn = 2;
-constexpr int kShadowBattleMonsterHpMost = 100;
+// drawBattle() aims one battle in this many at each of kSweepAims.
+constexpr unsigned kAimOneIn = 10;
+constexpr std::array<BattleAim, 3> kSweepAims{BattleAim::Dancing, BattleAim::GauTurnsUp, BattleAim::ShadowWalksOff};
+// The spell a battle aimed at Terra's event teaches her and gives her the MP for.
+constexpr AttackId kTerrasSpell = AttackId::FIRE;
 
 // The part a seated member who is not Umaro and not in the colosseum takes. A Berserk or Muddled member
 // holds Rage among their commands one time in three, and a Muddled one Dance one time in three more, so
@@ -102,19 +110,76 @@ enum ReachRow : std::size_t {
     kOtherEndingRow,
 };
 
+constexpr std::string_view kTerrasEventName = "Terra's Magic and her event";
+
 bool holds(const game::Party& party, CharacterPropId actor) {
     return std::any_of(party.characters.begin(), party.characters.end(),
                        [actor](const game::CharacterRecord& record) { return record.actor == actor; });
 }
 
-}  // namespace
+bool played(const game::Party& party, std::size_t record) {
+    return party.membership[record].party == party.currentParty;
+}
 
-BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
+std::optional<std::size_t> firstPlayed(const game::Party& party) {
+    for (std::size_t r = 0; r < game::kCharacterRecords; ++r) {
+        if (played(party, r)) {
+            return r;
+        }
+    }
+    return std::nullopt;
+}
+
+// The record holding `actor`, in the party played and standing: the record already there, or the record
+// holding them swapped into the first record played's place in the party (that record leaving it), or,
+// when no record holds them, the first record played made them. Nothing when no record is played. Each
+// actor stays in one record, so a scripted setup still finds its cast.
+std::optional<std::size_t> bringIntoTheParty(game::Party& party, CharacterPropId actor) {
+    const std::optional<std::size_t> first = firstPlayed(party);
+    if (!first) {
+        return std::nullopt;
+    }
+    std::size_t record = *first;
+    const auto held = std::find_if(party.characters.begin(), party.characters.end(),
+                                   [actor](const game::CharacterRecord& r) { return r.actor == actor; });
+    if (held == party.characters.end()) {
+        party.characters[record].actor = actor;
+    } else {
+        record = static_cast<std::size_t>(held - party.characters.begin());
+        if (!played(party, record)) {
+            std::swap(party.membership[record], party.membership[*first]);
+        }
+    }
+    game::CharacterRecord& standing = party.characters[record];
+    for (const StatusId fallen : {StatusId::DEAD, StatusId::PETRIFY, StatusId::ZOMBIE}) {
+        standing.status.clear(fallen);
+    }
+    standing.maxHp = std::max<std::uint16_t>(standing.maxHp, 1);
+    standing.hp = std::max<std::uint16_t>(standing.hp, 1);
+    return record;
+}
+
+// Terra given Magic and a spell she can pay for.
+void giveTerraHerSpell(game::Party& party, game::CharacterRecord& terra, std::mt19937& rng) {
+    if (std::find(terra.commands.begin(), terra.commands.end(), BattleCommandId::MAGIC) == terra.commands.end()) {
+        terra.commands[rng() % terra.commands.size()] = BattleCommandId::MAGIC;
+    }
+    terra.status.clear(StatusId::MAGITEK);
+    party.spells[static_cast<std::size_t>(CharacterPropId::TERRA)].progress[static_cast<std::size_t>(kTerrasSpell)] =
+        game::SpellProgress::kSpellLearned;
+    const std::uint16_t cost = getAttackProperties(kTerrasSpell).mpCost;
+    terra.mp = std::max(terra.mp, cost);
+    terra.maxMp = std::max(terra.maxMp, terra.mp);
+}
+
+// One battle drawn whole from `rng`, given what `aim` needs.
+BattleScenario drawOnce(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites, BattleAim aim) {
     BattleScenario scenario{.start = drawStartScenario(rng, text, sprites),
                             .model = {},
                             .firstStep = {},
                             .frameCap = kBattleFrameCap};
     game::Party& party = scenario.start.cells.party;
+    const bool colosseum = scenario.start.start.colosseum.has_value();
 
     // A dancer and a rager each have one to choose from.
     if (party.dancesKnown.none()) {
@@ -128,46 +193,66 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
         scenario.start.switches.clear(game::kTimerExpiredSwitch);
     }
     // A battle that seats Shadow, free to walk off.
-    const bool shadowBattle =
-        !scenario.start.start.colosseum && !holds(party, CharacterPropId::SHADOW) && oneIn(rng, kShadowOneIn);
-    bool shadowSeated = false;
+    const bool shadowBattle = aim == BattleAim::ShadowWalksOff && !colosseum &&
+                              bringIntoTheParty(party, CharacterPropId::SHADOW).has_value();
     if (shadowBattle) {
         scenario.start.start.shadowAvailable = true;
         scenario.start.switches.clear(game::kShadowStaysSwitch);
     }
+    // A battle aimed at a win: every member Berserk and the monsters weaker.
+    const bool aimedAtAWin = shadowBattle || (aim == BattleAim::GauTurnsUp && scenario.start.start.gauMayAppear);
+    // The record a dance or Terra's event is aimed through.
+    std::optional<std::size_t> aimedRecord;
+    if (aim == BattleAim::Dancing) {
+        aimedRecord = firstPlayed(party);
+    } else if (aim == BattleAim::TerrasMagicEvent && !colosseum) {
+        aimedRecord = bringIntoTheParty(party, CharacterPropId::TERRA);
+        if (aimedRecord) {
+            scenario.start.switches.set(game::kTerraMagicSceneSwitch);
+        }
+    }
+
     // Each record of the party played: its HP, Umaro or Shadow, and the part it takes if it is seated.
     std::array<MemberPart, game::kCharacterRecords> parts{};
     parts.fill(MemberPart::Waiting);
     for (std::size_t r = 0; r < game::kCharacterRecords; ++r) {
-        if (party.membership[r].party != party.currentParty) {
+        if (!played(party, r)) {
             continue;
         }
         game::CharacterRecord& record = party.characters[r];
         if (oneIn(rng, 2)) {
             record.hp = std::min<std::uint16_t>(record.hp, static_cast<std::uint16_t>(1 + upTo(rng, kPartyHpMost - 1)));
         }
-        if (!shadowBattle && !scenario.start.start.colosseum && !holds(party, CharacterPropId::UMARO) &&
+        if (!aimedAtAWin && r != aimedRecord && !colosseum && !holds(party, CharacterPropId::UMARO) &&
             oneIn(rng, kUmaroOneIn)) {
             record.actor = CharacterPropId::UMARO;
             continue;
         }
-        if (shadowBattle && !shadowSeated) {
-            record.actor = CharacterPropId::SHADOW;
-            shadowSeated = true;
-        }
-        parts[r] = shadowBattle ? MemberPart::Berserk : static_cast<MemberPart>(rng() % kMemberParts);
         BattleCommandId& slotTaken = record.commands[rng() % record.commands.size()];
-        if (parts[r] != MemberPart::Waiting && oneIn(rng, kRageOrDanceOneIn)) {
+        if (aimedAtAWin) {
+            parts[r] = MemberPart::Berserk;
+        } else if (r == aimedRecord) {
+            parts[r] = MemberPart::Muddled;
+        } else {
+            parts[r] = static_cast<MemberPart>(rng() % kMemberParts);
+        }
+        if (r == aimedRecord && aim == BattleAim::Dancing) {
+            slotTaken = BattleCommandId::DANCE;
+            std::replace(record.commands.begin(), record.commands.end(), BattleCommandId::RAGE, BattleCommandId::FIGHT);
+        } else if (r == aimedRecord && aim == BattleAim::TerrasMagicEvent) {
+            giveTerraHerSpell(party, record, rng);
+        } else if (parts[r] != MemberPart::Waiting && oneIn(rng, kRageOrDanceOneIn)) {
             slotTaken = BattleCommandId::RAGE;
         } else if (parts[r] == MemberPart::Muddled && oneIn(rng, kRageOrDanceOneIn)) {
             slotTaken = BattleCommandId::DANCE;
         }
     }
 
-    // No Chain Saw in a battle with a Muddled member: its roll is read past the random numbers' table on the
-    // cartridge whenever the byte above their position is not zero (Rand :12378-12384 with the index
-    // registers wide, from ToolsEffect_03 :7127), which the port does not reproduce.
-    if (std::find(parts.begin(), parts.end(), MemberPart::Muddled) != parts.end()) {
+    // No Chain Saw in a battle with a Muddled member or a colosseum match, whose fighter picks commands the
+    // same way (RandCharAction :656-745, Tools among ConfusedCmdTbl's): its roll is read past the random
+    // numbers' table on the cartridge whenever the byte above their position is not zero (Rand :12378-12384
+    // with the index registers wide, from ToolsEffect_03 :7127), which the port does not reproduce.
+    if (colosseum || std::find(parts.begin(), parts.end(), MemberPart::Muddled) != parts.end()) {
         for (game::InventorySlot& slot : party.inventory) {
             if (slot.item == ItemId::CHAIN_SAW) {
                 slot = game::InventorySlot{.item = ItemId::EMPTY, .quantity = 0};
@@ -177,7 +262,7 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
 
     // The battle as it starts, for who is seated and which monsters are there.
     const battle::BattleState started = portStart(scenario.start, text, sprites);
-    const int monsterHpMost = shadowBattle ? kShadowBattleMonsterHpMost : kMonsterHpMost;
+    const int monsterHpMost = aimedAtAWin ? kAimedWinMonsterHpMost : kMonsterHpMost;
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
         const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
         const battle::Battler& battler = started.at(slot);
@@ -207,6 +292,64 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
         scenario.model.runButtonsHeldFrom = rng() % (kRunFromMost + 1);
     }
     return scenario;
+}
+
+// Whether the port's own battle over `scenario` reaches `aim`.
+bool portReaches(const BattleScenario& scenario, BattleAim aim, const TextCorpus& text, const MonsterSprites& sprites) {
+    BattleCheck check;
+    check.port = portBattle(scenario, text, sprites);
+    if (aim == BattleAim::TerrasMagicEvent) {
+        return std::any_of(check.port.requests.begin(), check.port.requests.end(), [](const battle::BattleRequest& request) {
+            const auto* script = std::get_if<battle::RunBattleScript>(&request);
+            return script != nullptr &&
+                   std::any_of(script->commands.begin(), script->commands.end(), [](const battle::BattleScriptCommand& command) {
+                       const auto* event = std::get_if<battle::BattleEventPlays>(&command);
+                       return event != nullptr && event->event == battle::kBattleEventTerraMagicScene;
+                   });
+        });
+    }
+    const std::vector<std::string_view> reached = battleReached(scenario, check);
+    return std::find(reached.begin(), reached.end(), aimName(aim)) != reached.end();
+}
+
+}  // namespace
+
+AimedBattle drawAimedBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                                    BattleAim aim) {
+    AimedBattle drawn{.aim = aim};
+    if (aim == BattleAim::None) {
+        drawn.scenario = drawOnce(rng, text, sprites, aim);
+        return drawn;
+    }
+    for (int tried = 0; tried < kAimTries; ++tried) {
+        drawn.scenario = drawOnce(rng, text, sprites, aim);
+        if (portReaches(drawn.scenario, aim, text, sprites)) {
+            drawn.reached = true;
+            return drawn;
+        }
+    }
+    return drawn;
+}
+
+AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
+    const unsigned pick = rng() % kAimOneIn;
+    const BattleAim aim = pick < kSweepAims.size() ? kSweepAims[pick] : BattleAim::None;
+    return drawAimedBattleScenario(rng, text, sprites, aim);
+}
+
+BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
+    return drawBattle(rng, text, sprites).scenario;
+}
+
+std::string_view aimName(BattleAim aim) {
+    switch (aim) {
+        case BattleAim::None: return "nothing";
+        case BattleAim::Dancing: return kReachRows[kDancingRow];
+        case BattleAim::GauTurnsUp: return kReachRows[kGauRow];
+        case BattleAim::ShadowWalksOff: return kReachRows[kShadowRow];
+        case BattleAim::TerrasMagicEvent: return kTerrasEventName;
+    }
+    return "nothing";
 }
 
 std::string describe(const BattleScenario& scenario) {

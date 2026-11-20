@@ -78,7 +78,7 @@ of it. `replaceAnimation()` is the same.
 | `ItemNameShown` | kind 1 | the item as chosen (`$3a7d`) |
 | `EsperNameShown` | kind 2 | the esper summoned (`$b6 − $36`, `:8724-8728`) |
 | `CommandNameShown` | kind 5 | the command (`$b5`) |
-| `MonsterSpecialAttackNameShown` | kind 6 | the monster whose special-attack name is shown — a 16-bit index into `MonsterSpecialName` (`btlgfx:22712-22769`); none where the command holds `$ffff`, a battler with no monster and no rage, for which the port shows no name. |
+| `MonsterSpecialAttackNameShown` | kind 6 | the monster whose special-attack name is shown — a 16-bit index into `MonsterSpecialName` (`btlgfx:22712-22769`); none where the command holds `$ffff`, a battler with no monster and no rage; what the original draws for that index is the graphics program's and is not specified in this contract. |
 | `AttackAnimation` | `_c235ad` | the command the animation is shown as, the attack, the second value, and the params. A Fight swing's second byte carries the hand in bit 7 (`btlgfx:28323-28326`, "left-hand weapon flag") and its third the weapon's animation, the item index plus one (`_c2299f :6958-6960`). A command value of `$20` and up is one of the special animations of `CmdAnimTbl` (`btlgfx:27082-27121`). |
 | `BattleMessage` | `ExecAttack :8111-8127`, `CalcAttackEffect :8177-8178`, `Cmd_25 :13250-13268`, `Cmd_27 :13274-13329`, `Cmd_2a :5642-5643` | the message index; the numbers its text shows travel with it |
 | `PoseReset` | `ExecAttack :8088-8092`, `Cmd_2c :13373-13379` | the party member who goes back to standing (`btlgfx:25520-25534`) |
@@ -582,9 +582,10 @@ acting on its own.
 
 - Steal `:3360-3365`: the plain hit with effect `$52`. Capture is a Fight whose blows carry `$52`.
 - Leap `:4121-4130`: the plain hit with effect `$54`, not physical, targeting `$40`.
-- Possess `:3847-3854`: aimed, undodgeable, effect `$50`. It never writes the level or the attack
-  stat (`$11af`/`$11ae`, outside the record copy), so the original's are whatever the previous
-  command left; the port's are 0.
+- Possess `:3847-3854`: aimed, undodgeable, effect `$50`. It writes neither the level nor the attack
+  stat (`$11af`/`$11ae`, outside the record copy). Its level is the one carried from before — the
+  last attack's, or what an equipment refresh left (§ The level a condemned count reads) — and the
+  port carries it the same way; the port's attack stat starts at 0.
 - GP Rain `:4011-4024`: the plain hit, power one more, ignore defense and unsplit (`$11a2 |= $60`),
   damage modification off; a monster's is named by the command (kind 5); effect `$51`.
 - Control `:4099-4115`: a party member in Chant (status-4 `$10`, the controller's status) goes back
@@ -769,14 +770,20 @@ elements weak and neither halved, absorbed nor nullified. The action's own scrip
 
 ### The level a condemned count reads
 
-`StartCondemn :1512-1525` reads `$11af`, the level the last attack was made at. Every writer of it is
-an attack's setup: `InitAttackerLevel :7291-7299`, the plain hit's clear (`_c2298d :6907`), the
-item attack's clear (`CalcItemEffect :6999`), Runic's (`_c2385e :9058-9062`), Umaro's
-(`InitUmaroAttack :3838`) and Seize's 16 (`:13394`); the battle's start sets 20 (`:6131`). An action
-that writes none — a dialog, a formation change, Possess, a damage-over-time beat with no enemy left —
-leaves the last attack's level in place, and a count started after it (a formation change's new
-monsters, say) is worked out from that. `CommandExecutor::execute()` starts each action's attack at
-`BattleState::lastAttackLevel` and writes the attack's level back when the action ends.
+`StartCondemn :1512-1525` reads `$11af`, the level the last attack was made at. An attack's setup
+writes it: `InitAttackerLevel :7291-7299`, the plain hit's clear (`_c2298d :6907`), the item attack's
+clear (`CalcItemEffect :6999`), Runic's (`_c2385e :9058-9062`), Umaro's (`InitUmaroAttack :3838`) and
+Seize's 16 (`:13394`); the battle's start sets 20 (`:6131`). So does a party member's equipment
+refresh: `UpdateEquip` clears `$11a0-$11de` (`:2301-2304`) and stores the shield hand's hit rate there
+when it holds an item of the weapon type (`CalcEquipEffect :2611-2641`) — a second weapon's, the empty
+hand's 200 — and leaves 0 with anything else. The loop's equipment step refreshes each member whose
+equipment changed, slot 3 first (`UpdateCharProp :5595-5631`), so the lowest slot's is left; the
+start's refreshes (`InitChars :6204-6221`) come before its 20 (`docs/Bugs.md`). An action that writes
+none — a dialog, a formation change, Possess, a damage-over-time beat with no enemy left — leaves the
+level in place, and a count started after it (a formation change's new monsters, say) is worked out
+from that. `CommandExecutor::execute()` starts each action's attack at `BattleState::lastAttackLevel`
+and writes the attack's level back when the action ends; `applyEquipmentChanges()` and `loadParty()`
+write the refresh's (`refreshTheLastAttackLevel()` in `src/battle/party_setup.cpp`).
 
 ### The rest
 

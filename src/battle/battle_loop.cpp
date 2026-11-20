@@ -756,6 +756,12 @@ EndCheck checkBattleEnd(BattleState& state) {
             !state.shadowStays && state.shadowAvailable) {
             state.shadowAvailable = false;
             state.shadowLeftParty = true;
+            // His record leaves the party and gives up its esper there and then (RemoveChar :11879-11885
+            // clears the whole party byte; :11993-11996), before the battle event plays.
+            if (const std::optional<std::size_t> record = state.at(*shadow).record) {
+                state.party.membership[*record] = game::PartyMembership{};
+                state.party.characters[*record].esper.reset();
+            }
             state.at(*shadow).present = false;
             state.noVictoryFanfare = true;
             addImmediateAction(state, BattleEventAction{.event = kShadowLeavesEvent});

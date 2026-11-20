@@ -330,6 +330,15 @@ void refreshTheLastAttackPhysical(BattleState& state, const DerivedStats& stats)
     state.lastAttackPhysical = (stats.stamina & kPhysicalBit) != 0;
 }
 
+// LEGACY VERBATIM (docs/Bugs.md): a party member's equipment refresh leaves the shield hand's hit rate
+// in the byte that holds the last attack's level — a second weapon's, the empty hand's 200, or 0 with
+// anything else there (UpdateEquip :2301-2304, CalcEquipEffect :2640-2641 into $11af). The next condemned
+// count is worked out from it (StartCondemn :1513-1516), and so is an action that sets no level of its
+// own, until an attack sets one.
+void refreshTheLastAttackLevel(BattleState& state, const DerivedStats& stats) {
+    state.lastAttackLevel = stats.shieldHand.hitRate;
+}
+
 }  // namespace
 
 std::uint8_t hitCheckFactor(int rating) {
@@ -652,6 +661,7 @@ void loadParty(BattleState& state, BattlerSet joinedFromSetup, game::PlayTime sa
         const DerivedStats stats = deriveEquipment(state.party.characters[*battler.record]);
         applyDerivedStats(state, slot, stats);
         refreshTheLastAttackPhysical(state, stats);
+        refreshTheLastAttackLevel(state, stats);
         loadPartyMember(state, slot, stats, joinedFromSetup.has(slot));
         loadSpellList(state, slot);
         buildCommandList(state, slot);
@@ -672,6 +682,7 @@ void applyEquipmentChanges(BattleState& state, ActionExecutor& executor) {
         const DerivedStats stats = deriveEquipment(record);
         applyDerivedStats(state, slot, stats);
         refreshTheLastAttackPhysical(state, stats);
+        refreshTheLastAttackLevel(state, stats);
         executor.refreshCommandList(state, slot);
         refreshStatusImmunity(state, slot);
     }

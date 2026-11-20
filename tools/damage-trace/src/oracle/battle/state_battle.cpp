@@ -5,7 +5,8 @@
 // A line and the records are rings: where one starts is a position in the ring and nothing the battle
 // reads but the slots from it. Each is laid from the start the machine holds (in a comparison, the
 // cartridge's): the slots from there hold the battlers, or the records, in order, and the end of a
-// line is the start plus the battlers in it. The start is held by what is laid from it.
+// line is the start plus the battlers in it and, in a comparison, the cartridge's empty places among
+// them (layLine()). The start is held by what is laid from it.
 
 #include "oracle/damage_oracle.h"
 
@@ -32,8 +33,9 @@ namespace {
 constexpr std::uint16_t kNoBattlers = 0xFFFF;
 constexpr std::uint8_t kRingMask = 0x18;  // the records' ring: four records, eight bytes apart
 constexpr std::uint32_t kMimicRecordSize = 2;
-// A line's ring: 256 places, its start and end a byte each.
+// A line's ring: 256 places, its start and end a byte each; a place no battler holds is $FF.
 constexpr std::uint32_t kRingPlaces = 256;
+constexpr std::uint8_t kEmptyLinePlace = 0xFF;
 // Each battler's damage taken and damage healed, a word each per battler, and the byte that marks
 // nothing waiting.
 constexpr std::size_t kDamageWordsBytes = 2 * 2 * battle::kBattlerSlots;
@@ -67,11 +69,26 @@ void DamageOracle::layLine(std::uint32_t startCell, std::uint32_t ring, const ba
     // The ring's places outside the line hold what the battlers who left it left there, or a search's
     // $FF (RemoveAllActions :1583-1591): no field determines them.
     leaveOut(ring, kRingPlaces);
+    // A battler taken out of the line leaves its place holding $FF until the line's front passes it, and the
+    // loop passes over such a place (RemoveAllActions :1583-1591; BattleLoop :127-128, :141-142). In a
+    // comparison the cartridge's places of that kind, before its end, are laid as it holds them and the
+    // line's battlers go in the others, in order; written into a machine, a line has none.
+    const bool comparing = capture_ != nullptr && positionsFrom_ != nullptr;
+    const std::uint8_t cartridgeEnd = positionByte(startCell + 1);
+    std::uint8_t place = start;
+    const auto passEmptyPlaces = [&] {
+        while (comparing && place != cartridgeEnd && positionByte(ring + place) == kEmptyLinePlace) {
+            layByteAsTheCartridgeHoldsIt(ring + place, kEmptyLinePlace);
+            ++place;
+        }
+    };
     for (std::size_t i = 0; i < line.size(); ++i) {
-        const auto place = static_cast<std::uint8_t>(start + i);
+        passEmptyPlaces();
         layByteAsTheCartridgeHoldsIt(ring + place, static_cast<std::uint8_t>(slotIndex(line.at(i))));
+        ++place;
     }
-    layByteAsTheCartridgeHoldsIt(startCell + 1, static_cast<std::uint8_t>(start + line.size()));
+    passEmptyPlaces();
+    layByteAsTheCartridgeHoldsIt(startCell + 1, place);
 }
 
 void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& state) {
@@ -82,6 +99,11 @@ void DamageOracle::layBattleAsTheCartridgeHoldsIt(const battle::BattleState& sta
                                                            (state.runActionQueued ? kRunActionWaitingBit : 0)));
     layByteAsTheCartridgeHoldsIt(kLastAttackLevel, state.lastAttackLevel);
     layByteAsTheCartridgeHoldsIt(kAttackRecordFlags, state.lastAttackPhysical ? kPhysicalHitBit : 0);
+    // Shadow available, among the field's other characters, which the battle never reads.
+    const std::uint8_t available = readByte(kAvailableCharacters);
+    layByteAsTheCartridgeHoldsIt(kAvailableCharacters,
+                                 static_cast<std::uint8_t>(state.shadowAvailable ? available | kShadowAvailableBit
+                                                                                 : available & ~kShadowAvailableBit));
     layByteAsTheCartridgeHoldsIt(kGaugeShown, state.config.gaugeShown ? kGaugeShownByte : 0);
     layByteAsTheCartridgeHoldsIt(kTimeStoppedByMenu, state.timeStoppedByMenu ? 1 : 0);
     layWordAsTheCartridgeHoldsIt(kRouletteTarget,

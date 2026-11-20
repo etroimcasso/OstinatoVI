@@ -363,7 +363,8 @@ battler, slot 9 first, while the command has not disabled counters:
    (`UpdateEquip` `:2334-2339`), at the start for party slot 3 down to 0 (`InitChars` `:6204-6221`) and
    after an equipment change (`UpdateCharProp` `:5621-5624`), leaves the member's stamina there. So the
    flag starts set when no member is refreshed, and otherwise reads whether the last refreshed member's
-   stamina is odd until an attack loads its record. **Retort** answers with
+   stamina is odd until an attack loads its record. The same refresh leaves the last refreshed member's
+   shield-hand hit rate where the last attack's level is kept (`$11af`, step 9 below). **Retort** answers with
    Bushido's Retort; then, only against a monster: guarded by **Interceptor**, one random entry
    decides — odd: Interceptor answers, with Wild Fang if bit 1 is set and Takedown if not, both
    under the Magic command; and a **Black Belt** wearer the action allows, when the next entry is
@@ -404,8 +405,11 @@ battler, slot 9 first, while the command has not disabled counters:
    actions (and marking it to go back in line); a condemned count starts — with R = L +
    random(0 … L − 1), **81 − R while R is at most 60, and 20 above it**: 20 + (60 − R) with the
    subtraction's carry added in (`docs/Bugs.md`) — with L the level of the last attack made (`$11af`,
-   which keeps its value from one action to the next until an attack writes it; 20 for counts that
-   start with the battle, `:1512-1525`, `:6131`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
+   `:1512-1525`, which keeps its value from one action to the next until an attack writes it; 20 for
+   counts that start with the battle, `:6131`). A party member's equipment refresh writes it too: after
+   an equipment change L is the hit rate of what the last refreshed member holds in the shield hand — a
+   second weapon's, the empty hand's 200, or 0 (`UpdateEquip :2301-2304`, `CalcEquipEffect :2611-2641`;
+   `docs/Bugs.md`); the condemned count stops; a party member's battle commands; its ATB rate; its menu
    after Morph. Then its menu may open (below); then whether it is held (below); a held battler loses
    Def; and the near-fatal relics may cast.
 10. **Battlers leaving** the field are no longer present or standing, are hidden, release their
@@ -445,8 +449,10 @@ end-of-battle event ends the battle as that event says. A story countdown having
   side, his battle event (27) interrupts the line, and the pass ends; the next pass drops the party's
   choices. Otherwise, if Shadow is in the party: with the next entry below **16**, a front attack,
   two or more allies, Shadow not dead, petrified or a zombie, not kept, and available, **Shadow
-  leaves**: he is no longer available, no longer present, there is no victory fanfare, his battle
-  event (11) interrupts the line, and the pass ends. Otherwise the battle is **won**.
+  leaves** (`ShadowLeaves :11990-12007`): he is no longer available (`$1ede` bit 3), his record leaves
+  the party there and then — its whole party byte cleared (`RemoveChar :11879-11885`) and its esper
+  none (`:11993-11996`) — he is no longer present, there is no victory fanfare (`$2f49` bit 1), his
+  battle event (11) interrupts the line, and the pass ends. Otherwise the battle is **won**.
 
 | End-of-battle event | Outcome |
 |---|---|
@@ -845,7 +851,8 @@ Settling a command (`FixPlayerAttack` `:12686-12785`, `FixPlayerCmd` `:12671-126
 - The battle switches go back, with how the battle ended: **64** for a loss (`:15590`), **68** for
   running out of time, **69** for a story countdown reaching zero, **71** for Zone Eater
   (`:11900-11914`, `:11975`).
-- Shadow walking off takes him out of the party and unequips his esper (`:11990-11997`).
+- Shadow walking off has taken his record out of the party and unequipped his esper as he left
+  (`:11990-11997`, above); the party handed back holds that.
 - **The Veldt**: unless the formation is kept off it, and if a monster slot holds a monster
   numbered below 256, the formation the battle began with joins those Gau can find on the Veldt —
   if it is one of the first 512 (`:12163-12178`).

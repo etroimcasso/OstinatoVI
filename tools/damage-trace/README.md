@@ -496,7 +496,7 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/oracle/test_battle_end_oracle.cpp` |
 | `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/oracle/test_battle_end_oracle.cpp` |
 | `start` | the battle program whole from its entry to the loop's first frame wait, over a drawn start (`drawStartScenario()`), against `battle::startBattle()`: every cell compared, and the write-set, carried-read and read-set gates (`checkStart()`, below) | `tests/oracle/test_battle_start_oracle.cpp` |
-| `battle` | the battle program whole from its start to its end, a loop step at a time, over a drawn battle with no player (`drawBattleScenario()`), against `battle::BattleSim`: every step compared with both gates, the requests, the end and what the game keeps (`checkBattle()`, below) | — |
+| `battle` | the battle program whole from its start to its end, a loop step at a time, over a drawn battle with no player, aimed now and then at a row of the reach table (`drawBattle()`), against `battle::BattleSim`: every step compared with both gates, the requests, the end and what the game keeps (`checkBattle()`, below) | — |
 
 `start` also prints, after its draws, how many reached each row of its reach table (`startReachRows()`):
 each battle type, a preemptive strike, the colosseum, the final battle, a scripted setup, Gau's return, an
@@ -675,23 +675,43 @@ A status is laid with what its set handler leaves beside its bit (`SetStatusTbl`
 | Berserk | nothing (`SetStatusNoEffect`) | `:11673` |
 | Muddled | the battler in the flipped set (`$2F53`, `BattleState::flippedByControl`) and, for a party member, in the status-changed set (`$3A4A`, `BattleState::statusChanged`) | `SetStatus_0d` `:11366-11383` |
 
-`drawBattleScenario()` (`scenarios/battle/battle_draw.h`) draws a battle with no player: a start from
+`drawBattle()` (`scenarios/battle/battle_draw.h`) draws a battle with no player: a start from
 `drawStartScenario()`, then each member seated Berserk or Muddled (laid at the first step), Umaro, or a
 member whose menu opens and is never answered, or a colosseum match. A Berserk member holds Rage among
 their commands now and then, and a Muddled one Rage or Dance, so the battle's own choosers begin a rage or
-a dance for them. One battle in two seats Shadow, free to walk off at a win (`BattleStart::shadowAvailable`
-set, the switch that keeps him clear), with every member Berserk and the monsters' HP cut further. The
-party's HP is cut now and then and every monster's HP is cut. The frame model is `drawPresentationModel()`'s,
-and one with no story countdown of its own is given one running out between frames 8,000 and 12,000, so
-every drawn battle ends inside the frame cap; the drawn battle switches have the field's countdown already
-run out (`$1DD1` bit 5, which ends a battle at its first end check) one battle in eight. One battle in eight
-holds the run buttons from a drawn frame. A battle with a Muddled member holds no Chain Saw: its roll reads
-the random numbers' table at a sixteen-bit position (`Rand` `:12378-12384` with the index registers wide,
-from `ToolsEffect_03` `:7127`), which the port does not reproduce. `battleReached()` names the rows of its reach table (`battleReachRows()`) a
-checked battle took: the part each member took — Berserk, Muddled, dancing, raging, Umaro, a member whose
-menu is never answered, the colosseum — and how it ended — won, lost, fled, a final stage scrolled on, Gau
-turning up, Shadow walking off, a story countdown running out, or an ending a battle event or the story
-chose.
+a dance for them. The party's HP is cut now and then and every monster's HP is cut. The frame model is
+`drawPresentationModel()`'s, and one with no story countdown of its own is given one running out between
+frames 8,000 and 12,000, so every drawn battle ends inside the frame cap; the drawn battle switches have the
+field's countdown already run out (`$1DD1` bit 5, which ends a battle at its first end check) one battle in
+eight. One battle in eight holds the run buttons from a drawn frame. A battle with a Muddled member, or a
+colosseum match, whose fighter picks commands the same way (`RandCharAction` `:656-745`), holds no Chain
+Saw: its roll reads the random numbers' table at a sixteen-bit position (`Rand` `:12378-12384` with
+the index registers wide, from `ToolsEffect_03` `:7127`), which the port does not reproduce.
+`drawBattleScenario()` is the same draw's battle alone.
+
+Three rows of the reach table hang on the cartridge's own roll or on a chain no odds make likely, so one
+battle in ten is aimed at each of them (`BattleAim`). `drawAimedBattleScenario(rng, text, sprites, aim)`
+draws a battle given what its aim needs and runs the port's battle over it (`portBattle()`); while that
+battle misses the aim it draws again whole, every draw from the same generator in order, at most
+`kAimTries` (128) times, and the first that reaches it is the battle. One that never does is the last
+drawn, marked missed. The cartridge is then asked about the chosen battle step by step, as about any
+other, so a row the port reaches and the cartridge does not is a difference.
+
+| Aim | What the battle is given |
+|---|---|
+| a dancing member | the first record of the party played Muddled, holding Dance and no Rage |
+| Gau turning up | every member Berserk and the monsters' HP cut to 100 at most, in a start where Gau may appear (a start of another kind is a try spent) |
+| Shadow walking off | Shadow's record in the party played and standing, free to walk off at a win (`BattleStart::shadowAvailable` set, the switch that keeps him clear), every member Berserk and the monsters' HP cut to 100 at most |
+| Terra's Magic and her event (the proofs' alone) | Terra's record in the party played and standing, Muddled, holding Magic and Fire with the MP for it, and battle switch 65 set |
+
+A character's record is brought into the party played by swapping its place with the first record played,
+so each character stays in one record and a scripted setup still finds its cast. `battleReached()` names
+the rows of its reach table (`battleReachRows()`) a checked battle took: the part each member took —
+Berserk, Muddled, dancing, raging, Umaro, a member whose menu is never answered, the colosseum — and how it
+ended — won, lost, fled, a final stage scrolled on, Gau turning up, Shadow walking off, a story countdown
+running out, or an ending a battle event or the story chose. After the table the sweep prints, for each
+aim, how many draws were aimed at it and how many missed; a row at zero with no misses beside it is one no
+draw was aimed at.
 
 At each loop step's frame wait (`lda #$01` at `$C2:0023` marks it) the battle's cells are read into a
 `CartridgeStep`, before the frame runs, with every cell the battle program wrote since the step before
@@ -747,7 +767,13 @@ counts, that a script's frames come from its place and number 1 to 12, that the 
 at a time adds up to the same fight called once, and the first fight in Narshe, from its written scenario
 with the measured opening, run to its end with `checkBattle()` showing no difference: 7,012 loop steps over
 7,444 frames. It also runs the sweep's first drawn battle handed a tail of the items obtained no item's
-record could fill, and checks that both sides hand back every byte of it.
+record could fill, and checks that both sides hand back every byte of it. Three tests prove a rule the
+carried-read gate passes a cell by: each draws a battle aimed at what it needs
+(`drawAimedBattleScenario()`), finds in the port's battle the step before the battle event that matters
+is queued, and runs the battle twice with the cell written two ways at that step's frame wait
+(`BattleScenario::cartridgeWrites`), expecting `checkBattle()` to show no difference both times —
+`$11A4` and `$00B7` on a battle aimed at Terra's Magic and her event, `$B8-$B9` on one aimed at Gau
+turning up.
 
 ### The whole state compared
 
@@ -779,8 +805,9 @@ The same pass lays the cells no routine's scenario writes, in four parts:
 - `layBattlersAsTheCartridgeHoldsIt()` — each battler's ATB gauge and rate, advance wait and its
   counter, status timers, damage-over-time beat and poison multiplier, Morph gauge and condemned count,
   speed, equipment statuses and relics, run progress, experience, dance and the name it is listed under.
-- `layBattleAsTheCartridgeHoldsIt()` — the flags at `$B0`, the last attack's level and whether it was
-  physical (`$11A2` bit 0), the settings, Roulette's
+- `layBattleAsTheCartridgeHoldsIt()` — the flags at `$B0`, the last attack's level (`$11AF`, which an
+  attack's setup writes and a party member's equipment refresh leaves as the shield hand's hit rate) and
+  whether it was physical (`$11A2` bit 0), the settings, Roulette's
   choice, the run buttons, the sets of battlers the battle keeps between steps, the battlers acting and
   counterattacking, the three lines, the player's records, Mimic's memory, the tools owned and the
   end-of-battle events.
@@ -799,14 +826,20 @@ The same pass lays the cells no routine's scenario writes, in four parts:
 
 A line and the player's records are rings, laid from where the machine's ring starts: in a
 comparison, the cartridge's. The slots from there hold the battlers, or the records, in order, and the
-start itself is held by what is laid from it (`LaidState::positions`). A party member seated with no
+start itself is held by what is laid from it (`LaidState::positions`). A battler taken out of a line
+leaves its place holding `$FF` until the line's front passes it, and the loop passes over such a place
+(`RemoveAllActions` `:1583-1591`; `BattleLoop` `:127-128`, `:141-142`); the port's line drops the
+battler at once. In a comparison the cartridge's `$FF` places before its end are laid as it holds them,
+the line's battlers go in the other places in order, and the end is where the last of them falls, so a
+battler one side kept and the other dropped still parts the two. A party member seated with no
 record has its record offset laid as `$FFFF` and everything the start loads through that offset left
 out (`docs/contracts/battle_core.md`, the start's seating).
 
 A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
 bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's
 second byte by its bit 7, an item record's fifth byte by its four party slots' bits, `$11A2` by its bit 0
-(the last attack physical), `$2F49` without
+(the last attack physical), `$1EDE` by its bit 3 (Shadow available, `BattleState::shadowAvailable`, which
+a win's end check tests and his leaving clears), `$2F49` without
 bit 7 and `$2F4A` not at all — the scripted setup in force, which the start lays for its own opening. A
 state can leave bits of a cell out for itself (`LaidState::bitsLeftOut`, `comparedBits()`): with no battler
 acting, the acting battler's byte (`$3406`) is compared by bit 7 alone, the other bits being the rotate's
@@ -948,7 +981,7 @@ routines' addresses in namespace `routines`.
 | `ai/own_actions.{h,cpp}`, `own_actions_shared.h` | `portOwnAction()`; `drawOwnActionCase()` |
 | `battle/start.{h,cpp}` | `StartScenario`, `StartResult` and `StartCheck`; `portStart()` |
 | `battle/start_draw.{h,cpp}` | `drawStartScenario()`, `giveTheCastRecords()`, and the reach table: `startReachRows()` and `startReached()` |
-| `battle/battle_draw.{h,cpp}` | `drawBattleScenario()`, and the reach table: `battleReachRows()` and `battleReached()` |
+| `battle/battle_draw.{h,cpp}` | `drawBattle()`, `drawBattleScenario()`, the aimed draws (`BattleAim`, `drawAimedBattleScenario()`), and the reach table: `battleReachRows()` and `battleReached()` |
 | `battle/presentation_model.{h,cpp}` | `PresentationModel` and `Frame`: the opening's and each script's frames, and the party's running; `measuredPresentationModel()` and `drawPresentationModel()` |
 | `battle/whole_battle.{h,cpp}` | `BattleScenario`, `FirstStepLaid`, `CartridgeStep`, `WholeBattleResult`, `PortBattle` and `BattleCheck`; `portBattle()`, `layFirstStep()`, `scriptStopsTime()`, `requestShown()` and `callShown()` |
 | `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |

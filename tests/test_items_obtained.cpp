@@ -27,6 +27,7 @@
 #include "game/character_record.h"
 #include "ostinato/item_id.h"
 #include "ostinato/text_class.h"
+#include "items_obtained_test_support.h"
 #include "party_test_support.h"
 
 namespace ostinato::test {
@@ -340,9 +341,7 @@ TEST(ItemsObtained, TheBattleHandsBackTheLastThreePlacesAsItLeavesThem) {
 }
 
 // Places 13-15 are other programs' between battles (docs/contracts/battle_rewards.md § D.8): a battle
-// that touches none of them hands back every bit it was handed, a flags byte with bits no item's record
-// sets ($07) and a fifth byte with its high four ($F0) among them.
-constexpr ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
+// that touches none of them hands back every bit it was handed, kNoRecordSaysThis's among them.
 
 TEST(ItemsObtained, ATailNoItemsRecordCouldHoldIsHandedBackAsItCame) {
     battle::NullExecutor executor;

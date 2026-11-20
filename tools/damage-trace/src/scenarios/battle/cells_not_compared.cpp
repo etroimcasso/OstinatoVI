@@ -72,19 +72,25 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
      .why = "the battle program's scratch: each routine sets the cells it reads (:793, :1028, :1819, :1860, :4219)"},
     // --- the attack's record and the field's shared cells ----------------------------------------
     {.at = kWorkRam + 0x11A0, .count = 2,
-     .why = "the attack's record and the equipment sums of the last party member the start summed: every attack "
-            "loads its record before reading it, and UpdateEquip clears $11A0-$11DE before it sums (:2302-2304)"},
+     .why = "the attack's record and the equipment sums of the last party member refreshed, at the start or in a "
+            "loop step: every attack loads its record before reading it, and UpdateEquip clears $11A0-$11DE before "
+            "it sums (:2302-2304)"},
     {.at = kAttackRecordFlags, .bits = static_cast<std::uint8_t>(~kPhysicalHitBit),
      .why = "the attack's first flags but bit 0: the attack's own, loaded with its record before it reads them"},
     {.at = kWorkRam + 0x11A3, .count = 12,
-     .why = "the attack's record and the equipment sums of the last party member the start summed: every attack "
-            "loads its record before reading it, and UpdateEquip clears $11A0-$11DE before it sums (:2302-2304)"},
+     .why = "the attack's record and the equipment sums of the last party member refreshed, at the start or in a "
+            "loop step: every attack loads its record before reading it, and UpdateEquip clears $11A0-$11DE before "
+            "it sums (:2302-2304)"},
     {.at = kWorkRam + 0x11B0, .count = 47,
-     .why = "the attack's damage and the equipment sums of the last party member the start summed (UpdateEquip "
-            ":2302-2304, CalcEquipEffect :2480 on); every attack writes its damage before it reads it"},
+     .why = "the attack's damage and the equipment sums of the last party member refreshed, at the start or in a "
+            "loop step (UpdateEquip :2302-2304, CalcEquipEffect :2480 on); every attack writes its damage before it "
+            "reads it"},
     {.at = kWorkRam + 0x11DF,
      .why = "the field's equipment effects, which the start's equipment sums OR into (CalcEquipEffect :2487-2488) "
             "and the battle program reads nowhere"},
+    {.at = kAvailableCharacters, .bits = static_cast<std::uint8_t>(~kShadowAvailableBit),
+     .why = "the field's available characters but bit 3: the battle program tests and clears bit 3 alone "
+            "(CheckBattleEnd :11958, ShadowLeaves' trb :11991) and reads no other"},
     {.at = kFieldTimerFlags, .bits = static_cast<std::uint8_t>(~kCountdownRanOutBit),
      .why = "the field's timer flags but bit 5: the field's own timers', which CheckBattleEnd masks away "
             "(:11900-11901); the battle program reads the cell nowhere else"},

@@ -80,6 +80,8 @@ constexpr CellMeaning kCellMeanings[] = {
      .why = "the attack's first flags but bit 0, the attack's own, loaded with its record"},
     {.at = kFieldTimerFlags, .meaning = kCountdownRanOutBit,
      .why = "the field's timer flags: bit 5, a story countdown run out, is the battle's to read"},
+    {.at = kAvailableCharacters, .meaning = kShadowAvailableBit,
+     .why = "the field's available characters: bit 3, Shadow available, is the battle's to read and clear"},
     {.at = kInventoryFlagBytes, .count = kInventoryRecordCount, .stride = kItemRecordStride, .meaning = kItemFlagBits,
      .why = "the flags' low three bits, which no record sets: a slot holds them only from a merged place no record "
             "filled, and what the battle menus read of them is theirs"},

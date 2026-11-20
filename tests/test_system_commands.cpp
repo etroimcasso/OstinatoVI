@@ -17,6 +17,7 @@
 #include "battle/battle_inventory.h"
 #include "battle/battle_start.h"
 #include "battle/command_executor.h"
+#include "battle/party_setup.h"
 #include "battle/system_commands.h"
 #include "battle_test_support.h"
 #include "data/formations.h"
@@ -628,7 +629,8 @@ TEST(SystemActions, AnActionWithNoBattlerStillRuns) {
 // --- the level a condemned count reads ----------------------------------------------------------
 
 TEST(LastAttackLevel, EachAttackLeavesItsLevelForTheNextCondemnedCount) {
-    // StartCondemn :1512-1525 reads $11af, which only an attack's setup writes.
+    // StartCondemn :1512-1525 reads $11af, which an attack's setup writes, and an equipment refresh
+    // (LastAttackLevel.ACountStartedAfterAnEquipmentRefreshIsWorkedOutFromTheRefreshsLevel).
     BattleState state = makeAimableBattle();
     state.at(kTerra).level = 37;
     state.at(kTerra).weaponHand = battle::Hand{.battlePower = 10, .hitRate = 255};
@@ -676,6 +678,27 @@ TEST(LastAttackLevel, ACountStartedAfterAnActionIsWorkedOutFromItsAttacksLevel) 
         battle::settleAfterAction(state, executor);
         EXPECT_EQ(state.at(kMonster).condemnedNumber, count) << level;
     }
+}
+
+TEST(LastAttackLevel, ACountStartedAfterAnEquipmentRefreshIsWorkedOutFromTheRefreshsLevel) {
+    // The loop's equipment step (UpdateCharProp :5595-5631) runs UpdateEquip, which clears $11af
+    // (:2301-2304) and leaves it 0 with a shield in the shield hand (CalcEquipEffect :2546-2573 writes no
+    // hit rate there). An action that sets no level of its own leaves it, and StartCondemn works the count
+    // out from it (:1512-1525): at level 0 the roll is 0 and the count 81, where the 99 the last attack
+    // left would have given 20.
+    BattleState state = makeAimableBattle();
+    state.party.characters[0] = startingRecord(CharacterPropId::TERRA);
+    state.at(kTerra).record = 0;
+    state.inventory.shieldHands[0] = battle::battleItem(state, ItemId::BUCKLER, 1);
+    state.lastAttackLevel = 99;
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    state.at(kTerra).equipmentChanged = true;
+    battle::applyEquipmentChanges(state, executor);
+    executor.execute(state, kMonster, battle::MonsterDialogAction{.dialog = 3});
+    state.at(kMonster).pendingUpdates.startCondemned = true;
+    battle::settleAfterAction(state, executor);
+    EXPECT_EQ(state.at(kMonster).condemnedNumber, 81);
 }
 
 // --- items obtained -------------------------------------------------------------------------------

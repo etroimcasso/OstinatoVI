@@ -145,9 +145,6 @@ static_assert(kSnapshotRoutines[0].entry == kWinBattle && kSnapshotRoutines[1].e
 
 // The battle script command a step back is.
 constexpr std::uint8_t kStepBackScriptCommand = 0x0D;
-// The formation's flags bit that turns the fanfare off, and the field's flag that keeps its music
-// playing (BtlGfx_08, btlgfx_main.asm:248-261).
-constexpr std::uint8_t kFanfareOffBit = 0x02;
 
 // What the cartridge's calls to the graphics program show: frames waited one at a time run together
 // into one wait; the hands put away are the items added between the wrap-up's wait and its merge,

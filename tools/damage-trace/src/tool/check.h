@@ -23,13 +23,16 @@ using namespace ostinato;
 // the port's answer parts from the cartridge's, and for an attack's special effect on one target, the
 // target it was worked out for (the oracle calls the routine with no statuses worked out before it, so
 // its trace does not show the target).
-// For a sweep with a reach table, the rows of it the draw reached.
+// For a sweep with a reach table, the rows of it the draw reached, and for a draw aimed at one, what it
+// was aimed at and whether it missed.
 struct DrawResult {
     std::string described;
     std::string answers;
     std::string differences;
     std::optional<battle::BattlerSlot> target{};
     std::vector<std::string_view> reached{};
+    std::optional<std::string_view> aimedAt{};
+    bool aimMissed = false;
 };
 
 using SweepDraw = DrawResult (*)(trace::DamageOracle&, std::mt19937&);
@@ -39,7 +42,7 @@ using ReachRows = std::span<const std::string_view> (*)();
 inline constexpr int kBriefDraws = 20;
 
 // A sweep with `reach` prints, after its draws, how many reached each of its rows, and names a row no
-// draw reached. A brief check draws at most `briefDraws` of it: a sweep whose draws take seconds each
+// draw reached; then, for each row its draws were aimed at, how many were and how many missed. A brief check draws at most `briefDraws` of it: a sweep whose draws take seconds each
 // names fewer.
 struct Sweep {
     std::string_view name;

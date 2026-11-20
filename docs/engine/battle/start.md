@@ -251,6 +251,13 @@ state.at(BattlerSlot::character(0)).equipmentChanged = true;
 stepBattle(state, executor);
 ```
 
+The members whose equipment changed are refreshed from slot 3 down, and the last one refreshed — the
+lowest slot — leaves two of the battle's own values behind: `state.lastAttackPhysical` is whether
+their stamina is odd, and `state.lastAttackLevel` is the hit rate of what they hold in the shield hand
+(a second weapon's, the empty hand's 200, or 0 for a shield). A condemned count started before the
+next attack sets a level is worked out from that number ([`docs/Bugs.md`](../../Bugs.md)). The battle's
+start refreshes every member the same way, then sets the level to 20.
+
 ## The formation
 
 `chooseFormation(state, asked)` gives the formation fought: a conditional battle whose battle switch

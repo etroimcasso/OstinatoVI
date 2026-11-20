@@ -425,6 +425,48 @@ or more start at 20 plus 60 less the roll.
 
 ---
 
+## An equipment change sets the level the next condemned count starts from
+
+**What happens.** A condemned count is worked out from the level of the last
+attack made, and an action that sets no level of its own keeps that one.
+Changing a party member's equipment during a battle rewrites it: until the next
+attack sets a level, it is the hit rate of what the member holds in the shield
+hand — a second weapon's, 200 for an empty hand, 0 for a shield or anything
+else. A count started then is worked out from that number and not from anyone's
+level, so 0 starts it at 81 and anything over 60 at 20. When two members change
+equipment at once, the one in the lower slot decides it. The battle's start
+refreshes every member the same way and then sets the level to 20, before
+anything reads it.
+
+**Where the original does it.** `UpdateEquip` clears `$11a0-$11de`
+(`battle/battle_main.asm:2301-2304`), and `CalcEquipEffect` stores the hit rate
+of an item of the weapon type at `$11ae,y`, Y being 1 for the shield hand
+(`:2611-2641`); a shield's branch writes no hit rate (`:2546-2573`). `$11af` is
+the byte an attack's setup leaves the attacker's level in, and `StartCondemn`
+reads it (`:1512-1525`). `UpdateCharProp` runs the refresh for each member whose
+equipment changed, slot 3 first (`:5595-5631`); `InitChars` refreshes each
+member at the start (`:6204-6221`) before the 20 is written (`:6130-6131`).
+
+**Where the port keeps it.** `refreshTheLastAttackLevel()` in
+`src/battle/party_setup.cpp` sets `BattleState::lastAttackLevel` to the shield
+hand's `Hand::hitRate`, from `loadParty()` and `applyEquipmentChanges()`.
+`tests/test_party_setup.cpp`
+(`EquipmentChanges.TheRefreshLeavesASecondWeaponsHitRateAsTheLastAttacksLevel`,
+`EquipmentChanges.TheRefreshLeavesNoLevelWithAShieldInTheShieldHand`,
+`EquipmentChanges.TheRefreshLeavesTheBareHandsHitRateWithNothingInTheShieldHand`,
+`EquipmentChanges.OfTwoMembersRefreshedTheLowerSlotLeavesTheLevel`),
+`tests/test_system_commands.cpp`
+(`LastAttackLevel.ACountStartedAfterAnEquipmentRefreshIsWorkedOutFromTheRefreshsLevel`)
+and `tests/test_battle_start.cpp`
+(`StartBattle.APartyHoldingASecondWeaponStillStartsItsCountsFromTwenty`) pin it;
+the cartridge checks compare the level with `$11af` at every loop step of a whole
+battle.
+
+**If you want to change it.** Leaving `lastAttackLevel` alone in the equipment
+refresh keeps the last attack's level through an equipment change.
+
+---
+
 ## A strong enough spell does almost nothing at level 99
 
 **What happens.** A spell's base damage is four times its power plus the power
@@ -706,7 +748,9 @@ and each action already waiting for the battler is aimed again in turn, the last
 one's left. The flag shares its byte with the
 start's spell lists and an equipment sum, so at the battle's start, and after an
 equipment change, it says whether the refreshed party member's stamina is odd
-until the next attack, and a start that refreshes no member leaves it set.
+until the next attack, and a start that refreshes no member leaves it set. The
+same refresh rewrites the level the next condemned count starts from (*An
+equipment change sets the level the next condemned count starts from*).
 
 **Where the original does it.** `CheckRetal` reads bit 0 of `$11a2`
 (`battle/battle_main.asm:12565-12569`). The attack's record lands there when an

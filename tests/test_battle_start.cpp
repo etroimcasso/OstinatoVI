@@ -24,6 +24,7 @@
 #include "data/battle_tables.h"
 #include "data/char_ai.h"
 #include "data/formations.h"
+#include "data/item_properties.h"
 #include "data/monster_items.h"
 #include "data/monster_properties.h"
 #include "data/monster_special_anim.h"
@@ -672,6 +673,29 @@ TEST(StartBattle, TheLastAttacksPhysicalFlagStartsAsWhetherTheLowestMembersStami
         }
         before = state.lastAttackPhysical;
     }
+}
+
+TEST(StartBattle, APartyHoldingASecondWeaponStillStartsItsCountsFromTwenty) {
+    // Each member's refresh leaves the shield hand's hit rate in $11af (UpdateEquip :2301-2304,
+    // CalcEquipEffect :2640-2641), and the start writes 20 there after InitChars (:6107, :6130-6131),
+    // before anything reads it.
+    battle::NullExecutor executor;
+    const battle::BattleStart start = startFor(findFormation(ordinary));
+    game::Party party = threeMembers();
+    ItemId weapon = ItemId::EMPTY;
+    for (const ItemPropertiesEntry& entry : itemPropertiesEn()) {
+        if (entry.id != ItemId::EMPTY && entry.record.typeAndUsage.type() == ItemType::WEAPON &&
+            entry.record.hitRateOrDefense != 20) {
+            weapon = entry.id;
+            break;
+        }
+    }
+    ASSERT_NE(weapon, ItemId::EMPTY);
+    for (game::CharacterRecord& record : party.characters) {
+        record.shield = weapon;
+    }
+    const BattleState state = battle::startBattle(start, party, {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.lastAttackLevel, 20);
 }
 
 TEST(StartBattle, ACountdownAlreadyRunOutIsTheBattlesFromItsStart) {
