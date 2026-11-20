@@ -35,8 +35,11 @@ namespace {
 using battle::BattleItem;
 using battle::BattlerSlot;
 using battle::BattleState;
+using battle::ItemRecord;
 using battle::ItemsObtained;
 using battle::ItemsObtainedTail;
+using battle::itemIn;
+using battle::quantityIn;
 using Inventory = std::array<BattleItem, game::kInventorySlots>;
 
 // An item as the battle works it out with no one in the party.
@@ -70,13 +73,14 @@ constexpr std::array<std::uint8_t, 15> kPowerOnTailBytes{0x04, 0x98, 0x08, 0x6C,
 ItemsObtainedTail powerOnTail() {
     ItemsObtainedTail tail;
     for (std::size_t i = 0; i < tail.size(); ++i) {
-        tail[i] = battle::battleItemFromRecord(std::span<const std::uint8_t>(kPowerOnTailBytes).subspan(i * 5).first<5>());
+        std::copy_n(kPowerOnTailBytes.begin() + static_cast<std::ptrdiff_t>(i * battle::kItemRecordBytes),
+                    battle::kItemRecordBytes, tail[i].begin());
     }
     return tail;
 }
 
 // A battle with `inventory` and the list as a battle starts with `tail`.
-BattleState battleWith(const Inventory& inventory, const ItemsObtainedTail& tail = {}) {
+BattleState battleWith(const Inventory& inventory, const ItemsObtainedTail& tail = battle::kEmptyItemsObtainedTail) {
     BattleState state;
     state.inventory.items = inventory;
     state.itemsObtained = battle::itemsObtainedAtBattleStart(tail);
@@ -107,12 +111,12 @@ TEST(ItemsObtained, ABattleStartsWithThirteenEmptyPlacesAndItsTail) {
     EXPECT_EQ(list.added, 0);
     EXPECT_EQ(list.merged, 0);
     for (std::size_t place = 0; place < battle::kItemsObtainedEmptiedPlaces; ++place) {
-        EXPECT_EQ(list.entries[place].item, ItemId::EMPTY) << place;
+        EXPECT_EQ(itemIn(list.entries[place]), ItemId::EMPTY) << place;
     }
-    EXPECT_EQ(list.entries[13].item, ItemId::THIEFKNIFE);
-    EXPECT_EQ(list.entries[14].item, ItemId::SILK_ROBE);
-    EXPECT_EQ(list.entries[15].item, ItemId::EXCALIBUR);
-    EXPECT_EQ(list.entries[15].quantity, 136);
+    EXPECT_EQ(itemIn(list.entries[13]), ItemId::THIEFKNIFE);
+    EXPECT_EQ(itemIn(list.entries[14]), ItemId::SILK_ROBE);
+    EXPECT_EQ(itemIn(list.entries[15]), ItemId::EXCALIBUR);
+    EXPECT_EQ(quantityIn(list.entries[15]), 136);
 }
 
 TEST(ItemsObtained, AnItemGoesInThePlaceItsCountNames) {
@@ -121,9 +125,19 @@ TEST(ItemsObtained, AnItemGoesInThePlaceItsCountNames) {
     state.itemsObtained.added = 17;
     battle::obtainItem(state, ItemId::POTION, 3);
     EXPECT_EQ(state.itemsObtained.added, 18);
-    EXPECT_EQ(state.itemsObtained.entries[1].item, ItemId::POTION);
-    EXPECT_EQ(state.itemsObtained.entries[1].quantity, 3);
-    EXPECT_EQ(battle::recordOf(state.itemsObtained.entries[1]), battle::recordOf(itemOf(ItemId::POTION, 3)));
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[1]), ItemId::POTION);
+    EXPECT_EQ(quantityIn(state.itemsObtained.entries[1]), 3);
+    EXPECT_EQ(state.itemsObtained.entries[1], battle::itemRecordFor(state, ItemId::POTION, 3));
+}
+
+TEST(ItemsObtained, AnItemNoHandCheckIsMadeForIsRecordedWithEveryHandBitSet) {
+    // LoadItemProp :13989-13990 sets the fifth byte to $FF, and skips the hand check that would replace it
+    // for a type whose ItemTypeMaskTbl entry carries out of the asl (:14016-14020, :14043): armor among them.
+    BattleState state = battleWith({});
+    battle::obtainItem(state, ItemId::LEATHERARMOR, 1);
+    EXPECT_EQ(state.itemsObtained.entries[0][4], 0xFF);
+    battle::obtainItem(state, ItemId::POTION, 1);
+    EXPECT_EQ(state.itemsObtained.entries[1][4], 0x0F);  // an item no party member holds in a hand
 }
 
 TEST(ItemsObtained, TheSeventeenthItemGoesBackToTheFirstPlace) {
@@ -133,8 +147,8 @@ TEST(ItemsObtained, TheSeventeenthItemGoesBackToTheFirstPlace) {
     }
     battle::obtainItem(state, ItemId::ETHER, 1);
     EXPECT_EQ(state.itemsObtained.added, 17);
-    EXPECT_EQ(state.itemsObtained.entries[0].item, ItemId::ETHER);
-    EXPECT_EQ(state.itemsObtained.entries[1].item, ItemId::POTION);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[0]), ItemId::ETHER);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[1]), ItemId::POTION);
 }
 
 // --- the merge -----------------------------------------------------------------------------------
@@ -181,8 +195,10 @@ TEST(ItemsObtained, TheMergeEmptiesWhatItMergedAndStopsAtTheFirstEmptyPlace) {
     battle::obtainItem(state, ItemId::ETHER, 2);
     battle::mergeItemsObtained(state);
     EXPECT_EQ(state.itemsObtained.merged, 2);
-    EXPECT_EQ(state.itemsObtained.entries[0].item, ItemId::EMPTY);
-    EXPECT_EQ(state.itemsObtained.entries[1].item, ItemId::EMPTY);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[0]), ItemId::EMPTY);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[1]), ItemId::EMPTY);
+    // A merged place keeps every byte but its item.
+    EXPECT_EQ(quantityIn(state.itemsObtained.entries[1]), 2);
     ASSERT_NE(slotHolding(state, ItemId::ETHER), nullptr);
     EXPECT_EQ(slotHolding(state, ItemId::ETHER)->quantity, 2);
     // Nothing more waits: a second merge changes nothing.
@@ -198,8 +214,8 @@ TEST(ItemsObtained, AFullInventoryStopsTheMergeAndEverythingBehindItWaits) {
     battle::obtainItem(state, ItemId::TONIC, 1);
     battle::mergeItemsObtained(state);
     EXPECT_EQ(state.itemsObtained.merged, 0);
-    EXPECT_EQ(state.itemsObtained.entries[0].item, ItemId::POTION);
-    EXPECT_EQ(state.itemsObtained.entries[1].item, ItemId::TONIC);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[0]), ItemId::POTION);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[1]), ItemId::TONIC);
     EXPECT_EQ(state.inventory.items[0].quantity, 1);
     // A later merge stops at the same place.
     battle::mergeItemsObtained(state);
@@ -222,12 +238,14 @@ TEST(ItemsObtained, TheThirteenthItemBringsTheLastThreePlacesIntoTheInventory) {
     ASSERT_NE(slotHolding(state, ItemId::EXCALIBUR), nullptr);
     EXPECT_EQ(slotHolding(state, ItemId::EXCALIBUR)->quantity, 136);
     for (std::size_t place = 13; place < 16; ++place) {
-        EXPECT_EQ(state.itemsObtained.entries[place].item, ItemId::EMPTY) << place;
+        EXPECT_EQ(itemIn(state.itemsObtained.entries[place]), ItemId::EMPTY) << place;
     }
 }
 
 TEST(ItemsObtained, AnEmptyFourteenthPlaceStopsTheWalkAtTheThirteenth) {
-    BattleState state = battleWith({}, ItemsObtainedTail{BattleItem{}, itemOf(ItemId::SILK_ROBE, 112), BattleItem{}});
+    BattleState state = battleWith({}, ItemsObtainedTail{battle::kEmptyItemRecord,
+                                                         battle::recordOf(itemOf(ItemId::SILK_ROBE, 112)),
+                                                         battle::kEmptyItemRecord});
     for (int n = 0; n < 13; ++n) {
         obtainAndMerge(state, ItemId::POTION);
     }
@@ -242,7 +260,7 @@ TEST(ItemsObtained, AFullInventoryStopsTheWalkAtTheLastThreePlaces) {
         obtainAndMerge(state, ItemId::TONIC);
     }
     EXPECT_EQ(state.itemsObtained.merged, 13);
-    EXPECT_EQ(state.itemsObtained.entries[13].item, ItemId::THIEFKNIFE);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[13]), ItemId::THIEFKNIFE);
 }
 
 TEST(ItemsObtained, TheFourteenthToSixteenthWaitUntilTheTwentyNinth) {
@@ -268,7 +286,7 @@ TEST(ItemsObtained, TheFourteenthToSixteenthWaitUntilTheTwentyNinth) {
 }
 
 TEST(ItemsObtained, WithAnEmptyTailTheFourteenthToSixteenthMergeAsTheyCome) {
-    BattleState state = battleWith({}, ItemsObtainedTail{});
+    BattleState state = battleWith({}, battle::kEmptyItemsObtainedTail);
     for (int n = 1; n <= 16; ++n) {
         obtainAndMerge(state, static_cast<ItemId>(n));
         EXPECT_NE(slotHolding(state, static_cast<ItemId>(n)), nullptr) << n;
@@ -305,20 +323,48 @@ TEST(ItemsObtained, ABattleStartsWithTheLastThreePlacesItWasHanded) {
     const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
     EXPECT_EQ(state.itemsObtained.added, 0);
     EXPECT_EQ(state.itemsObtained.merged, 0);
-    EXPECT_EQ(state.itemsObtained.entries[12].item, ItemId::EMPTY);
-    EXPECT_EQ(battle::itemsObtainedTail(state.itemsObtained)[0].item, ItemId::THIEFKNIFE);
-    EXPECT_EQ(battle::itemsObtainedTail(state.itemsObtained)[2].quantity, 136);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[12]), ItemId::EMPTY);
+    EXPECT_EQ(itemIn(battle::itemsObtainedTail(state.itemsObtained)[0]), ItemId::THIEFKNIFE);
+    EXPECT_EQ(quantityIn(battle::itemsObtainedTail(state.itemsObtained)[2]), 136);
 }
 
 TEST(ItemsObtained, TheBattleHandsBackTheLastThreePlacesAsItLeavesThem) {
     BattleState state = battleWith({}, powerOnTail());
-    state.itemsObtained.entries[14] = BattleItem{};  // a merge emptied it
-    state.itemsObtained.entries[15] = itemOf(ItemId::ELIXIR, 1);  // the sixteenth item obtained
+    state.itemsObtained.entries[14] = battle::kEmptyItemRecord;  // a merge emptied it
+    state.itemsObtained.entries[15] = battle::recordOf(itemOf(ItemId::ELIXIR, 1));  // the sixteenth item obtained
     state.outcome = battle::BattleWon{};
     const battle::BattleResult result = battle::writeBack(state);
-    EXPECT_EQ(result.itemsObtainedTail[0].item, ItemId::THIEFKNIFE);
-    EXPECT_EQ(result.itemsObtainedTail[1].item, ItemId::EMPTY);
-    EXPECT_EQ(result.itemsObtainedTail[2].item, ItemId::ELIXIR);
+    EXPECT_EQ(itemIn(result.itemsObtainedTail[0]), ItemId::THIEFKNIFE);
+    EXPECT_EQ(itemIn(result.itemsObtainedTail[1]), ItemId::EMPTY);
+    EXPECT_EQ(itemIn(result.itemsObtainedTail[2]), ItemId::ELIXIR);
+}
+
+// Places 13-15 are other programs' between battles (docs/contracts/battle_rewards.md § D.8): a battle
+// that touches none of them hands back every bit it was handed, a flags byte with bits no item's record
+// sets ($07) and a fifth byte with its high four ($F0) among them.
+constexpr ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
+
+TEST(ItemsObtained, ATailNoItemsRecordCouldHoldIsHandedBackAsItCame) {
+    battle::NullExecutor executor;
+    const ItemsObtainedTail handed{kNoRecordSaysThis, battle::kEmptyItemRecord, kNoRecordSaysThis};
+    battle::BattleStart start{.formation = FormationRef::of(FormationId::LOBO), .itemsObtainedTail = handed};
+    BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
+    state.outcome = battle::BattleWon{};
+    EXPECT_EQ(battle::writeBack(state).itemsObtainedTail, handed);
+}
+
+TEST(ItemsObtained, APlaceNoItemsRecordCouldHoldMergesAsTheItemItNames) {
+    // The merge copies the place's five bytes into the slot (G:9469-9479); a slot holds what a BattleItem
+    // can say of them.
+    BattleState state = battleWith({}, ItemsObtainedTail{kNoRecordSaysThis, battle::kEmptyItemRecord,
+                                                         battle::kEmptyItemRecord});
+    for (int n = 0; n < 13; ++n) {
+        obtainAndMerge(state, ItemId::TONIC);
+    }
+    const BattleItem* potion = slotHolding(state, ItemId::POTION);
+    ASSERT_NE(potion, nullptr);
+    EXPECT_EQ(potion->quantity, 5);
+    EXPECT_EQ(battle::recordOf(*potion), battle::recordOf(battle::battleItemFromRecord(kNoRecordSaysThis)));
 }
 
 TEST(ItemsObtained, AFinalBattleStageKeepsTheWholeListAndBothCounts) {
@@ -337,8 +383,8 @@ TEST(ItemsObtained, AFinalBattleStageKeepsTheWholeListAndBothCounts) {
                                                                noSprites(), executor);
     EXPECT_EQ(next.itemsObtained.added, 2);
     EXPECT_EQ(next.itemsObtained.merged, 1);
-    EXPECT_EQ(next.itemsObtained.entries[0].item, ItemId::POTION);
-    EXPECT_EQ(next.itemsObtained.entries[1].item, ItemId::ETHER);
+    EXPECT_EQ(itemIn(next.itemsObtained.entries[0]), ItemId::POTION);
+    EXPECT_EQ(itemIn(next.itemsObtained.entries[1]), ItemId::ETHER);
 }
 
 // --- the hands -------------------------------------------------------------------------------------
@@ -352,8 +398,8 @@ TEST(ItemsObtained, AHandAtAnActionsEndJoinsTheListUnmergedAndIsStillShown) {
     battle::putAwayItemsObtained(state);
     ASSERT_EQ(state.requests.size(), 1u);
     EXPECT_EQ(std::get<battle::AddItemObtained>(state.requests[0]).item, ItemId::POTION);
-    EXPECT_EQ(state.itemsObtained.entries[0].item, ItemId::POTION);
-    EXPECT_EQ(state.itemsObtained.entries[0].quantity, 1);
+    EXPECT_EQ(itemIn(state.itemsObtained.entries[0]), ItemId::POTION);
+    EXPECT_EQ(quantityIn(state.itemsObtained.entries[0]), 1);
     EXPECT_EQ(state.itemsObtained.added, 1);
     EXPECT_EQ(state.itemsObtained.merged, 0);
     EXPECT_EQ(slotHolding(state, ItemId::POTION), nullptr);
@@ -407,13 +453,15 @@ TEST(ItemRecord, ThePowerOnTailIsReadFromTheTitleProgram) {
     std::vector<std::uint8_t> program(0x106E + 15, 0);
     std::copy(kPowerOnTailBytes.begin(), kPowerOnTailBytes.end(), program.begin() + 0x106E);
     const ItemsObtainedTail read = battle::itemsObtainedTailAtPowerOn(program);
-    EXPECT_EQ(read[0].item, ItemId::THIEFKNIFE);
-    EXPECT_EQ(read[0].quantity, 108);
-    EXPECT_EQ(read[1].item, ItemId::SILK_ROBE);
-    EXPECT_EQ(read[1].quantity, 112);
-    EXPECT_EQ(read[2].item, ItemId::EXCALIBUR);
-    EXPECT_EQ(read[2].quantity, 136);
-    EXPECT_EQ(battle::recordOf(read[2])[1], 0x80);
+    EXPECT_EQ(itemIn(read[0]), ItemId::THIEFKNIFE);
+    EXPECT_EQ(quantityIn(read[0]), 108);
+    EXPECT_EQ(itemIn(read[1]), ItemId::SILK_ROBE);
+    EXPECT_EQ(quantityIn(read[1]), 112);
+    EXPECT_EQ(itemIn(read[2]), ItemId::EXCALIBUR);
+    EXPECT_EQ(quantityIn(read[2]), 136);
+    EXPECT_EQ(read[2][1], 0x80);
+    // Every byte as the program holds it, the fifth bytes' high four bits too.
+    EXPECT_TRUE(std::equal(kPowerOnTailBytes.begin(), kPowerOnTailBytes.end(), read[0].begin()));
 }
 
 TEST(ItemRecord, ATitleProgramTooShortToHoldTheTailThrows) {

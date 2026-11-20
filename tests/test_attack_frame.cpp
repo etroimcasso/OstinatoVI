@@ -5,16 +5,21 @@
 
 #include <gtest/gtest.h>
 
+#include <optional>
 #include <variant>
 #include <vector>
 
 #include "battle/attack.h"
+#include "battle/battle_hooks.h"
 #include "battle/command_executor.h"
 #include "battle/commands.h"
 #include "battle/targeting.h"
 #include "battle_test_support.h"
 #include "data/attack_properties.h"
+#include "data/monster_properties.h"
 #include "ostinato/item_id.h"
+#include "ostinato/monster_id.h"
+#include "ostinato/status_id.h"
 
 namespace ostinato::test {
 namespace {
@@ -360,6 +365,73 @@ TEST(AttackFrame, AMonstersSpecialAttackShowsItsNameAndItsBand) {
     EXPECT_EQ(hooks.multipliers.back(), 3);
 }
 
+// A party member no monster's record has loaded makes the Special attack with the special attack the
+// battle's start leaves it (InitBattle :6061-6067, CalcAttackEffect :8185-8235): no damage, cannot be
+// dodged, Reflect lifted, named for no monster (ShowAttackName_06 :8742-8748). The Sealed Gate's Kefka
+// makes it.
+BattleState specialAttackBattle() {
+    BattleState state = armedBattle(0);
+    state.at(kTerra).weaponHand.hitRate = 200;
+    // Magic block evades a physical hit (the hit check), so this guard evades every hit that can be dodged.
+    // It holds Reflect, so an attack that deals no damage has a status to take off it and is not a miss.
+    state.at(kGuard).magicBlockFactor = 1;
+    state.at(kGuard).status.set(StatusId::REFLECT);
+    return state;
+}
+
+std::vector<BattleScriptCommand> fightWith(BattleState& state, AttackId attack) {
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    return executor.execute(state, kTerra,
+                            battle::Action{CommandAction{.command = BattleCommandId::FIGHT,
+                                                         .attack = attack,
+                                                         .targets = BattlerSet::of(kGuard)}});
+}
+
+TEST(AttackFrame, ASpecialWithNoMonsterDealsNoDamageAndCannotBeDodged) {
+    BattleState plain = specialAttackBattle();
+    ASSERT_TRUE(animations(fightWith(plain, AttackId::NONE))[0].params.targetsHit.empty());
+
+    BattleState state = specialAttackBattle();
+    const auto script = fightWith(state, AttackId::SPECIAL);
+    EXPECT_EQ(animations(script)[0].params.targetsHit, BattlerSet::of(kGuard));
+    EXPECT_EQ(state.at(kGuard).hp, 100);
+}
+
+TEST(AttackFrame, ASpecialWithNoMonsterLiftsReflect) {
+    BattleState state = specialAttackBattle();
+    fightWith(state, AttackId::SPECIAL);
+    EXPECT_FALSE(state.at(kGuard).status.has(StatusId::REFLECT));
+}
+
+TEST(AttackFrame, ASpecialWithNoMonsterIsNamedForNone) {
+    BattleState state = specialAttackBattle();
+    const auto script = fightWith(state, AttackId::SPECIAL);
+    ASSERT_TRUE(std::holds_alternative<battle::MonsterSpecialAttackNameShown>(script.front()));
+    EXPECT_EQ(std::get<battle::MonsterSpecialAttackNameShown>(script.front()).monster, std::nullopt);
+}
+
+TEST(AttackFrame, ARagingMembersSpecialIsTheRageMonstersAfterTheRageEnds) {
+    BattleState state = specialAttackBattle();
+    battle::Battler& terra = state.at(kTerra);
+    terra.rage = MonsterId::LOBO;
+    battle::setRage(state, kTerra);
+    terra.status.clear(StatusId::RAGE);
+    const auto script = fightWith(state, AttackId::SPECIAL);
+    EXPECT_EQ(state.at(kTerra).specialAttack.packed, getMonsterProperties(MonsterId::LOBO).specialAttack.packed);
+    ASSERT_TRUE(std::holds_alternative<battle::MonsterSpecialAttackNameShown>(script.front()));
+    EXPECT_EQ(std::get<battle::MonsterSpecialAttackNameShown>(script.front()).monster, MonsterId::LOBO);
+}
+
+TEST(AttackFrame, AnImpsSpecialIsAPlainFight) {
+    // An Imp's Special loads no special attack and shows no name (_c2299f :6930-6934).
+    BattleState state = armedBattle(0);
+    state.at(kTerra).status.set(StatusId::IMP);
+    const auto script = fightWith(state, AttackId::SPECIAL);
+    EXPECT_EQ(countOf<battle::MonsterSpecialAttackNameShown>(script), 0);
+    EXPECT_LT(state.at(kGuard).hp, 100);
+}
+
 TEST(AttackFrame, JokerDoomIsAimedExactlyAndCannotBeDodged) {
     BattleState state = armedBattle();
     state.aiUntargetable.add(kGuard);
@@ -603,6 +675,24 @@ TEST(CommandExecutor, FightRunsAndReportsItsBlow) {
     EXPECT_EQ(animations(script).size(), 2u);
     EXPECT_TRUE(state.lastAttackPhysical);
     EXPECT_EQ(state.scratch.finalTargets, BattlerSet::of(kGuard));
+}
+
+// Mimic remembers the targets the command's attacks were last aimed at ($3A30): ExecCmd clears them as
+// every command starts (InitGfxScript :3093, :6346) and each attack's aiming sets them (_c23865
+// :9068-9081, from CalcAttackEffect :8160) — so a spell an Imp cannot cast, which fizzles before any
+// attack is aimed, leaves none (SaveForMimic :357-358).
+TEST(CommandExecutor, ASpellAnImpCannotCastLeavesMimicNoTargets) {
+    BattleState state = armedBattle();
+    state.at(kTerra).status.set(StatusId::IMP);
+    state.at(kTerra).mp = 50;
+    battle::AttackHooks hooks;
+    battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
+    executor.execute(state, kTerra,
+                     battle::Action{CommandAction{.command = BattleCommandId::MAGIC,
+                                                  .attack = AttackId::FIRE,
+                                                  .targets = BattlerSet::of(kGuard),
+                                                  .mpCost = 4}});
+    EXPECT_TRUE(state.scratch.finalTargets.empty());
 }
 
 TEST(CommandExecutor, AnActionThatMakesNoAttackKeepsTheLastAttacksPhysicalFlag) {

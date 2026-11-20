@@ -20,6 +20,9 @@ inline constexpr std::uint32_t kLoresLearned = kWorkRam + 0x3A84;
 // monster its special attack is named for (a word), its vigor and its magic power.
 inline constexpr std::uint32_t kSpecialAttack = kWorkRam + 0x322D;
 inline constexpr std::uint32_t kNamedMonster = kWorkRam + 0x33A8;
+// The monster named while a battler is no monster and rages as none: the start's fill, both bytes
+// (InitBattle :6061-6067). A party member's special attack is then named for it (:8742-8748).
+inline constexpr std::uint16_t kNoMonsterNamed = 0xFFFF;
 // Per battler, at twice its index: its weapon hand, then its shield hand — the item (a monster's
 // attack graphic), the hit rate, the element, the weapon's flags, the spell it casts and its block
 // and weapon-effect byte. A Fight loads the hand it swings with from these (_c2299f).

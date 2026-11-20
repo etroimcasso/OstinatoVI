@@ -98,6 +98,10 @@ inline constexpr const char* kBattleClosedKey = "the battle closed";
 // accumulator wide, then `sta $3520,y` (:12957-12961), between the labels @4eec and @4f08.
 inline constexpr std::uint32_t kCreateActionTargetsCopy = 0xC24F00;
 inline constexpr const char* kTargetsCopyKey = "CreateAction's copy of the targets";
+// Magic's `lda #$20; tsb $11a4` after it queues the battle event $06 (Cmd_02 :3671-3672), between the
+// labels @1741 and _175f: the tsb's read of $11A4 is the next one.
+inline constexpr std::uint32_t kMagicEventUndodgeable = 0xC2175A;
+inline constexpr const char* kMagicEventUndodgeableKey = "Magic's undodgeable bit after its battle event";
 inline constexpr std::uint32_t kGraphicsCommandTable = 0xC10008;
 inline constexpr std::uint32_t kGraphicsProgramBank = 0xC10000;
 // Where each command's handler sits on the US cartridges (BtlGfx_00 to BtlGfx_0d); the table must
@@ -164,7 +168,7 @@ struct RoutineOpening {
     std::size_t length;
 };
 // Each routine's first instruction, as the cartridge holds it.
-inline constexpr std::array<RoutineOpening, 58> kOpenings{{
+inline constexpr std::array<RoutineOpening, 59> kOpenings{{
     {"Battle_ext", kBattleExt, {0x4C, 0x0C, 0x00, 0x00}, 3},                         // jmp BattleMain
     {"BattleMain", kBattleMain, {0x08, 0xE2, 0x30, 0x00}, 3},                        // php; shortai
     {"InitRAM", kInitRam, {0x7B, 0xA2, 0x5F, 0x9D}, 4},                              // tdc; ldx #$5f; sta
@@ -174,6 +178,7 @@ inline constexpr std::array<RoutineOpening, 58> kOpenings{{
     {"TerminateBattle's return", kTerminateBattleReturn, {0x28, 0x6B, 0x00, 0x00}, 2},  // plp; rtl
     {"UpdateBattleTime_ext", kUpdateBattleTimeExt, {0x4C, 0x1B, 0x11, 0x00}, 3},     // jmp UpdateBattleTime
     {"CreateAction's copy of the targets", kCreateActionTargetsCopy, {0xA5, 0xB8, 0x99, 0x20, 0x35}, 5},  // lda $b8; sta $3520,y
+    {"Magic's undodgeable bit after its battle event", kMagicEventUndodgeable, {0xA9, 0x20, 0x0C, 0xA4, 0x11}, 5},  // lda #$20; tsb $11a4
     {"CalcMagicDmg", kCalcMagicDmg, {0xAD, 0xAF, 0x11, 0x00}, 3},    // lda $11af
     {"CalcDmg", kCalcDmg, {0xAD, 0xA2, 0x11, 0x00}, 3},              // lda $11a2
     {"RelicDmgEffect", kRelicDmgEffect, {0x08, 0xAD, 0xA4, 0x11}, 4},  // php; lda $11a4

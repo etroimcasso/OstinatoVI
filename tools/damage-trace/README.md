@@ -679,9 +679,15 @@ A status is laid with what its set handler leaves beside its bit (`SetStatusTbl`
 `drawStartScenario()`, then each member seated Berserk or Muddled (laid at the first step), Umaro, or a
 member whose menu opens and is never answered, or a colosseum match. A Berserk member holds Rage among
 their commands now and then, and a Muddled one Rage or Dance, so the battle's own choosers begin a rage or
-a dance for them. The party's HP is cut now and then and every monster's HP is cut, the frame model is
-`drawPresentationModel()`'s with a story countdown now and then, and one battle in eight holds the run
-buttons from a drawn frame. `battleReached()` names the rows of its reach table (`battleReachRows()`) a
+a dance for them. One battle in two seats Shadow, free to walk off at a win (`BattleStart::shadowAvailable`
+set, the switch that keeps him clear), with every member Berserk and the monsters' HP cut further. The
+party's HP is cut now and then and every monster's HP is cut. The frame model is `drawPresentationModel()`'s,
+and one with no story countdown of its own is given one running out between frames 8,000 and 12,000, so
+every drawn battle ends inside the frame cap; the drawn battle switches have the field's countdown already
+run out (`$1DD1` bit 5, which ends a battle at its first end check) one battle in eight. One battle in eight
+holds the run buttons from a drawn frame. A battle with a Muddled member holds no Chain Saw: its roll reads
+the random numbers' table at a sixteen-bit position (`Rand` `:12378-12384` with the index registers wide,
+from `ToolsEffect_03` `:7127`), which the port does not reproduce. `battleReached()` names the rows of its reach table (`battleReachRows()`) a
 checked battle took: the part each member took — Berserk, Muddled, dancing, raging, Umaro, a member whose
 menu is never answered, the colosseum — and how it ended — won, lost, fled, a final stage scrolled on, Gau
 turning up, Shadow walking off, a story countdown running out, or an ending a battle event or the story
@@ -708,6 +714,15 @@ such a slot must be one whose targets the state leaves out; one whose targets ar
 check, naming the slot and its command. Any other carried read of `$B8` or `$B9` fails the carried-read
 gate.
 
+A second rule holds one carried read of the attack's third flags byte, `$11A4`. Magic, cast by Terra while
+battle switch 65 calls for her event, queues battle event `$06` and then sets the undodgeable bit in
+whatever the last record left (`lda #$20; tsb $11a4` at `$C2:175A`, `:3671-3672`); the spell's own record
+replaces the byte before anything reads it (`InitCmdTarget` `:4150-4152`, `LoadMagicProp` `:6858-6868`). An
+escape there marks the next read of `$11A4` as the `tsb`'s, and that read, carried or not, is passed. Any
+other carried read of `$11A4` fails the gate. A battle can be run with cells written into the cartridge's
+side at a step's frame wait (`BattleScenario::cartridgeWrites`), so a rule like this one is proved by two
+runs with the cell set two ways, each agreeing with the port to the end.
+
 `wholeBattleInOneCall(scenario)` runs the same battle as one call of `Battle_ext`, with the same answers,
 frames and frame waits. A battle short enough for one call gives the same graphics calls, steps and end
 as the stepped run, which is how the steps are proved to add up to the whole; a longer one is abandoned
@@ -718,7 +733,9 @@ the frame each step is reached on, the requests made since the step before, name
 (`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
 (`compareBattleState()`) with the write-set gate over the step's writes, the carried-read gate over its
 carried reads against the step before's state and the copy rule above, then whether either side ran past
-the frame cap, the steps' count, the end and what the game keeps. A step's carried reads pass the rows of
+the frame cap, the steps' count, the end, what the game keeps, and the last three places of the items
+obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
+battle closes), every byte. A step's carried reads pass the rows of
 `kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). A record a party member seated at some step came from keeps the HP and MP boosts its equipment
 gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the record
 (`UpdateEquip` `:2349-2362`); every other record keeps the boosts it came in with. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
@@ -729,7 +746,8 @@ from the step before's, so a ring is laid where the cartridge's stood at that st
 counts, that a script's frames come from its place and number 1 to 12, that the first fight called a step
 at a time adds up to the same fight called once, and the first fight in Narshe, from its written scenario
 with the measured opening, run to its end with `checkBattle()` showing no difference: 7,012 loop steps over
-7,444 frames.
+7,444 frames. It also runs the sweep's first drawn battle handed a tail of the items obtained no item's
+record could fill, and checks that both sides hand back every byte of it.
 
 ### The whole state compared
 
@@ -746,8 +764,10 @@ monster cannot be run from), the field's flags at `$11E4`, each battler's flags 
 `$3205` and `$3E4C` whole, the reach cells, each seated member's record with the HP and MP boosts its
 equipment gives in the top bits of its maximums, and the final battle's line with each place a stage
 took from holding `$FF` — and leaves out the cells no field decides: the hands and control menus of a
-slot with none, what a battler was last hit with before it has been hit, the special attack of a
-battler with no monster, the places of a line's ring outside the line. It also lays the party played
+slot with none, what a battler was last hit with before it has been hit, the places of a line's ring
+outside the line. Every battler's special attack (`$322D,x`) and the monster it is named for
+(`$33A8-$33A9,x`, `$FFFF` for a battler with no monster and no rage, read by `ShowAttackName_06`
+`:8745-8747`) are laid and compared. It also lays the party played
 (`$1A6D`) and each record's party byte (`$1850-$185F`), which Gau's joining reads and writes. A cell two
 writers lay differently at a bit with meaning is a line of its own.
 

@@ -84,10 +84,11 @@ struct BattleStart {
     // BattleState::frameCount counts on from it, and battle time's first update waits on it.
     std::uint8_t frameCount = 0;
 
-    // The last three places of the items the party comes away with, which no battle's start empties:
-    // what the last battle handed back (BattleResult::itemsObtainedTail), or on a console just
-    // switched on itemsObtainedTailAtPowerOn() (battle/items_obtained.h). Empty by default.
-    ItemsObtainedTail itemsObtainedTail{};
+    // The last three places of the items the party comes away with, which no battle's start empties,
+    // as five-byte records: what the last battle handed back (BattleResult::itemsObtainedTail), on a
+    // console just switched on itemsObtainedTailAtPowerOn() (battle/items_obtained.h), or whatever
+    // bytes another program has left there. Empty by default.
+    ItemsObtainedTail itemsObtainedTail = kEmptyItemsObtainedTail;
 };
 
 // What the game keeps from a battle.
@@ -110,9 +111,10 @@ struct BattleResult {
     // Gau leapt: he has left the party and is no longer one of the characters the party can field.
     bool gauLeftParty = false;
 
-    // The last three places of the items the party comes away with, as the battle leaves them: the
-    // next battle starts with them (BattleStart::itemsObtainedTail).
-    ItemsObtainedTail itemsObtainedTail{};
+    // The last three places of the items the party comes away with, as the battle leaves them, every
+    // bit of a place the battle did not touch as it came in: the next battle starts with them
+    // (BattleStart::itemsObtainedTail).
+    ItemsObtainedTail itemsObtainedTail = kEmptyItemsObtainedTail;
 };
 
 // The battle the field asks for, ready for its first frame.

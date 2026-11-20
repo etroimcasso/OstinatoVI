@@ -25,7 +25,7 @@ void expectTheCartridgesTail(const Cartridge& cartridge, const battle::ItemsObta
     }
     const battle::ItemsObtainedTail guest = cartridge.oracle().itemsObtainedTailAtPowerOn();
     for (std::size_t place = 0; place < guest.size(); ++place) {
-        EXPECT_EQ(battle::recordOf(guest[place]), battle::recordOf(port[place])) << place;
+        EXPECT_EQ(guest[place], port[place]) << place;
     }
 }
 
@@ -36,12 +36,12 @@ TEST_F(BattleEndOracleTest, TheLastThreePlacesAtPowerOnAreThreeItemsInNumbersPas
     ASSERT_NE(content.routines, nullptr);
     const battle::ItemsObtainedTail port = battle::itemsObtainedTailAtPowerOn(
         content.routines->decompress(assets::compressedStream(content.titleProgram)));
-    EXPECT_EQ(port[0].item, ItemId::THIEFKNIFE);
-    EXPECT_EQ(port[0].quantity, 108);
-    EXPECT_EQ(port[1].item, ItemId::SILK_ROBE);
-    EXPECT_EQ(port[1].quantity, 112);
-    EXPECT_EQ(port[2].item, ItemId::EXCALIBUR);
-    EXPECT_EQ(port[2].quantity, 136);
+    EXPECT_EQ(battle::itemIn(port[0]), ItemId::THIEFKNIFE);
+    EXPECT_EQ(battle::quantityIn(port[0]), 108);
+    EXPECT_EQ(battle::itemIn(port[1]), ItemId::SILK_ROBE);
+    EXPECT_EQ(battle::quantityIn(port[1]), 112);
+    EXPECT_EQ(battle::itemIn(port[2]), ItemId::EXCALIBUR);
+    EXPECT_EQ(battle::quantityIn(port[2]), 136);
     withCartridge(image(), [&](const Cartridge& cartridge) { expectTheCartridgesTail(cartridge, port); });
 }
 

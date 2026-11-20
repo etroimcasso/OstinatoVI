@@ -64,8 +64,6 @@ constexpr std::uint32_t kPartyMemberBit = kWorkRam + 0x3A20;
 constexpr std::uint32_t kEndingFlags = kWorkRam + 0x00B1;
 // The record the battle program hands an item to the graphics program in.
 constexpr std::uint32_t kItemHandedOver = kWorkRam + 0x2E72;
-// The four equipment-changed flags, one per party slot.
-constexpr std::uint32_t kEquipmentChangedFlags = 4;
 // The party slots' bits of the byte marking who holds an item.
 constexpr std::uint8_t kHoldingItemBits = 0x0F;
 // Per party slot at twice the slot: the party member's actor and record (a byte each, none
@@ -116,6 +114,26 @@ std::array<battle::BattleItem, N> itemsOf(std::span<const std::uint8_t> bytes) {
         items[i] = battle::battleItemFromRecord(bytes.subspan(i * kRecordBytes).first<battle::kItemRecordBytes>());
     }
     return items;
+}
+
+// The places of the items obtained, as the cartridge holds them: every byte of each record.
+template <std::size_t N>
+std::vector<std::uint8_t> recordsOf(const std::array<battle::ItemRecord, N>& places) {
+    std::vector<std::uint8_t> bytes;
+    bytes.reserve(N * kRecordBytes);
+    for (const battle::ItemRecord& place : places) {
+        bytes.insert(bytes.end(), place.begin(), place.end());
+    }
+    return bytes;
+}
+
+template <std::size_t N>
+std::array<battle::ItemRecord, N> placesOf(std::span<const std::uint8_t> bytes) {
+    std::array<battle::ItemRecord, N> places{};
+    for (std::size_t i = 0; i < N; ++i) {
+        std::copy_n(bytes.begin() + static_cast<std::ptrdiff_t>(i * kRecordBytes), kRecordBytes, places[i].begin());
+    }
+    return places;
 }
 
 // The endings among kSnapshotRoutines, closed by the oracle when it calls one itself.
@@ -198,7 +216,7 @@ void DamageOracle::writeItemsObtained(const battle::ItemsObtained& list) {
 battle::ItemsObtained DamageOracle::readItemsObtained() {
     const std::vector<std::uint8_t> bytes = machine_.read(retropp::MemoryRegion{
         .at = kItemsObtainedRecords, .size = static_cast<std::uint32_t>(battle::kItemsObtainedPlaces * kRecordBytes)});
-    return battle::ItemsObtained{.entries = itemsOf<battle::kItemsObtainedPlaces>(bytes),
+    return battle::ItemsObtained{.entries = placesOf<battle::kItemsObtainedPlaces>(bytes),
                                  .added = readByte(kItemsAdded),
                                  .merged = readByte(kItemsMerged)};
 }
@@ -218,7 +236,7 @@ ItemsObtainedResult DamageOracle::callItemsObtained(const ItemsObtainedScenario&
     writeItemsObtained(scenario.list);
     writeInventory(scenario.inventory);
     const battle::BattleState noParty;
-    const battle::ItemRecord record = battle::recordOf(battle::battleItem(noParty, scenario.item, scenario.quantity));
+    const battle::ItemRecord record = battle::itemRecordFor(noParty, scenario.item, scenario.quantity);
     writeBytes(retropp::MemoryRegion{.at = kItemHandedOver, .size = kRecordBytes}, record);
     graphicsCommand(command);
     return ItemsObtainedResult{.list = readItemsObtained(), .inventory = readInventory()};
@@ -247,7 +265,7 @@ battle::ItemsObtainedTail DamageOracle::readItemsObtainedTail() {
     const std::vector<std::uint8_t> bytes = machine_.read(retropp::MemoryRegion{
         .at = kItemsObtainedTailRecords,
         .size = static_cast<std::uint32_t>(battle::kItemsObtainedTailPlaces * kRecordBytes)});
-    return itemsOf<battle::kItemsObtainedTailPlaces>(bytes);
+    return placesOf<battle::kItemsObtainedTailPlaces>(bytes);
 }
 
 void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
@@ -261,13 +279,13 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
         writeWord(kPartyMemberBit + at, member.equipsAs.bits());
         writeByte(kItemInHand + at, member.itemInHand ? static_cast<std::uint8_t>(*member.itemInHand) : kNoOne);
         writeByte(kMorphMeterShown + at, member.morphGauge);
+        // Whether the member's equipment is to be worked out again (Imp on or off, a Rage come off).
+        writeByte(kEquipmentChanged + static_cast<std::uint32_t>(position), member.equipmentChanged ? 1 : 0);
     }
     writeByte(kHoldingItem, state.holdingItem.characters.bits);
     writeByte(kMorphedPartyMember, state.morphedBattler ? static_cast<std::uint8_t>(slotIndex(*state.morphedBattler)) : kNoOne);
     writeWord(kMorphMeter, state.morphCounter);
     writeByte(kEndingFlags, state.menusDisabled ? kMenusClosedBit : 0);
-    const std::array<std::uint8_t, kEquipmentChangedFlags> unchanged{};
-    writeBytes(retropp::MemoryRegion{.at = kEquipmentChanged, .size = kEquipmentChangedFlags}, unchanged);
     writeInventory(state.inventory.items);
     writeItemsObtained(state.itemsObtained);
 

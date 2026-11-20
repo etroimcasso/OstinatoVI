@@ -280,6 +280,11 @@ loadMonster(state, executor, BattlerSlot::monster(0), MonsterId::LOBO, cartridge
 state.at(BattlerSlot::monster(0)).stamina;   // 16 + max HP / 512, at most 40
 ```
 
+A battler no monster's record has loaded — a party member, an empty monster slot — starts with
+`kNoMonsterSpecialAttack` as its `specialAttack`: no damage, cannot be dodged, Reflect lifted. A Rage
+or a caught Sketch replaces it ([commands.md](commands.md#sketch-rage-and-control)); nothing restores it
+when a Rage ends.
+
 ### A formation change mid-battle
 
 `changeFormation(state, executor, formation, hp, text, sprites)` fights another formation from

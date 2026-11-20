@@ -508,8 +508,12 @@ bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& com
             } else if constexpr (std::is_same_v<T, CommandNameShown>) {
                 return name(kCommandNameKind, static_cast<std::uint8_t>(c.command));
             } else if constexpr (std::is_same_v<T, MonsterSpecialAttackNameShown>) {
+                // An attacker with no monster and no rage has no name to show.
+                if (!c.monster) {
+                    return false;
+                }
                 std::vector<MessageStep> steps;
-                addLetters(steps, context.text.monsterSpecialName(c.monster), languageOf(battle));
+                addLetters(steps, context.text.monsterSpecialName(*c.monster), languageOf(battle));
                 shown.message = startMessage(MessageWindow::Narrow, std::move(steps), false, kSpecialAttackNameFrames);
                 return true;
             } else if constexpr (std::is_same_v<T, BattleMessage>) {

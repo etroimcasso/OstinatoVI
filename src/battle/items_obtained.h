@@ -21,6 +21,11 @@
 // the inventory. A console just switched on holds itemsObtainedTailAtPowerOn() there. A later stage
 // of the final battle keeps the whole list.
 //
+// A place is the cartridge's five-byte record (ItemRecord). Between battles other programs write over
+// the last three, so they can hold bytes no item's record holds; a battle that does not touch them
+// hands them back exactly as it was handed them. A merge reads a place into an inventory slot as a
+// BattleItem (battleItemFromRecord()), which keeps what an item's record can say.
+//
 // The behavior, and the line in the original each rule comes from, is specified in
 // docs/contracts/battle_rewards.md.
 #pragma once
@@ -47,16 +52,55 @@ inline constexpr std::size_t kItemsObtainedEmptiedPlaces = kItemsObtainedPlaces 
 // The most of one item the party holds once a merge has added to it.
 inline constexpr std::uint8_t kMostOfOneItem = 99;
 
+// --- the cartridge's form of a place ----------------------------------------------------------
+
+// A place, an inventory slot and the item a battle works out are each five bytes on the cartridge:
+// the item; its flags (0x80 not usable in battle, 0x40 a tool, 0x20 throwable, 0x10 a weapon, 0x08 a
+// shield); its targeting; its quantity; and one bit per party slot, set where that party member
+// cannot hold it in a hand.
+inline constexpr std::size_t kItemRecordBytes = 5;
+using ItemRecord = std::array<std::uint8_t, kItemRecordBytes>;
+
+// An empty place, as a battle's start empties one: every byte 0xFF.
+inline constexpr ItemRecord kEmptyItemRecord{0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+// Where a record keeps its item and how many of it.
+inline constexpr std::size_t kRecordItemByte = 0;
+inline constexpr std::size_t kRecordQuantityByte = 3;
+
+// The item a record holds, and how many of it.
+[[nodiscard]] constexpr ItemId itemIn(const ItemRecord& record) { return static_cast<ItemId>(record[kRecordItemByte]); }
+[[nodiscard]] constexpr std::uint8_t quantityIn(const ItemRecord& record) { return record[kRecordQuantityByte]; }
+
+[[nodiscard]] BattleItem battleItemFromRecord(std::span<const std::uint8_t, kItemRecordBytes> record);
+// The record for `item`. The fifth byte's high four bits, which nothing here reads, are 0.
+[[nodiscard]] ItemRecord recordOf(const BattleItem& item);
+// The record the battle works out for `quantity` of `item`, for the party in `state`, every byte as the
+// cartridge makes it: battleItem()'s, with the fifth byte 0xFF for an item of a type no hand check is
+// made for (LoadItemProp battle_main.asm:13989-13990, :14016-14020).
+[[nodiscard]] ItemRecord itemRecordFor(const BattleState& state, ItemId item, std::uint8_t quantity);
+
+// `count` empty places.
+template <std::size_t count>
+[[nodiscard]] constexpr std::array<ItemRecord, count> emptyItemRecords() {
+    std::array<ItemRecord, count> places{};
+    places.fill(kEmptyItemRecord);
+    return places;
+}
+
 struct ItemsObtained {
-    // Each place holds one item and how many; a place whose item is ItemId::EMPTY is empty, and
-    // nothing else in it is read.
-    std::array<BattleItem, kItemsObtainedPlaces> entries{};
+    // Each place holds one item's record; a place whose item is ItemId::EMPTY is empty, and nothing
+    // else in it is read.
+    std::array<ItemRecord, kItemsObtainedPlaces> entries = emptyItemRecords<kItemsObtainedPlaces>();
     std::uint8_t added = 0;   // items added this battle, counting on past 255 from 0
     std::uint8_t merged = 0;  // places merged this battle, counting on the same way
 };
 
-// The last three places, as a battle takes them in and hands them back.
-using ItemsObtainedTail = std::array<BattleItem, kItemsObtainedTailPlaces>;
+// The last three places, as a battle takes them in and hands them back: every bit of each record kept.
+using ItemsObtainedTail = std::array<ItemRecord, kItemsObtainedTailPlaces>;
+
+// Three empty places, the tail a battle is handed when no one has said otherwise.
+inline constexpr ItemsObtainedTail kEmptyItemsObtainedTail = emptyItemRecords<kItemsObtainedTailPlaces>();
 
 // The list as a battle starts: both counts at 0, the first thirteen places empty, and `tail` in the
 // last three.
@@ -70,21 +114,8 @@ using ItemsObtainedTail = std::array<BattleItem, kItemsObtainedTailPlaces>;
 void obtainItem(BattleState& state, ItemId item, std::uint8_t quantity);
 
 // Merge the list into state.inventory, from place `merged % 16` on, until an empty place or a full
-// inventory stops it.
+// inventory stops it. A merged place keeps every byte but its item, which becomes ItemId::EMPTY.
 void mergeItemsObtained(BattleState& state);
-
-// --- the cartridge's form of a place ----------------------------------------------------------
-
-// A place, an inventory slot and the item a battle works out are each five bytes on the cartridge:
-// the item; its flags (0x80 not usable in battle, 0x40 a tool, 0x20 throwable, 0x10 a weapon, 0x08 a
-// shield); its targeting; its quantity; and one bit per party slot, set where that party member
-// cannot hold it in a hand.
-inline constexpr std::size_t kItemRecordBytes = 5;
-using ItemRecord = std::array<std::uint8_t, kItemRecordBytes>;
-
-[[nodiscard]] BattleItem battleItemFromRecord(std::span<const std::uint8_t, kItemRecordBytes> record);
-// The record for `item`. The fifth byte's high four bits, which nothing here reads, are 0.
-[[nodiscard]] ItemRecord recordOf(const BattleItem& item);
 
 // What the last three places hold on a console just switched on: three records out of
 // `titleProgram`, the cartridge's title and cutscene program decoded (RomAsset::CUTSCENE through the

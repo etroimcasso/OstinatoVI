@@ -38,6 +38,7 @@
 #include "ostinato/item_id.h"
 #include "ostinato/status_id.h"
 
+#include "cells/damage/frame.h"
 #include "cells/damage/per_target.h"
 #include "cells/status/effects.h"
 #include "scenarios/common/bytes.h"
@@ -139,7 +140,8 @@ std::string portScriptText(const std::vector<battle::BattleScriptCommand>& comma
                 } else if constexpr (std::is_same_v<T, battle::CommandNameShown>) {
                     text += "name 5 " + std::to_string(static_cast<std::uint8_t>(c.command));
                 } else if constexpr (std::is_same_v<T, battle::MonsterSpecialAttackNameShown>) {
-                    text += "monster name " + std::to_string(static_cast<std::uint16_t>(c.monster));
+                    text += "monster name " +
+                            std::to_string(c.monster ? static_cast<std::uint16_t>(*c.monster) : cells::kNoMonsterNamed);
                 } else if constexpr (std::is_same_v<T, battle::BattleMessage>) {
                     text += "message " + std::to_string(c.message);
                 } else if constexpr (std::is_same_v<T, battle::PoseReset>) {

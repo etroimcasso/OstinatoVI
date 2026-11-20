@@ -133,6 +133,13 @@ per party slot, set where that party member cannot hold it (`:14021-14033`: `sec
 `$ff` for a type that is never held. The port's `BattleItem` holds each of these
 (`battleItemFromRecord()`, `recordOf()`); the flags' low three bits, which `LoadItemProp` never sets, and
 the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records) has the same form.
+The list's places are the records themselves (`ItemRecord`, every byte), an item obtained written as
+`LoadItemProp` makes its record (`itemRecordFor()`: the fifth byte `$ff` for a type no hand check is made
+for, `:13989-13990`, `:14016-14020`, which `recordOf()` of a `BattleItem` cannot say): places 13-15 are other programs'
+between battles (8. below), so they can hold bytes no record holds, and a battle hands back what it does
+not touch as it was handed. A merge reads a place into an inventory slot as a `BattleItem`, so a slot
+filled from a place no record made keeps what a `BattleItem` holds; what the battle menus read of the
+rest is the menus' own.
 
 1. **Adding — `BtlGfx_05 G:357-373`.** The record is copied to place `added & 15` of a sixteen-place list
    (`w7e602d`, five bytes a place, `btlgfx_ram.inc:97`) and `added` (`w7e64da`) goes up by one, wrapping
@@ -156,8 +163,8 @@ the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records
      place's five bytes are copied into it — the quantity as it is, past 99 too. With no empty slot the
      merge ends there: the place keeps its item and `merged` does not move (`bcs @44a1`, `G:9469-9470`).
 
-   Then the place's item becomes `$ff`, `merged` goes up by one, and the next place is tried. A place whose
-   item is `$ff` is empty: nothing else in it is read.
+   Then the place's item becomes `$ff` — its other four bytes stay — `merged` goes up by one, and the next
+   place is tried. A place whose item is `$ff` is empty: nothing else in it is read.
 5. **Who merges**: the wrap-up (§ C.6), each drop and the colosseum's prize (`_c26279 :16085-16091`, which
    adds and merges at once), and a party member's battle menu opening (`_c144a2 G:9500-9512`, from
    `_c102ca G:548-568`).

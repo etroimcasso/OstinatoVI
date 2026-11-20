@@ -11,6 +11,7 @@
 
 #include "retropp/memory_region.h"
 
+#include "cells/battle/state.h"
 #include "cells/damage/per_target.h"
 #include "cells/status/effects.h"
 #include "oracle/routines.h"
@@ -135,8 +136,14 @@ void DamageOracle::noteGuestAccess(std::uint32_t cell, std::uint8_t value, bool 
         }
         CartridgeStep& pending = whole_->pending;
         const bool copiedCarried = !answering_ && noteTargetsCopy(cell, value, write);
-        if (copiedCarried) {
-            // The copy's read of a carried byte: held by the copy rule, not the carried-read gate.
+        // Magic's tsb into $11A4 after its battle event: its read, carried or not, reaches nothing.
+        const bool magicEventUndodgeable =
+            !answering_ && !write && magicEventUndodgeablePending_ && cell == cells::kAttackRecordFlags3;
+        if (magicEventUndodgeable) {
+            magicEventUndodgeablePending_ = false;
+        }
+        if (copiedCarried || magicEventUndodgeable) {
+            // The copy's read of a carried byte, held by the copy rule; or Magic's tsb's, passed by its rule.
         } else if (write) {
             writtenSincePoint_.insert(cell);
             if (!answering_) {

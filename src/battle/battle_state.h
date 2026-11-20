@@ -192,6 +192,13 @@ struct AiResume {
 // Every status, for a battler that can be given any of them.
 inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 
+// The special attack of a battler no monster's record has given one: it deals no damage, cannot be
+// dodged and lifts Reflect (the battle's start leaves every bit of the byte set, InitBattle
+// :6061-6067; CalcAttackEffect :8185-8235 reads it). A monster's load, a Rage and a caught Sketch
+// replace it. A party member makes it when a scripted battle's AI gives it the Special attack.
+inline constexpr MonsterSpecialAttack kNoMonsterSpecialAttack =
+    MonsterSpecialAttack::removeReflect(13).withCantDodge().withNoDamage();
+
 // The last time a battler was hit with something: who did it, and with what.
 template <typename T>
 struct Hit {
@@ -324,7 +331,9 @@ struct Battler {
     std::uint16_t experience = 0;
     std::uint16_t gold = 0;
     MetamorphInfo metamorph{};
-    MonsterSpecialAttack specialAttack{};
+    // The attack it makes with the Special attack: its monster's, its rage's or a caught sketch's,
+    // and kNoMonsterSpecialAttack until one of them gives it one.
+    MonsterSpecialAttack specialAttack = kNoMonsterSpecialAttack;
     MonsterAttackAnimation specialAttackAnimation{};
 
     // --- a party member's equipment -----------------------------------------------------------
@@ -443,7 +452,10 @@ struct ActionScratch {
     bool countersEnabled = true;                    // something in the action can disable them
     std::optional<BattlerSlot> interceptorGuarding; // the character Interceptor stepped in for
     BattlerSet blackBeltEligible;                   // characters a Black Belt may counter for
-    BattlerSet finalTargets;                        // who the action ended up hitting
+    // The targets the action's attacks were last aimed at, as the attack frame remembers them
+    // (AttackInFlight::scratch.currentTargets): none for a command that made no attack, such as a spell
+    // an Imp could not cast. Mimic remembers them with the command.
+    BattlerSet finalTargets;
 };
 
 // What the battle remembers for Mimic.

@@ -44,8 +44,8 @@ std::string differences(const StartScenario& a, const StartScenario& b) {
     field("play clock's frames", x.playTimeFrames, y.playTimeFrames);
     field("frame count", x.frameCount, y.frameCount);
     for (std::size_t place = 0; place < x.itemsObtainedTail.size(); ++place) {
-        const battle::ItemRecord ours = battle::recordOf(x.itemsObtainedTail[place]);
-        const battle::ItemRecord theirs = battle::recordOf(y.itemsObtainedTail[place]);
+        const battle::ItemRecord& ours = x.itemsObtainedTail[place];
+        const battle::ItemRecord& theirs = y.itemsObtainedTail[place];
         for (std::size_t byte = 0; byte < ours.size(); ++byte) {
             const std::string name = "items obtained tail " + std::to_string(place) + " byte " + std::to_string(byte);
             field(name.c_str(), ours[byte], theirs[byte]);

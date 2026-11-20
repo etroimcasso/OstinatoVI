@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
+#include <random>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -22,13 +23,17 @@
 #include <vector>
 
 #include "assets/cartridge.h"
+#include "battle/items_obtained.h"
 #include "machine/machine_state.h"
 #include "oracle/damage_oracle.h"
+#include "ostinato/item_id.h"
 #include "retropp/guest_escape.h"
 #include "retropp/snes.h"
 #include "retropp/vm.h"
+#include "scenarios/battle/battle_draw.h"
 #include "scenarios/battle/presentation_model.h"
 #include "scenarios/battle/whole_battle.h"
+#include "scenarios/damage/damage.h"
 #include "vanilla_rom.h"
 #include "with_cartridge.h"
 
@@ -233,6 +238,28 @@ TEST_F(BattleWholeOracleTest, TheFirstFightIsThePorts) {
         EXPECT_EQ(check.differences, "");
         EXPECT_TRUE(check.cartridge.ended);
         EXPECT_FALSE(check.cartridge.timedOut);
+    });
+}
+
+// The last three places of the items obtained are other programs' between battles
+// (docs/contracts/battle_rewards.md § D.8): a battle that touches none of them hands back every bit it was
+// handed. The sweep's first drawn battle, handed places no item's record could fill — flags bits no record
+// sets ($07) and a fifth byte's high four ($F0).
+TEST_F(BattleWholeOracleTest, ATailNoRecordCouldFillIsHandedBackAsItCame) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    constexpr battle::ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
+    const battle::ItemsObtainedTail handed{kNoRecordSaysThis, battle::kEmptyItemRecord, kNoRecordSaysThis};
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        std::mt19937 rng{trace::kSweepSeed};
+        trace::BattleScenario scenario = trace::drawBattleScenario(rng, content().text, content().monsterSprites);
+        scenario.start.start.itemsObtainedTail = handed;
+        const trace::BattleCheck check = oracle.checkBattle(scenario);
+        EXPECT_EQ(check.differences, "") << trace::describe(scenario);
+        EXPECT_EQ(check.cartridge.itemsObtainedTail, handed);
+        ASSERT_TRUE(check.port.result.has_value());
+        EXPECT_EQ(check.port.result->itemsObtainedTail, handed);
     });
 }
 

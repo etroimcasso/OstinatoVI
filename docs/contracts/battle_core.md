@@ -309,8 +309,12 @@ counter's high byte are cleared, and it **steps back** (`StepBack`, a script the
 
 **Mimic remembers** a party member's command when the command table marks it as copyable
 (`SaveForMimic` `:333-368`): X-Magic is remembered as the second spell; anything else is remembered as
-the last command, with the targets it ended up hitting, and clears the second spell. A monster's
-command is never remembered.
+the last command, and clears the second spell. The targets remembered with it are `$3a30`, the targets
+the command's attacks were last aimed at: every command starts with none (`ExecCmd` `:3093`,
+`InitGfxScript` `:6346`) and each attack's aiming sets them unless its targets are drawn at random
+(`_c23865` `:9068-9081`, from `FightAttack` `:3454`, `CalcAttackEffect` `:8160` and Runic `:8493`). A command
+that makes no attack — a spell an Imp cannot cast, which fizzles before its aiming — is remembered with
+no targets. A monster's command is never remembered.
 
 ### Starting the advance wait
 
@@ -673,7 +677,13 @@ allows), the party, the battle switches and the game's text, in the original's o
    ATB rate are left pending — its menu after Morph too, for a morphed battler (`:6097-6106`).
    Every battler starts **waiting to answer, with no last attacker**: `:6061-6067` fill
    `$2000-$341f` with `$ff`, so each last-attacker mark (`$32e0,x`) has its top bit set and names no
-   battler (`Battler::retaliationPending`, `lastAttacker` empty).
+   battler (`Battler::retaliationPending`, `lastAttacker` empty). The same fill is every battler's
+   **special attack** until a monster's record, a Rage or a caught Sketch writes it (`$322d,x`;
+   `LoadRageProp :7506-7507`, `Cmd_0d :3312-3313`): no damage, cannot be dodged, Reflect lifted
+   (`CalcAttackEffect :8195-8224`; `kNoMonsterSpecialAttack`). The monster it is named for
+   (`$33a8-$33a9,x`) is `$ffff` until a monster's load or a Rage writes it (`ShowAttackName_06
+   :8742-8748`; `MonsterSpecialAttackNameShown::monster` empty). A party member makes that attack when a
+   scripted battle's AI has it use the Special attack: the Sealed Gate's Kefka (`docs/Bugs.md`).
 7. The party is loaded (above), then the battle inventory and the known skills.
 8. The monsters (below).
 9. The statuses waiting to be set are put on (`executor.applyStatusChanges`); the after-command

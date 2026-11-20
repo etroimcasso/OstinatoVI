@@ -57,6 +57,13 @@ BattleItem itemOf(ItemId id, std::uint8_t quantity) {
     return battle::battleItem(noParty, id, quantity);
 }
 
+// A place of the list holding that item's record.
+battle::ItemRecord placeOf(ItemId id, std::uint8_t quantity) { return battle::recordOf(itemOf(id, quantity)); }
+
+// A place no item's record could fill: flags bits no record sets ($07) and the fifth byte's high four
+// ($F0), as another program can leave the last three places between battles.
+constexpr battle::ItemRecord kNoRecordSaysThis{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
+
 // --- where the routines are ----------------------------------------------------------------------
 
 TEST_F(BattleEndOracleTest, TheRoutinesAreWhereTheUsCartridgesHoldThem) {
@@ -113,8 +120,8 @@ TEST_F(BattleEndOracleTest, TheListByHand) {
             inventory[0] = itemOf(ItemId::POTION, 98);
             inventory[1] = itemOf(ItemId::ETHER, 200);
             battle::ItemsObtained list;
-            list.entries[0] = itemOf(ItemId::POTION, 5);
-            list.entries[1] = itemOf(ItemId::ETHER, 100);
+            list.entries[0] = placeOf(ItemId::POTION, 5);
+            list.entries[1] = placeOf(ItemId::ETHER, 100);
             expectAgreement(oracle, merging(inventory, list), "the 99 cap and the low byte");
         }
         {
@@ -122,7 +129,7 @@ TEST_F(BattleEndOracleTest, TheListByHand) {
             std::array<BattleItem, game::kInventorySlots> inventory{};
             inventory[1] = itemOf(ItemId::POTION, 1);
             battle::ItemsObtained list;
-            list.entries[0] = itemOf(ItemId::THIEFKNIFE, 108);
+            list.entries[0] = placeOf(ItemId::THIEFKNIFE, 108);
             expectAgreement(oracle, merging(inventory, list), "a new item whole");
         }
         {
@@ -130,8 +137,8 @@ TEST_F(BattleEndOracleTest, TheListByHand) {
             std::array<BattleItem, game::kInventorySlots> inventory{};
             inventory.fill(itemOf(ItemId::TONIC, 1));
             battle::ItemsObtained list;
-            list.entries[0] = itemOf(ItemId::POTION, 1);
-            list.entries[1] = itemOf(ItemId::TONIC, 1);
+            list.entries[0] = placeOf(ItemId::POTION, 1);
+            list.entries[1] = placeOf(ItemId::TONIC, 1);
             expectAgreement(oracle, merging(inventory, list), "a full inventory");
         }
         {
@@ -139,11 +146,21 @@ TEST_F(BattleEndOracleTest, TheListByHand) {
             std::array<BattleItem, game::kInventorySlots> inventory{};
             inventory[0] = itemOf(ItemId::THIEFKNIFE, 50);
             battle::ItemsObtained list = battle::itemsObtainedAtBattleStart(
-                {itemOf(ItemId::THIEFKNIFE, 108), itemOf(ItemId::SILK_ROBE, 112), itemOf(ItemId::EXCALIBUR, 136)});
-            list.entries[12] = itemOf(ItemId::POTION, 1);
+                {placeOf(ItemId::THIEFKNIFE, 108), placeOf(ItemId::SILK_ROBE, 112), placeOf(ItemId::EXCALIBUR, 136)});
+            list.entries[12] = placeOf(ItemId::POTION, 1);
             list.added = 13;
             list.merged = 12;
             expectAgreement(oracle, merging(inventory, list), "the walk past place 12");
+        }
+        {
+            // The walk past place 12 into a place no item's record could fill: the place merges as the item
+            // it names and keeps every other byte as it was.
+            battle::ItemsObtained list = battle::itemsObtainedAtBattleStart(
+                {kNoRecordSaysThis, battle::kEmptyItemRecord, battle::kEmptyItemRecord});
+            list.entries[12] = placeOf(ItemId::TONIC, 1);
+            list.added = 13;
+            list.merged = 12;
+            expectAgreement(oracle, merging({}, list), "a place no record fills");
         }
     });
 }
@@ -157,7 +174,7 @@ TEST_F(BattleEndOracleTest, TheWrapUpByHand) {
     state.at(battle::BattlerSlot::character(0)).itemInHand = ItemId::POTION;
     state.at(battle::BattlerSlot::character(2)).itemInHand = ItemId::ETHER;
     state.holdingItem.add(battle::BattlerSlot::character(0));
-    state.itemsObtained.entries[0] = itemOf(ItemId::ELIXIR, 2);
+    state.itemsObtained.entries[0] = placeOf(ItemId::ELIXIR, 2);
     state.itemsObtained.added = 1;
     state.morphedBattler = battle::BattlerSlot::character(1);
     state.morphCounter = 0x80FF;

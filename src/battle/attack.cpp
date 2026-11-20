@@ -114,7 +114,7 @@ void showAttackName(BattleState& state, BattleScriptBuilder& script, AttackInFli
         break;
     case AttackNameKind::MonsterSpecialAttack: {
         const Battler& battler = state.at(attacker);
-        script.add(MonsterSpecialAttackNameShown{.monster = battler.monster.value_or(battler.rage.value_or(MonsterId{}))});
+        script.add(MonsterSpecialAttackNameShown{.monster = battler.monster ? battler.monster : battler.rage});
         break;
     }
     case AttackNameKind::JokerDoom:

@@ -52,7 +52,12 @@ constexpr std::uint8_t kHandBits = 0x0F;
 // force on (LoadBattleProp :7973-7977, InitParty :7786-7792).
 constexpr std::uint32_t kFormationScriptFlags = kWorkRam + 0x2F49;
 constexpr std::uint8_t kScriptedSetupOnBit = 0x80;
+// An item record's flags: bits 3-7 are what LoadItemProp sets (:13987-14019); bits 0-2 it never sets,
+// and reach an inventory slot only from a place of the items obtained no record filled, which the merge
+// copies whole (_c14445 btlgfx_main.asm:9469-9479).
+constexpr std::uint8_t kItemFlagBits = 0xF8;
 // The inventory's records and the hands' (InitInventory :13911-13956), five bytes each.
+constexpr std::uint32_t kInventoryFlagBytes = kWorkRam + 0x2687;
 constexpr std::uint32_t kInventoryFifthBytes = kWorkRam + 0x268A;
 constexpr std::uint32_t kHandFifthBytes = kWorkRam + 0x2B8A;
 constexpr std::uint32_t kInventoryRecordCount = 256;
@@ -75,6 +80,9 @@ constexpr CellMeaning kCellMeanings[] = {
      .why = "the attack's first flags but bit 0, the attack's own, loaded with its record"},
     {.at = kFieldTimerFlags, .meaning = kCountdownRanOutBit,
      .why = "the field's timer flags: bit 5, a story countdown run out, is the battle's to read"},
+    {.at = kInventoryFlagBytes, .count = kInventoryRecordCount, .stride = kItemRecordStride, .meaning = kItemFlagBits,
+     .why = "the flags' low three bits, which no record sets: a slot holds them only from a merged place no record "
+            "filled, and what the battle menus read of them is theirs"},
     {.at = kInventoryFifthBytes, .count = kInventoryRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,
      .why = "above the party slots' bits, LoadItemProp's leavings, which no reader tests"},
     {.at = kHandFifthBytes, .count = kHandRecordCount, .stride = kItemRecordStride, .meaning = kHandBits,

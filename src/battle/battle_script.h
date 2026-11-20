@@ -158,9 +158,11 @@ struct CommandNameShown {
     BattleCommandId command = BattleCommandId::FIGHT;
 };
 
-// A monster's special attack, under the monster's own name for it.
+// A special attack, under the name the attacker's monster, or its rage, has for it. None for a battler
+// that is no monster and rages as none: a party member a scripted battle's AI has make the Special
+// attack.
 struct MonsterSpecialAttackNameShown {
-    MonsterId monster{};
+    std::optional<MonsterId> monster;
 };
 
 // The attack-name entry at Dispatch's index reads "Joker Doom": Bushido techniques show their

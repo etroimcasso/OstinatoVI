@@ -39,6 +39,10 @@ inline constexpr std::uint32_t kLastAttackLevel = kWorkRam + 0x11AF;
 // (UpdateEquip :2334-2339).
 inline constexpr std::uint32_t kAttackRecordFlags = kWorkRam + 0x11A2;
 inline constexpr std::uint8_t kPhysicalHitBit = 0x01;
+// The attack's third flags byte: bit 5 cannot be dodged, set over whatever the last record left by Magic's
+// queuing of the battle event `$06` (Cmd_02 :3671-3672), before the spell's own record replaces the byte
+// (InitCmdTarget :4150-4152, LoadMagicProp :6858-6868).
+inline constexpr std::uint32_t kAttackRecordFlags3 = kWorkRam + 0x11A4;
 // The gauge setting: $FF shown, 0 hidden (:6121-6123).
 inline constexpr std::uint32_t kGaugeShown = kWorkRam + 0x2021;
 inline constexpr std::uint8_t kGaugeShownByte = 0xFF;

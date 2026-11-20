@@ -203,7 +203,11 @@ void DamageOracle::writeAttackCells(const DamageScenario& scenario) {
         writeByte(kTriggers + at, triggers);
         writeByte(kSpecialAttack + at, battler.specialAttack.packed);
         writeByte(kSpecialAttackAnimation + at, static_cast<std::uint8_t>(battler.specialAttackAnimation));
-        writeWord(kNamedMonster + at, static_cast<std::uint16_t>(battler.monster.value_or(battler.rage.value_or(MonsterId{}))));
+        // The monster a special attack is named for, both bytes (ShowAttackName_06 :8742-8748): the
+        // monster, else the rage (a Rage clears the high byte, RandRage :964-965, Cmd_10 :3344-3345),
+        // else the fill.
+        const std::optional<MonsterId> named = battler.monster ? battler.monster : battler.rage;
+        writeWord(kNamedMonster + at, named ? static_cast<std::uint16_t>(*named) : kNoMonsterNamed);
         writeByte(kVigor + at, battler.vigor);
         writeByte(kMagicPower + at, battler.magicPower);
         for (const auto& [hand, place] : {std::pair{&battler.weaponHand, at}, std::pair{&battler.shieldHand, at + 1}}) {

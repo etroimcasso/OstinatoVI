@@ -78,7 +78,7 @@ of it. `replaceAnimation()` is the same.
 | `ItemNameShown` | kind 1 | the item as chosen (`$3a7d`) |
 | `EsperNameShown` | kind 2 | the esper summoned (`$b6 − $36`, `:8724-8728`) |
 | `CommandNameShown` | kind 5 | the command (`$b5`) |
-| `MonsterSpecialAttackNameShown` | kind 6 | the monster whose special-attack name is shown — a 16-bit index into `MonsterSpecialName` (`btlgfx:22712-22769`) |
+| `MonsterSpecialAttackNameShown` | kind 6 | the monster whose special-attack name is shown — a 16-bit index into `MonsterSpecialName` (`btlgfx:22712-22769`); none where the command holds `$ffff`, a battler with no monster and no rage, for which the port shows no name. |
 | `AttackAnimation` | `_c235ad` | the command the animation is shown as, the attack, the second value, and the params. A Fight swing's second byte carries the hand in bit 7 (`btlgfx:28323-28326`, "left-hand weapon flag") and its third the weapon's animation, the item index plus one (`_c2299f :6958-6960`). A command value of `$20` and up is one of the special animations of `CmdAnimTbl` (`btlgfx:27082-27121`). |
 | `BattleMessage` | `ExecAttack :8111-8127`, `CalcAttackEffect :8177-8178`, `Cmd_25 :13250-13268`, `Cmd_27 :13274-13329`, `Cmd_2a :5642-5643` | the message index; the numbers its text shows travel with it |
 | `PoseReset` | `ExecAttack :8088-8092`, `Cmd_2c :13373-13379` | the party member who goes back to standing (`btlgfx:25520-25534`) |
@@ -357,7 +357,9 @@ answer itself, ready only when the attack affects MP — the carry from the reco
    enough MP" message (40) follows, and the attack ends there (`:8161-8179`). Paid, the attacker's
    castable spells are worked out again.
 3. **A monster's special attack** (name kind 6): it cannot be critical and is shown as the monster's
-   attack, with its special-attack animation. Its byte: no-damage → power 0 and miss if immune;
+   attack, with its special-attack animation. The byte is the attacker's own (`$322d,x`): its monster's,
+   its rage's, a caught sketch's, or, for a battler none of those has written, the start's fill — no
+   damage, cannot be dodged, Reflect lifted (`docs/contracts/battle_core.md` § A battle's start). Its byte: no-damage → power 0 and miss if immune;
    can't-dodge → undodgeable; `$30`/`$31` drain HP / MP; `$32` and up remove Reflect; `$20-$2f` add
    `(value − $20) + 1` steps — the compare leaves the carry set into the add (`:8225-8230`); below
    `$20` the status of that number is added.
@@ -424,7 +426,8 @@ the targets remembered; criticals allowed; the command remembered so every attac
 
 `_c2299f :6915-6984` loads a hand onto the plain hit: the attacker's vigor and level (the sketcher's
 level while a Sketch runs); Sniper Sight makes it undodgeable; the attack `$ef` by a battler not an
-Imp is named as a monster's special attack; the hand's battle power, element and hit rate, its
+Imp is named as a monster's special attack — for the monster in `$33a8-$33a9,y`, the attacker's monster
+or rage, `$ffff` for a battler with neither (`ShowAttackName_06 :8742-8748`); the hand's battle power, element and hit rate, its
 weapon's two-handed and back-row flags, its spell and special effect, its swing. An Offering makes
 every attack undodgeable, aimed at random, never critical and without a spell. An Imp monster
 without the Imp critical flag hits with power 1.

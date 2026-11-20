@@ -48,11 +48,10 @@ using namespace detail;
 namespace {
 
 // A record as the comparison reads it: an empty one by its item alone.
-std::string recordText(const battle::BattleItem& item) {
-    if (item.item == ItemId::EMPTY) {
+std::string recordText(const battle::ItemRecord& record) {
+    if (battle::itemIn(record) == ItemId::EMPTY) {
         return "empty";
     }
-    const battle::ItemRecord record = battle::recordOf(item);
     std::string text;
     for (const std::uint8_t b : record) {
         char hex[4];
@@ -63,13 +62,21 @@ std::string recordText(const battle::BattleItem& item) {
     return text;
 }
 
-void addRecordLine(std::string& out, const std::string& field, const battle::BattleItem& port,
-                   const battle::BattleItem& guest) {
+void addRecordLine(std::string& out, const std::string& field, const battle::ItemRecord& port,
+                   const battle::ItemRecord& guest) {
     const std::string ours = recordText(port);
     const std::string theirs = recordText(guest);
     if (ours != theirs) {
         out += field + ": port " + ours + ", cartridge " + theirs + "\n";
     }
+}
+
+// An inventory slot by what a BattleItem holds of its record, on both sides: the flags' low three bits
+// and the fifth byte's high four, which no item's record sets, are left out — a place no record made
+// carries them into the slot it is merged into, and what reads them there is the battle menus'.
+void addRecordLine(std::string& out, const std::string& field, const battle::BattleItem& port,
+                   const battle::BattleItem& guest) {
+    addRecordLine(out, field, battle::recordOf(port), battle::recordOf(guest));
 }
 
 void addListLines(std::string& out, const battle::ItemsObtained& port, const battle::ItemsObtained& guest) {
@@ -362,21 +369,20 @@ std::array<battle::BattleItem, game::kInventorySlots> drawInventory(std::mt19937
     return inventory;
 }
 
-// A place of the list: empty, or a record with any flags, targeting and quantity.
-battle::BattleItem drawPlace(std::mt19937& rng) {
+// A place of the list: empty, or a record with any flags, targeting, quantity and fifth byte.
+battle::ItemRecord drawPlace(std::mt19937& rng) {
     if (oneIn(rng, 2)) {
-        return battle::BattleItem{};
+        return battle::kEmptyItemRecord;
     }
-    const std::array<std::uint8_t, battle::kItemRecordBytes> record{
-        static_cast<std::uint8_t>(drawItem(rng)), byte(rng), byte(rng), drawQuantity(rng), byte(rng)};
-    return battle::battleItemFromRecord(record);
+    return battle::ItemRecord{static_cast<std::uint8_t>(drawItem(rng)), byte(rng), byte(rng), drawQuantity(rng),
+                              byte(rng)};
 }
 
 // The list, its counts drawn so a merge often starts at or runs past place 12, and now and then where
 // the counts wrap.
 battle::ItemsObtained drawItemsObtained(std::mt19937& rng) {
     battle::ItemsObtained list;
-    for (battle::BattleItem& place : list.entries) {
+    for (battle::ItemRecord& place : list.entries) {
         place = drawPlace(rng);
     }
     switch (rng() % 4) {
@@ -585,10 +591,10 @@ std::string describe(const EndingScenario& s) {
             " meter " + std::to_string(state.morphCounter >> 8) + " supply " + std::to_string(s.cells.party.morphSupply) +
             " added " + std::to_string(state.itemsObtained.added) + " merged " +
             std::to_string(state.itemsObtained.merged) + " list";
-    for (const battle::BattleItem& place : state.itemsObtained.entries) {
-        text += " " + (place.item == ItemId::EMPTY ? std::string{"-"}
-                                                   : std::to_string(static_cast<int>(place.item)) + "x" +
-                                                         std::to_string(place.quantity));
+    for (const battle::ItemRecord& place : state.itemsObtained.entries) {
+        text += " " + (battle::itemIn(place) == ItemId::EMPTY ? std::string{"-"}
+                                                              : std::to_string(static_cast<int>(battle::itemIn(place))) +
+                                                                    "x" + std::to_string(battle::quantityIn(place)));
     }
     const auto empty = std::count_if(state.inventory.items.begin(), state.inventory.items.end(),
                                      [](const battle::BattleItem& slot) { return slot.item == ItemId::EMPTY; });

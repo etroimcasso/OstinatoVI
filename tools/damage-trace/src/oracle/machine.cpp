@@ -197,6 +197,10 @@ DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
         retropp::GuestEscape{.key = kTargetsCopyKey,
                              .at = kCreateActionTargetsCopy,
                              .handler = [this](retropp::Vm&, std::uint32_t) { targetsCopyNext(); },
+                             .armed = false},
+        retropp::GuestEscape{.key = kMagicEventUndodgeableKey,
+                             .at = kMagicEventUndodgeable,
+                             .handler = [this](retropp::Vm&, std::uint32_t) { magicEventUndodgeableNext(); },
                              .armed = false}));
 
     // While a reward routine runs, the graphics program's entry answers here: the command in the

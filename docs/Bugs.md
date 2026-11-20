@@ -1032,3 +1032,32 @@ with the rest of what a Rage takes (`loadMonsterNature()`), and `applyDerivedSta
 
 **If you want to change it.** Leaving `human` and `undead` out of what `loadMonsterTraits()` takes for a
 party member keeps the equipment's through a Rage.
+
+---
+
+## A party member's Special attack deals no damage, cannot be dodged and lifts Reflect
+
+**What happens.** A party member that makes the Special attack with no monster and no rage behind it
+deals no damage, hits whatever the target's evasion, takes Reflect off a target that has it, and is
+named for no monster. The one character that does it in the shipped game is Kefka at the Sealed Gate:
+the scripted battle there (`CharAiId::SEALED_GATE_1`) seats him as an enemy
+character running the script of the monster Kefka (Esper Gate), whose turns choose Special among their
+attacks. No other scripted battle's cast runs a script that names Special.
+
+**Where the original does it.** The battle's start fills `$2000-$341f` with `$ff`
+(`battle/battle_main.asm:6061-6067`), the special attack at `$322d,x` and the monster it is named for
+at `$33a8-$33a9,x` among them. A monster's record (`LoadRageProp :7506-7507`), a Rage (`SetRage :1013`)
+and a caught Sketch (`Cmd_0d :3312-3313`) write the special attack; a party member seated by a scripted
+battle has none of them. `_c2299f` names the attack `$ef` as a special attack for any battler that is
+not an Imp (`:6927-6934`), and `CalcAttackEffect` reads `$ff` as no damage, cannot be dodged and Reflect
+removed (`:8195-8224`). `ShowAttackName_06` names it for `$ffff` (`:8742-8748`).
+
+**Where the port keeps it.** `kNoMonsterSpecialAttack` in `src/battle/battle_state.h` is every battler's
+`specialAttack` until one of those writes it, and the attack frame's name command holds no monster
+(`MonsterSpecialAttackNameShown::monster`, `src/battle/attack.cpp`). `tests/test_attack_frame.cpp`
+(`AttackFrame.ASpecialWithNoMonsterDealsNoDamageAndCannotBeDodged`,
+`AttackFrame.ASpecialWithNoMonsterLiftsReflect`, `AttackFrame.ASpecialWithNoMonsterIsNamedForNone`) pins
+it, and the whole battles against the cartridge compare `$322d,x` and `$33a8-$33a9,x` at every step.
+
+**If you want to change it.** Giving `Battler::specialAttack` another starting value in
+`src/battle/battle_state.h` changes what such a party member's Special does.

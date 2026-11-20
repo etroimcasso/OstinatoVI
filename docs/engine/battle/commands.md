@@ -41,7 +41,8 @@ place them; they must outlive the executor.
 `execute()` runs every command a party member or a monster can choose, and every action the battle
 takes on its own ([below](#the-battles-own-actions)). Mimic, which the battle core replaces with the
 command it mimics before running it, shows nothing. After an action it reports to the battle core
-who it ended up hitting (`state.scratch.finalTargets`), and an action that made an attack sets whether
+the targets its attacks were last aimed at (`state.scratch.finalTargets`, empty for a command that made no
+attack, such as a spell an Imp could not cast), which Mimic remembers, and an action that made an attack sets whether
 that attack was physical (`state.lastAttackPhysical`); an action that makes no attack leaves the flag
 as it was. `aim()` aims a command as it is queued: a command chosen with no targets gets them (Fight
 chosen by a berserk party member, say, gets one monster), and every command it aims loads its record,
@@ -336,6 +337,18 @@ loadWeaponAttack(state, attack, actor, false);    // the weapon hand: $77
 loadWeaponAttack(state, attack, actor, true);     // the shield hand: $BB
 ```
 
+A Fight whose attack is `AttackId::SPECIAL`, made by a battler that is not an Imp, is the attacker's
+special attack (`Battler::specialAttack`): its monster's, its rage's, a caught sketch's, or
+`kNoMonsterSpecialAttack` — no damage, cannot be dodged, Reflect lifted — for a battler none of those
+has given one, such as a party member a scripted battle's AI has make the Special attack:
+
+```cpp
+executor.execute(state, kefka, Action{CommandAction{.command = BattleCommandId::FIGHT,
+                                                    .attack = AttackId::SPECIAL,
+                                                    .targets = BattlerSet::of(target)}});
+// the target's HP unchanged, Reflect off it; the script's MonsterSpecialAttackNameShown holds no monster
+```
+
 On the way an attack can:
 
 - **fizzle** — a spell with an MP cost cast by a Muted caster, or by an Imp casting anything but Imp,
@@ -499,7 +512,7 @@ The commands:
 
 | Command | Shows |
 |---|---|
-| `AttackNameShown`, `BushidoNameShown`, `ItemNameShown`, `EsperNameShown`, `CommandNameShown`, `MonsterSpecialAttackNameShown` | the name in the window at the top of the screen |
+| `AttackNameShown`, `BushidoNameShown`, `ItemNameShown`, `EsperNameShown`, `CommandNameShown`, `MonsterSpecialAttackNameShown` | the name in the window at the top of the screen; a special attack's `monster` is empty for an attacker with no monster and no rage, and shows no name |
 | `AttackAnimation` | the command's animation (`what` a `BattleCommandId`) or a special one (`SpecialAnimation`), with its params; a Fight swing says its hand and its weapon's animation; Item, Throw and Tools show `item`; a Dance that changes the battlefield, `newBackground` |
 | `BattleMessage` | a battle message, with the numbers it shows |
 | `PoseReset` | a party member going back to standing |

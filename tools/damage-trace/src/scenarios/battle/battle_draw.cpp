@@ -18,9 +18,11 @@
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/battler_set.h"
+#include "game/battle_switches.h"
 #include "game/character_record.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/character_prop_id.h"
+#include "ostinato/item_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
 
@@ -45,6 +47,17 @@ constexpr unsigned kRunOneIn = 8;
 constexpr std::uint64_t kRunFromMost = 600;
 constexpr std::size_t kDances = 8;
 constexpr std::size_t kRages = 256;
+// A model with no story countdown of its own is given one running out on a frame in this range, so every
+// drawn battle ends by the frame cap's time at the latest.
+constexpr std::uint64_t kCountdownFrom = 8'000;
+constexpr std::uint64_t kCountdownSpread = 4'000;
+// The drawn battle switches hold the field's countdown run out ($1DD1 bit 5) half the time, which ends a
+// battle at its first end check; all but one battle in this many has it cleared.
+constexpr unsigned kCountdownAlreadyOutOneIn = 8;
+// One battle in this many seats Shadow, free to walk off at a win (shadowAvailable, the shadow-stays switch
+// clear), with every member Berserk and the monsters' HP cut further, so the battle is likely won.
+constexpr unsigned kShadowOneIn = 2;
+constexpr int kShadowBattleMonsterHpMost = 100;
 
 // The part a seated member who is not Umaro and not in the colosseum takes. A Berserk or Muddled member
 // holds Rage among their commands one time in three, and a Muddled one Dance one time in three more, so
@@ -89,9 +102,9 @@ enum ReachRow : std::size_t {
     kOtherEndingRow,
 };
 
-bool holdsUmaro(const game::Party& party) {
+bool holds(const game::Party& party, CharacterPropId actor) {
     return std::any_of(party.characters.begin(), party.characters.end(),
-                       [](const game::CharacterRecord& record) { return record.actor == CharacterPropId::UMARO; });
+                       [actor](const game::CharacterRecord& record) { return record.actor == actor; });
 }
 
 }  // namespace
@@ -110,7 +123,19 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
     if (party.ragesKnown.none()) {
         party.ragesKnown.set(rng() % kRages);
     }
-    // Each record of the party played: its HP, Umaro, and the part it takes if it is seated.
+    // The field's countdown already run out, kept one battle in kCountdownAlreadyOutOneIn.
+    if (!oneIn(rng, kCountdownAlreadyOutOneIn)) {
+        scenario.start.switches.clear(game::kTimerExpiredSwitch);
+    }
+    // A battle that seats Shadow, free to walk off.
+    const bool shadowBattle =
+        !scenario.start.start.colosseum && !holds(party, CharacterPropId::SHADOW) && oneIn(rng, kShadowOneIn);
+    bool shadowSeated = false;
+    if (shadowBattle) {
+        scenario.start.start.shadowAvailable = true;
+        scenario.start.switches.clear(game::kShadowStaysSwitch);
+    }
+    // Each record of the party played: its HP, Umaro or Shadow, and the part it takes if it is seated.
     std::array<MemberPart, game::kCharacterRecords> parts{};
     parts.fill(MemberPart::Waiting);
     for (std::size_t r = 0; r < game::kCharacterRecords; ++r) {
@@ -121,11 +146,16 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
         if (oneIn(rng, 2)) {
             record.hp = std::min<std::uint16_t>(record.hp, static_cast<std::uint16_t>(1 + upTo(rng, kPartyHpMost - 1)));
         }
-        if (!scenario.start.start.colosseum && !holdsUmaro(party) && oneIn(rng, kUmaroOneIn)) {
+        if (!shadowBattle && !scenario.start.start.colosseum && !holds(party, CharacterPropId::UMARO) &&
+            oneIn(rng, kUmaroOneIn)) {
             record.actor = CharacterPropId::UMARO;
             continue;
         }
-        parts[r] = static_cast<MemberPart>(rng() % kMemberParts);
+        if (shadowBattle && !shadowSeated) {
+            record.actor = CharacterPropId::SHADOW;
+            shadowSeated = true;
+        }
+        parts[r] = shadowBattle ? MemberPart::Berserk : static_cast<MemberPart>(rng() % kMemberParts);
         BattleCommandId& slotTaken = record.commands[rng() % record.commands.size()];
         if (parts[r] != MemberPart::Waiting && oneIn(rng, kRageOrDanceOneIn)) {
             slotTaken = BattleCommandId::RAGE;
@@ -134,15 +164,27 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
         }
     }
 
+    // No Chain Saw in a battle with a Muddled member: its roll is read past the random numbers' table on the
+    // cartridge whenever the byte above their position is not zero (Rand :12378-12384 with the index
+    // registers wide, from ToolsEffect_03 :7127), which the port does not reproduce.
+    if (std::find(parts.begin(), parts.end(), MemberPart::Muddled) != parts.end()) {
+        for (game::InventorySlot& slot : party.inventory) {
+            if (slot.item == ItemId::CHAIN_SAW) {
+                slot = game::InventorySlot{.item = ItemId::EMPTY, .quantity = 0};
+            }
+        }
+    }
+
     // The battle as it starts, for who is seated and which monsters are there.
     const battle::BattleState started = portStart(scenario.start, text, sprites);
+    const int monsterHpMost = shadowBattle ? kShadowBattleMonsterHpMost : kMonsterHpMost;
     for (int index = 0; index < battle::kBattlerSlots; ++index) {
         const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(index);
         const battle::Battler& battler = started.at(slot);
         if (slot.isMonster()) {
             if (battler.monster && battler.hp > 0) {
                 scenario.firstStep.hp[static_cast<std::size_t>(index)] =
-                    std::min<std::uint16_t>(battler.hp, static_cast<std::uint16_t>(1 + upTo(rng, kMonsterHpMost - 1)));
+                    std::min<std::uint16_t>(battler.hp, static_cast<std::uint16_t>(1 + upTo(rng, monsterHpMost - 1)));
             }
             continue;
         }
@@ -158,6 +200,9 @@ BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, con
     }
 
     scenario.model = drawPresentationModel(rng(), scenario.frameCap);
+    if (!scenario.model.timerRunsOutAt) {
+        scenario.model.timerRunsOutAt = kCountdownFrom + rng() % (kCountdownSpread + 1);
+    }
     if (oneIn(rng, kRunOneIn)) {
         scenario.model.runButtonsHeldFrom = rng() % (kRunFromMost + 1);
     }

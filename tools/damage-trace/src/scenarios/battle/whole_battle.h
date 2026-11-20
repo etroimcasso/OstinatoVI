@@ -47,11 +47,23 @@ struct FirstStepLaid {
 // `laid` laid onto the port's state.
 void layFirstStep(battle::BattleState& state, const FirstStepLaid& laid);
 
+// Bytes written into the cartridge's cells at a loop step's frame wait, once that step's cells are read: a
+// cell carried into the next step set to a value of the check's choosing. Running a battle twice with a cell
+// set two ways, and both runs agreeing with the port to the end, proves nothing the battle reads depends on
+// what the cell held.
+struct StepCellWrite {
+    std::size_t step = 0;
+    std::uint32_t at = 0;
+    std::vector<std::uint8_t> bytes;
+};
+
 struct BattleScenario {
     StartScenario start;
     PresentationModel model;
     FirstStepLaid firstStep{};
     std::uint64_t frameCap = kBattleFrameCap;
+    // Written into the cartridge's side only (DamageOracle::wholeBattle()); the port's side never sees them.
+    std::vector<StepCellWrite> cartridgeWrites{};
 };
 
 // One loop step as the cartridge ran it, read at the step's frame wait (BattleLoop's graphics command $01,
@@ -94,6 +106,9 @@ struct WholeBattleResult {
     BattleCells endCells{};
     WriteBackResult kept;
     std::bitset<512> veldtBattlesBefore;
+    // The last three places of the items obtained once the battle has closed ($7E:606E-$7E:607C), the
+    // tail the next battle is handed.
+    battle::ItemsObtainedTail itemsObtainedTail = battle::kEmptyItemsObtainedTail;
     // The stack pointer at every arrival at the loop's head and at TerminateBattle: one value when every
     // step left the stack as it found it.
     std::set<std::uint16_t> stackPointers;

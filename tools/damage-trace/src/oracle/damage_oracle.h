@@ -570,6 +570,12 @@ private:
     // The copy's part in an access the battle program makes: true where the access is the copy's read of a
     // carried byte, which the carried-read gate leaves to the copy rule.
     bool noteTargetsCopy(std::uint32_t cell, std::uint8_t value, bool write);
+    // Magic's `tsb $11a4` after it queues the battle event $06 is next (kMagicEventUndodgeable): its read of
+    // $11A4 sets a bit in what the last record left, which the spell's own record then replaces before any
+    // read, so a carried byte read there reaches nothing (Cmd_02 :3671-3672; InitCmdTarget :4150-4152;
+    // LoadMagicProp :6858-6868).
+    void magicEventUndodgeableNext();
+    bool magicEventUndodgeablePending_ = false;
     // The copy rule at a step: a slot whose targets a copy of a carried $B8-$B9 filled must be one whose
     // targets `state` leaves out. A line per slot whose targets are compared, naming its command.
     [[nodiscard]] std::string carriedTargetsCompared(const battle::BattleState& state, const PartyCells& boosts,
@@ -580,7 +586,8 @@ private:
     // first loop step.
     [[nodiscard]] WholeBattleResult runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
                                                    std::uint64_t frameCap, bool inOneCall,
-                                                   std::span<const std::uint16_t> facings = {});
+                                                   std::span<const std::uint16_t> facings = {},
+                                                   std::span<const StepCellWrite> cartridgeWrites = {});
     // The loop's head reached, or TerminateBattle's return, with the stack pointer found there.
     void stepEnded(std::uint16_t stackPointer, bool closed);
     void writeItemsObtained(const battle::ItemsObtained& list);
@@ -755,6 +762,7 @@ private:
         bool closed = false;          // TerminateBattle was reached
         std::size_t scripts = 0;      // the scripts played so far
         std::vector<std::uint16_t> facings;  // the facings written each frame (wholeBattle())
+        std::vector<StepCellWrite> cartridgeWrites;  // BattleScenario::cartridgeWrites
     };
     std::optional<WholeBattleRun> whole_;
     // While checkBattle() compares: the cartridge's frames were handed the port's facings, so the state

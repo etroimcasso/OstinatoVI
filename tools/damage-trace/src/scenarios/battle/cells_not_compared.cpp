@@ -27,6 +27,7 @@ constexpr std::uint8_t kSwirlSuppressedBit = 0x10;                    // $B0 bit
 constexpr std::uint8_t kNeverSetBits = 0x0B;                          // $B0 bits 3, 1 and 0
 constexpr std::uint8_t kVerdictHistoryBits = 0x7F;                    // below a verdict rotated into bit 7
 constexpr std::uint8_t kAboveTheHandBits = 0xF0;                      // an item record's fifth byte's top four
+constexpr std::uint8_t kBelowTheShieldBit = 0x07;                     // an item record's flags' low three
 constexpr std::uint8_t kScriptedSetupOnBit = 0x80;                    // $2F49 bit 7
 
 constexpr CellsNotCompared kCellsNotCompared[] = {
@@ -125,6 +126,10 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x2F52, .why = "the start's fill; named by no instruction of the battle program"},
     {.at = kWorkRam + 0x2F55, .count = 0xAB, .why = "the start's fill; named by no instruction of the battle program"},
     // --- the party's lists -----------------------------------------------------------------------
+    {.at = kWorkRam + 0x2687, .count = 256, .stride = 5, .bits = kBelowTheShieldBit,
+     .why = "the low three bits of each inventory record's flags, which LoadItemProp never sets (:13987-14019): a slot "
+            "holds them only when the items obtained merge in a place no record filled, copied whole "
+            "(btlgfx_main.asm:9469-9479), and whether the battle menus read them is theirs to say"},
     {.at = kWorkRam + 0x268A, .count = 256, .stride = 5, .bits = kAboveTheHandBits,
      .why = "the top four bits of each inventory record's fifth byte, $F for an item no hand check is made for "
             "(LoadItemProp :13989-13990, :14016-14020) and 0 otherwise (:14021-14033); the menus test one party "

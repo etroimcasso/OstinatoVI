@@ -238,6 +238,22 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         kept.veldtBattles.set(static_cast<std::size_t>(*port.result->veldtFormation));
     }
     lines += named("what the game keeps", differences(kept, cartridge.kept));
+    // The last three places of the items obtained, handed to the next battle: every byte, since other
+    // programs write them between battles and a battle hands back what it does not touch as it came.
+    std::string tail;
+    for (std::size_t place = 0; place < battle::kItemsObtainedTailPlaces; ++place) {
+        const battle::ItemRecord& ours = port.result->itemsObtainedTail[place];
+        const battle::ItemRecord& theirs = cartridge.itemsObtainedTail[place];
+        for (std::size_t at = 0; at < battle::kItemRecordBytes; ++at) {
+            if (ours[at] != theirs[at]) {
+                char text[64];
+                std::snprintf(text, sizeof text, "place %zu byte %zu: port %02X cartridge %02X\n", place, at, ours[at],
+                              theirs[at]);
+                tail += text;
+            }
+        }
+    }
+    lines += named("the items obtained handed back", tail);
     return check;
 }
 

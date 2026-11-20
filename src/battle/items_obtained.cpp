@@ -1,9 +1,12 @@
 #include "battle/items_obtained.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <stdexcept>
 
 #include "battle/battle_state.h"
+#include "data/battle_tables.h"
+#include "data/item_properties.h"
 
 namespace ostinato::battle {
 
@@ -21,15 +24,18 @@ constexpr std::uint8_t kToolFlag = 0x40;
 constexpr std::uint8_t kThrowableFlag = 0x20;
 constexpr std::uint8_t kWeaponFlag = 0x10;
 constexpr std::uint8_t kShieldFlag = 0x08;
-// The record's fifth byte: the party slots that cannot hold the item.
+// The record's fifth byte: the party slots that cannot hold the item; every bit set for an item no hand
+// check is made for.
+constexpr std::size_t kRecordHandsByte = 4;
 constexpr std::uint8_t kPartySlotBits = 0x0F;
+constexpr std::uint8_t kNoHandCheck = 0xFF;
 
 // LEGACY VERBATIM (docs/Bugs.md): where the last three places sit in the decoded title program —
 // the list's fourteenth place ($7E:602D + 13 x 5) less where the program is laid ($7E:5000). They
 // are the second frame of the opening's Magitek armor animation.
 constexpr std::size_t kItemsObtainedTailInTitleProgram = 0x106E;
 
-BattleItem& placeAt(ItemsObtained& list, std::uint8_t count) {
+ItemRecord& placeAt(ItemsObtained& list, std::uint8_t count) {
     return list.entries[count & kPlaceMask];
 }
 
@@ -51,7 +57,7 @@ ItemsObtainedTail itemsObtainedTail(const ItemsObtained& list) {
 
 void obtainItem(BattleState& state, ItemId item, std::uint8_t quantity) {
     ItemsObtained& list = state.itemsObtained;
-    placeAt(list, list.added) = battleItem(state, item, quantity);
+    placeAt(list, list.added) = itemRecordFor(state, item, quantity);
     ++list.added;
 }
 
@@ -59,15 +65,16 @@ void mergeItemsObtained(BattleState& state) {
     ItemsObtained& list = state.itemsObtained;
     auto& slots = state.inventory.items;
     for (;;) {
-        BattleItem& place = placeAt(list, list.merged);
-        if (place.item == ItemId::EMPTY) {
+        ItemRecord& place = placeAt(list, list.merged);
+        const ItemId item = itemIn(place);
+        if (item == ItemId::EMPTY) {
             return;
         }
         const auto held = std::find_if(slots.begin(), slots.end(),
-                                       [&](const BattleItem& slot) { return slot.item == place.item; });
+                                       [&](const BattleItem& slot) { return slot.item == item; });
         if (held != slots.end()) {
             // The sum keeps its low byte before it is held to 99.
-            const auto sum = static_cast<std::uint8_t>(held->quantity + place.quantity);
+            const auto sum = static_cast<std::uint8_t>(held->quantity + quantityIn(place));
             held->quantity = sum >= kOverTheMost ? kMostOfOneItem : sum;
         } else {
             const auto empty = std::find_if(slots.begin(), slots.end(),
@@ -77,9 +84,9 @@ void mergeItemsObtained(BattleState& state) {
                 // for good; it and every item after it wait.
                 return;
             }
-            *empty = place;
+            *empty = battleItemFromRecord(place);
         }
-        place.item = ItemId::EMPTY;
+        place[kRecordItemByte] = static_cast<std::uint8_t>(ItemId::EMPTY);
         ++list.merged;
     }
 }
@@ -109,15 +116,23 @@ ItemRecord recordOf(const BattleItem& item) {
                       static_cast<std::uint8_t>(~item.equippableBy.bits & kPartySlotBits)};
 }
 
+ItemRecord itemRecordFor(const BattleState& state, ItemId item, std::uint8_t quantity) {
+    ItemRecord record = recordOf(battleItem(state, item, quantity));
+    if (item != ItemId::EMPTY && itemTypeBattleFlags(getItemProperties(item).typeAndUsage.type()).skipsEquippableCheck()) {
+        record[kRecordHandsByte] = kNoHandCheck;
+    }
+    return record;
+}
+
 ItemsObtainedTail itemsObtainedTailAtPowerOn(std::span<const std::uint8_t> titleProgram) {
     constexpr std::size_t kTailBytes = kItemsObtainedTailPlaces * kItemRecordBytes;
     if (titleProgram.size() < kItemsObtainedTailInTitleProgram + kTailBytes) {
         throw std::out_of_range("The title program is too short to hold the items-obtained tail.");
     }
     ItemsObtainedTail tail;
+    const std::span<const std::uint8_t> bytes = titleProgram.subspan(kItemsObtainedTailInTitleProgram, kTailBytes);
     for (std::size_t i = 0; i < tail.size(); ++i) {
-        tail[i] = battleItemFromRecord(
-            titleProgram.subspan(kItemsObtainedTailInTitleProgram + i * kItemRecordBytes).first<kItemRecordBytes>());
+        std::copy_n(bytes.begin() + static_cast<std::ptrdiff_t>(i * kItemRecordBytes), kItemRecordBytes, tail[i].begin());
     }
     return tail;
 }

@@ -28,7 +28,7 @@ The rules, and the line of the original each is read from, are in
 | `src/battle/battle_end.h` | `playBattleEnd()`, what each ending runs: the win whole, the loss, the special endings; `wrapUpBattle()`, the close every ending but two runs; `reachEarnedLevels()` and `learnLevelAbilities()`, a member's levels and what they teach with the win's messages for them, and `AbilityMessagesShown`; `kWrapUpWaitFrames`, `kRareDropBelow` |
 | `src/battle/command_executor.h` | `CommandExecutor::playBattleEnd()`, which calls `playBattleEnd()` |
 | `src/battle/battle_requests.h` | `VictoryFanfare`, the fanfare a win asks for |
-| `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `battleItemFromRecord()` and `recordOf()`, an item's five-byte form on the cartridge; `kMostOfOneItem` |
+| `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `ItemRecord`, an item's five-byte form on the cartridge, with `itemIn()`, `quantityIn()`, `kEmptyItemRecord`, `kEmptyItemsObtainedTail`, `itemRecordFor()`, `battleItemFromRecord()` and `recordOf()`; `kMostOfOneItem` |
 | `src/battle/battle_start.h` | `BattleStart::itemsObtainedTail` and `BattleResult::itemsObtainedTail`, the list's last three places carried from one battle to the next; `BattleResult::gauLeftParty`; `writeBack()`, what the game keeps |
 | `src/battle/battle_script.h` | the win's message numbers, `kMessageGotItem` to `kMessageMasteredATechnique`; `Wait`, a script command that holds the script for a number of frames; `kVictoryEvent`, the battle event a win plays |
 | `src/assets/cartridge.h` | `IngestedContent::titleProgram`, the compressed title and cutscene program the power-on tail is read out of |
@@ -227,8 +227,23 @@ start.itemsObtainedTail = result.itemsObtainedTail;   // the next battle
 
 A later stage of the final battle keeps the whole list and both counts.
 
-`battleItemFromRecord()` and `recordOf()` turn a `BattleItem` into the five bytes the cartridge keeps an
-inventory slot and a place of the list in, and back.
+Each place is an `ItemRecord`, the five bytes the cartridge keeps it in: `itemIn()` and `quantityIn()` read
+its item and how many, and `kEmptyItemRecord` is an empty place. Other programs write over the last three
+places between battles, so the tail can hold bytes no item's record holds, and a battle that does not touch
+a place hands it back exactly as it came:
+
+```cpp
+const battle::ItemRecord leftThere{static_cast<std::uint8_t>(ItemId::POTION), 0x07, 0x00, 5, 0xF0};
+start.itemsObtainedTail = {leftThere, battle::kEmptyItemRecord, battle::kEmptyItemRecord};
+// ... a battle that obtains fewer than thirteen items ...
+result.itemsObtainedTail[0] == leftThere;   // every bit
+```
+
+`obtainItem()` writes an item's record as the battle works it out, `itemRecordFor(state, item, quantity)`:
+`battleItem()`'s, with the fifth byte `0xFF` for an item of a type no hand check is made for (armor, a hat, a
+relic, a tool). `battleItemFromRecord()` and `recordOf()` turn a record into the `BattleItem` an inventory
+slot holds, and back. A merge reads a place into a slot that way, so a slot filled from a place no record made keeps only
+what a `BattleItem` holds: the flags' low three bits and the fifth byte's high four do not reach it.
 
 ## Checking against the cartridge
 

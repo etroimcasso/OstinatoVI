@@ -43,7 +43,8 @@ constexpr std::uint32_t kScriptQueueSpan = 0x100;
 
 WholeBattleResult DamageOracle::wholeBattle(const BattleScenario& scenario, std::span<const std::uint16_t> facings) {
     writeStartScenario(scenario.start);
-    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, false, facings);
+    return runWholeBattle(scenario.model, scenario.firstStep, scenario.frameCap, false, facings,
+                          scenario.cartridgeWrites);
 }
 
 WholeBattleResult DamageOracle::wholeBattleAsItStands(const PresentationModel& model, std::uint64_t frameCap) {
@@ -57,13 +58,15 @@ WholeBattleResult DamageOracle::wholeBattleInOneCall(const BattleScenario& scena
 
 WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, const FirstStepLaid& firstStep,
                                                std::uint64_t frameCap, bool inOneCall,
-                                               std::span<const std::uint16_t> facings) {
+                                               std::span<const std::uint16_t> facings,
+                                               std::span<const StepCellWrite> cartridgeWrites) {
     if (monsterSprites_ == nullptr) {
         throw std::logic_error("a whole battle needs the monsters' sprites (DamageOracle::useMonsterSprites)");
     }
     whole_.emplace();
     whole_->model = model;
     whole_->facings.assign(facings.begin(), facings.end());
+    whole_->cartridgeWrites.assign(cartridgeWrites.begin(), cartridgeWrites.end());
     whole_->firstStep = firstStep;
     whole_->frameCap = frameCap;
     whole_->inOneCall = inOneCall;
@@ -78,6 +81,8 @@ WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, c
     machine_.escapes()[kBattleClosedKey].armed(!inOneCall);
     machine_.escapes()[kTargetsCopyKey].armed(true);
     targetsCopy_ = TargetsCopy{};
+    machine_.escapes()[kMagicEventUndodgeableKey].armed(true);
+    magicEventUndodgeablePending_ = false;
     if (!beyondArmed_) {
         machine_.watches()[kBeyondKey].armed(true);
         beyondArmed_ = true;
@@ -110,10 +115,12 @@ WholeBattleResult DamageOracle::runWholeBattle(const PresentationModel& model, c
     machine_.escapes()[kLoopHeadKey].armed(false);
     machine_.escapes()[kBattleClosedKey].armed(false);
     machine_.escapes()[kTargetsCopyKey].armed(false);
+    machine_.escapes()[kMagicEventUndodgeableKey].armed(false);
     WholeBattleResult result = std::move(whole_->result);
     whole_.reset();
     result.calls = graphicsCalls_;
     result.kept = readWriteBack();
+    result.itemsObtainedTail = readItemsObtainedTail();
     if (inOneCall) {
         const std::vector<std::uint8_t> cells =
             machine_.read(retropp::MemoryRegion{.at = kWorkRam, .size = static_cast<std::uint32_t>(result.endCells.size())});
@@ -159,6 +166,12 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
         step.firstCall = graphicsCalls_.size() - 1;
         run.result.steps.push_back(std::move(step));
         writtenSincePoint_.clear();
+        for (const StepCellWrite& write : run.cartridgeWrites) {
+            if (write.step + 1 == run.result.steps.size()) {
+                writeBytes(retropp::MemoryRegion{.at = write.at, .size = static_cast<std::uint32_t>(write.bytes.size())},
+                           write.bytes);
+            }
+        }
         if (!run.inOneCall) {
             machine_.escapes()[kLoopHeadKey].armed(true);
         }
@@ -236,6 +249,12 @@ void DamageOracle::writeFirstStep(const FirstStepLaid& laid) {
 void DamageOracle::targetsCopyNext() {
     if (whole_ && !answering_) {
         targetsCopy_ = TargetsCopy{.stage = TargetsCopy::Stage::Reading};
+    }
+}
+
+void DamageOracle::magicEventUndodgeableNext() {
+    if (whole_ && !answering_) {
+        magicEventUndodgeablePending_ = true;
     }
 }
 
