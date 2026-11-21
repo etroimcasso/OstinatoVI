@@ -61,7 +61,11 @@ void loadWeaponAttack(const BattleState& state, AttackInFlight& attack, BattlerS
 // The plain hit as a command with no attack of its own makes it: aimed by `command`'s rules, with
 // no special effect, no level and no attack stat, and impossible to dodge. Steal, Row, Def and the
 // other commands that only act on their target or on the user start from this.
-void plainCommandAttack(AttackInFlight& attack, BattleCommandId command);
+//
+// The record is the one `command` loads for `recordOf`: the Battle attack's for a command that uses
+// no spell, whatever `recordOf` is, and `recordOf`'s own for a command that uses one, which then
+// stands as the last spell. Every caller but Umaro's attacks passes the attack in flight.
+void plainCommandAttack(AttackInFlight& attack, BattleCommandId command, AttackId recordOf);
 
 // The command a monster's chosen attack is made as: Magic for a spell, the skill's command for a
 // skill, and so on.

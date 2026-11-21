@@ -24,6 +24,8 @@ constexpr std::uint8_t kToolFlag = 0x40;
 constexpr std::uint8_t kThrowableFlag = 0x20;
 constexpr std::uint8_t kWeaponFlag = 0x10;
 constexpr std::uint8_t kShieldFlag = 0x08;
+// A hand whose weapon broke has every flag bit set (AttackerEffect_0e battle_main.asm:10210-10218).
+constexpr std::uint8_t kBrokenHandFlags = 0xFF;
 // The record's fifth byte: the party slots that cannot hold the item; every bit set for an item no hand
 // check is made for.
 constexpr std::size_t kRecordHandsByte = 4;
@@ -112,6 +114,9 @@ ItemRecord recordOf(const BattleItem& item) {
     flags |= item.isTool ? kToolFlag : 0;
     flags |= item.isWeapon ? kWeaponFlag : 0;
     flags |= item.isShield ? kShieldFlag : 0;
+    if (item.brokenFrom) {
+        flags = kBrokenHandFlags;
+    }
     return ItemRecord{static_cast<std::uint8_t>(item.item), flags, item.targeting.bits, item.quantity,
                       static_cast<std::uint8_t>(~item.equippableBy.bits & kPartySlotBits)};
 }

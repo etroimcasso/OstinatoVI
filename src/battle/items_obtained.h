@@ -24,7 +24,9 @@
 // A place is the cartridge's five-byte record (ItemRecord). Between battles other programs write over
 // the last three, so they can hold bytes no item's record holds; a battle that does not touch them
 // hands them back exactly as it was handed them. A merge reads a place into an inventory slot as a
-// BattleItem (battleItemFromRecord()), which keeps what an item's record can say.
+// BattleItem (battleItemFromRecord()), which keeps what an item's record can say. A hand whose weapon
+// broke (BattleItem::brokenFrom) holds a record no item's makes, and never reaches the list: an item
+// joins it by its id (obtainItem()), and a broken hand holds none.
 //
 // The behavior, and the line in the original each rule comes from, is specified in
 // docs/contracts/battle_rewards.md.
@@ -73,7 +75,9 @@ inline constexpr std::size_t kRecordQuantityByte = 3;
 [[nodiscard]] constexpr std::uint8_t quantityIn(const ItemRecord& record) { return record[kRecordQuantityByte]; }
 
 [[nodiscard]] BattleItem battleItemFromRecord(std::span<const std::uint8_t, kItemRecordBytes> record);
-// The record for `item`. The fifth byte's high four bits, which nothing here reads, are 0.
+// The record for `item`. The fifth byte's high four bits, which nothing here reads, are 0. A hand whose
+// weapon broke (BattleItem::brokenFrom) is the empty item with every flag bit set and quantity 0, and
+// keeps the broken weapon's targeting and fifth byte.
 [[nodiscard]] ItemRecord recordOf(const BattleItem& item);
 // The record the battle works out for `quantity` of `item`, for the party in `state`, every byte as the
 // cartridge makes it: battleItem()'s, with the fifth byte 0xFF for an item of a type no hand check is

@@ -56,7 +56,7 @@ two battlers together are outside this contract: the battle core calls them thro
 | Status immunity at the start | `InitStatus` `:6439-6445` | `refreshStatusImmunity()` |
 | The starting gauges | `InitGauge` `:6228-6299` | `fillStartingGauges()` |
 | The player's commands | `GetPlayerAction` `:12620-12653`, `FixPlayerCmd` `:12671-12680`, `FixPlayerAttack` `:12686-12795` | `takePlayerActions()` |
-| What the game keeps | `UpdateSRAM` `:12092-12179`, `RemoveChar` `:11879-11885`, `ShadowLeaves` `:11990-11997` | `writeBack()` |
+| What the game keeps | `UpdateSRAM` `:12092-12179`, `RemoveChar` `:11879-11885` | `writeBack()` |
 | The final battle's stages | `CheckFinalBattle` `:12245-12262`, `BattleEnd_06` `:12204-12239` | `startNextFinalBattleStage()` |
 | A battle from a frame tick | `BattleLoop` `:67-144`, `UpdateBattleTime` `:2668-2722`, `TerminateBattle` `:150-154` | `BattleSim` |
 

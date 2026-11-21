@@ -22,7 +22,9 @@
 #include "assets/cartridge.h"
 #include "battle/attack.h"
 #include "battle/attacker_effects.h"
+#include "battle/battle_inventory.h"
 #include "battle/battle_script.h"
+#include "battle/items_obtained.h"
 #include "oracle/damage_oracle.h"
 #include "data/attack_properties.h"
 #include "data/item_properties.h"
@@ -346,6 +348,36 @@ TEST_F(AttackerEffectTest, OgreNixBreaksInTheShieldHandOnAnEvenCount) {
     EXPECT_EQ(run.after.state.inventory.shieldHands[1].item, ItemId::EMPTY);
     EXPECT_EQ(run.after.state.inventory.weaponHands[1].item, ItemId::OGRE_NIX);
     EXPECT_EQ(run.after.state.at(kHero).shieldHand.battlePower, 0);
+}
+
+// The hand the break empties keeps the record InitInventory loaded for the Ogre Nix with its item and
+// flags written $FF and its quantity 0 (AttackerEffect_0e :10210-10218): its targeting and its hand
+// check stay the Ogre Nix's. The other hand's record is not touched.
+void expectTheBreakRewritesOnlyItsHand(bool shieldHand) {
+    DamageScenario s = ogreNixSwing(shieldHand);
+    const battle::BattleItem nix = battle::battleItem(s.state, ItemId::OGRE_NIX, 1);
+    s.state.inventory.weaponHands[1] = nix;
+    s.state.inventory.shieldHands[1] = nix;
+    const battle::ItemRecord loaded = battle::recordOf(nix);
+    ASSERT_EQ(loaded[2], getItemProperties(ItemId::OGRE_NIX).targeting.bits);
+
+    const auto run = trace::runAttackerEffect(s);
+    const battle::BattleInventory& after = run.after.state.inventory;
+    const battle::BattleItem& broken = shieldHand ? after.shieldHands[1] : after.weaponHands[1];
+    const battle::BattleItem& other = shieldHand ? after.weaponHands[1] : after.shieldHands[1];
+    EXPECT_EQ(broken.item, ItemId::EMPTY);
+    EXPECT_EQ(broken.brokenFrom, ItemId::OGRE_NIX);
+    EXPECT_EQ(battle::recordOf(broken), (battle::ItemRecord{0xFF, 0xFF, loaded[2], 0x00, loaded[4]}));
+    EXPECT_EQ(battle::recordOf(other), loaded);
+    EXPECT_FALSE(other.brokenFrom);
+}
+
+TEST_F(AttackerEffectTest, AWeaponHandTheOgreNixBreaksKeepsItsTargetingAndHandCheck) {
+    expectTheBreakRewritesOnlyItsHand(false);
+}
+
+TEST_F(AttackerEffectTest, AShieldHandTheOgreNixBreaksKeepsItsTargetingAndHandCheck) {
+    expectTheBreakRewritesOnlyItsHand(true);
 }
 
 TEST_F(AttackerEffectTest, OgreNixDrawsAgainstTheHpsLastDigit) {

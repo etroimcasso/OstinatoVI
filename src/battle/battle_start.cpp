@@ -760,15 +760,7 @@ BattleResult writeBack(const BattleState& state) {
     }
 
     result.gauLeftParty = state.gauLeftParty;
-    if (state.shadowLeftParty) {
-        result.shadowLeftParty = true;
-        for (std::size_t index = 0; index < party.characters.size(); ++index) {
-            if (party.characters[index].actor == CharacterPropId::SHADOW) {
-                party.membership[index] = game::PartyMembership{};
-                party.characters[index].esper.reset();
-            }
-        }
-    }
+    result.shadowLeftParty = state.shadowLeftParty;
 
     // A formation with a monster below 256 joins the ones Gau can find on the Veldt, unless the
     // formation is past the first 512 or is kept off the Veldt.

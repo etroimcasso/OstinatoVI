@@ -15,6 +15,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 #include "game/character_record.h"
 #include "ostinato/battle_slot_mask.h"
@@ -26,6 +27,10 @@ namespace ostinato::battle {
 struct BattleState;
 
 // One item as the battle's menus see it.
+//
+// A hand whose weapon broke in the battle holds no item, and the menus see it as empty, but its record
+// (recordOf() in battle/items_obtained.h) is the broken weapon's with the item, the flags and the
+// quantity written over: `brokenFrom` names that weapon. It is set only by an Ogre Nix breaking.
 struct BattleItem {
     ItemId item = ItemId::EMPTY;
     bool usableInBattle = false;  // the Item command can use it
@@ -36,6 +41,7 @@ struct BattleItem {
     Targeting targeting;
     std::uint8_t quantity = 0;
     BattleSlotMask equippableBy;  // the party slots whose member can hold it in a hand
+    std::optional<ItemId> brokenFrom;  // the weapon this hand held before it broke
 };
 
 // The tools the party owns, Noiseblaster to Autocrossbow.

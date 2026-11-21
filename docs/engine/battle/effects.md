@@ -98,7 +98,7 @@ from `scratch.messageItem` and `scratch.messageAmount`.
 | Dice, Fixed Dice | the damage from two dice, or three — the third read from `BattleState::playClockFrames` — times twice the attacker's level, and the face again for three of a kind |
 | Valiant Knife | the damage gains what the attacker has lost of its HP |
 | Tempest | Wind Slash in place of the blow on half the draws |
-| Ogre Nix | sometimes breaks: the hand's power goes to 0 and the battle's copy of the hand empties |
+| Ogre Nix | sometimes breaks: the hand's power goes to 0 and the battle's copy of the hand empties, `brokenFrom` naming the Ogre Nix |
 | Golem | the Golem's HP is the caster's |
 | Sonic Dive | the turn ends with this action; the petrified, asleep, stopped, frozen and hidden are passed over |
 | Mantra, Pearl Wind, Blow Fish, Revenge, Step Mine, Flare Star | damage from the caster's HP, a fixed 1,000, the HP lost, the party's steps, a target's level |
@@ -297,6 +297,10 @@ call before them; a caller replaying them sets `TracedCall::target` itself.
   menu is open or during a counterattack.
 - **Ogre Nix breaks the hand by the count of attacks left.** The weapon hand on an odd count, the
   shield hand on an even one — for a Fight that is the hand swinging.
+- **A broken hand is empty with a record of its own.** The menus see an empty hand. Its five-byte
+  record (`recordOf()`) is the empty item with every flag bit set and quantity 0, and keeps the Ogre
+  Nix's targeting and hand check, because the break writes only those three bytes.
+  `BattleItem::brokenFrom` is what marks it.
 - **A lone Mantra does 65,535**, and so does a Flare Star with no targets: the console's divide by 0. A Mantra aimed at no one divides the caster's HP by 255: the count less one is taken in a byte.
 - **Spiraler only removes a party member.** A monster's own bit is not in the byte it reads, so a
   monster casting it stays among its targets and is not marked as leaving; it still hides and dies.

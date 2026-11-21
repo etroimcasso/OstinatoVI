@@ -35,7 +35,7 @@ constexpr int kElementBits = 8;
 
 // The plain hit a battle's own action makes: no command's rules, aimed at enemies by default.
 void startOwnAttack(AttackInFlight& attack) {
-    plainCommandAttack(attack, BattleCommandId::NONE);
+    plainCommandAttack(attack, BattleCommandId::NONE, attack.attack);
 }
 
 std::uint8_t& variableOf(BattleState& state, BattlerSlot actor, AiVariable variable) {

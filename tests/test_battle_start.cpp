@@ -1081,17 +1081,22 @@ TEST(WriteBack, DoomGazesHpIsKept) {
     EXPECT_EQ(battle::writeBack(state).switches.doomGazeHp(), 4321);
 }
 
-TEST(WriteBack, ShadowWalkingOffTakesHimAndHisEsperOutOfTheParty) {
-    // ShadowLeaves :11990-11997.
+TEST(WriteBack, ShadowsLeavingIsHandedBackAsTheEndCheckLeftIt) {
+    // ShadowLeaves :11990-12001 takes his record out of the party as he leaves (RemoveChar :11879-11885),
+    // and nothing at the battle's end writes $1850 again: the records go back as the battle left them.
     BattleState state = finishedBattle(battle::BattleWon{});
     state.party.characters[3] = startingRecord(CharacterPropId::SHADOW);
-    state.party.characters[3].esper = EsperId::RAMUH;
-    state.party.membership[3] = {.party = 1, .slot = 3};
+    state.party.membership[3] = game::PartyMembership{};
+    state.party.characters[4] = startingRecord(CharacterPropId::SHADOW);
+    state.party.characters[4].esper = EsperId::RAMUH;
+    state.party.membership[4] = {.party = 2, .slot = 1};
     state.shadowLeftParty = true;
     const battle::BattleResult result = battle::writeBack(state);
     EXPECT_TRUE(result.shadowLeftParty);
     EXPECT_EQ(result.party.membership[3].party, 0);
-    EXPECT_FALSE(result.party.characters[3].esper.has_value());
+    EXPECT_EQ(result.party.membership[4].party, 2);
+    EXPECT_EQ(result.party.membership[4].slot, 1);
+    EXPECT_EQ(result.party.characters[4].esper, EsperId::RAMUH);
 }
 
 TEST(WriteBack, AFormationJoinsTheVeldtWhenItsMonstersCanBeFoundThere) {

@@ -1105,3 +1105,32 @@ it, and the whole battles against the cartridge compare `$322d,x` and `$33a8-$33
 
 **If you want to change it.** Giving `Battler::specialAttack` another starting value in
 `src/battle/battle_state.h` changes what such a party member's Special does.
+
+---
+
+## Umaro's tackle and throw under a Rage are made with Fire
+
+**What happens.** When Umaro rages, his rage's Battle or Special attack sends him to his own attacks,
+and a tackle or a throw he makes then is made with the spell Fire's record: a magic hit,
+fire-elemental, still undodgeable and ignoring defense, with the power of his hands, his level and his
+vigor behind it. The target is recorded as last hit by Fire, which an enemy's counterattack script can
+read. A tackle or throw under a Fight is the plain hit, as it should be. Umaro's own commands hold no
+Rage, so the shipped game reaches this only where a battle gives him one.
+
+**Where the original does it.** `InitUmaroAttack` (`battle/battle_main.asm:3829-3841`) aims his attack
+with `_c2298a` (`:6892-6909`), which hands the command as chosen to `InitTarget` with the attack in B
+(`:6479`). The roll that picked the tackle or the throw left B at 0 (`RandBitWithRate :13525-13545`
+shifts the offered bits out of it; `RandA :12390-12404` gives it back unchanged). A command that uses no
+spell loads the Battle attack whatever B holds (`InitTarget_00 :6548-6550`); Rage is one that uses a
+spell (`:6538-6539`), so `InitTarget_02` (`:6540-6542`) loads attack 0, Fire, and writes it into
+`$3410` as the last spell, which `_c235e3` (`:8585-8594`) records on the target.
+
+**Where the port keeps it.** `kUmaroAttackRecord` in `src/battle/commands.cpp` is the attack Umaro's
+attacks are aimed with, passed to `plainCommandAttack()`. `tests/test_commands.cpp`
+(`Commands.UmarosTackleUnderARageIsMadeWithFiresRecord`,
+`Commands.UmarosThrowUnderARageIsMadeWithFiresRecord`,
+`Commands.UmarosTackleUnderAFightKeepsTheBattleRecord`) pins it, and the whole battles against the
+cartridge compare the record and the target's last hit at every step.
+
+**If you want to change it.** Passing `attack.attack` instead of `kUmaroAttackRecord` in
+`loadUmaroAttack()` makes a raging Umaro's tackle and throw the rage's own Battle or Special attack.

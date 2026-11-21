@@ -452,8 +452,17 @@ command it mimics before running it.
 ### The plain hit a command makes
 
 `_c2298a :6892` aims the queued command (`$3a7c`); `_c2298d :6901-6909` aims a command given in A.
-Both load the command's attack (`InitTarget`), make it undodgeable (`$11a4.5`), take away its special
-effect, and zero the level and the attack stat (`$11af`, `$11ae`). `plainCommandAttack()`.
+Both aim it with the attack in B (`InitTarget :6452-6480`, the `xba` at `:6479`): a command that uses
+no spell loads the Battle attack's record whatever B holds (`InitTarget_00 :6548-6550`); one that uses
+a spell (the class-2 commands the comment at `:6538-6539` lists — magic, swdtech, blitz, lore, slot,
+rage, dance, x-magic, summon, health, shock, magitek) loads B's record and writes B into `$3410` as the
+last spell (`InitTarget_02 :6540-6542`). Both then make it undodgeable (`$11a4.5`), take away its
+special effect, and zero the level and the attack stat (`$11af`, `$11ae`). `plainCommandAttack()`
+takes the attack B holds as `recordOf`. Every caller passes the attack in flight, which is what B
+holds at each of them: Steal `:3301`, Capture `:3362`, the AI's self-attack `:5270`, GP Rain `:4013`,
+Control, Leap and the rest `:4050-4123`, the battle's own commands `:13163`, `:13338`, `:13391`, and
+Possess `:3735` all aim a class-0 command, where B is not read. Umaro's attacks are the exception
+below.
 
 ### Fight and desperation attacks
 
@@ -482,7 +491,18 @@ total (`RandA`) picks the first choice it falls short of. The choices, in order 
 read backward): Fight, tackle, Storm (Blizzard Orb), throw (Rage Ring). `pickWeighted()` is this
 routine, shared with `ChooseBattleType`.
 
-- **Tackle** `UmaroAttack_02 :3503-3512`: `InitUmaroAttack :3829-3841` — the plain hit, power both
+- **The record his attacks start from.** `InitUmaroAttack :3829-3841` opens with `_c2298a`, the plain
+  hit aimed as the queued command, and B is 0: `RandBitWithRate` shifts the offered mask out of B over
+  its four `xba; asl; xba` and `RandA :12390-12404` hands B back as it found it; `txa; asl; tax`
+  (`:3486-3488`) and `tyx` touch neither. Under Fight or Capture, which use no spell, that is the
+  Battle attack's record. Under a Rage (`Cmd_10 :3334-3353`, `_c21554 :3322-3328`, `GetCmdForAI` maps
+  the rage's `$ee`-`$ef` to Fight, `Cmd_06 :3439-3443`) the class-2 handler loads **attack 0, Fire**:
+  a magic hit, fire-elemental, and `$3410` = 0, which `_c235e3 :8585-8594` writes into the target's
+  last-hit spell. `ExecAttack :8022-8028` keeps the record (`$3413` is `$ff` from ExecCmd's clear
+  `:3103-3109`; only `FightAttack :3457-3458` sets it). Umaro's own command list holds no command that
+  uses a spell, so in the shipped game this is a Rage alone. `kUmaroAttackRecord` (Fire) is the attack
+  the port aims with. LEGACY VERBATIM, `docs/Bugs.md`.
+- **Tackle** `UmaroAttack_02 :3503-3512`: `InitUmaroAttack :3829-3841` — that record, power both
   hands' battle power capped at 255, Umaro's level, and his vigor as the attack stat — then ignore
   defense, criticals allowed, shown as `$23`.
 - **Throw** `UmaroAttack_00 :3518-3575`: the candidates are the alive party members with Umaro's

@@ -118,6 +118,12 @@ Rage Ring while another party member is alive. Each relic selects a different ro
 `kRandomBitRates`, so wearing one changes the odds of the others too.
 
 - **Tackle**: the power of both his hands, his level and vigor, ignoring defense; may be critical.
+
+His tackle and his throw start from the plain hit his command makes, aimed with `kUmaroAttackRecord`
+(Fire) in `src/battle/commands.cpp`. Under a Fight that is the Battle attack's record. Under a Rage,
+which uses a spell, it is Fire's: the hit is magic and fire-elemental, still with his power, level
+and vigor behind it and still ignoring defense, and the target is recorded as last hit by Fire. The
+original game does the same ([Bugs.md](../../Bugs.md)).
 - **Storm**: the Storm attack cast as a spell, aimed at random.
 - **Throw**: an ally is thrown — the highest-placed one asleep or confused, else one at random, never
   one in hiding; with no one to throw he tackles. The thrown ally's power joins his, one more for Mog

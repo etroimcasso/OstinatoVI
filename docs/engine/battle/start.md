@@ -231,7 +231,8 @@ shrinks during a battle.
 `loadBattleInventory(state)` fills `state.inventory`: `items` (the party's 256 slots, in order),
 `weaponHands` and `shieldHands` (what each party slot holds, quantity 1), and `tools`. A
 `BattleItem` carries `item`, `usableInBattle`, `throwable`, `isTool`, `isWeapon`, `isShield`,
-`targeting`, `quantity` and `equippableBy` — the party slots whose member can hold it in a hand.
+`targeting`, `quantity` and `equippableBy` — the party slots whose member can hold it in a hand —
+and `brokenFrom`, which is set only on a hand whose Ogre Nix broke ([effects.md](effects.md)).
 `battleItem(state, item, quantity)` builds one for the party as it stands.
 
 `loadKnownSkills(state)` sets `swdtechsKnown`, `blitzesKnown`, `dancesKnown` (indexed by `DanceId`)

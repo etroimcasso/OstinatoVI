@@ -67,9 +67,10 @@ struct AimedBattle {
 //   - a dancing member: the first record of the party played Muddled, holding Dance and no Rage;
 //   - Gau turning up: every member Berserk and the monsters' HP cut further, in a start where Gau may
 //     appear (a start of another kind is a try spent);
-//   - Shadow walking off: the first record of the party played is Shadow, free to walk off at a win
-//     (BattleStart::shadowAvailable set, the switch that keeps him clear), every member Berserk and the
-//     monsters' HP cut further;
+//   - Shadow walking off: Shadow's record in the party played and standing — the record holding him
+//     swapped into the first record played's place, or the first record played made him when none
+//     holds him — free to walk off at a win (BattleStart::shadowAvailable set, the switch that keeps
+//     him clear), every member Berserk and the monsters' HP cut further;
 //   - Terra's Magic and her event: one record of the party played is Terra, Muddled, holding Magic and a
 //     spell she can pay for, with battle switch 65 set.
 // BattleAim::None draws once.

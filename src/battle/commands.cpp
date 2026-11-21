@@ -186,11 +186,18 @@ std::optional<AttackId> desperationAttackFor(BattleState& state, const AttackInF
     return desperationAttack(static_cast<CharacterId>(static_cast<std::uint8_t>(actorId)));
 }
 
-// Umaro's own attacks start from the plain hit with the power of both his hands, his level, and his
-// vigor behind it.
+// The attack Umaro's own attacks are aimed with. The original aims them with attack 0, which the roll
+// that picked the attack leaves behind (RandBitWithRate :13525-13545, RandA :12390-12404, InitTarget
+// :6479). Under a command that uses no spell the plain hit's record is loaded whatever this is; under
+// a Rage, the one command he can be given that uses a spell, his tackle and his throw are made with
+// Fire's record, and Fire is recorded as the last spell.
+constexpr AttackId kUmaroAttackRecord = AttackId::FIRE;
+
+// Umaro's own attacks start from the plain hit as his command makes it, with the power of both his
+// hands, his level, and his vigor behind it.
 void loadUmaroAttack(const BattleState& state, AttackInFlight& attack, BattlerSlot umaro) {
     const Battler& battler = state.at(umaro);
-    plainCommandAttack(attack, attack.queuedCommand);
+    plainCommandAttack(attack, attack.queuedCommand, kUmaroAttackRecord);
     attack.record.power = static_cast<std::uint8_t>(
         std::min(kStatMax, battler.weaponHand.battlePower + battler.shieldHand.battlePower));
     attack.attackerLevel = battler.level;
@@ -368,7 +375,7 @@ void morphCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& s
         script.add(PoseReset{.battler = actor});
         return;
     }
-    plainCommandAttack(attack, attack.queuedCommand);
+    plainCommandAttack(attack, attack.queuedCommand, attack.attack);
     attack.record.statuses.set(StatusId::MORPH);
     if (revert) {
         attack.record.flags2.set(AttackFlag2::REMOVE_STATUS);
@@ -393,7 +400,7 @@ void selfCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& sc
     default:
         break;
     }
-    plainCommandAttack(attack, attack.queuedCommand);
+    plainCommandAttack(attack, attack.queuedCommand, attack.attack);
     runSelfAttack(state, hooks, script, attack, actor);
 }
 
@@ -429,7 +436,7 @@ void danceCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& s
     battler.status.clear(StatusId::DANCE);
     attack.scratch.message = kMessageStumbled;
     attack.command = asCommand(SpecialAnimation::DanceStumble);
-    plainCommandAttack(attack, attack.command);
+    plainCommandAttack(attack, attack.command, attack.attack);
     runSelfAttack(state, hooks, script, attack, actor);
 }
 
@@ -437,7 +444,7 @@ void danceCommand(BattleState& state, AttackHooks& hooks, BattleScriptBuilder& s
 
 // Steal, Sketch, Control, Leap and GP Rain: the plain hit carrying the command's effect.
 void effectCommand(AttackInFlight& attack, CommandEffect effect) {
-    plainCommandAttack(attack, attack.queuedCommand);
+    plainCommandAttack(attack, attack.queuedCommand, attack.attack);
     attack.effect = SpecialEffect::of(effect);
 }
 
@@ -643,8 +650,8 @@ void loadWeaponAttack(const BattleState& state, AttackInFlight& attack, BattlerS
     }
 }
 
-void plainCommandAttack(AttackInFlight& attack, BattleCommandId command) {
-    initTargeting(attack, command, attack.attack);
+void plainCommandAttack(AttackInFlight& attack, BattleCommandId command, AttackId recordOf) {
+    initTargeting(attack, command, recordOf);
     attack.record.flags2.set(AttackFlag2::UNDODGEABLE);
     attack.effect = {};
     attack.attackerLevel = 0;

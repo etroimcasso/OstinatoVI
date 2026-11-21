@@ -158,7 +158,9 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
     // The hands, then the inventory, in the order InitInventory loads them (:13914-13941): each shield
     // and each weapon last party slot first, then the items from the last slot down. An empty record,
     // a hand's or the inventory's, keeps the targeting the record loaded before it left; a hand read
-    // through an empty party slot's offset (bank $7F, kCellsNotCompared) leaves it unknown.
+    // through an empty party slot's offset (bank $7F, kCellsNotCompared) leaves it unknown. A hand whose
+    // weapon broke keeps the weapon's own targeting (AttackerEffect_0e :10210-10218), which the load
+    // left there and the next record takes.
     std::optional<std::uint8_t> targeting = kFilled;
     for (const auto* hands : {&state.inventory.shieldHands, &state.inventory.weaponHands}) {
         const std::uint32_t first = hands == &state.inventory.shieldHands ? kShieldHands : kWeaponHands;
@@ -171,7 +173,7 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
             }
             const battle::BattleItem& hand = (*hands)[static_cast<std::size_t>(position)];
             battle::ItemRecord record = battle::recordOf(hand);
-            if (hand.item != ItemId::EMPTY) {
+            if (hand.item != ItemId::EMPTY || hand.brokenFrom) {
                 targeting = record[kRecordTargeting];
             } else {
                 record[kRecordTargeting] = targeting.value_or(0);

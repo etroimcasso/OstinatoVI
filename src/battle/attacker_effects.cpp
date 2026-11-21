@@ -211,6 +211,7 @@ void ogreNixBreaks(BattleState& state, AttackInFlight& attack, BattlerSlot attac
         const auto position = static_cast<std::size_t>(attacker.position());
         BattleItem& held = shieldHand ? state.inventory.shieldHands[position] : state.inventory.weaponHands[position];
         if (held.item == ItemId::OGRE_NIX) {
+            held.brokenFrom = held.item;
             held.item = ItemId::EMPTY;
             held.usableInBattle = false;
             held.throwable = false;

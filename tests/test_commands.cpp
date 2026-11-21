@@ -313,6 +313,78 @@ BattleState throwingUmaro() {
     return state;
 }
 
+MonsterId aFlier();
+
+// Umaro raging as a flier and making his rage's `attack` (Battle or Special), which sends him to his
+// own attacks as a Fight does.
+const AttackInFlight& umaroUnderARage(BattleState& state, AttackLog& log, AttackId attack) {
+    state.at(kTerra).rage = aFlier();
+    run(state, log, kTerra,
+        CommandAction{.command = BattleCommandId::RAGE, .attack = attack, .targets = BattlerSet::of(kGuard)});
+    EXPECT_EQ(log.made.size(), 1u);
+    return log.made.front();
+}
+
+// Fire's record as an attack loads it.
+AttackInFlight fireRecord() {
+    AttackInFlight fire;
+    battle::loadAttackRecord(fire, AttackId::FIRE);
+    return fire;
+}
+
+// Under a Rage, a command that uses a spell, Umaro's tackle and throw are aimed with the attack the
+// roll left behind, 0: Fire (InitUmaroAttack :3829-3841, _c2298a :6892-6909, InitTarget_02
+// :6540-6542). The hit is a magic one, fire-elemental, with Umaro's own power, level and vigor, and
+// the target is recorded as last hit by Fire.
+TEST(Commands, UmarosTackleUnderARageIsMadeWithFiresRecord) {
+    const AttackInFlight fire = fireRecord();
+    for (const AttackId rageAttack : {AttackId::BATTLE, AttackId::SPECIAL}) {
+        BattleState state = umaroBattle();
+        rngWhere(state, {umaroRoll(159, 254)});
+        AttackLog log;
+        const AttackInFlight tackle = umaroUnderARage(state, log, rageAttack);
+        EXPECT_EQ(tackle.command, static_cast<BattleCommandId>(SpecialAnimation::UmaroTackle));
+        EXPECT_FALSE(tackle.record.traits.has(AttackTrait::PHYSICAL));
+        EXPECT_TRUE(tackle.record.element.has(Element::FIRE));
+        EXPECT_EQ(tackle.record.element.bits, fire.record.element.bits);
+        EXPECT_TRUE(tackle.record.flags2.has(AttackFlag2::UNDODGEABLE));
+        EXPECT_TRUE(tackle.record.traits.has(AttackTrait::IGNORE_DEFENSE));
+        EXPECT_EQ(tackle.record.power, 160);
+        EXPECT_EQ(tackle.attackerLevel, 30);
+        EXPECT_EQ(tackle.attackerStat, 90);
+        EXPECT_EQ(tackle.scratch.lastSpell, AttackId::FIRE);
+        const auto& hitBy = state.at(kGuard).lastHit.spell;
+        ASSERT_TRUE(hitBy);
+        EXPECT_EQ(hitBy->with, AttackId::FIRE);
+        EXPECT_EQ(hitBy->by, kTerra);
+    }
+}
+
+TEST(Commands, UmarosThrowUnderARageIsMadeWithFiresRecord) {
+    const AttackInFlight fire = fireRecord();
+    BattleState state = throwingUmaro();
+    AttackLog log;
+    const AttackInFlight thrown = umaroUnderARage(state, log, AttackId::BATTLE);
+    EXPECT_EQ(thrown.command, static_cast<BattleCommandId>(SpecialAnimation::UmaroThrow));
+    EXPECT_FALSE(thrown.record.traits.has(AttackTrait::PHYSICAL));
+    EXPECT_TRUE(thrown.record.element.has(Element::FIRE));
+    EXPECT_EQ(thrown.record.element.bits, fire.record.element.bits);
+    EXPECT_EQ(thrown.scratch.lastSpell, AttackId::FIRE);
+}
+
+// Under Fight, a command that uses no spell, the tackle is the Battle attack's whatever the roll left
+// (InitTarget_00 :6548-6550), and no spell is recorded.
+TEST(Commands, UmarosTackleUnderAFightKeepsTheBattleRecord) {
+    BattleState state = umaroBattle();
+    rngWhere(state, {umaroRoll(159, 254)});
+    AttackLog log;
+    run(state, log, kTerra, kFightTheGuard);
+    ASSERT_EQ(log.made.size(), 1u);
+    EXPECT_TRUE(log.made[0].record.traits.has(AttackTrait::PHYSICAL));
+    EXPECT_FALSE(log.made[0].scratch.lastSpell);
+    EXPECT_FALSE(state.at(kGuard).lastHit.spell);
+}
+
 TEST(Commands, UmaroThrowsTheSleepingAllyAndWakesIt) {
     BattleState state = throwingUmaro();
     const BattlerSlot edgar = BattlerSlot::character(2);
