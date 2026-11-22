@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -38,10 +39,20 @@ inline constexpr std::uint64_t kBattleFrameCap = 20'000;
 // equipment can — Berserk, Muddled — and cuts the monsters' HP so a battle is short. A status is laid with
 // what its set handler leaves beside its bit: Muddled draws the battler facing the other way and marks a
 // party member's statuses changed (SetStatus_0d battle_main.asm:11366-11383); Berserk's handler leaves
-// nothing (SetStatusNoEffect).
+// nothing (SetStatusNoEffect). A morph under way is laid as UpdateMorph leaves a member it has just
+// morphed (:1679-1756): Morph's status, the member as the one morphed ($3EE2), Morph and Revert traded in
+// their battle commands ($202E), and the meter and its speed ($3F30, $3F32), here of the scenario's
+// choosing.
+struct MorphLaid {
+    battle::BattlerSlot member;
+    std::uint16_t counter = 0;
+    std::uint16_t speed = 1;
+};
+
 struct FirstStepLaid {
     std::array<StatusSet, battle::kBattlerSlots> statusesAdded{};
     std::array<std::optional<std::uint16_t>, battle::kBattlerSlots> hp{};
+    std::optional<MorphLaid> morph;
 };
 
 // `laid` laid onto the port's state.
@@ -131,23 +142,38 @@ struct PortBattle {
     // The battlers facing right as each frame began, one mask a frame ($2F50-$2F51's form): the facings
     // the graphics program hands the battle program on every frame (DamageOracle::wholeBattle()).
     std::vector<std::uint16_t> facings;
+    // Whether a battler was in Morph as each frame began, one a frame.
+    std::vector<bool> morphed;
+    // The frame the wrap-up's wait begins on, once it has been asked for.
+    std::optional<std::uint64_t> wrapUpWaitFrom;
 };
 
 [[nodiscard]] PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text,
                                     const MonsterSprites& sprites);
 
+// The script command that scrolls the final battle's background between its stages (InitBattle
+// :6185-6193, GfxCmd_12 btlgfx_main.asm:22118).
+inline constexpr std::uint8_t kFinalBattleScrollCommand = 0x12;
+
 // Whether a script stops battle time for all its frames, read from the cartridge's script queue
 // ($7E:2D6E, four bytes a command, $FF at the end) or from the port's script: it plays a battle event
-// other than Gau's ($1B) and Wrexsoul's ($1F).
+// other than Gau's ($1B) and Wrexsoul's ($1F), or, on the cartridge's side, holds the final battle's
+// scroll ($12). portBattle() knows the port's scroll script as the one asked for after
+// ScrollFinalBattleBackground.
 [[nodiscard]] bool scriptStopsTime(const std::vector<std::uint8_t>& queue);
 [[nodiscard]] bool scriptStopsTime(const battle::RunBattleScript& script);
 
 // What a request shows, and what a graphics call shows, in the same words: the menu opened, closed or
 // refreshed and whose, a script, the monsters' names, an item obtained, the scene opened, scrolled or
-// closed, the fanfare or the celebration. Nothing for a frame wait ($01) and the items obtained merged
-// ($0A), which have no request.
-[[nodiscard]] std::string requestShown(const battle::BattleRequest& request);
+// closed, the fanfare or the celebration. Nothing for a frame wait ($01), the port's wrap-up wait (a
+// script holding one Wait) and the items obtained merged ($0A), which have no request.
+[[nodiscard]] std::optional<std::string> requestShown(const battle::BattleRequest& request);
 [[nodiscard]] std::optional<std::string> callShown(const GraphicsCall& call);
+
+// What a run of requests shows, in order. In a `won` battle's end the celebration — every menu closing,
+// first slot first, then the fanfare and battle event 1 where they were asked for — shows as the
+// cartridge's one call ($08) shows: "celebration".
+[[nodiscard]] std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won);
 
 // A whole battle checked: every line where the cartridge's and the port's part, empty when they agree.
 struct BattleCheck {

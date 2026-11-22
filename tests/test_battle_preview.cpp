@@ -18,6 +18,7 @@
 
 #include "assets/cartridge.h"
 #include "battle/action_executor.h"
+#include "battle/battle_end.h"
 #include "battle/battle_hooks.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
@@ -312,6 +313,48 @@ TEST_F(BattlePreviewTest, LoboIsFoughtToAWinThroughThePresentation) {
     EXPECT_FALSE(shown.monstersShown.has(lobo));
     EXPECT_FALSE(shown.monsterNames[0].has_value());
     RecordProperty("frames", frames);
+}
+
+// The wrap-up's wait through the presentation: from the tick the wrap-up closes the party's menus to the
+// tick it puts the hands away, 32 ticks pass with battle time running (_c24903 :12076-12080).
+TEST_F(BattlePreviewTest, TheWrapUpsWaitIsThirtyTwoTicksOfBattleTime) {
+    OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
+    const assets::IngestedContent& content = *cartridge_->content;
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor(hooks, content.text, content.monsterSprites);
+    battle::BattleSim sim(battle::BattleStart{.formation = FormationRef::of(FormationId::LOBO)}, terraLockeEdgar(), {},
+                          content.text, content.monsterSprites, executor);
+    battle::BattlePresentationState shown;
+    const battle::BattlePresentationContext context{.text = content.text, .metrics = content.dialogFont.metrics};
+    ScriptedPlayer player{messageHoldFrames(context.messageSpeed)};
+    std::vector<battle::PlayerAction> answers;
+    std::optional<int> menusClosed;
+    std::optional<int> handsPutAway;
+    int timeRunningTicks = 0;
+    const auto played = [&](battle::BattleEndPart part) {
+        return sim.state().ending && static_cast<int>(sim.state().ending->next) > static_cast<int>(part);
+    };
+    for (int tick = 0; tick < 10 * 60 * 60 && !shown.sceneClosed; ++tick) {
+        battle::BattleInput input = battle::battleInput(shown);
+        input.playerActions = std::exchange(answers, {});
+        if (menusClosed && !handsPutAway && input.timeRunning) {
+            ++timeRunningTicks;
+        }
+        sim.tick(input);
+        if (!menusClosed && played(battle::BattleEndPart::CloseMenus)) {
+            menusClosed = tick;
+        }
+        if (!handsPutAway && played(battle::BattleEndPart::PutAway)) {
+            handsPutAway = tick;
+        }
+        const std::vector<battle::BattleRequest> requests = sim.takeRequests();
+        answers = player.answer(requests, sim.state());
+        battle::tickBattlePresentation(shown, sim.state(), requests, context, player.confirms(shown));
+    }
+    ASSERT_TRUE(sim.result().has_value());
+    ASSERT_TRUE(menusClosed && handsPutAway);
+    EXPECT_EQ(*handsPutAway - *menusClosed, battle::kWrapUpWaitFrames);
+    EXPECT_EQ(timeRunningTicks, battle::kWrapUpWaitFrames);
 }
 
 }  // namespace

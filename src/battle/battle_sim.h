@@ -16,9 +16,13 @@
 //     party = battle.result()->party;
 //
 // Battle time advances on every tick; the battle loop takes its step only on a tick the
-// presentation is idle. When the battle has an outcome, the executor plays out its end, the party
-// is handed back, and the scene closes — except for a won stage of the final battle, which scrolls
-// on to the next stage and keeps going.
+// presentation is idle. Once the battle has an outcome the loop takes no more steps: on that tick and
+// on every idle tick after it, the executor plays the battle's end on to the next script it asks for
+// (ActionExecutor::continueBattleEnd()), so the end's scripts take their frames with battle time
+// running through them. When the end has nothing left to play, the party is handed back and the scene
+// closes — except for a won stage of the final battle, which scrolls on to the next stage, its play
+// clock and frame count counting on from where the end left them, and keeps going. result() stays
+// empty until then.
 #pragma once
 
 #include <optional>
@@ -56,7 +60,8 @@ public:
     BattleState& state() { return state_; }
     const BattleState& state() const { return state_; }
 
-    // What the game keeps from the battle, once it is over.
+    // What the game keeps from the battle, once it is over: empty until the battle's end has played its
+    // last script.
     const std::optional<BattleResult>& result() const { return result_; }
 
 private:

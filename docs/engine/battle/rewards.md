@@ -9,9 +9,10 @@ some Morph supply; and the monsters' rages are learned when Gau has leapt.
 Each rule is a free function in `src/battle/rewards.h`, over the party (`game::Party`) and, where the
 rule reads the battle, the `battle::BattleState` it was won in. A rule changes what it changes and
 returns what the player is told about — a level reached, a technique learned, a dance mastered — and
-shows nothing itself. The battle's end (`playBattleEnd()` in `src/battle/battle_end.h`) calls them in the
-order the game does and tells of each as it goes; `CommandExecutor` runs it when the battle has an
-outcome, before the party is handed back.
+shows nothing itself. The battle's end (`continueBattleEnd()` in `src/battle/battle_end.h`) calls them in
+the order the game does and tells of each as it goes, a part at a time with battle time running between
+the parts; `BattleSim` runs it through `CommandExecutor` from the tick the battle has an outcome until
+the party is handed back.
 
 Every rule with a routine of its own in the cartridge is checked against that routine, run on the
 engine's SNES machine over the same party.
@@ -25,8 +26,9 @@ The rules, and the line of the original each is read from, are in
 |---|---|
 | `src/battle/rewards.h` | `spoilsOf()`, `experienceShare()`, `addExperience()`, `earnedNextLevel()`, `learnAbilitiesAtLevel()`, `learnFromEquipment()`, `learnLores()`, `learnDance()`, `gainMorphSupply()`, `learnRages()`; `BattleSpoils`, `AbilitiesLearned`, `EquipmentLearning` |
 | `src/battle/rewards.cpp` | the three-byte mask, the fallen statuses, the level scale, the Morph supply's limit and the rage bound as named constants; the console's divide |
-| `src/battle/battle_end.h` | `playBattleEnd()`, what each ending runs: the win whole, the loss, the special endings; `wrapUpBattle()`, the close every ending but two runs; `reachEarnedLevels()` and `learnLevelAbilities()`, a member's levels and what they teach with the win's messages for them, and `AbilityMessagesShown`; `kWrapUpWaitFrames`, `kRareDropBelow` |
-| `src/battle/command_executor.h` | `CommandExecutor::playBattleEnd()`, which calls `playBattleEnd()` |
+| `src/battle/battle_end.h` | `continueBattleEnd()`, what each ending runs, played on a part at a time: the win, the loss, the special endings; `playBattleEnd()`, the whole end at once; `wrapUpBattle()`, the close every ending but two runs; `reachEarnedLevels()` and `learnLevelAbilities()`, a member's levels and what they teach with the win's messages for them; `kWrapUpWaitFrames`, `kRareDropBelow` |
+| `src/battle/battle_state.h` | `BattleEndPart`, the parts an end plays in; `BattleEnding` and `BattleState::ending`, how far the end has played; `WinSoFar`, what a win has worked out for its later parts; `AbilityMessagesShown` |
+| `src/battle/command_executor.h` | `CommandExecutor::continueBattleEnd()`, which calls `continueBattleEnd()` |
 | `src/battle/battle_requests.h` | `VictoryFanfare`, the fanfare a win asks for |
 | `src/battle/items_obtained.h` | `ItemsObtained`, `obtainItem()`, `mergeItemsObtained()`, `itemsObtainedAtBattleStart()`, `itemsObtainedTail()`, `itemsObtainedTailAtPowerOn()`; `ItemRecord`, an item's five-byte form on the cartridge, with `itemIn()`, `quantityIn()`, `kEmptyItemRecord`, `kEmptyItemsObtainedTail`, `itemRecordFor()`, `battleItemFromRecord()` and `recordOf()`; `kMostOfOneItem` |
 | `src/battle/battle_start.h` | `BattleStart::itemsObtainedTail` and `BattleResult::itemsObtainedTail`, the list's last three places carried from one battle to the next; `BattleResult::gauLeftParty`; `writeBack()`, what the game keeps |
@@ -140,13 +142,36 @@ the party slots, fallen or not, and returns the dance only when the party did no
 
 ## The battle's end
 
-`playBattleEnd()` plays out the battle's outcome:
+The end plays in parts, and battle time runs through it as it runs through a fight: each part runs to the
+battle scripts it asks for and stops, and the next runs once they have played, their frames passing
+first. `continueBattleEnd()` plays the end on from where it stands (`BattleState::ending`, set on the first
+call) to the next script a part asks for, and returns true on the call that finds nothing left:
 
 ```cpp
 #include "battle/battle_end.h"
+#include "battle/battle_start.h"
 
+// On every tick the presentation is idle, once the battle has its outcome:
+if (battle::continueBattleEnd(state, executor, battle::BattleWon{})) {
+    const battle::BattleResult handedBack = battle::writeBack(state);
+}
+
+// Or the whole end at once, with no frame between its parts:
 battle::playBattleEnd(state, executor, battle::BattleWon{});
 ```
+
+`BattleSim` does the first for a whole battle ([core.md](core.md)).
+
+| Part (`BattleEndPart`) | Runs | Stops on |
+|---|---|---|
+| `StepBack` | a win, a final stage's end: a `StepBack` | its script |
+| `Celebration` | a win: the celebration (below) | battle event 1's script, when the fanfare plays |
+| `CloseMenus` | the wrap-up's first half (below) | the wait |
+| `PutAway` | the wrap-up's second half; then a loss's message, the colosseum's prize, or a win's experience told | the message, if any |
+| `Rewards` | a win: each member's rewards, the magic points, the levels and spells, the lores, the dance, the curse | its messages, if any |
+| `Drops` | a win: the drops, then the gold | its messages, if any |
+
+A part that asks for no script goes straight on to the next in the same call.
 
 | Outcome | Runs |
 |---|---|
@@ -181,8 +206,9 @@ item, a spell, a lore or a party slot as itself, an amount whole.
 
 ## The wrap-up
 
-`wrapUpBattle()` closes a battle once it has an outcome, before the party is handed back. A win, a loss
-and every special ending but two run it; a Leap and a battle that ends by teaching its rages do not.
+The wrap-up closes a battle once it has an outcome, before the party is handed back. A win, a loss and
+every special ending but two run it; a Leap and a battle that ends by teaching its rages do not. It is the
+`CloseMenus` and `PutAway` parts of the end; `wrapUpBattle()` runs both in a row, with no frame between:
 
 ```cpp
 #include "battle/battle_end.h"
@@ -190,11 +216,12 @@ and every special ending but two run it; a Leap and a battle that ends by teachi
 battle::wrapUpBattle(state, executor);
 ```
 
-In order it keeps the Morph supply as the meter stands, closes the party's battle menus from slot 3 to
-slot 0 (a `CloseBattleMenu` request each), sets `BattleState::menusDisabled`, waits 32 frames (a
-`RunBattleScript` holding one `Wait`), puts away every party member's hand (`putAwayItemsObtained()`
-with all four marked: an item chosen for Item or Throw and never used comes back), merges the items
-obtained into the inventory, and applies equipment changed in the Item menu.
+The first half keeps the Morph supply as the meter stands, closes the party's battle menus from slot 3 to
+slot 0 (a `CloseBattleMenu` request each), sets `BattleState::menusDisabled`, and asks for a 32-frame wait
+(a `RunBattleScript` holding one `Wait`). Once the wait has played, battle time running through it, the
+second half puts away every party member's hand (`putAwayItemsObtained()` with all four marked: an item
+chosen for Item or Throw and never used comes back), merges the items obtained into the inventory, and
+applies equipment changed in the Item menu.
 
 ## Items obtained
 
@@ -344,6 +371,12 @@ her Antdot, and a guard dropping a Tonic; `rewards-loss.log` is the same fight l
 - **The last three places outlast the battle.** Pass `BattleResult::itemsObtainedTail` into the next
   `BattleStart`; a `BattleStart` left as it is starts them empty.
 - **The wrap-up puts away every hand**, not only the ones marked as holding an item.
+- **Battle time runs through the end.** The gauges, the timers and Morph's meter move in the frames of
+  the step back, the wrap-up's wait and every message. A meter that runs out there leaves the Morph supply
+  at nothing, even after the wrap-up saved it (`docs/Bugs.md`); a win's magic points added before it runs
+  out are lost with it.
+- **The party is handed back only once the end's last script has played.** `BattleSim::result()` stays
+  empty through the end.
 - **A Leap ends the battle with no wrap-up**, and so does a battle that ends by teaching its rages: the
   Morph supply is not saved, a hand still holding an item keeps it, and items not yet merged are lost.
 - **The colosseum gives its prize and nothing else** — no experience, gold, learning or drops.
@@ -368,11 +401,14 @@ her Antdot, and a guard dropping a Tonic; `rewards-loss.log` is the same fight l
 | The Morph supply's limit | `kMostMorphSupply` in `src/battle/rewards.cpp` |
 | Which monsters have rages | `kMonstersWithRages` in `src/battle/rewards.cpp` |
 | The win's message numbers | `src/battle/battle_script.h` |
-| What an ending runs | `playBattleEnd()` in `src/battle/battle_end.cpp` |
-| The win's order | `winBattle()` in `src/battle/battle_end.cpp` |
+| What an ending runs, and which part follows which | `firstPart()` and `partAfter()` in `src/battle/battle_end.cpp` |
+| What each part does | `playPart()` in `src/battle/battle_end.cpp` |
+| Where a part stops | `continueBattleEnd()` in `src/battle/battle_end.cpp`: a part stops when it has asked for a battle script |
+| What a win carries from one part to the next | `WinSoFar` in `src/battle/battle_state.h` |
+| The win's totals and its rewards | `totalTheWin()`, `rewardTheParty()` and `dropsAndGold()` in `src/battle/battle_end.cpp` |
 | The celebration | `celebrate()` in `src/battle/battle_end.cpp` |
 | The drops | `dropItems()` and `kRareDropBelow` in `src/battle/battle_end.h`/`.cpp` |
-| The wrap-up's steps and its wait | `wrapUpBattle()` and `kWrapUpWaitFrames` in `src/battle/battle_end.h`/`.cpp` |
+| The wrap-up's steps and its wait | `closeTheMenus()`, `putEverythingAway()` and `kWrapUpWaitFrames` in `src/battle/battle_end.h`/`.cpp` |
 | How the list fills and merges | `obtainItem()` and `mergeItemsObtained()` in `src/battle/items_obtained.cpp`; `kMostOfOneItem` in `items_obtained.h` |
 | Which places a battle's start empties | `itemsObtainedAtBattleStart()` and `kItemsObtainedTailPlaces` in `src/battle/items_obtained.h`/`.cpp` |
 | Where the power-on tail is read from | `kItemsObtainedTailInTitleProgram` in `src/battle/items_obtained.cpp` |

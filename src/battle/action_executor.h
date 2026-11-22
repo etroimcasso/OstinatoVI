@@ -95,9 +95,11 @@ public:
     virtual AttackId chooseRageAttack(BattleState&, BattlerSlot /*rager*/, AttackId chosen) { return chosen; }
     virtual AttackId chooseRandomEsper(BattleState&, BattlerSlot /*caster*/, AttackId chosen) { return chosen; }
 
-    // Play out the battle's end once it has an outcome: the victory and its rewards, the defeat,
-    // or a final-battle stage's close. It runs before the battle hands the party back.
-    virtual void playBattleEnd(BattleState&, const BattleOutcome&) {}
+    // Play the battle's end on, once it has an outcome — the victory and its rewards, the defeat, or a
+    // final-battle stage's close — to the next battle script it asks for. BattleSim calls it on every
+    // tick the presentation is idle, from the tick the outcome is found, and hands the party back once it
+    // returns true: when the end has nothing left to play. Returns true by default.
+    virtual bool continueBattleEnd(BattleState&, const BattleOutcome&) { return true; }
 };
 
 // An executor that does nothing.

@@ -822,8 +822,12 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
         carry.status[i] = StatusSet{};
     }
 
+    // RestartBattle runs InitBattle again (:63-64): the next stage's random numbers start from the play
+    // clock's frames as the stage's end left them (:6088-6090), and the frame counter counts on.
     BattleStart nextStage = start;
     nextStage.formation = FormationRef::of(next);
+    nextStage.playTimeFrames = finished.playClockFrames;
+    nextStage.frameCount = finished.frameCount;
     return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, sprites, executor, &carry);
 }
 

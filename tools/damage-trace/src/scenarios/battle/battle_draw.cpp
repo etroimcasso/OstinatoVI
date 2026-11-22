@@ -22,11 +22,14 @@
 #include "battle/battler_set.h"
 #include "battle/commands.h"
 #include "data/attack_properties.h"
+#include "data/battle_tables.h"
+#include "data/formations.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/battle_command_id.h"
 #include "ostinato/character_prop_id.h"
+#include "ostinato/formation_ref.h"
 #include "ostinato/item_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
@@ -63,7 +66,8 @@ constexpr std::uint64_t kCountdownSpread = 4'000;
 constexpr unsigned kCountdownAlreadyOutOneIn = 8;
 // drawBattle() aims one battle in this many at each of kSweepAims.
 constexpr unsigned kAimOneIn = 10;
-constexpr std::array<BattleAim, 3> kSweepAims{BattleAim::Dancing, BattleAim::GauTurnsUp, BattleAim::ShadowWalksOff};
+constexpr std::array<BattleAim, 4> kSweepAims{BattleAim::Dancing, BattleAim::GauTurnsUp, BattleAim::ShadowWalksOff,
+                                              BattleAim::FinalStageScrolledOn};
 // The spell a battle aimed at Terra's event teaches her and gives her the MP for.
 constexpr AttackId kTerrasSpell = AttackId::FIRE;
 
@@ -200,7 +204,9 @@ BattleScenario drawOnce(std::mt19937& rng, const TextCorpus& text, const Monster
         scenario.start.switches.clear(game::kShadowStaysSwitch);
     }
     // A battle aimed at a win: every member Berserk and the monsters weaker.
-    const bool aimedAtAWin = shadowBattle || (aim == BattleAim::GauTurnsUp && scenario.start.start.gauMayAppear);
+    const bool finalBattle = scenario.start.start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
+    const bool aimedAtAWin = shadowBattle || (aim == BattleAim::GauTurnsUp && scenario.start.start.gauMayAppear) ||
+                             (aim == BattleAim::FinalStageScrolledOn && finalBattle);
     // The record a dance or Terra's event is aimed through.
     std::optional<std::size_t> aimedRecord;
     if (aim == BattleAim::Dancing) {
@@ -347,6 +353,7 @@ std::string_view aimName(BattleAim aim) {
         case BattleAim::Dancing: return kReachRows[kDancingRow];
         case BattleAim::GauTurnsUp: return kReachRows[kGauRow];
         case BattleAim::ShadowWalksOff: return kReachRows[kShadowRow];
+        case BattleAim::FinalStageScrolledOn: return kReachRows[kFinalStageRow];
         case BattleAim::TerrasMagicEvent: return kTerrasEventName;
     }
     return "nothing";

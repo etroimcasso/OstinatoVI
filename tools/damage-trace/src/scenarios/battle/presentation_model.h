@@ -11,8 +11,11 @@
 //     for (const Frame frame : model.openingFrames()) { ... }               // the opening ($00)
 //     for (const Frame frame : model.scriptFrames(3, stopsTime)) { ... }    // the fourth script ($04)
 //
-// The loop's frame wait (graphics command $01 from BattleLoop) is always one frame with the clock called.
-// The wrap-up's frame waits and the celebration take no frame.
+// A frame wait (graphics command $01) is always one frame with the clock called: the loop's, and each of
+// the wrap-up's 32, whose port side is one Wait script of 32 frames taking no place among the scripts.
+// The celebration ($08) takes a script's frames, time stopped, in its place among the scripts when the
+// fanfare plays, and none when it does not. A script holding the final battle's scroll stops time, as one
+// playing a battle event does.
 #pragma once
 
 #include <cstddef>
@@ -46,18 +49,22 @@ struct PresentationModel {
 
     // Whether the party runs on `frame`, as the graphics program's interrupt sets $2F45
     // (btlgfx_main.asm:1603-1614) and BattleState::partyRunning stands for it: the run buttons are held,
-    // the formation allows running (FormationAux::runningDisabled(), $2F4B bit 0), and battle time runs
-    // on the frame.
-    [[nodiscard]] bool partyRuns(std::uint64_t frame, bool runningDisabled, Frame played) const {
-        return runButtonsHeldFrom && frame >= *runButtonsHeldFrom && !runningDisabled && played.clockCalled;
+    // the formation allows running (FormationAux::runningDisabled(), $2F4B bit 0), the graphics program
+    // has not stopped the running (`runningStopped`, w7e629a: from the celebration's first frame to the
+    // battle's close, btlgfx_main.asm:245, and from the final battle's scroll to the next stage's first loop
+    // step, :137 to :22102), and battle time runs on the frame.
+    [[nodiscard]] bool partyRuns(std::uint64_t frame, bool runningDisabled, bool runningStopped, Frame played) const {
+        return runButtonsHeldFrom && frame >= *runButtonsHeldFrom && !runningDisabled && !runningStopped &&
+               played.clockCalled;
     }
 
     // The opening's frames, in order.
     [[nodiscard]] std::vector<Frame> openingFrames() const;
 
     // The frames of the battle's `index`th script (from 0): 1 to kLongestScript of them, the clock called
-    // on none when `stopsTime` (a script that plays a battle event other than Gau's and Wrexsoul's,
-    // GfxCmd_0f btlgfx_main.asm:38200-38216) and on every one otherwise.
+    // on none when `stopsTime` — a script that plays a battle event other than Gau's and Wrexsoul's
+    // (GfxCmd_0f btlgfx_main.asm:38200-38216), one holding the final battle's scroll (BtlGfx_0c :135 to
+    // GfxCmd_12's :22104), and the celebration — and on every one otherwise.
     [[nodiscard]] std::vector<Frame> scriptFrames(std::size_t index, bool stopsTime) const;
 };
 

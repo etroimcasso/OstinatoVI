@@ -53,11 +53,16 @@ while (!battle.result()) {
 party = battle.result()->party;
 ```
 
-`tick()` runs battle time every frame and one loop step on a frame the presentation is idle. When the
-battle has an outcome it plays out the end through the executor, hands the party back
-(`result()`, a `BattleResult`) and requests `CloseBattleScene`. A won stage of the final battle
-requests `ScrollFinalBattleBackground` and carries straight on into the next stage instead. After the
-result is set, `tick()` does nothing.
+`tick()` runs battle time every frame and one loop step on a frame the presentation is idle. Once the
+battle has an outcome the loop takes no more steps: on that frame and on every idle frame after it,
+`tick()` plays the end on through the executor (`ActionExecutor::continueBattleEnd()`) to the next
+script it asks for, so the end's scripts — the step back, the celebration, the wrap-up's 32-frame wait,
+every message of a win — take their frames with battle time running ([rewards.md](rewards.md), The
+battle's end). When the end has nothing left to play, `tick()` hands the party back (`result()`, a
+`BattleResult`) and requests `CloseBattleScene`; `result()` is empty until then, so the loop above runs
+through the end's frames. A won stage of the final battle requests `ScrollFinalBattleBackground` and
+carries straight on into the next stage instead, its play clock and frame count going on from where the
+end left them. After the result is set, `tick()` does nothing.
 
 A host can also drive the two clocks itself. Battle time runs on every displayed frame; the loop
 steps only while no battle script is playing, because each script it starts is something the
@@ -65,14 +70,19 @@ original waited on.
 
 ```cpp
 #include "battle/battle_core.h"
+#include "battle/battle_end.h"
 
 using namespace ostinato::battle;
 
 void runBattleFrame(BattleState& state, ActionExecutor& executor, Presentation& presentation) {
     tickBattleTime(state, presentation.timeRuns(), executor);
     if (!presentation.playingScript()) {
+        // Once the battle has an outcome, stepBattle() hands it back without stepping, and the end plays
+        // on a part at a time.
         if (const auto outcome = stepBattle(state, executor)) {
-            presentation.endBattle(*outcome);
+            if (continueBattleEnd(state, executor, *outcome)) {
+                presentation.endBattle(*outcome);
+            }
         }
     }
     for (const BattleRequest& request : state.requests) {
@@ -288,7 +298,7 @@ nothing.
 | `applyStatusChanges(state)` | the battle's start and a formation change: the statuses waiting to be set go on |
 | `initAi(state, slot)` | a monster is loaded, or a scripted battle seats a party member with a script: get its AI ready from `aiScript` and set `hasCounterScript` |
 | `chooseDanceStep`, `chooseRageAttack`, `chooseRandomEsper` | a menu choice comes in: the dance step, the rage's attack, a slot reel's esper; each returns what it is given by default |
-| `playBattleEnd(state, outcome)` | `BattleSim`, once the battle has an outcome, before the party is handed back; `CommandExecutor` plays out the win, the loss or the special ending ([rewards.md](rewards.md#the-battles-end)) |
+| `continueBattleEnd(state, outcome)` | `BattleSim`, on every idle tick from the one the battle has an outcome; it returns true once the end has nothing left to play, and the party is handed back then. `CommandExecutor` plays the win, the loss or the special ending on to its next script ([rewards.md](rewards.md#the-battles-end)); the default returns true at once |
 
 Before `execute` runs, the battle resets `state.scratch`; the command reports there who it ended up
 hitting, whether Interceptor guarded someone, which characters a Black Belt may answer for, and whether
@@ -358,6 +368,11 @@ Shadow walking off happen in place of a win (Gau, to a party of fewer than two s
 he has joined the party before — `state.gauObtained`); they start a battle event and the battle goes on until
 the next check finds it won. Shadow's record leaves `state.party` as he walks off — its membership
 cleared and its esper none — so the party the battle hands back holds him out of it.
+
+Once there is an outcome the loop takes no more steps, and the end plays a part at a time
+(`continueBattleEnd()` in `src/battle/battle_end.h`, [rewards.md](rewards.md#the-battles-end)), battle time
+running through the frames of its scripts: the gauges fill, the timers run and Morph's meter runs down
+until the party is handed back.
 
 ## Random numbers
 

@@ -510,6 +510,45 @@ struct ScriptWait {
 };
 
 // The whole of a battle in progress.
+// The parts a battle's end plays in, in order (continueBattleEnd() in battle/battle_end.h). Each part
+// runs to the battle scripts it asks for and stops there; the next runs once they have played, so the
+// frames they take — battle time running — pass between the two.
+//   StepBack     a win, and a final stage's end: the acting battler steps back
+//   Celebration  a win: the menus close, the fanfare, battle event 1
+//   CloseMenus   the Morph supply kept, the Morph meters emptied, the menus closed and disabled, the wait
+//   PutAway      the hands put away, the merge, the equipment; then a loss's message, the colosseum's
+//                prize, or a win's experience
+//   Rewards      a win: each member's rewards, the magic points, the levels and spells, the lores, the
+//                dance, the curse
+//   Drops        a win: the drops and the gold
+//   Over         nothing is left to play
+enum class BattleEndPart : std::uint8_t { StepBack, Celebration, CloseMenus, PutAway, Rewards, Drops, Over };
+
+// Which of the two messages a win tells only once it has told: "mastered a new technique" and
+// "devised a new blitz". A second technique or blitz learned in the same win is learned untold.
+struct AbilityMessagesShown {
+    bool swdtech = false;
+    bool blitz = false;
+};
+
+// What a win has worked out in its earlier parts that its later parts use.
+struct WinSoFar {
+    std::uint32_t share = 0;        // the experience each ally gets
+    std::uint32_t gold = 0;         // the gold, doubled by the first Cat Hood
+    std::uint8_t magicPoints = 0;   // the battle's magic points
+    bool partyHasMagicite = false;  // the party has found magicite: magic points are earned
+    bool catHoodCounted = false;    // a Cat Hood has doubled the gold
+    bool magicPointsEarned = false; // someone learned with the magic points, or Terra's supply grew
+    bool curseDispelled = false;    // a Cursed Shield's curse was lifted
+    AbilityMessagesShown abilityMessages;
+};
+
+// A battle's end as far as it has played: the part that runs next, and what the win has worked out.
+struct BattleEnding {
+    BattleEndPart next = BattleEndPart::StepBack;
+    WinSoFar win;
+};
+
 struct BattleState {
     std::array<Battler, kBattlerSlots> battlers{};
 
@@ -718,6 +757,9 @@ struct BattleState {
     bool noVictoryFanfare = false;
 
     std::optional<BattleOutcome> outcome;
+    // How far the battle's end has played, from the first call of continueBattleEnd()
+    // (battle/battle_end.h) on; empty before the battle has an outcome.
+    std::optional<BattleEnding> ending;
 
     ActionScratch scratch;
     MimicMemory mimic;

@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <deque>
 #include <optional>
+#include <span>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -18,6 +19,7 @@
 #include "battle/battle_sim.h"
 #include "battle/command_executor.h"
 #include "data/formations.h"
+#include "ostinato/battle_command_id.h"
 #include "ostinato/status_id.h"
 #include "ostinato/status_set.h"
 
@@ -41,11 +43,35 @@ bool eventStopsTime(std::uint8_t event) {
     return event != kGauEvent && event != kWrexsoulEvent;
 }
 
+// The frames a script holding one Wait and nothing else takes: the wrap-up's, whose cartridge side is
+// that many frame waits ($01, :12076-12080). Nothing for any other script.
+std::optional<int> waitOnly(const battle::RunBattleScript& script) {
+    if (script.commands.size() != 1) {
+        return std::nullopt;
+    }
+    const auto* wait = std::get_if<battle::Wait>(&script.commands.front());
+    return wait != nullptr ? std::optional<int>{wait->frames} : std::nullopt;
+}
+
+bool isVictoryEvent(const battle::BattleRequest& request) {
+    const auto* script = std::get_if<battle::RunBattleScript>(&request);
+    if (script == nullptr || script->commands.size() != 1) {
+        return false;
+    }
+    const auto* event = std::get_if<battle::BattleEventPlays>(&script->commands.front());
+    return event != nullptr && event->event == battle::kVictoryEvent;
+}
+
+bool closesMenu(const battle::BattleRequest& request, int position) {
+    const auto* close = std::get_if<battle::CloseBattleMenu>(&request);
+    return close != nullptr && close->character.position() == position;
+}
+
 }  // namespace
 
 bool scriptStopsTime(const std::vector<std::uint8_t>& queue) {
     for (std::size_t at = 0; at + 1 < queue.size() && queue[at] != kEndOfScript; at += cells::kQueueCommandSize) {
-        if (queue[at] == kBattleEventCommand && eventStopsTime(queue[at + 1])) {
+        if ((queue[at] == kBattleEventCommand && eventStopsTime(queue[at + 1])) || queue[at] == kFinalBattleScrollCommand) {
             return true;
         }
     }
@@ -69,9 +95,9 @@ std::string menu(const char* what, int position, bool controlling = false) {
 
 }  // namespace
 
-std::string requestShown(const battle::BattleRequest& request) {
+std::optional<std::string> requestShown(const battle::BattleRequest& request) {
     return std::visit(
-        [](const auto& shown) -> std::string {
+        [](const auto& shown) -> std::optional<std::string> {
             using Shown = std::decay_t<decltype(shown)>;
             if constexpr (std::is_same_v<Shown, battle::OpenBattleMenu>) {
                 return menu("open", shown.character.position(), shown.controllingMonster);
@@ -80,6 +106,9 @@ std::string requestShown(const battle::BattleRequest& request) {
             } else if constexpr (std::is_same_v<Shown, battle::RefreshBattleMenu>) {
                 return menu("refresh", shown.character.position());
             } else if constexpr (std::is_same_v<Shown, battle::RunBattleScript>) {
+                if (waitOnly(shown)) {
+                    return std::nullopt;
+                }
                 return "script";
             } else if constexpr (std::is_same_v<Shown, battle::RefreshMonsterNames>) {
                 return "monster names";
@@ -96,6 +125,34 @@ std::string requestShown(const battle::BattleRequest& request) {
             }
         },
         request);
+}
+
+std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won) {
+    std::vector<std::string> shown;
+    for (std::size_t i = 0; i < requests.size(); ++i) {
+        // A win's celebration: every menu closing, first slot first — the wrap-up closes them last slot
+        // first — then the fanfare and battle event 1 where they were asked for.
+        bool celebration = won && i + battle::kPartySlots <= requests.size();
+        for (int position = 0; celebration && position < battle::kPartySlots; ++position) {
+            celebration = closesMenu(requests[i + static_cast<std::size_t>(position)], position);
+        }
+        if (celebration) {
+            i += battle::kPartySlots;
+            if (i < requests.size() && std::holds_alternative<battle::VictoryFanfare>(requests[i])) {
+                ++i;
+            }
+            if (i < requests.size() && isVictoryEvent(requests[i])) {
+                ++i;
+            }
+            --i;
+            shown.emplace_back("celebration");
+            continue;
+        }
+        if (const std::optional<std::string> request = requestShown(requests[i])) {
+            shown.push_back(*request);
+        }
+    }
+    return shown;
 }
 
 std::optional<std::string> callShown(const GraphicsCall& call) {
@@ -139,6 +196,19 @@ void layFirstStep(battle::BattleState& state, const FirstStepLaid& laid) {
             battler.hp = *laid.hp[index];
         }
     }
+    // A morph under way, as UpdateMorph leaves a member it has just morphed (:1679-1756).
+    if (laid.morph) {
+        battle::Battler& member = state.at(laid.morph->member);
+        member.status.set(StatusId::MORPH);
+        for (battle::MenuCommand& row : member.commands) {
+            if (row.command == BattleCommandId::MORPH) {
+                row.command = BattleCommandId::REVERT;
+            }
+        }
+        state.morphedBattler = laid.morph->member;
+        state.morphCounter = laid.morph->counter;
+        state.morphCounterSpeed = laid.morph->speed;
+    }
 }
 
 PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, const MonsterSprites& sprites) {
@@ -147,19 +217,31 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
     battle::BattleSim sim{scenario.start.start, scenario.start.cells.party, scenario.start.switches, text, sprites,
                           executor};
     PortBattle port;
-    // The frames the presentation still has to play: the opening's and the scripts'. A tick with none
-    // left is the loop's frame wait.
+    // The frames the presentation still has to play: the opening's, the scripts' and the wrap-up's wait. A
+    // tick with none left is the loop's frame wait.
     std::deque<Frame> playing;
     std::size_t scripts = 0;
+    // The final battle's scroll asked for: the script that follows holds it, and the party does not run
+    // until the next stage's first loop step.
+    bool scrolling = false;
     const auto take = [&] {
         for (battle::BattleRequest& request : sim.takeRequests()) {
             if (std::holds_alternative<battle::OpenBattleScene>(request)) {
                 for (const Frame frame : scenario.model.openingFrames()) {
                     playing.push_back(frame);
                 }
+            } else if (std::holds_alternative<battle::ScrollFinalBattleBackground>(request)) {
+                scrolling = true;
             } else if (const auto* script = std::get_if<battle::RunBattleScript>(&request)) {
-                for (const Frame frame : scenario.model.scriptFrames(scripts++, scriptStopsTime(*script))) {
-                    playing.push_back(frame);
+                if (const std::optional<int> wait = waitOnly(*script)) {
+                    // The wrap-up's wait: its frames, each with the clock, and no place among the scripts.
+                    port.wrapUpWaitFrom = port.frames + playing.size();
+                    playing.insert(playing.end(), static_cast<std::size_t>(*wait), Frame{.clockCalled = true});
+                } else {
+                    const bool stopsTime = scriptStopsTime(*script) || scrolling;
+                    for (const Frame frame : scenario.model.scriptFrames(scripts++, stopsTime)) {
+                        playing.push_back(frame);
+                    }
                 }
             }
             port.requests.push_back(std::move(request));
@@ -171,11 +253,16 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
     const auto beginFrame = [&](Frame played) {
         battle::BattleState& state = sim.state();
         port.facings.push_back(detail::maskOf(state.facingRight));
+        port.morphed.push_back(state.morphedBattler.has_value());
         if (scenario.model.timerRunsOutAt == port.frames) {
             state.eventTimerExpired = true;
         }
-        state.partyRunning =
-            scenario.model.partyRuns(port.frames, getFormationAux(state.formation).runningDisabled(), played);
+        // The celebration stops the party's running for the rest of a win.
+        const bool celebrated = state.ending && std::holds_alternative<battle::BattleWon>(*state.outcome) &&
+                                state.ending->next != battle::BattleEndPart::StepBack &&
+                                state.ending->next != battle::BattleEndPart::Celebration;
+        state.partyRunning = scenario.model.partyRuns(
+            port.frames, getFormationAux(state.formation).runningDisabled(), celebrated || scrolling, played);
     };
     // The opening plays out before the loop's first frame wait: none of its frames is the battle's.
     const std::size_t openingFrames = playing.size();
@@ -195,12 +282,17 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
         Frame played{.clockCalled = true};
         bool idle = true;
         if (playing.empty()) {
-            if (port.steps.empty()) {
-                layFirstStep(sim.state(), scenario.firstStep);
+            // The loop's frame wait. Once the battle has its outcome the loop takes no step: every tick
+            // after it plays the end's frames.
+            if (!sim.state().outcome) {
+                if (port.steps.empty()) {
+                    layFirstStep(sim.state(), scenario.firstStep);
+                }
+                scrolling = false;
+                port.steps.push_back(sim.state());
+                port.stepFrames.push_back(port.frames);
+                port.stepRequests.push_back(port.requests.size());
             }
-            port.steps.push_back(sim.state());
-            port.stepFrames.push_back(port.frames);
-            port.stepRequests.push_back(port.requests.size());
         } else {
             played = playing.front();
             playing.pop_front();

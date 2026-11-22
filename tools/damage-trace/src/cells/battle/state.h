@@ -137,7 +137,11 @@ inline constexpr std::uint32_t kMimicJumpTargets = kWorkRam + 0x3F2A;
 // battle's stages :12230), and those who have used their desperation attack.
 inline constexpr std::uint32_t kEspersSummoned = kWorkRam + 0x3F2E;
 inline constexpr std::uint32_t kDesperationUsed = kWorkRam + 0x3F2F;
-// Morph's meter's speed, a word.
+// The morphed battler, twice its index ($FF none, its top bit set); Morph's meter, a word whose high
+// byte is the meter shown; and the meter's speed, a word (UpdateMorph :1729-1752, DecMorphCounter
+// :2815-2832).
+inline constexpr std::uint32_t kMorphedPartyMember = kWorkRam + 0x3EE2;
+inline constexpr std::uint32_t kMorphMeter = kWorkRam + 0x3F30;
 inline constexpr std::uint32_t kMorphCounterSpeed = kWorkRam + 0x3F32;
 // Which battlers' counterattack AI has not run this step, and which have not been attacked, a word
 // each with a bit clear for each (:116, :12473).

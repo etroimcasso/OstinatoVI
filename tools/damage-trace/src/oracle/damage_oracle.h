@@ -547,8 +547,13 @@ private:
     [[nodiscard]] WriteBackResult readWriteBack();
     // What the graphics program does for the battle program in a whole battle, beyond answering.
     void answerInBattle(const GraphicsCall& call);
-    // What the opening ($00) lays into the battle's cells for the battle program to read.
+    // What the opening ($00) lays into the battle's cells for the battle program to read: the monsters
+    // (layTheMonsters()), the equipment-changed flags cleared and the items obtained emptied.
     void layTheOpening();
+    // What the opening and the final battle's scroll ($04 holding $12, GfxCmd_12 btlgfx_main.asm:22118-22167
+    // and _c10076 :155-174 after it) both lay: the monsters standing, the monsters that can be aimed at, and
+    // the monsters on each side of a pincer.
+    void layTheMonsters();
     // A whole battle's answer: the frames its command takes, and at a loop step's frame wait the step's
     // cells read.
     void answerInWholeBattle(const GraphicsCall& call);
@@ -761,6 +766,9 @@ private:
         bool stepEnded = false;       // this step came back to the loop's head
         bool closed = false;          // TerminateBattle was reached
         std::size_t scripts = 0;      // the scripts played so far
+        // The graphics program has stopped the party's running (w7e629a): from the celebration ($08) to
+        // the battle's close, and from the final battle's scroll ($0C) to the next stage's first frame wait.
+        bool runningStopped = false;
         std::vector<std::uint16_t> facings;  // the facings written each frame (wholeBattle())
         std::vector<StepCellWrite> cartridgeWrites;  // BattleScenario::cartridgeWrites
     };

@@ -5,13 +5,17 @@
 // at most once every two frames. The battle loop takes turns: one step per frame, in which it
 // runs the most urgent thing waiting — an action that interrupted the line, a counterattack, a
 // battler finishing its advance wait, a battler's turn — and checks whether the battle is over.
-// While a battle script plays, the loop waits for it and time keeps running.
+// While a battle script plays, the loop waits for it and time keeps running. Once the battle has an
+// outcome the loop takes no more steps, and its end plays part by part (battle/battle_end.h), time
+// running through the end's scripts as through a fight's.
 //
 // A host drives both from its frame tick:
 //
 //     tickBattleTime(state, presentation.timeRuns(), executor);
 //     if (presentation.idle()) {
-//         if (auto outcome = stepBattle(state, executor)) { ... }  // the battle is over
+//         if (auto outcome = stepBattle(state, executor)) {               // the battle is over
+//             if (continueBattleEnd(state, executor, *outcome)) { ... }  // and its end has played
+//         }
 //     }
 //     presentation.consume(state.requests);
 //     state.requests.clear();

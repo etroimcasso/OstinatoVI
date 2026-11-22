@@ -17,7 +17,9 @@
 #include "retropp/memory_region.h"
 
 #include "battle/battler_set.h"
+#include "ostinato/battle_command_id.h"
 #include "ostinato/status_id.h"
+#include "ostinato/status_set.h"
 
 #include "cells/battle/state.h"
 #include "cells/damage/frame.h"
@@ -152,6 +154,8 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
     // read before its frame runs, and in a stepped battle the loop's head answers from here on.
     if (run.atFrameWait && call.command == kOneFrame) {
         run.atFrameWait = false;
+        // The final battle's next stage: the scroll has played, and the party may run again (:22102).
+        run.runningStopped = false;
         if (run.result.steps.empty()) {
             // The start's own read-set: everything it read before writing, up to its first frame wait.
             run.result.unwrittenReads = unwrittenReads();
@@ -184,11 +188,39 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
         runFrame(Frame{.clockCalled = true});
         return;
     }
+    // The wrap-up's frame waits (:12076-12080): the same routine as the loop's, a frame with the clock
+    // whoever asks (BtlGfx_01 btlgfx_main.asm:392-409).
+    if (call.command == kOneFrame) {
+        runFrame(Frame{.clockCalled = true});
+        return;
+    }
     if (call.command == kPlayBattleScript) {
         const std::vector<std::uint8_t> queue = machine_.read(retropp::MemoryRegion{.at = kQueue, .size = kScriptQueueSpan});
         for (const Frame frame : run.model.scriptFrames(run.scripts++, scriptStopsTime(queue))) {
             runFrame(frame);
         }
+        // The final battle's next stage: the scroll lays out its monsters (GfxCmd_12 :22142-22157) and the
+        // stage's graphics are readied as the opening readies them (_c10076 from :22093).
+        if (queue.front() == kFinalBattleScrollCommand) {
+            layTheMonsters();
+        }
+        return;
+    }
+    // The celebration (BtlGfx_08 :243-274): the party's running stops for the rest of the battle (:245),
+    // and, unless the fanfare is off (:248-250), battle event 1 plays — a script's frames, time stopped.
+    if (call.command == kVictory) {
+        run.runningStopped = true;
+        if ((readByte(kFormationFlags) & kFanfareOffBit) == 0) {
+            for (const Frame frame : run.model.scriptFrames(run.scripts++, true)) {
+                runFrame(frame);
+            }
+        }
+        return;
+    }
+    // The final battle's scroll (BtlGfx_0c :120-149) stops the party's running until the next stage's
+    // scroll has played (:137, :22102).
+    if (call.command == kScrollFinalBattle) {
+        run.runningStopped = true;
     }
 }
 
@@ -200,7 +232,8 @@ void DamageOracle::runFrame(Frame frame) {
     // The interrupt's body (BattleNMI btlgfx_main.asm:1603-1617, :1751): the party running or not, the
     // frame counter steps, and the play clock's frames.
     const bool runningDisabled = (readByte(kFormationAudioFlags) & kRunningDisabledBit) != 0;
-    writeByte(kPartyRunning, run.model.partyRuns(run.result.frames, runningDisabled, frame) ? kPartyRunsByte : 0);
+    writeByte(kPartyRunning,
+              run.model.partyRuns(run.result.frames, runningDisabled, run.runningStopped, frame) ? kPartyRunsByte : 0);
     writeByte(kFrameCounter, static_cast<std::uint8_t>(readByte(kFrameCounter) + 1));
     std::uint8_t played = readByte(kPlayClockFrames);
     if (played == kPlayClockFramesPerSecond) {
@@ -243,6 +276,24 @@ void DamageOracle::writeFirstStep(const FirstStepLaid& laid) {
         if (const std::optional<std::uint16_t> hp = laid.hp[static_cast<std::size_t>(index)]) {
             writeWord(kHp + at, *hp);
         }
+    }
+    // A morph under way, as UpdateMorph leaves a member it has just morphed (:1679-1756), as layFirstStep()
+    // lays it: the status, Morph traded for Revert in the member's commands, the member, the meter and its
+    // speed.
+    if (laid.morph) {
+        const std::uint32_t at = detail::slotIndex(laid.morph->member);
+        const StatusSet morph = StatusSet::of(StatusId::MORPH);
+        writeByte(kStatus34 + at, static_cast<std::uint8_t>(readByte(kStatus34 + at) | morph.bytes[2]));
+        writeByte(kStatus34 + at + 1, static_cast<std::uint8_t>(readByte(kStatus34 + at + 1) | morph.bytes[3]));
+        const std::uint32_t rows = kCommandMenus + at / 2 * kCommandMenuSize;
+        for (std::uint32_t row = rows; row < rows + kCommandMenuSize; row += kCommandRowSize) {
+            if (readByte(row) == static_cast<std::uint8_t>(BattleCommandId::MORPH)) {
+                writeByte(row, static_cast<std::uint8_t>(BattleCommandId::REVERT));
+            }
+        }
+        writeByte(kMorphedPartyMember, static_cast<std::uint8_t>(at));
+        writeWord(kMorphMeter, laid.morph->counter);
+        writeWord(kMorphCounterSpeed, laid.morph->speed);
     }
 }
 

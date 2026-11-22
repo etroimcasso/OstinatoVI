@@ -90,13 +90,7 @@ void DamageOracle::answerInBattle(const GraphicsCall& call) {
 }
 
 void DamageOracle::layTheOpening() {
-    const auto formation = static_cast<FormationId>(readWord(kFormationCell));
-    writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
-    std::uint8_t targetable = kEveryMonster;
-    if ((readByte(kFormationScriptFlags) & kFormationScriptOn) != 0) {
-        targetable = charAiSetup(static_cast<CharAiId>(readByte(kFormationScript))).validMonsterTargets.bits;
-    }
-    writeByte(kMonstersTargetable, targetable);
+    layTheMonsters();
     const std::array<std::uint8_t, kEquipmentChangedFlagCount> unchanged{};
     writeBytes(retropp::MemoryRegion{.at = kEquipmentChangedFlagCells, .size = kEquipmentChangedFlagCount}, unchanged);
     // The items obtained: the graphics program's start zeroes the two counts (btlgfx_main.asm:43456-43460)
@@ -106,6 +100,16 @@ void DamageOracle::layTheOpening() {
     std::array<std::uint8_t, kItemsObtainedEmptiedBytes> emptied{};
     emptied.fill(kNoItemObtained);
     writeBytes(retropp::MemoryRegion{.at = kItemsObtainedRecords, .size = kItemsObtainedEmptiedBytes}, emptied);
+}
+
+void DamageOracle::layTheMonsters() {
+    const auto formation = static_cast<FormationId>(readWord(kFormationCell));
+    writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
+    std::uint8_t targetable = kEveryMonster;
+    if ((readByte(kFormationScriptFlags) & kFormationScriptOn) != 0) {
+        targetable = charAiSetup(static_cast<CharAiId>(readByte(kFormationScript))).validMonsterTargets.bits;
+    }
+    writeByte(kMonstersTargetable, targetable);
     // The monsters on each side of a pincer, which the opening lays out (InitMonsterPos
     // btlgfx_main.asm:2854-2857): from the port's own layout of the monsters the start loaded.
     if (monsterSprites_ == nullptr) {

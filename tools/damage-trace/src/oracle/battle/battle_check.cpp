@@ -10,8 +10,10 @@
 #include <cstdio>
 #include <optional>
 #include <set>
+#include <span>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "battle/battler_set.h"
@@ -51,20 +53,34 @@ std::string stackTops(const std::vector<std::uint8_t>& pages) {
     return text;
 }
 
-// The requests from `first` to `last` (none past the end) as each side shows them.
-std::vector<std::string> portShown(const PortBattle& port, std::size_t first, std::size_t last) {
-    std::vector<std::string> shown;
-    for (std::size_t i = first; i < std::min(last, port.requests.size()); ++i) {
-        shown.push_back(requestShown(port.requests[i]));
+// The requests from `first` to `last` (none past the end) as each side shows them; on the port's side, a
+// win's celebration as the cartridge shows it when `won`.
+std::vector<std::string> portShown(const PortBattle& port, std::size_t first, std::size_t last, bool won = false) {
+    const std::size_t end = std::min(last, port.requests.size());
+    if (first >= end) {
+        return {};
     }
-    return shown;
+    return requestsShown(std::span<const battle::BattleRequest>(port.requests).subspan(first, end - first), won);
 }
 
-std::vector<std::string> cartridgeShown(const WholeBattleResult& cartridge, std::size_t first, std::size_t last) {
+// The graphics calls from `first` to `last` as the port's requests show them. In a battle's `end`, an item
+// added once the wrap-up has merged the items obtained ($0A) — a drop, the colosseum's prize — is merged at
+// once and shows only its message, as the ending's own check has it (guestCalls() in
+// oracle/ending/ending.cpp): the port's end obtains and merges it with no request.
+std::vector<std::string> cartridgeShown(const WholeBattleResult& cartridge, std::size_t first, std::size_t last,
+                                        bool end = false) {
     std::vector<std::string> shown;
+    bool merged = false;
     for (std::size_t i = first; i < std::min(last, cartridge.calls.size()); ++i) {
-        if (const std::optional<std::string> call = callShown(cartridge.calls[i])) {
-            shown.push_back(*call);
+        const GraphicsCall& call = cartridge.calls[i];
+        if (end && call.command == graphics::kMergeItemsObtained) {
+            merged = true;
+        }
+        if (end && merged && call.command == graphics::kAddItemObtained) {
+            continue;
+        }
+        if (const std::optional<std::string> shownCall = callShown(call)) {
+            shown.push_back(*shownCall);
         }
     }
     return shown;
@@ -218,6 +234,20 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     }
     if (!cartridge.ended || !port.result) {
         lines += "the battle did not end on both sides\n";
+        return check;
+    }
+    // From the last step's frame wait to the close: the requests in order, and the frame the battle closed
+    // on, every frame of its end with them.
+    const bool won = std::holds_alternative<battle::BattleWon>(port.result->outcome);
+    lines += named("the requests from the last step to the close",
+                   requestDifferences(portShown(port, port.stepRequests.back(), port.requests.size(), won),
+                                      cartridgeShown(cartridge, cartridge.steps.back().firstCall, cartridge.calls.size(),
+                                                     true)));
+    if (port.frames != cartridge.frames) {
+        lines += "the cartridge's battle closed on frame " + std::to_string(cartridge.frames) + ", the port's on " +
+                 std::to_string(port.frames) + "\n";
+    }
+    if (!lines.empty()) {
         return check;
     }
     // What the game keeps: the party's records, the inventory, the switches and the Veldt's battles. A

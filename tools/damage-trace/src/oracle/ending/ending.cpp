@@ -33,6 +33,7 @@
 #include "ostinato/monster_id.h"
 #include "ostinato/status_set.h"
 
+#include "cells/battle/state.h"
 #include "cells/damage/frame.h"
 #include "cells/damage/per_target.h"
 #include "cells/ending/ending.h"
@@ -52,13 +53,11 @@ using namespace detail;
 
 namespace {
 
-// The cells a battle's end reads and writes: the morphed party member (twice its slot's index, none
-// negative) and Morph's meter (a word whose high byte is the meter); per party slot at twice the
-// slot, the Morph meter shown and the party member's own bit, the word an item's equippable bits
-// are tested against; the battle's flags (bit 7: no battle menu may open); the inventory, 256
-// records; and the graphics program's list of items obtained, sixteen records, with its two counts.
-constexpr std::uint32_t kMorphedPartyMember = kWorkRam + 0x3EE2;
-constexpr std::uint32_t kMorphMeter = kWorkRam + 0x3F30;
+// The cells a battle's end reads and writes besides the morphed party member and Morph's meter
+// (cells/battle/state.h): per party slot at twice the slot, the Morph meter shown and the party member's
+// own bit, the word an item's equippable bits are tested against; the battle's flags (bit 7: no battle
+// menu may open); the inventory, 256 records; and the graphics program's list of items obtained, sixteen
+// records, with its two counts.
 constexpr std::uint32_t kMorphMeterShown = kWorkRam + 0x3B04;
 constexpr std::uint32_t kPartyMemberBit = kWorkRam + 0x3A20;
 constexpr std::uint32_t kEndingFlags = kWorkRam + 0x00B1;

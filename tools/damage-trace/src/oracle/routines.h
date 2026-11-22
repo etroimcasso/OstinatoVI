@@ -110,15 +110,17 @@ inline constexpr std::array<std::uint16_t, 14> kGraphicsCommandHandlers{{
     0x01EC, 0x01FB, 0x0257, 0x024C, 0x950F, 0x01CC, 0x0197, 0x0170, 0x0117, 0x00AF, 0x00AB, 0x0171, 0x002D, 0x0024,
 }};
 // The commands the oracle's answers act on (scenarios/common/graphics_commands.h): the opening, one
-// frame, the script and the battle closed; the two that keep the items obtained, which run as the
-// cartridge holds them; and the one that answers the menu queue's position, which nothing the oracle
-// runs calls.
+// frame, the script, the celebration, the final battle's scroll and the battle closed; the two that keep
+// the items obtained, which run as the cartridge holds them; and the one that answers the menu queue's
+// position, which nothing the oracle runs calls.
 using graphics::kAddItemObtained;
 using graphics::kCloseBattle;
 using graphics::kMenuQueuePosition;
 using graphics::kMergeItemsObtained;
 using graphics::kOneFrame;
 using graphics::kOpenBattleScene;
+using graphics::kScrollFinalBattle;
+using graphics::kVictory;
 inline constexpr const char* kGraphicsKey = "graphics";
 // The AI's routines among kTracedRoutines.
 inline constexpr const TracedRoutine& kTracedInitAi = kTracedRoutines[9];

@@ -1,28 +1,40 @@
 // The close of a battle once it has an outcome: what each ending runs before the party is handed back.
 //
-// The battle loop hands its outcome here through ActionExecutor::playBattleEnd() (CommandExecutor
-// calls playBattleEnd()), and then writes the party back (writeBack() in battle/battle_start.h):
+// The end plays in parts (BattleEndPart in battle/battle_state.h), and battle time runs through it as it
+// runs through a fight. Each part runs to the battle scripts it asks for and stops; the next part runs
+// once those scripts have played, so their frames pass first. BattleSim (battle/battle_sim.h) calls
+// continueBattleEnd() through ActionExecutor::continueBattleEnd() on every tick the presentation is idle,
+// from the tick the battle finds its outcome, and writes the party back (writeBack() in
+// battle/battle_start.h) once it returns true:
 //
-//     battle::playBattleEnd(state, executor, outcome);
+//     if (battle::continueBattleEnd(state, executor, outcome)) {
+//         const battle::BattleResult handedBack = battle::writeBack(state);
+//     }
 //
-// What each outcome runs:
+// playBattleEnd() plays the whole end with no frame between its parts.
 //
-//   BattleWon                        the win, whole (below), the wrap-up inside it
-//   BattleLost                       the wrap-up, then the outcome's message
-//   BattleEnded RanOutOfTime,        the wrap-up
+// What each outcome runs, part by part:
+//
+//   BattleWon                        StepBack, Celebration, CloseMenus, PutAway, Rewards, Drops (below);
+//                                    in the colosseum PutAway ends with the prize, and the win with it
+//   BattleLost                       CloseMenus, PutAway ending with the outcome's message
+//   BattleEnded RanOutOfTime,        CloseMenus, PutAway
 //     EndNow, TimerExpired,
 //     EatenByZoneEater
-//   BattleEnded FinalBattleNextStage the acting battler steps back, then the wrap-up
-//   BattleEnded GauLeapt             Gau leaves the party, then the rages are learned — no wrap-up
-//   BattleEnded RagesLearned         the rages are learned — no wrap-up
+//   BattleEnded FinalBattleNextStage StepBack (the acting battler steps back), CloseMenus, PutAway
+//   BattleEnded GauLeapt             Gau leaves the party, then the rages are learned — no wrap-up, and
+//                                    nothing that stops
+//   BattleEnded RagesLearned         the rages are learned — no wrap-up, and nothing that stops
 //
-// The wrap-up (wrapUpBattle()) closes the party's menus, lets a beat pass, puts away what every party
-// member still holds and merges the items obtained into the inventory. In order:
+// The wrap-up (wrapUpBattle(), the CloseMenus and PutAway parts) closes the party's menus, lets a beat
+// pass, puts away what every party member still holds and merges the items obtained into the inventory.
+// In order:
 //   1. the Morph supply is kept as the meter now stands (saveMorphSupply() in battle/morph.h);
 //   2. for party slots 3 to 0, the Morph meter shown is emptied and the slot's battle menu closes
 //      (a CloseBattleMenu request each);
 //   3. no battle menu may open again (BattleState::menusDisabled);
-//   4. 32 frames pass (a Wait script of kWrapUpWaitFrames);
+//   4. 32 frames pass (a Wait script of kWrapUpWaitFrames), battle time running: a morph whose meter
+//      runs out in them leaves the Morph supply at nothing;
 //   5. every party member with an item still in hand puts it with the items obtained, whether or
 //      not it was marked as holding one, so an item chosen for Item or Throw and never used comes
 //      back (putAwayItemsObtained() in battle/battle_inventory.h);
@@ -62,14 +74,8 @@ inline constexpr int kWrapUpWaitFrames = 32;
 // Below this, a monster's random draw at the win gives its rare drop; otherwise its common one.
 inline constexpr std::uint8_t kRareDropBelow = 32;
 
+// The wrap-up's two parts in a row, with no frame between them.
 void wrapUpBattle(BattleState& state, ActionExecutor& executor);
-
-// Which of the two messages a win tells only once it has told: "mastered a new technique" and
-// "devised a new blitz". A second technique or blitz learned in the same win is learned untold.
-struct AbilityMessagesShown {
-    bool swdtech = false;
-    bool blitz = false;
-};
 
 // The abilities `actor` learns on reaching `level` (learnAbilitiesAtLevel() in battle/rewards.h),
 // and the first technique and the first blitz of the win told of; `shown` records which have been.
@@ -86,7 +92,12 @@ void learnLevelAbilities(BattleState& state, CharacterPropId actor, std::uint8_t
 bool reachEarnedLevels(BattleState& state, game::CharacterRecord& record, std::uint32_t partySlot, bool tellLevel,
                        AbilityMessagesShown& shown);
 
-// Play out `outcome`, the battle's outcome.
+// Play `outcome`'s end on from where it stands (BattleState::ending, set on the first call) to the next
+// battle script a part asks for. Returns true once every part has run and the last one's scripts have
+// played — on a call that finds nothing left to run.
+bool continueBattleEnd(BattleState& state, ActionExecutor& executor, const BattleOutcome& outcome);
+
+// Play `outcome`'s whole end at once: continueBattleEnd() until it returns true.
 void playBattleEnd(BattleState& state, ActionExecutor& executor, const BattleOutcome& outcome);
 
 }  // namespace ostinato::battle

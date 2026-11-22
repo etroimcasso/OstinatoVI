@@ -372,7 +372,9 @@ The fighters standing go on in their slots with their statuses, less Dance, Rage
 fallen, absent or air-anchored fighter's slot takes the next character in line. Mimic's memory, the
 Reflect and Freeze timers, who is in the air and who has summoned carry on, the party keeps the way
 each fighter faces while the new monsters are placed, and a fighter still in the air comes down as
-the stage opens. The items obtained carry on whole, both counts with them. The stage opens with `FormationChanges` — the background scrolls on and its
+the stage opens. The items obtained carry on whole, both counts with them. The play clock counts on:
+the stage's random numbers start from `finished.playClockFrames` — the frames the stage's end took
+included — and its frame count from `finished.frameCount`, whatever `start.playTimeFrames` holds. The stage opens with `FormationChanges` — the background scrolls on and its
 monsters come in — and the loop waits for that script. `BattleSim`
 does all of this itself.
 

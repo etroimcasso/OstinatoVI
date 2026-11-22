@@ -26,8 +26,11 @@
 
 #include "assets/cartridge.h"
 #include "battle/action_queue.h"
+#include "battle/battle_end.h"
+#include "battle/battle_state.h"
 #include "battle/commands.h"
 #include "battle/items_obtained.h"
+#include "ostinato/battle_command_id.h"
 #include "machine/machine_state.h"
 #include "oracle/damage_oracle.h"
 #include "ostinato/item_id.h"
@@ -352,6 +355,102 @@ TEST_F(BattleWholeOracleTest, TheTargetsGausEventCopiesReachNothing) {
     });
 }
 
+// The morph laid on the sweep's first drawn battle that the port wins away from the colosseum, on its first
+// seated member: the meter `counter`, run down by kMorphSpeed on every time update, from a supply of
+// kMorphSupply (MorphLaid, scenarios/battle/whole_battle.h).
+constexpr std::uint16_t kMorphSpeed = 0x0100;
+constexpr std::uint8_t kMorphSupply = 200;
+
+trace::BattleScenario aWonBattle(const assets::IngestedContent& content) {
+    std::mt19937 rng{trace::kSweepSeed};
+    for (int drawn = 0; drawn < 100; ++drawn) {
+        const trace::BattleScenario scenario = trace::drawBattleScenario(rng, content.text, content.monsterSprites);
+        const trace::PortBattle port = trace::portBattle(scenario, content.text, content.monsterSprites);
+        if (port.result && std::holds_alternative<battle::BattleWon>(port.result->outcome) && !port.steps.empty() &&
+            !port.steps.front().colosseum) {
+            return scenario;
+        }
+    }
+    throw std::runtime_error("none of 100 drawn battles was won");
+}
+
+trace::BattleScenario morphed(trace::BattleScenario scenario, std::uint16_t counter,
+                              const assets::IngestedContent& content) {
+    const trace::PortBattle port = trace::portBattle(scenario, content.text, content.monsterSprites);
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+        if (port.steps.front().at(slot).actor) {
+            scenario.firstStep.morph = trace::MorphLaid{.member = slot, .counter = counter, .speed = kMorphSpeed};
+            scenario.start.cells.party.morphSupply = kMorphSupply;
+            return scenario;
+        }
+    }
+    throw std::runtime_error("the battle seats no party member");
+}
+
+// The wrap-up keeps the Morph supply as the meter stands (_c24903 :12064, SaveMorphCounter :1762-1771) and
+// then waits 32 frames with battle time running (:12076-12080, BtlGfx_01 btlgfx_main.asm:392-409); a meter
+// that runs out in them saves the supply again by a meter of nothing (DecMorphCounter :2815-2829). A won
+// battle laid with a morph whose meter runs out at the first time update of the wait.
+TEST_F(BattleWholeOracleTest, AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const trace::BattleScenario won = aWonBattle(content());
+    // The least meter still running as the wait begins: it runs out at the wait's first time update.
+    std::optional<trace::BattleScenario> scenario;
+    for (std::uint16_t updates = 1; updates < 0x100 && !scenario; ++updates) {
+        const trace::BattleScenario tried = morphed(won, static_cast<std::uint16_t>(updates * kMorphSpeed), content());
+        const trace::PortBattle port = trace::portBattle(tried, content().text, content().monsterSprites);
+        if (port.wrapUpWaitFrom && *port.wrapUpWaitFrom < port.morphed.size() && port.morphed[*port.wrapUpWaitFrom]) {
+            scenario = tried;
+        }
+    }
+    ASSERT_TRUE(scenario.has_value()) << "no meter lasted to the wrap-up's wait";
+    RecordProperty("meter", scenario->firstStep.morph->counter);
+    const trace::PortBattle port = trace::portBattle(*scenario, content().text, content().monsterSprites);
+    ASSERT_TRUE(port.wrapUpWaitFrom.has_value());
+    const std::uint64_t waitEnd = *port.wrapUpWaitFrom + battle::kWrapUpWaitFrames;
+    ASSERT_LT(waitEnd, port.morphed.size());
+    EXPECT_FALSE(port.morphed[waitEnd]) << "the meter outlasted the wait";
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = oracle.checkBattle(*scenario);
+        EXPECT_EQ(check.differences, "") << trace::describe(*scenario);
+        EXPECT_EQ(check.cartridge.kept.cells.party.morphSupply, 0);
+        ASSERT_TRUE(check.port.result.has_value());
+        EXPECT_EQ(check.port.result->party.morphSupply, 0);
+    });
+}
+
+// A morph's meter running out makes a Revert among the morphed battler's counterattacks with the targets
+// being made ($B8-$B9) as a step before left them (DecMorphCounter :2827-2829, CreateRetalAction to
+// CreateAction's copy :12960-12961), targets the state leaves out (oracle/battle/state_actions.cpp). The
+// pair written 0 and 65,535 at the step before the Revert is made changes nothing.
+TEST_F(BattleWholeOracleTest, TheTargetsAMorphsRevertCopiesReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const trace::BattleScenario scenario = morphed(aWonBattle(content()), 4 * kMorphSpeed, content());
+    const trace::PortBattle port = trace::portBattle(scenario, content().text, content().monsterSprites);
+    // The Revert is made and runs inside one loop step: the step before the first one that holds no morph.
+    std::optional<std::size_t> step;
+    for (std::size_t at = 1; at < port.steps.size() && !step; ++at) {
+        if (port.steps[at - 1].morphedBattler && !port.steps[at].morphedBattler) {
+            step = at - 1;
+        }
+    }
+    ASSERT_TRUE(step.has_value()) << "the port's battle runs the meter out in no step";
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        for (const std::vector<std::uint8_t>& bytes : {std::vector<std::uint8_t>{0x00, 0x00}, {0xFF, 0xFF}}) {
+            trace::BattleScenario written = scenario;
+            written.cartridgeWrites = {trace::StepCellWrite{.step = *step, .at = kTargetsBeingMade, .bytes = bytes}};
+            const trace::BattleCheck check = oracle.checkBattle(written);
+            EXPECT_EQ(check.differences, "") << trace::describe(written) << ", written " << int{bytes.front()}
+                                             << " at step " << *step;
+            EXPECT_TRUE(check.cartridge.ended);
+        }
+    });
+}
 
 }  // namespace
 }  // namespace ostinato::test

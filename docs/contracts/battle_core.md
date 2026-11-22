@@ -64,10 +64,11 @@ two battlers together are outside this contract: the battle core calls them thro
 
 A battle runs on two clocks.
 
-**Battle time** moves on every displayed frame, including the frames of an attack's animation: the
-graphics program calls `UpdateBattleTime` from both its own frame wait and the one it uses inside
-animations, unless it has stopped time itself (battle events other than Gau's and Wrexsoul's, the
-entry animation, the final battle's set pieces). `tickBattleTime(state, timeRunning, executor)` is
+**Battle time** moves on every displayed frame, including the frames of an attack's animation and of the
+battle's end: the graphics program calls `UpdateBattleTime` from both its own frame wait (`BtlGfx_01`
+`btlgfx:392-409`, whoever asks for it — the loop or the wrap-up) and the one it uses inside animations
+(`WaitFrame` `btlgfx:425-439`), unless it has stopped time itself (battle events other than Gau's and
+Wrexsoul's, the entry animation, the final battle's scroll between its stages). `tickBattleTime(state, timeRunning, executor)` is
 called once per displayed frame; `timeRunning` carries the presentation's stop. Before anything
 else on a frame time runs, it takes in the commands the player has finished choosing (below, "The
 player's commands").
@@ -873,15 +874,20 @@ without `InitRAM`):
   Mimic's memory, who is away from the field, who has summoned, the morphed battler, the formation
   the battle began with and the characters still waiting their turn.
 - Then the stage starts like any battle, with the standing fighters in their slots and the next
-  characters in line in the empty ones.
+  characters in line in the empty ones. `InitBattle` seeds its random numbers from the play clock's
+  frames as the stage's end left them (`:6088-6090`), and the frame counter counts on: the next stage
+  starts from the stage's own `playClockFrames` and `frameCount`, the frames its end took included.
 
 ## A battle from a frame tick
 
 `BattleSim` runs one battle from the host's frame. `tick(BattleInput)` adds the player's finished
 commands to the battle, runs `tickBattleTime()` with the presentation's `timeRunning`, and — only
 when the presentation is idle, no script still playing — one `stepBattle()`. Once the battle has an
-outcome, `executor.playBattleEnd` plays out its end, `writeBack()` hands the party back, and
-`CloseBattleScene` is requested (`TerminateBattle` `:150-154`); the result stays and nothing more
+outcome the loop takes no more steps (`stepBattle()` hands the outcome back), and on that tick and every
+idle tick after it `executor.continueBattleEnd` plays the end on to the next script it asks for
+(`docs/contracts/battle_rewards.md` § A, Time through the end): battle time runs through the end's
+scripts as through a fight's. When the end has nothing left to play, `writeBack()` hands the party back
+and `CloseBattleScene` is requested (`TerminateBattle` `:150-154`); the result stays and nothing more
 runs. A won final-battle stage instead requests `ScrollFinalBattleBackground` (`:12235-12236`) and
 the next stage starts in its place. Requests come out of `takeRequests()` in the order they were
 made.

@@ -35,9 +35,10 @@ over the same party the port is given (`tools/damage-trace/src/oracle/damage_ora
 | The rages | `LearnRage :12185-12198` | `learnRages()` |
 | A spell learned a little further | `IncLearnMagic :15687-15705` | `addSpellProgress()` (`docs/contracts/battle_espers.md` § B) |
 | A level-up | `DoLevelUp :15761-15816` | `levelUp()` (`docs/contracts/battle_espers.md` § C) |
-| What each ending runs | `CheckBattleEnd :11891-11964`, `BattleEndTbl :12050-12056` | `playBattleEnd()` (`src/battle/battle_end.h`), `CommandExecutor::playBattleEnd()` |
-| The win, in its order | `WinBattle :15282-15563` | `playBattleEnd()` with `BattleWon` |
-| The loss | `LoseBattle :15588-15593` | `playBattleEnd()` with `BattleLost` |
+| What each ending runs | `CheckBattleEnd :11891-11964`, `BattleEndTbl :12050-12056` | `continueBattleEnd()` and `playBattleEnd()` (`src/battle/battle_end.h`), `CommandExecutor::continueBattleEnd()` |
+| Time through the end | `BtlGfx_01 G:392-409`, `WaitFrame G:425-439`, `UpdateBattleTime :2668-2722` | `BattleSim::tick()` (`src/battle/battle_sim.h`), `BattleEndPart` (`src/battle/battle_state.h`) |
+| The win, in its order | `WinBattle :15282-15563` | `continueBattleEnd()` with `BattleWon` |
+| The loss | `LoseBattle :15588-15593` | `continueBattleEnd()` with `BattleLost` |
 | What the game keeps | `UpdateSRAM :12092-12179`, `RemoveChar :11879-11885` | `writeBack()` (`src/battle/battle_start.h`) |
 | The wrap-up | `_c24903 :12062-12086` | `wrapUpBattle()` (`src/battle/battle_end.h`) |
 | An item joining the list | `BtlGfx_05 G:357-373`, `LoadItemProp :13981-14037` | `obtainItem()` (`src/battle/items_obtained.h`) |
@@ -50,10 +51,10 @@ over the same party the port is given (`tools/damage-trace/src/oracle/damage_ora
 
 ## A. What each ending runs
 
-The battle hands its outcome to `ActionExecutor::playBattleEnd()` and then writes the party back
-(`BattleSim::finish()`, `src/battle/battle_sim.cpp`). In the cartridge each ending runs its body, then
-`UpdateSRAM` (`:11961`), then `TerminateBattle :150` — except the final battle's next stage
-(`:12204-12239`).
+The battle hands its outcome to `ActionExecutor::continueBattleEnd()` on every tick the presentation is
+idle, from the tick it finds it, and writes the party back once the end has played (`BattleSim::finish()`,
+`src/battle/battle_sim.cpp`). In the cartridge each ending runs its body, then `UpdateSRAM` (`:11961`),
+then `TerminateBattle :150` — except the final battle's next stage (`:12204-12239`).
 
 | Outcome | Cartridge path | Runs, in order |
 |---|---|---|
@@ -67,6 +68,48 @@ The battle hands its outcome to `ActionExecutor::playBattleEnd()` and then write
 
 A lost battle gives nothing beyond what the wrap-up puts away. A win never runs `LearnRage`: the rages
 are learned only by the two endings that name them.
+
+### Time through the end
+
+A frame the graphics program spends inside a battle's end runs the battle's clock as any other does:
+`BtlGfx_01` and `WaitFrame` (`G:392-439`) call `UpdateBattleTime` unless `w7ee9ef` is set (`G:404-406`,
+`G:434-436`). The wrap-up's 32 frame waits are 32 such frames, and so are the frames of the step back's
+script, of each message and of the celebration's own before its event (`G:246`, `G:257-258`). Time is
+stopped by the opening (`G:2561`, cleared `G:2601`), by a battle event (`G:38208`, `G:38216`, cleared
+`G:38237`), and by the final battle's scroll (`G:135`, cleared `G:22104`) — never by an ending, so the
+clock runs through every wrap-up. On each such frame `UpdateBattleTime` (`:2668-2722`) takes in the
+player's records (`:2671`), and every second frame the turn count, `DecCounters`, the Morph counter and
+the gauges step (`:2675-2715`).
+
+So the end plays in parts (`BattleEndPart`), each running to the battle script it asks for; the next part
+runs on the tick that script has played, its frames — battle time running — between the two:
+
+| Part | Runs | Stops on |
+|---|---|---|
+| `StepBack` | a win, a final stage's end: the acting battler steps back (`:15285`, `:12205`) | its script |
+| `Celebration` | a win: every menu closes, the fanfare, battle event 1 (`:15286-15295`) | the event's script, when the fanfare plays |
+| `CloseMenus` | the Morph supply kept, the Morph meters emptied, the menus closed and disabled (`:12064-12075`) | the wait (`kWrapUpWaitFrames`) |
+| `PutAway` | the hands put away, the merge, the equipment (`:12081-12086`); then a loss's message (`:15593`), or the colosseum's prize (`:15300-15310`), or a win's totals and its experience told (`:15313-15363`) | the message, if any |
+| `Rewards` | a win: each member's rewards with Terra's supply (`:15365-15407`), the magic points told (`:15408-15417`), the levels and spells (`:15418-15436`), the lores, the dance, the curse (`:15437-15473`) | its messages, if any |
+| `Drops` | a win: the drops rolled, merged and told (`:15474-15530`), the gold told and added (`:15531-15559`) | its messages, if any |
+
+A part that asks for no script goes straight on to the next. A Leap's end and the end that teaches the
+rages have no part that stops (`:12023-12036`). Each part's first act reads what the frames before it may
+have changed — the Morph supply, the random numbers, a member's hand — and nothing between two messages
+of one part reads any of them, so the parts land the clock's work where the cartridge's frames do.
+
+What that reaches:
+
+- **The Morph supply.** A meter that runs out while the end plays saves the supply again by a meter of
+  nothing (`DecMorphCounter :2815-2829` into `SaveMorphCounter :1762-1771`), after the wrap-up's own save
+  (`:12064`): the supply is left at 0 (`docs/Bugs.md`). A win's magic points are added to it in `Rewards`
+  (`:15377-15388`), before or after the meter runs out as the frames fall.
+- **The random numbers.** The party's escape draws for each member while the party runs (`CheckRunAway
+  :15120-15143`); a win's drops roll after the frames of its messages (`:15485`). The celebration stops the
+  party's running for the rest of a win (`inc w7e629a`, `G:245`).
+- **A final stage's end.** The next stage's start runs `InitBattle` again (`RestartBattle :63-64`): its
+  random numbers start from the play clock's frames as the end's frames left them (`:6088-6090`), and the
+  frame counter counts on (`startNextFinalBattleStage()`).
 
 ## B. Messages and the step back — `ShowMsg :15602-15615`, `EndAction :374-380`
 
@@ -109,7 +152,8 @@ holding `StepBack`.
 3. No battle menu may open again (`lda #$80; tsb $b1`, `:12074-12075`) — `BattleState::menusDisabled`.
 4. 32 frames pass (graphics command `$01`, 32 times, `:12076-12080`) — one `Wait` script command of 32
    frames. The presentation holds the script for that many frames, the frame it starts counting as the
-   first.
+   first, and battle time runs on each (§ A, Time through the end): the hands are put away on the tick
+   the wait's last frame has played.
 5. **Every party member's hand is put away**, not only the ones marked as holding something: `lda #$0f;
    tsb $3a8c` (`:12081-12082`) marks all four, then `_c262c7 :16168-16187`, slots 3 to 0, takes each
    marked slot's mark off and, where its item in hand (`$32f4,x`) is not `$ff`, adds one of it to the list

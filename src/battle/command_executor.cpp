@@ -186,8 +186,8 @@ AttackId CommandExecutor::chooseRandomEsper(BattleState& state, BattlerSlot, Att
     return battle::chooseRandomEsper(state);
 }
 
-void CommandExecutor::playBattleEnd(BattleState& state, const BattleOutcome& outcome) {
-    battle::playBattleEnd(state, *this, outcome);
+bool CommandExecutor::continueBattleEnd(BattleState& state, const BattleOutcome& outcome) {
+    return battle::continueBattleEnd(state, *this, outcome);
 }
 
 }  // namespace ostinato::battle

@@ -1134,3 +1134,33 @@ cartridge compare the record and the target's last hit at every step.
 
 **If you want to change it.** Passing `attack.attack` instead of `kUmaroAttackRecord` in
 `loadUmaroAttack()` makes a raging Umaro's tackle and throw the rage's own Battle or Special attack.
+
+---
+
+## A morph that runs out while a battle's end plays leaves the Morph supply at nothing
+
+**What happens.** A battle that ends with a party member in Morph keeps the Morph supply as the meter
+stands — but the meter keeps running down through the frames the end plays, and if it runs out in them
+the supply is saved again by a meter of nothing: it drops to 0. In a win the magic points Terra earns are
+added to the supply partway through, so a meter running out after them loses those too. The longer the
+end — the wrap-up's wait, then every message of a win — the more of the supply is at risk.
+
+**Where the original does it.** The wrap-up saves the supply first (`_c24903`,
+`battle/battle_main.asm:12064`, `SaveMorphCounter :1762-1771`), then waits 32 frames with battle time
+running (`:12076-12080`; `BtlGfx_01`, `btlgfx/btlgfx_main.asm:392-409`, calls `UpdateBattleTime`).
+`DecMorphCounter` (`:2815-2829`) runs on every second of those frames and, when the meter runs out,
+empties it and calls `SaveMorphCounter` again, which multiplies the supply by the emptied meter.
+Nothing stops the morph before the end begins.
+
+**Where the port keeps it.** `BattleSim::tick()` in `src/battle/battle_sim.cpp` plays the end a part at a
+time through `continueBattleEnd()` (`src/battle/battle_end.h`), with `tickBattleTime()` running on every
+frame between the parts, so `runDownMorph()` (`src/battle/morph.cpp`) saves the supply when the meter runs
+out there. `tests/test_battle_sim.cpp` (`BattleSim.AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing`,
+`BattleSim.AMorphRunningOutAfterTheMagicPointsAreAddedLeavesTheSupplyAtNothing`) pins it, and
+`tests/oracle/test_battle_whole_oracle.cpp`
+(`BattleWholeOracleTest.AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing`) pins it against the
+cartridge.
+
+**If you want to change it.** Ending the morph in the wrap-up's first half (`closeTheMenus()` in
+`src/battle/battle_end.cpp`), after the supply is saved, keeps the saved supply whatever the end's frames
+do.

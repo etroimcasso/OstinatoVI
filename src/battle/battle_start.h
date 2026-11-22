@@ -177,7 +177,9 @@ void changeFormation(BattleState& state, ActionExecutor& executor, FormationId f
 
 // The final battle's next stage, after `finished` won its stage and `handedBack` is what it
 // handed back. The fighters still standing, and the statuses they carry, go on; a fallen
-// fighter's place goes to the next character in line.
+// fighter's place goes to the next character in line. The stage's random numbers start from
+// `finished`'s play clock frames, and its frame count counts on from `finished`'s, the frames the
+// stage's end took included; `start` gives the rest.
 BattleState startNextFinalBattleStage(const BattleState& finished, const BattleResult& handedBack,
                                       const BattleStart& start, const TextCorpus& text,
                                       const MonsterSprites& sprites, ActionExecutor& executor);

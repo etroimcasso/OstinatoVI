@@ -16,9 +16,13 @@
 #include <vector>
 
 #include "battle/actions.h"
+#include "battle/battle_end.h"
 #include "battle/battle_sim.h"
+#include "battle/morph.h"
+#include "data/battle_magic_points.h"
 #include "data/battle_tables.h"
 #include "data/formations.h"
+#include "game/battle_switches.h"
 #include "ostinato/text_class.h"
 #include "party_test_support.h"
 
@@ -95,7 +99,10 @@ struct HitsExecutor : battle::ActionExecutor {
         }
     }
 
-    void playBattleEnd(BattleState&, const battle::BattleOutcome& outcome) override { ends.push_back(outcome); }
+    bool continueBattleEnd(BattleState&, const battle::BattleOutcome& outcome) override {
+        ends.push_back(outcome);
+        return true;
+    }
 };
 
 std::string nameOf(const BattleRequest& request) {
@@ -258,6 +265,59 @@ TEST(BattleSim, AWonFinalBattleStageScrollsOnToTheNext) {
     EXPECT_TRUE(std::holds_alternative<battle::BattleEnded>(executor.ends[0]));
 }
 
+// HitsExecutor's hits, with the Morph meter run down on every time update and the battle's end played by
+// the battle's own rules (battle/morph.h, battle/battle_end.h).
+struct EndingExecutor : HitsExecutor {
+    void tickMorph(BattleState& state, BattlerSlot slot) override { battle::runDownMorph(state, slot); }
+    bool continueBattleEnd(BattleState& state, const battle::BattleOutcome& outcome) override {
+        return battle::continueBattleEnd(state, *this, outcome);
+    }
+};
+
+// The frames a script holding one Wait and nothing else asks for; nothing for any other script.
+std::optional<int> waitFrames(const battle::RunBattleScript& script) {
+    if (script.commands.size() != 1) {
+        return std::nullopt;
+    }
+    const auto* wait = std::get_if<battle::Wait>(&script.commands.front());
+    return wait != nullptr ? std::optional<int>{wait->frames} : std::nullopt;
+}
+
+TEST(BattleSim, TheNextFinalBattleStageCountsOnFromThePlayClockTheEndLeft) {
+    // RestartBattle runs InitBattle again (:63-64): the next stage's random numbers start from the play
+    // clock's frames as the stage's end left them (:6088-6090), and the frame counter counts on.
+    EndingExecutor executor;
+    executor.partyDamage = 65535;
+    battle::BattleStart start = startFor(kFinalBattleFormations[0]);
+    start.finalBattleOrder = {0, 1, 2};
+    BattleSim battle(start, threeMembers(), {}, noNames(), noSprites(), executor);
+    std::vector<battle::PlayerAction> answers;
+    int playing = 0;
+    std::uint8_t clockBefore = 0;
+    std::uint8_t framesBefore = 0;
+    for (int frame = 0; frame < 20000 && battle.state().formation == kFinalBattleFormations[0]; ++frame) {
+        clockBefore = battle.state().playClockFrames;
+        framesBefore = battle.state().frameCount;
+        const bool idle = playing <= 1;
+        playing = std::max(0, playing - 1);
+        battle.tick(BattleInput{.presentationIdle = idle, .playerActions = std::exchange(answers, {})});
+        for (BattleRequest& request : battle.takeRequests()) {
+            if (const auto* menu = std::get_if<battle::OpenBattleMenu>(&request)) {
+                answers.push_back({.character = menu->character, .command = BattleCommandId::FIGHT,
+                                   .targets = battle.state().alive.monstersOnly()});
+            } else if (const auto* script = std::get_if<battle::RunBattleScript>(&request)) {
+                playing += waitFrames(*script).value_or(2);
+            }
+        }
+    }
+    ASSERT_EQ(battle.state().formation, kFinalBattleFormations[1]);
+    // The stage that finished stepped both on the tick it ended; the next counts on from there.
+    const auto stepped = [](std::uint8_t clock) { return static_cast<std::uint8_t>(clock == 60 ? 1 : clock + 1); };
+    EXPECT_EQ(battle.state().playClockFrames, stepped(clockBefore));
+    EXPECT_EQ(battle.state().frameCount, static_cast<std::uint8_t>(framesBefore + 1));
+    EXPECT_GT(battle.state().playClockFrames, 1) << "the end's frames are on the clock";
+}
+
 TEST(BattleSim, ThePlayersChoicesComeInWithTheTick) {
     battle::NullExecutor executor;
     BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
@@ -267,6 +327,231 @@ TEST(BattleSim, ThePlayersChoicesComeInWithTheTick) {
     ASSERT_EQ(battle.state().at(BattlerSlot::character(1)).actions.size(), 1u);
     EXPECT_EQ(std::get<CommandAction>(battle.state().at(BattlerSlot::character(1)).actions[0]).command,
               BattleCommandId::FIGHT);
+}
+
+// Tick `battle` as a presentation that plays each script over frames of its own — a Wait for its frames,
+// any other script for `scriptFrames` — battle time running on every tick when `timeRunning`, the last
+// frame of the last script playing on an idle tick. Ticks until the party is handed back, at most `ticks`
+// times, calling `watch(tick, framesAsked)` after each with the frames the tick's scripts asked for;
+// returns every request.
+template <typename Watch>
+std::vector<BattleRequest> playScripts(BattleSim& battle, int scriptFrames, bool timeRunning, int ticks, Watch watch) {
+    std::vector<BattleRequest> log;
+    int playing = 0;
+    for (int tick = 0; tick < ticks && !battle.result(); ++tick) {
+        const bool idle = playing <= 1;
+        playing = std::max(0, playing - 1);
+        battle.tick(BattleInput{.timeRunning = timeRunning, .presentationIdle = idle});
+        int asked = 0;
+        for (BattleRequest& request : battle.takeRequests()) {
+            if (const auto* script = std::get_if<battle::RunBattleScript>(&request)) {
+                asked += waitFrames(*script).value_or(scriptFrames);
+            }
+            log.push_back(std::move(request));
+        }
+        playing += asked;
+        watch(tick, asked);
+    }
+    return log;
+}
+
+// The battle's end begun by hand: the battle has just been won.
+void won(BattleSim& battle) {
+    battle.takeRequests();
+    battle.state().outcome = battle::BattleWon{};
+}
+
+// Terra (party slot 0) in Morph with `counter` left on its meter, run down by kMorphSpeed on every time
+// update, from a supply of kMorphSupply.
+constexpr std::uint16_t kMorphSpeed = 0x0100;
+constexpr std::uint8_t kMorphSupply = 200;
+void morphTerra(BattleSim& battle, std::uint16_t counter) {
+    BattleState& state = battle.state();
+    const BattlerSlot terra = BattlerSlot::character(0);
+    state.at(terra).status.set(StatusId::MORPH);
+    state.morphedBattler = terra;
+    state.morphCounter = counter;
+    state.morphCounterSpeed = kMorphSpeed;
+    state.party.morphSupply = kMorphSupply;
+}
+
+bool partPlayed(const BattleState& state, battle::BattleEndPart part) {
+    return state.ending && static_cast<int>(state.ending->next) > static_cast<int>(part);
+}
+
+TEST(BattleSim, ABattlesEndTakesTheFramesItsScriptsTake) {
+    // The wrap-up's 32 frame waits are 32 frames of the battle's clock (BtlGfx_01 btlgfx_main.asm:392-409,
+    // _c24903 :12076-12080): the hands are put away 32 frames after the menus close, battle time running on
+    // each.
+    EndingExecutor executor;
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
+    won(battle);
+    std::optional<std::uint64_t> framesAtTheWait;
+    std::optional<std::uint64_t> framesPutAway;
+    std::optional<std::uint16_t> turnsAtTheWait;
+    std::optional<std::uint16_t> turnsPutAway;
+    playScripts(battle, 1, true, 400, [&](int, int) {
+        const BattleState& state = battle.state();
+        if (!framesAtTheWait && partPlayed(state, battle::BattleEndPart::CloseMenus)) {
+            framesAtTheWait = state.frameCount;
+            turnsAtTheWait = state.turnCounter;
+        }
+        if (!framesPutAway && partPlayed(state, battle::BattleEndPart::PutAway)) {
+            framesPutAway = state.frameCount;
+            turnsPutAway = state.turnCounter;
+        }
+    });
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_TRUE(framesAtTheWait && framesPutAway);
+    EXPECT_EQ(*framesPutAway - *framesAtTheWait, 32u);
+    EXPECT_EQ(*turnsPutAway - *turnsAtTheWait, 16) << "a time update every two frames";
+}
+
+TEST(BattleSim, ThePartyIsHandedBackOnlyOnceTheEndsLastScriptHasPlayed) {
+    EndingExecutor executor;
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
+    won(battle);
+    int lastAskedTick = -1;
+    int lastAsked = 0;
+    std::vector<bool> handedBack;
+    playScripts(battle, 3, true, 600, [&](int tick, int asked) {
+        handedBack.push_back(battle.result().has_value());
+        if (asked > 0) {
+            lastAskedTick = tick;
+            lastAsked = asked;
+        }
+    });
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_GE(lastAskedTick, 0);
+    // The party is handed back on the tick the end's last script plays its last frame, and not before.
+    for (int tick = 0; tick < static_cast<int>(handedBack.size()) - 1; ++tick) {
+        EXPECT_FALSE(handedBack[static_cast<std::size_t>(tick)]) << "tick " << tick;
+    }
+    EXPECT_TRUE(handedBack.back());
+    EXPECT_EQ(static_cast<int>(handedBack.size()) - 1, lastAskedTick + lastAsked);
+}
+
+TEST(BattleSim, AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing) {
+    // SaveMorphCounter keeps the supply as the meter stands at the wrap-up (:12064, :1762-1771); a meter
+    // that then runs out in the wait saves it again by a meter of nothing (DecMorphCounter :2815-2829).
+    EndingExecutor executor;
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
+    won(battle);
+    morphTerra(battle, 12 * kMorphSpeed);
+    bool morphedAtTheWait = false;
+    bool morphedWhenPutAway = true;
+    std::uint8_t savedAtTheWait = 0;
+    bool waited = false;
+    bool putAway = false;
+    playScripts(battle, 4, true, 400, [&](int, int) {
+        const BattleState& state = battle.state();
+        if (!waited && partPlayed(state, battle::BattleEndPart::CloseMenus)) {
+            waited = true;
+            morphedAtTheWait = state.morphedBattler.has_value();
+            savedAtTheWait = state.party.morphSupply;
+        }
+        if (!putAway && partPlayed(state, battle::BattleEndPart::PutAway)) {
+            putAway = true;
+            morphedWhenPutAway = state.morphedBattler.has_value();
+        }
+    });
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_TRUE(morphedAtTheWait) << "the meter ran out before the wrap-up";
+    EXPECT_GT(savedAtTheWait, 0);
+    EXPECT_FALSE(morphedWhenPutAway) << "the meter ran out in the wait";
+    EXPECT_EQ(battle.result()->party.morphSupply, 0);
+}
+
+// The first battle that gives magic points.
+FormationId aFormationWithMagicPoints() {
+    for (std::uint16_t battle = 0; battle < kBattleMagicPoints.size(); ++battle) {
+        if (magicPointsForBattle(battle) != 0) {
+            return static_cast<FormationId>(battle);
+        }
+    }
+    return FormationId::LOBO;
+}
+
+TEST(BattleSim, AMorphRunningOutAfterTheMagicPointsAreAddedLeavesTheSupplyAtNothing) {
+    // A won battle adds Terra's share of the magic points to the supply (:15377-15388); a meter running out
+    // in the frames of the messages after it saves the supply by a meter of nothing.
+    EndingExecutor executor;
+    game::BattleSwitches switches;
+    switches.set(game::kMagicPointsEarnedSwitch);
+    const FormationId formation = aFormationWithMagicPoints();
+    BattleSim battle(startFor(formation), threeMembers(), switches, noNames(), noSprites(), executor);
+    ASSERT_NE(magicPointsForBattle(static_cast<std::uint16_t>(formation)), 0);
+    won(battle);
+    // Through the step back, the celebration and the wait (40, 40 and 32 frames: 56 time updates), and out
+    // in the 40 frames of the magic points' message.
+    constexpr int kScriptFrames = 40;
+    morphTerra(battle, 64 * kMorphSpeed);
+    std::optional<std::uint8_t> afterTheMagicPoints;
+    bool morphedAfterTheMagicPoints = false;
+    playScripts(battle, kScriptFrames, true, 1000, [&](int, int) {
+        const BattleState& state = battle.state();
+        if (!afterTheMagicPoints && partPlayed(state, battle::BattleEndPart::Rewards)) {
+            afterTheMagicPoints = state.party.morphSupply;
+            morphedAfterTheMagicPoints = state.morphedBattler.has_value();
+        }
+    });
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_TRUE(afterTheMagicPoints.has_value());
+    ASSERT_TRUE(morphedAfterTheMagicPoints) << "the meter ran out before the magic points were added";
+    EXPECT_GT(*afterTheMagicPoints, 0);
+    EXPECT_EQ(battle.result()->party.morphSupply, 0);
+}
+
+TEST(BattleSim, AMorphThatDoesNotRunOutKeepsTheSupplyTheWrapUpSaved) {
+    EndingExecutor executor;
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
+    won(battle);
+    morphTerra(battle, 0xFF00);
+    std::optional<std::uint8_t> saved;
+    std::optional<std::uint16_t> meterAtTheWait;
+    playScripts(battle, 4, true, 400, [&](int, int) {
+        const BattleState& state = battle.state();
+        if (!saved && partPlayed(state, battle::BattleEndPart::CloseMenus)) {
+            saved = state.party.morphSupply;
+            meterAtTheWait = state.morphCounter;
+        }
+    });
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_TRUE(saved && meterAtTheWait);
+    EXPECT_EQ(*saved, kMorphSupply * (*meterAtTheWait >> 8) / 256);
+    EXPECT_EQ(battle.result()->party.morphSupply, *saved);
+}
+
+std::string describe(const BattleRequest& request) {
+    std::string text = nameOf(request);
+    if (const auto* script = std::get_if<battle::RunBattleScript>(&request)) {
+        text += " of " + std::to_string(script->commands.size());
+        if (const std::optional<int> wait = waitFrames(*script)) {
+            text += ", a wait of " + std::to_string(*wait);
+        }
+    } else if (const auto* close = std::get_if<battle::CloseBattleMenu>(&request)) {
+        text += " " + std::to_string(close->character.position());
+    }
+    return text;
+}
+
+TEST(BattleSim, TheEndPlayedPartByPartAsksForWhatTheWholeEndAsksFor) {
+    // With battle time stopped nothing changes between the parts: the end played a part a tick asks for the
+    // same requests, in the same order, as playBattleEnd() playing it whole.
+    EndingExecutor executor;
+    BattleSim battle(startFor(FormationId::LOBO), threeMembers(), {}, noNames(), noSprites(), executor);
+    won(battle);
+    BattleState whole = battle.state();
+    battle::playBattleEnd(whole, executor, battle::BattleWon{});
+    const std::vector<BattleRequest> parts = playScripts(battle, 2, false, 400, [](int, int) {});
+    ASSERT_TRUE(battle.result().has_value());
+    ASSERT_FALSE(parts.empty());
+    EXPECT_EQ(nameOf(parts.back()), "CloseBattleScene");
+    ASSERT_EQ(whole.requests.size(), parts.size() - 1);
+    for (std::size_t i = 0; i < whole.requests.size(); ++i) {
+        EXPECT_EQ(describe(parts[i]), describe(whole.requests[i])) << "request " << i;
+    }
+    EXPECT_EQ(battle.result()->party.characters[0].experience, whole.party.characters[0].experience);
 }
 
 TEST(BattleSim, NothingRunsOnceTheBattleIsOver) {

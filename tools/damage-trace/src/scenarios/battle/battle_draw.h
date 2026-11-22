@@ -32,6 +32,7 @@ enum class BattleAim : std::uint8_t {
     Dancing,           // a Muddled member who holds Dance, whose chooser picks it
     GauTurnsUp,        // a won battle on the Veldt that Gau comes back from
     ShadowWalksOff,    // a won battle that Shadow leaves the party after
+    FinalStageScrolledOn,  // a stage of the final battle won, and the background scrolled on to the next
     TerrasMagicEvent,  // a Muddled Terra casting Magic while battle switch 65 calls for her event
 };
 
@@ -52,8 +53,8 @@ struct AimedBattle {
 // Rage or Dance, so the battle begins a rage or a dance for them itself. The party's HP is cut now and
 // then, and every monster's HP is cut, so a battle is a few hundred frames. The frame model is
 // drawPresentationModel()'s, with a story countdown now and then, and the run buttons held from a drawn
-// frame one battle in eight. One battle in ten is aimed at each of a dancing member, Gau turning up and
-// Shadow walking off (drawAimedBattleScenario()).
+// frame one battle in eight. One battle in ten is aimed at each of a dancing member, Gau turning up, Shadow
+// walking off and a final stage scrolled on (drawAimedBattleScenario()).
 [[nodiscard]] AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites);
 
 // drawBattle()'s battle alone.
@@ -71,6 +72,8 @@ struct AimedBattle {
 //     swapped into the first record played's place, or the first record played made him when none
 //     holds him — free to walk off at a win (BattleStart::shadowAvailable set, the switch that keeps
 //     him clear), every member Berserk and the monsters' HP cut further;
+//   - a final stage scrolled on: every member Berserk and the monsters' HP cut further, in a start at the
+//     final battle's first stage (a start of another kind is a try spent);
 //   - Terra's Magic and her event: one record of the party played is Terra, Muddled, holding Magic and a
 //     spell she can pay for, with battle switch 65 set.
 // BattleAim::None draws once.

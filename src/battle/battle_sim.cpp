@@ -22,8 +22,13 @@ void BattleSim::tick(const BattleInput& input) {
     }
     state_.chosenActions.insert(state_.chosenActions.end(), input.playerActions.begin(), input.playerActions.end());
     tickBattleTime(state_, input.timeRunning, executor_);
-    if (input.presentationIdle) {
-        if (const auto outcome = stepBattle(state_, executor_)) {
+    if (!input.presentationIdle) {
+        return;
+    }
+    // Once the battle has an outcome, stepBattle() hands it back on every call: from then on each idle
+    // tick plays the end on, to the next script it asks for.
+    if (const auto outcome = stepBattle(state_, executor_)) {
+        if (executor_.continueBattleEnd(state_, *outcome)) {
             finish(*outcome);
         }
     }
@@ -41,7 +46,6 @@ void BattleSim::gatherRequests() {
 }
 
 void BattleSim::finish(const BattleOutcome& outcome) {
-    executor_.playBattleEnd(state_, outcome);
     BattleResult handedBack = writeBack(state_);
     const auto* ended = std::get_if<BattleEnded>(&outcome);
     if (ended != nullptr && ended->reason == BattleEndReason::FinalBattleNextStage && ended->nextFormation) {

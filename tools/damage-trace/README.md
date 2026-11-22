@@ -652,12 +652,25 @@ answer) runs unless time is stopped. The opening (`$00`) takes the model's openi
 (`measuredPresentationModel()`) that is 37 frames with no clock, then 36 clock calls over 38 frames. A
 script (`$04`) takes 1 to 12 frames drawn from the model's seed and its place among the battle's scripts,
 with time stopped on all of them when it plays a battle event other than Gau's (`$1B`) and Wrexsoul's
-(`$1F`). The loop's frame wait (`$01` from `:72-73`) is one frame with the clock. The wrap-up's waits and
-the celebration take none. On the port's side a frame is one `BattleSim::tick`: the opening's frames
-and all but a script's last are ticks with `presentationIdle` false, and `timeRunning` is the frame's
-clock. The party runs on a frame (`PresentationModel::partyRuns()`, `BattleState::partyRunning` on the
-port's side) when the model holds the run buttons from an earlier frame (`runButtonsHeldFrom`), the
-formation allows running (`$2F4B` bit 0, `FormationAux::runningDisabled()`) and the frame's clock runs.
+(`$1F`). A frame wait (`$01`) is one frame with the clock whoever asks for it (`BtlGfx_01`,
+`btlgfx_main.asm:392-409`): the loop's (`:72-73`), and each of the wrap-up's 32 (`:12076-12080`), whose
+port side is one script holding a `Wait` of 32 frames, each with the clock, taking no place among the
+scripts and shown as nothing. The celebration (`$08`) takes a script's frames, time stopped, in its place
+among the scripts when the fanfare plays (`$2F49` bit 1 clear, `btlgfx_main.asm:248-250`) — the port's
+battle event 1 script — and none when it does not. A script holding the final battle's scroll (`$12`,
+`:6185-6193`; on the port's side the script asked for after `ScrollFinalBattleBackground`) stops time as a
+battle event does: the scroll's command stops it (`btlgfx_main.asm:135`) and the scroll's end starts it
+again (`:22104`), so the next stage's first frame wait is the first frame with the clock. When it has
+played, the oracle lays what the scroll lays for the next stage, as the opening does (`layTheMonsters()`:
+the monsters standing, the monsters that can be aimed at, the pincer's sides). On the port's side a
+frame is one `BattleSim::tick`: the opening's frames and all but a script's last are ticks with
+`presentationIdle` false, and `timeRunning` is the frame's clock; `portBattle()` ticks on through every
+frame of the battle's end and records a loop step only while the battle has no outcome. The party runs
+on a frame (`PresentationModel::partyRuns()`, `BattleState::partyRunning` on the port's side) when the
+model holds the run buttons from an earlier frame (`runButtonsHeldFrom`), the formation allows running
+(`$2F4B` bit 0, `FormationAux::runningDisabled()`), the graphics program has not stopped the running —
+from the celebration to the battle's close (`btlgfx_main.asm:245`) and from the final battle's scroll to
+the next stage's first frame wait (`:137`, `:22102`) — and the frame's clock runs.
 Which way each battler faces (`$2F50-$2F51`) the graphics program writes on every frame wait from its own
 sprites, just before the clock (`UpdateFacingDir`, `btlgfx_main.asm:39958-39976`). `checkBattle()` runs the
 port's battle first and hands its facings, one mask a frame as each frame began (`PortBattle::facings`),
@@ -674,6 +687,7 @@ A status is laid with what its set handler leaves beside its bit (`SetStatusTbl`
 |---|---|---|
 | Berserk | nothing (`SetStatusNoEffect`) | `:11673` |
 | Muddled | the battler in the flipped set (`$2F53`, `BattleState::flippedByControl`) and, for a party member, in the status-changed set (`$3A4A`, `BattleState::statusChanged`) | `SetStatus_0d` `:11366-11383` |
+| Morph (`FirstStepLaid::morph`, a morph under way) | laid as `UpdateMorph` leaves a member it has just morphed: Morph and Revert traded in the member's commands (`$202E`), the member as the one morphed (`$3EE2`, `BattleState::morphedBattler`), the meter and its speed of the scenario's choosing (`$3F30`, `$3F32`, `BattleState::morphCounter`, `morphCounterSpeed`) | `SetStatus_1b` `:11585-11588`, `UpdateMorph` `:1679-1756` |
 
 `drawBattle()` (`scenarios/battle/battle_draw.h`) draws a battle with no player: a start from
 `drawStartScenario()`, then each member seated Berserk or Muddled (laid at the first step), Umaro, or a
@@ -689,7 +703,7 @@ Saw: its roll reads the random numbers' table at a sixteen-bit position (`Rand` 
 the index registers wide, from `ToolsEffect_03` `:7127`), which the port does not reproduce.
 `drawBattleScenario()` is the same draw's battle alone.
 
-Three rows of the reach table hang on the cartridge's own roll or on a chain no odds make likely, so one
+Four rows of the reach table hang on the cartridge's own roll or on a chain no odds make likely, so one
 battle in ten is aimed at each of them (`BattleAim`). `drawAimedBattleScenario(rng, text, sprites, aim)`
 draws a battle given what its aim needs and runs the port's battle over it (`portBattle()`); while that
 battle misses the aim it draws again whole, every draw from the same generator in order, at most
@@ -702,6 +716,7 @@ other, so a row the port reaches and the cartridge does not is a difference.
 | a dancing member | the first record of the party played Muddled, holding Dance and no Rage |
 | Gau turning up | every member Berserk and the monsters' HP cut to 100 at most, in a start where Gau may appear (a start of another kind is a try spent) |
 | Shadow walking off | Shadow's record in the party played and standing, free to walk off at a win (`BattleStart::shadowAvailable` set, the switch that keeps him clear), every member Berserk and the monsters' HP cut to 100 at most |
+| a final stage scrolled on | every member Berserk and the monsters' HP cut to 100 at most, in a start at the final battle's first stage (a start of another kind is a try spent) |
 | Terra's Magic and her event (the proofs' alone) | Terra's record in the party played and standing, Muddled, holding Magic and Fire with the MP for it, and battle switch 65 set |
 
 A character's record is brought into the party played by swapping its place with the first record played,
@@ -753,8 +768,11 @@ the frame each step is reached on, the requests made since the step before, name
 (`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
 (`compareBattleState()`) with the write-set gate over the step's writes, the carried-read gate over its
 carried reads against the step before's state and the copy rule above, then whether either side ran past
-the frame cap, the steps' count, the end, what the game keeps, and the last three places of the items
-obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
+the frame cap, the steps' count, the end, the requests from the last step's frame wait to the close —
+in order, the port's celebration shown as the cartridge's one call (`requestsShown()`), and an item a drop
+or the prize adds after the wrap-up's merge shown as nothing, as the port's end obtains and merges it with
+no request — and the frame the battle closed on, then what the game keeps, and the last three places of
+the items obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
 battle closes), every byte. A step's carried reads pass the rows of
 `kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). A record a party member seated at some step came from keeps the HP and MP boosts its equipment
 gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the record
@@ -765,15 +783,19 @@ from the step before's, so a ring is laid where the cartridge's stood at that st
 `tests/oracle/test_battle_whole_oracle.cpp` checks the measured opening against the seven recorded fights'
 counts, that a script's frames come from its place and number 1 to 12, that the first fight called a step
 at a time adds up to the same fight called once, and the first fight in Narshe, from its written scenario
-with the measured opening, run to its end with `checkBattle()` showing no difference: 7,012 loop steps over
-7,444 frames. It also runs the sweep's first drawn battle handed a tail of the items obtained no item's
-record could fill, and checks that both sides hand back every byte of it. Three tests prove a rule the
-carried-read gate passes a cell by: each draws a battle aimed at what it needs
-(`drawAimedBattleScenario()`), finds in the port's battle the step before the battle event that matters
-is queued, and runs the battle twice with the cell written two ways at that step's frame wait
+with the measured opening, run to its close with `checkBattle()` showing no difference: 7,012 loop steps,
+then the end's frames. It also runs the sweep's first drawn battle handed a tail of the items obtained no
+item's record could fill, and checks that both sides hand back every byte of it. The sweep's first drawn
+battle the port wins, laid with a morph under way whose meter runs out at the wrap-up wait's first time
+update (the least meter that lasts to the wait, found on the port's side), agrees to its close and leaves
+the kept Morph supply at 0 on both sides. Four tests prove a rule the carried-read gate passes a cell by:
+each runs a battle twice with the cell written two ways at a step's frame wait
 (`BattleScenario::cartridgeWrites`), expecting `checkBattle()` to show no difference both times —
-`$11A4` and `$00B7` on a battle aimed at Terra's Magic and her event, `$B8-$B9` on one aimed at Gau
-turning up.
+`$11A4` and `$00B7` on a battle aimed at Terra's Magic and her event, and `$B8-$B9` on one aimed at Gau
+turning up, each at the step before the battle event that matters is queued
+(`drawAimedBattleScenario()`); `$B8-$B9` again on the won battle laid with a morph whose meter runs out
+four time updates in, at the step before the step that holds no morph, the meter's Revert made and run
+between them.
 
 ### The whole state compared
 
