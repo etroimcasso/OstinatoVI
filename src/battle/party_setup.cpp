@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cassert>
+#include <cstddef>
+#include <cstdint>
 #include <utility>
 
 #include "battle/action_executor.h"
@@ -672,7 +674,18 @@ void applyEquipmentChanges(BattleState& state, ActionExecutor& executor) {
     for (int position = kPartySlots - 1; position >= 0; --position) {
         const BattlerSlot slot = BattlerSlot::character(position);
         Battler& battler = state.at(slot);
-        if (!std::exchange(battler.equipmentChanged, false) || !battler.record) {
+        if (std::exchange(state.equipmentChangeFlags[static_cast<std::size_t>(position)], 0) == 0) {
+            continue;
+        }
+        if (!battler.actor) {
+            // The refresh checks no one is in the slot (UpdateCharProp :5597-5631): an empty slot's flag at
+            // a final-battle stage after the first is the fill's $FF, and the refresh works its sums out from
+            // the field program's stack, which the port does not do (docs/Bugs.md). It still marks the slot's
+            // menu to be drawn again (UpdateCmdList :13568-13569).
+            state.menusToRefresh.add(slot);
+            continue;
+        }
+        if (!battler.record) {
             continue;
         }
         game::CharacterRecord& record = state.party.characters[*battler.record];
@@ -686,6 +699,27 @@ void applyEquipmentChanges(BattleState& state, ActionExecutor& executor) {
         executor.refreshCommandList(state, slot);
         refreshStatusImmunity(state, slot);
     }
+}
+
+void statusChangeAsksForEquipmentRefresh(BattleState& state, BattlerSlot slot) {
+    // RemoveStatus_18 (:11423-11432) runs inside UpdateStatus, whose accumulator is sixteen bits wide
+    // (:11034-11035), so its `inc $2f30,x` adds one to the slot's flag and the byte above it together.
+    const auto position = static_cast<std::size_t>(slot.position());
+    std::uint8_t& flag = state.equipmentChangeFlags[position];
+    if (++flag != 0) {
+        return;
+    }
+    if (position + 1 < state.equipmentChangeFlags.size()) {
+        ++state.equipmentChangeFlags[position + 1];
+    } else {
+        ++state.menuWindowDesign;
+    }
+}
+
+void brokenWeaponAsksForEquipmentRefresh(BattleState& state, BattlerSlot slot) {
+    // AttackerEffect_0e (:10177-10197) runs with an eight-bit accumulator: its `inc $2f30,x` adds one to
+    // the slot's flag alone.
+    ++state.equipmentChangeFlags[static_cast<std::size_t>(slot.position())];
 }
 
 }  // namespace ostinato::battle

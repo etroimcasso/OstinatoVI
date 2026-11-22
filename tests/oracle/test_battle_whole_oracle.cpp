@@ -10,6 +10,7 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
@@ -449,6 +450,201 @@ TEST_F(BattleWholeOracleTest, TheTargetsAMorphsRevertCopiesReachNothing) {
                                              << " at step " << *step;
             EXPECT_TRUE(check.cartridge.ended);
         }
+    });
+}
+
+// A battle of the sweep's draws aimed at a final stage scrolled on whose next stage seats nobody in a party
+// slot: the port's first step of that stage, and the slots empty there. Only a battle whose first step's
+// refresh ends on a seated member is taken: the refresh's last member leaves its own sums in $11A0-$11DE
+// (UpdateEquip :2301-2348), which an empty slot refreshed last fills from the field program's stack.
+struct EmptySlotAtALaterStage {
+    trace::BattleScenario scenario;
+    std::size_t firstStep = 0;
+    std::vector<int> empty;
+};
+
+std::vector<EmptySlotAtALaterStage> battlesWithAnEmptySlotAtALaterStage(const assets::IngestedContent& content) {
+    std::vector<EmptySlotAtALaterStage> found;
+    std::mt19937 rng{trace::kSweepSeed};
+    for (int drawn = 0; drawn < 100; ++drawn) {
+        const trace::AimedBattle battle = trace::drawBattle(rng, content.text, content.monsterSprites);
+        if (battle.aim != trace::BattleAim::FinalStageScrolledOn || !battle.reached) {
+            continue;
+        }
+        const trace::PortBattle port = trace::portBattle(battle.scenario, content.text, content.monsterSprites);
+        for (std::size_t step = 0; step < port.steps.size(); ++step) {
+            const battle::BattleState& state = port.steps[step];
+            if (state.formation == state.startingFormation) {
+                continue;
+            }
+            EmptySlotAtALaterStage later{.scenario = battle.scenario, .firstStep = step, .empty = {}};
+            for (int position = 0; position < battle::kPartySlots; ++position) {
+                if (!state.at(battle::BattlerSlot::character(position)).actor) {
+                    later.empty.push_back(position);
+                }
+            }
+            // The last slot the refresh takes is the lowest whose flag is set (UpdateCharProp :5597-5631).
+            std::optional<int> last;
+            for (int position = battle::kPartySlots - 1; position >= 0; --position) {
+                if (state.equipmentChangeFlags[static_cast<std::size_t>(position)] != 0) {
+                    last = position;
+                }
+            }
+            const bool endsOnASeatedMember =
+                last && state.at(battle::BattlerSlot::character(*last)).actor.has_value();
+            if (!later.empty.empty() && endsOnASeatedMember && step + 1 < port.steps.size()) {
+                found.push_back(std::move(later));
+            }
+            break;
+        }
+    }
+    return found;
+}
+
+// What the equipment refresh writes for an empty slot at a final-battle stage after the first
+// (oracle/battle/battle_state.cpp, UpdateEquipBattle :6746-6832, FixImmuneStatus :6359-6380,
+// UpdateImmuneStatus :6386-6433), at twice the slot: bytes, then words.
+constexpr std::array<std::uint32_t, 12> kRefreshedSlotBytes{0x7E3B2C, 0x7E3B2D, 0x7E3B19, 0x7E3B40,
+                                                           0x7E3B41, 0x7E3B54, 0x7E3B55, 0x7E3C6C,
+                                                           0x7E3C6D, 0x7E3D71, 0x7E3C95, 0x7E331D};
+constexpr std::array<std::uint32_t, 15> kRefreshedSlotWords{0x7E3C44, 0x7E3B68, 0x7E3B7C, 0x7E3D34, 0x7E3B90,
+                                                           0x7E3BA4, 0x7E3BB8, 0x7E331C, 0x7E3BCC, 0x7E3BE0,
+                                                           0x7E3CBC, 0x7E3CA8, 0x7E3CD0, 0x7E3CE4, 0x7E3C58};
+constexpr std::uint32_t kGenjiGloveBytes = 0x7E2E6E;
+constexpr std::uint32_t kPartyCommandMenus = 0x7E202E;
+constexpr std::uint32_t kCommandMenuBytes = 12;
+constexpr std::uint32_t kCommandRowBytes = 3;
+// UpdateEquip's two boost bytes, written two below the record it summed: the field program's stack below
+// the first character record (:2349-2362).
+constexpr std::uint32_t kStackRecordHpBoost = 0x7E15E7;
+constexpr std::uint32_t kStackRecordMpBoost = 0x7E15EB;
+
+constexpr std::uint32_t kPartyWeaponHands = 0x7E2B86;
+constexpr std::uint32_t kPartyShieldHands = 0x7E2B9A;
+constexpr std::uint32_t kHandRecordBytes = 5;
+
+using SlotWrites = std::vector<trace::StepCellWrite> (*)(std::size_t step, int position);
+
+// Where a proof writes its cells: at the stage's first step's frame wait, before the refresh reads them, or
+// at its second's, after the refresh wrote them.
+enum class WrittenAt { TheStagesFirstStep, TheStagesSecondStep };
+
+// Each battle of battlesWithAnEmptySlotAtALaterStage() run twice on the cartridge with the cells `writes`
+// names for each empty slot written at `at`, as 0 and then as 255: both runs agree with the port to the
+// battle's end, so nothing the battle reads depends on what those cells held.
+void expectAnEmptySlotsRefreshReachesNothing(DamageOracle& oracle, const assets::IngestedContent& content,
+                                             SlotWrites writes, WrittenAt at = WrittenAt::TheStagesSecondStep) {
+    const std::vector<EmptySlotAtALaterStage> battles = battlesWithAnEmptySlotAtALaterStage(content);
+    ASSERT_FALSE(battles.empty()) << "no battle the sweep draws seats nobody in a slot at a later final stage";
+    for (const EmptySlotAtALaterStage& battle : battles) {
+        const std::size_t step = battle.firstStep + (at == WrittenAt::TheStagesSecondStep ? 1 : 0);
+        for (const std::uint8_t value : {std::uint8_t{0x00}, std::uint8_t{0xFF}}) {
+            trace::BattleScenario written = battle.scenario;
+            for (const int position : battle.empty) {
+                for (trace::StepCellWrite write : writes(step, position)) {
+                    std::fill(write.bytes.begin(), write.bytes.end(), value);
+                    written.cartridgeWrites.push_back(std::move(write));
+                }
+            }
+            const trace::BattleCheck check = oracle.checkBattle(written);
+            EXPECT_EQ(check.differences, "") << trace::describe(written) << ", written " << int{value} << " at step "
+                                             << step;
+            EXPECT_TRUE(check.cartridge.ended);
+        }
+    }
+}
+
+// UpdateEquipBattle's, FixImmuneStatus's and UpdateImmuneStatus's cells of the empty slot, the Genji Glove
+// byte with them.
+std::vector<trace::StepCellWrite> theSlotsTables(std::size_t step, int position) {
+    std::vector<trace::StepCellWrite> writes;
+    const auto at = static_cast<std::uint32_t>(2 * position);
+    for (const std::uint32_t table : kRefreshedSlotBytes) {
+        writes.push_back({.step = step, .at = table + at, .bytes = {0}});
+    }
+    for (const std::uint32_t table : kRefreshedSlotWords) {
+        writes.push_back({.step = step, .at = table + at, .bytes = {0, 0}});
+    }
+    writes.push_back({.step = step, .at = kGenjiGloveBytes + static_cast<std::uint32_t>(position), .bytes = {0}});
+    writes.push_back({.step = step, .at = 0x7E3A21 + at, .bytes = {0}});
+    writes.push_back({.step = step, .at = 0x7E3330 + at, .bytes = {0, 0}});
+    return writes;
+}
+
+// UpdateCmdList's verdict bytes of each of the empty slot's four command rows.
+std::vector<trace::StepCellWrite> theSlotsCommandRows(std::size_t step, int position) {
+    std::vector<trace::StepCellWrite> writes;
+    for (std::uint32_t row = 0; row < kCommandMenuBytes / kCommandRowBytes; ++row) {
+        writes.push_back({.step = step,
+                          .at = kPartyCommandMenus + static_cast<std::uint32_t>(position) * kCommandMenuBytes +
+                                row * kCommandRowBytes + 1,
+                          .bytes = {0, 0}});
+    }
+    return writes;
+}
+
+// The empty slot's two hand records, its command rows whole, and the two of its cells the refresh reads and
+// writes back changed — $3A21,x (:6830-6832) and the statuses blocked at $3330-$3331,x (:6388-6432).
+std::vector<trace::StepCellWrite> theSlotsHandsAndRows(std::size_t step, int position) {
+    const auto place = static_cast<std::uint32_t>(position) * kHandRecordBytes;
+    const auto at = static_cast<std::uint32_t>(2 * position);
+    return {{.step = step, .at = 0x7E3A21 + at, .bytes = {0}},
+            {.step = step, .at = 0x7E3330 + at, .bytes = {0, 0}},
+            {.step = step, .at = kPartyWeaponHands + place, .bytes = std::vector<std::uint8_t>(kHandRecordBytes)},
+            {.step = step, .at = kPartyShieldHands + place, .bytes = std::vector<std::uint8_t>(kHandRecordBytes)},
+            {.step = step,
+             .at = kPartyCommandMenus + static_cast<std::uint32_t>(position) * kCommandMenuBytes,
+             .bytes = std::vector<std::uint8_t>(kCommandMenuBytes)}};
+}
+
+// UpdateEquip's boost bytes on the field program's stack. The party's relic byte the refresh ORs into
+// (:6787) is compared as the port's zero: with the stack's bytes zero the OR changes nothing, and its one
+// reader runs before any refresh (:7557, :7632).
+std::vector<trace::StepCellWrite> theBoostsOnTheStack(std::size_t step, int) {
+    return {{.step = step, .at = kStackRecordHpBoost, .bytes = {0}},
+            {.step = step, .at = kStackRecordMpBoost, .bytes = {0}}};
+}
+
+// At a final-battle stage after the first an empty slot's flag stands at the fill's $FF, and the refresh runs
+// for it through the fill's record offset, from the field program's stack (UpdateCharProp :5614-5623,
+// UpdateEquip :2295-2348). The port does not run it (docs/Bugs.md); what it writes for the slot reaches
+// nothing.
+TEST_F(BattleWholeOracleTest, WhatAnEmptySlotsRefreshWritesReachesNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theSlotsTables);
+    });
+}
+
+TEST_F(BattleWholeOracleTest, TheCommandRowsAnEmptySlotsRefreshWritesReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theSlotsCommandRows);
+    });
+}
+
+// The refresh reads the empty slot's hands, command rows, $3A21,x and statuses blocked as the stage's first step
+// left them (UpdateCharProp :5610-5612, UpdateCmdList :13583, :13611, :6830-6832, :6388-6432): what they held
+// reaches the bank-$7F stores and the slot's own cells alone.
+TEST_F(BattleWholeOracleTest, TheHandsAndRowsAnEmptySlotsRefreshReadsReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theSlotsHandsAndRows, WrittenAt::TheStagesFirstStep);
+    });
+}
+
+TEST_F(BattleWholeOracleTest, TheBoostsAnEmptySlotsRefreshWritesOnTheStackReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theBoostsOnTheStack);
     });
 }
 

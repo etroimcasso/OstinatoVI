@@ -4,6 +4,7 @@
 #include <cstddef>
 
 #include "battle/actions.h"
+#include "battle/party_setup.h"
 #include "ostinato/attack_id.h"
 #include "ostinato/element_set.h"
 #include "ostinato/item_effects.h"
@@ -105,10 +106,10 @@ void confuseComesOff(BattleState& state, Battler&, BattlerSlot slot, StatusWork&
     statusesChanged(state, slot);
 }
 
-// A party member's equipment is worked out again.
-void rageComesOff(BattleState&, Battler& battler, BattlerSlot slot, StatusWork&) {
+// A party member's equipment is worked out again, asked for as a sixteen-bit increment of its flag.
+void rageComesOff(BattleState& state, Battler&, BattlerSlot slot, StatusWork&) {
     if (slot.isCharacter()) {
-        battler.equipmentChanged = true;
+        statusChangeAsksForEquipmentRefresh(state, slot);
     }
 }
 

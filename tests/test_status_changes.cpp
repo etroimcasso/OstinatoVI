@@ -9,6 +9,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 
@@ -258,20 +259,26 @@ TEST_F(StatusChangesTest, ConfuseGoingOnAndComingOffMarksAPartyMember) {
 // Imp changes the battler's spells and commands, and a party member's equipment is worked out again;
 // a monster has no equipment to work out.
 TEST_F(StatusChangesTest, ImpChangesSpellsCommandsAndEquipment) {
+    // In a fight the flags are small, so the sixteen-bit increment (RemoveStatus_18 :11423-11432 under
+    // UpdateStatus's longa, :11034-11035) sets the member's flag to 1 and touches no other.
+    std::array<std::uint8_t, battle::kPartySlots> asked{};
+    asked[static_cast<std::size_t>(kMember.position())] = 1;
     const StatusChangesResult on = checked(battlerWith(kMember, StatusSet{}, StatusSet::of(StatusId::IMP)));
     EXPECT_EQ(on.pendingUpdates[at(kMember)], kEnabledMagic | kCommandList);
-    EXPECT_TRUE(on.equipmentChanged[at(kMember)]);
+    EXPECT_EQ(on.equipmentChangeFlags, asked);
+    EXPECT_EQ(on.menuWindowDesign, 0);
     const StatusChangesResult off =
         checked(battlerWith(kMember, StatusSet::of(StatusId::IMP), {}, StatusSet::of(StatusId::IMP)));
     EXPECT_EQ(off.pendingUpdates[at(kMember)], kEnabledMagic | kCommandList);
-    EXPECT_TRUE(off.equipmentChanged[at(kMember)]);
+    EXPECT_EQ(off.equipmentChangeFlags, asked);
     const StatusChangesResult monster = checked(battlerWith(kMonster, StatusSet{}, StatusSet::of(StatusId::IMP)));
     EXPECT_EQ(monster.pendingUpdates[at(kMonster)], kEnabledMagic | kCommandList);
 }
 
 TEST_F(StatusChangesTest, RageComingOffWorksAPartyMembersEquipmentOut) {
-    EXPECT_TRUE(checked(battlerWith(kMember, StatusSet::of(StatusId::RAGE), {}, StatusSet::of(StatusId::RAGE)))
-                    .equipmentChanged[at(kMember)]);
+    EXPECT_EQ(checked(battlerWith(kMember, StatusSet::of(StatusId::RAGE), {}, StatusSet::of(StatusId::RAGE)))
+                  .equipmentChangeFlags[static_cast<std::size_t>(kMember.position())],
+              1);
 }
 
 // Petrify takes off what it rules out — Reraise, Hide and Interceptor stay, and statuses it does not

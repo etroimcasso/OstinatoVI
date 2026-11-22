@@ -1148,7 +1148,7 @@ end — the wrap-up's wait, then every message of a win — the more of the supp
 **Where the original does it.** The wrap-up saves the supply first (`_c24903`,
 `battle/battle_main.asm:12064`, `SaveMorphCounter :1762-1771`), then waits 32 frames with battle time
 running (`:12076-12080`; `BtlGfx_01`, `btlgfx/btlgfx_main.asm:392-409`, calls `UpdateBattleTime`).
-`DecMorphCounter` (`:2815-2829`) runs on every second of those frames and, when the meter runs out,
+`DecMorphCounter` (`:2815-2829`) runs on every second frame of those and, when the meter runs out,
 empties it and calls `SaveMorphCounter` again, which multiplies the supply by the emptied meter.
 Nothing stops the morph before the end begins.
 
@@ -1164,3 +1164,78 @@ cartridge.
 **If you want to change it.** Ending the morph in the wrap-up's first half (`closeTheMenus()` in
 `src/battle/battle_end.cpp`), after the supply is saved, keeps the saved supply whatever the end's frames
 do.
+
+---
+
+## A party member put back in Imp at a later stage of the final battle keeps their equipment unrefreshed
+
+**What happens.** Each stage of the final battle after the first is meant to start by working out every
+seated party member's equipment again. A member still in Imp when the stage starts is not refreshed at
+the stage's first step, and neither is the member in the next party slot. Two members in Imp side by
+side in the third and fourth slots leave the third unrefreshed and the fourth refreshed. A member in Imp
+in the fourth slot also moves the windows' wallpaper byte on by one, which the stage's own start then
+lays again from the configuration, so nothing on screen changes.
+
+**Where the original does it.** `RestartBattle` runs `InitBattle` again (`battle/battle_main.asm:63-64`),
+whose fill leaves `$FF` in the four equipment-change flags at `$2F30-$2F33` (`:6061-6067`); only the
+opening's graphics init clears them (`btlgfx/btlgfx_main.asm:2488-2490`), and a later stage's
+(`_c10076`, `:155-174`) does not. The stage puts each member's statuses on again from their record
+(`LoadCharProp :6640-6641`, `UpdateStatus :6128`), and Imp's handler falls into Rage's coming-off
+(`SetStatus_05`, `RemoveStatus_18`, `:11413-11432`), whose `inc $2f30,x` runs with the sixteen-bit
+accumulator `UpdateStatus` set (`:11034-11035`): it adds one to the flag and the byte above it, so a
+flag at `$FF` goes to 0 and carries one into the next slot's `$FF`, which goes to 0 too. The first
+loop step's `UpdateCharProp` (`:5597-5631`) refreshes only the slots whose flag is not zero, from the
+fourth slot down. A carry out of the fourth slot lands in `$2F34`, which `_c10fe0`
+(`btlgfx/btlgfx_main.asm:2193-2195`) lays from the configuration before anything reads it.
+
+**Where the port keeps it.** `statusChangeAsksForEquipmentRefresh()` in `src/battle/party_setup.cpp` adds
+one to `BattleState::equipmentChangeFlags` as a sixteen-bit number, and `assembleBattle()` in
+`src/battle/battle_start.cpp` starts a later stage's flags at `kEquipmentChangeFlagFilled`.
+`tests/test_battle_start.cpp` (`StartFinalBattle.TheNextStageStartsEveryEquipmentFlagAtTheFill`,
+`StartFinalBattle.AnImpAtTheNextStageZeroesItsFlagAndTheNextSlots`,
+`StartFinalBattle.TwoImpsSideBySideAtTheNextStageLeaveTheHigherSlotsFlagAtOne`,
+`StartFinalBattle.TheFourthSlotsCarryGoesIntoTheWallpaperTheStageThenLaysAgain`) pins it, and the whole
+battles against the cartridge compare the four flags and the wallpaper byte at every step.
+
+**If you want to change it.** Filling a later stage's flags with `kEquipmentChangeFlagFilled` after the
+stage's statuses are put on, instead of before, in `assembleBattle()`, refreshes every seated member at
+the stage's first step.
+
+---
+
+## An empty party slot at a later stage of the final battle is refreshed from the field program's stack
+
+**What happens.** At each stage of the final battle after the first, a party slot nobody fills is given an
+equipment refresh as if someone were in it. The refresh builds that nobody's stats and equipment out of
+whatever the field program left on its stack. Almost all of it lands in cells nothing reads: the empty
+slot's own stats, immunities and command rows, and two bytes on the stack. The slot's menu is drawn again.
+When the empty slot is the last slot the refresh takes — the slots below it seated by nobody, or by
+members whose flags an Imp's carry zeroed — the refresh's sums are also left as the last attack's level
+and physical flag, which a condemned count started before the next attack sets a level reads.
+
+**Where the original does it.** `UpdateCharProp` (`battle/battle_main.asm:5597-5631`) refreshes every slot
+whose equipment-change flag is not zero, and at a later stage an empty slot's flag is the start's `$FF`
+(`:6061-6067`). It reads the slot's record offset, the fill's `$FFFF` (`:5615`), so the hands and status it
+stores land in bank `$7F` (`:5616-5620`). `UpdateEquip` masks the slot's `$FF` and pulls the unmasked byte
+back (`:2295-2300`), so the record it sums is the twenty-five bytes below the first character record,
+`$15DB-$15FF`, the top of the field program's stack (`field/reset.asm:17`); it clears `$11A0-$11DE`, sums
+that record into it (`:2301-2348`) and writes its boost bytes at `$15E7` and `$15EB` (`:2349-2362`).
+`UpdateEquipBattle` (`:6733-6834`), `FixImmuneStatus` and `UpdateImmuneStatus` (`:6359-6433`) and
+`UpdateCmdList` (`:13560-13617`) then write the slot's cells, its command rows and the party's relic byte
+`$3A6D` from the sums, and mark its menu to be drawn again (`:13568-13569`).
+
+**Where the port keeps it.** `applyEquipmentChanges()` in `src/battle/party_setup.cpp` zeroes an empty
+slot's flag and marks its menu to be drawn again (`BattleState::menusToRefresh`), and runs none of the
+sums: nothing the port holds stands for the field program's stack. `tests/test_battle_start.cpp`
+(`StartFinalBattle.AnEmptySlotAtTheNextStageHasItsMenuDrawnAgainAtTheFirstStep`) pins the menu, and
+`tests/oracle/test_battle_whole_oracle.cpp`
+(`BattleWholeOracleTest.WhatAnEmptySlotsRefreshWritesReachesNothing`,
+`BattleWholeOracleTest.TheCommandRowsAnEmptySlotsRefreshWritesReachNothing`,
+`BattleWholeOracleTest.TheHandsAndRowsAnEmptySlotsRefreshReadsReachNothing`,
+`BattleWholeOracleTest.TheBoostsAnEmptySlotsRefreshWritesOnTheStackReachNothing`) shows against the
+cartridge that what the sums write for the slot reaches nothing the battle reads. Where the empty slot is
+refreshed last, the port's last attack's level and physical flag are those the refresh before it left.
+
+**If you want to change it.** Passing over a slot with no one in it before its flag is read, in
+`applyEquipmentChanges()`, leaves an empty slot's flag set and draws its menu no more than any other
+step does.

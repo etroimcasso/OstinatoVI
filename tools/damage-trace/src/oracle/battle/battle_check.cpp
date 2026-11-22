@@ -16,6 +16,7 @@
 #include <variant>
 #include <vector>
 
+#include "battle/battle_requests.h"
 #include "battle/battler_set.h"
 #include "battle/party_setup.h"
 
@@ -110,11 +111,12 @@ std::uint8_t boostBits(battle::MaxBoost boost) {
     return 0;
 }
 
-// The records of every party member seated at some loop step: the start, and each stage of the final
-// battle, refreshes each one for its equipment.
-std::set<std::size_t> refreshedRecords(const PortBattle& port) {
+// The records of every party member seated at a loop step up to `steps`: the start, and each stage of the
+// final battle, refreshes each one for its equipment (InitChars :6201-6222, UpdateEquip :2349-2362).
+std::set<std::size_t> refreshedRecords(const PortBattle& port, std::size_t steps) {
     std::set<std::size_t> records;
-    for (const battle::BattleState& state : port.steps) {
+    for (std::size_t step = 0; step < std::min(steps, port.steps.size()); ++step) {
+        const battle::BattleState& state = port.steps[step];
         for (int position = 0; position < battle::kPartySlots; ++position) {
             if (const std::optional<std::size_t> record = state.at(battle::BattlerSlot::character(position)).record) {
                 records.insert(*record);
@@ -122,6 +124,33 @@ std::set<std::size_t> refreshedRecords(const PortBattle& port) {
         }
     }
     return records;
+}
+
+// The records' cells at a loop step: a record seated at that step or any before it holds the boosts its
+// equipment gives in the top two bits of its maximum HP and MP; every other record keeps the bits the battle
+// came in with.
+PartyCells boostsAtStep(const PartyCells& start, const PortBattle& port, std::size_t step) {
+    PartyCells cells = start;
+    for (const std::size_t record : refreshedRecords(port, step + 1)) {
+        const battle::DerivedStats derived = battle::deriveEquipment(port.steps[step].party.characters[record]);
+        cells.hpBoostBits[record] = boostBits(derived.hpBoost);
+        cells.mpBoostBits[record] = boostBits(derived.mpBoost);
+    }
+    return cells;
+}
+
+// Whether a final-battle stage starts between the frame wait of the step before `step` and its own: the
+// stage's start runs InitBattle again inside that window (RestartBattle :63-64), so its reads are a
+// start's.
+bool aStageStartsBefore(const PortBattle& port, std::size_t step) {
+    if (step == 0 || step >= port.stepRequests.size()) {
+        return false;
+    }
+    const auto first = port.requests.begin() + static_cast<std::ptrdiff_t>(port.stepRequests[step - 1]);
+    const auto last = port.requests.begin() + static_cast<std::ptrdiff_t>(port.stepRequests[step]);
+    return std::any_of(first, last, [](const battle::BattleRequest& request) {
+        return std::holds_alternative<battle::ScrollFinalBattleBackground>(request);
+    });
 }
 
 }  // namespace
@@ -166,7 +195,6 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     std::string& lines = check.differences;
     const WholeBattleResult& cartridge = check.cartridge;
     const PortBattle& port = check.port;
-    const PartyCells& boosts = scenario.start.cells;
     if (cartridge.stackPointers.size() > 1) {
         lines += "the loop's steps left the stack pointer at " + std::to_string(cartridge.stackPointers.size()) +
                  " places\n";
@@ -186,6 +214,7 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     for (std::size_t step = 0; step < steps && lines.empty(); ++step) {
         const CartridgeStep& theirs = cartridge.steps[step];
         const battle::BattleState& ours = port.steps[step];
+        const PartyCells boosts = boostsAtStep(scenario.start.cells, port, step);
         const std::string at = "step " + std::to_string(step) + " (frame " + std::to_string(theirs.frame) + ")";
         if (port.stepFrames[step] != theirs.frame) {
             lines += at + ": the port reached it at frame " + std::to_string(port.stepFrames[step]) + "\n";
@@ -199,8 +228,10 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         lines += named(at, compareBattleState(ours, boosts, theirs.cells));
         lines += named(at + ", write-set gate", uncoveredWrites(ours, boosts, theirs.writes, &theirs.cells));
         if (step > 0) {
-            const std::string carried = carriedReads(port.steps[step - 1], boosts, theirs.carriedReads,
-                                                     &cartridge.steps[step - 1].cells, CarriedFrom::AStep);
+            const std::string carried =
+                carriedReads(port.steps[step - 1], boostsAtStep(scenario.start.cells, port, step - 1),
+                             theirs.carriedReads, &cartridge.steps[step - 1].cells,
+                             aStageStartsBefore(port, step) ? CarriedFrom::TheStart : CarriedFrom::AStep);
             lines += named(at + ", carried-read gate", carried);
             lines += named(at + ", the copy rule", carriedTargetsCompared(ours, boosts, theirs));
             if (!carried.empty() && !theirs.stackAtFirstCarriedRead.empty()) {
@@ -256,7 +287,7 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     WriteBackResult kept;
     kept.cells = scenario.start.cells;
     kept.cells.party = port.result->party;
-    for (const std::size_t record : refreshedRecords(port)) {
+    for (const std::size_t record : refreshedRecords(port, port.steps.size())) {
         const battle::DerivedStats derived = battle::deriveEquipment(port.result->party.characters[record]);
         kept.cells.hpBoostBits[record] = boostBits(derived.hpBoost);
         kept.cells.mpBoostBits[record] = boostBits(derived.mpBoost);

@@ -147,7 +147,8 @@ void DamageOracle::writeEffectCells(const DamageScenario& scenario) {
             writeByte(kWeaponHands + place + kHandQuantity, weapon.quantity);
             writeByte(kShieldHands + place, static_cast<std::uint8_t>(shield.item));
             writeByte(kShieldHands + place + kHandQuantity, shield.quantity);
-            writeByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position()), battler.equipmentChanged ? 1 : 0);
+            writeByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position()),
+                      state.equipmentChangeFlags[static_cast<std::size_t>(slot.position())]);
         }
     }
 }
@@ -238,8 +239,7 @@ AttackerEffectResult DamageOracle::readAttackerEffectResult() {
                                       std::to_string(readByte(kWeaponHands + place + kHandQuantity)) + "/" +
                                       std::to_string(readByte(kShieldHands + place)) + "x" +
                                       std::to_string(readByte(kShieldHands + place + kHandQuantity)));
-            out.put("equipment to work out" + of,
-                    readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())) != 0);
+            out.put("equipment to work out" + of, readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())));
         }
     }
     // What the effect added to the script: the animations queued, and the params blocks after the

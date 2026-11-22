@@ -653,10 +653,52 @@ counted with the spell lists.
 
 ### Equipment changed mid-battle
 
-When the battle's Item menu changes what a party member holds (`UpdateCharProp` `:5595-5631`), the
-next loop step writes the hands into their record, copies their first eight statuses into it, works
-out their stats again (above), asks for their battle commands to be refreshed, and works out their
-status immunity again.
+Each party slot has an equipment-change flag, one byte (`BattleState::equipmentChangeFlags`,
+`$2F30-$2F33`). At the start of every loop step `applyEquipmentChanges()` (`UpdateCharProp`
+`:5597-5631`) walks the slots from the fourth to the first. For each whose flag is not zero it zeroes
+the flag, writes the hands into the member's record, copies their first eight statuses into it,
+works out their stats again (above), asks for their battle commands to be refreshed, and works out
+their status immunity again.
+
+Three things ask for it:
+
+- The battle's Item menu sets the slot's flag to 1 (`btlgfx:20947`, `:21435`, `:21543`).
+- Imp going on or coming off, and Rage coming off, add one to the flag (`RemoveStatus_18`
+  `:11423-11432`, which `SetStatus_05` and `RemoveStatus_05` fall into, `:11413-11417`). The status
+  handlers run inside `UpdateStatus`, whose accumulator is sixteen bits wide (`:11034-11035`), so the
+  flag and the byte above it are added to as one number (`statusChangeAsksForEquipmentRefresh()`): a
+  flag at `$FF` goes to 0 and carries one into the next slot's flag, or, from the fourth slot, into the
+  windows' wallpaper at `$2F34` (`BattleState::menuWindowDesign`).
+- An Ogre Nix breaking adds one to the wielder's flag alone: its handler runs with an eight-bit
+  accumulator (`AttackerEffect_0e` `:10177-10199`; `brokenWeaponAsksForEquipmentRefresh()`).
+
+In a fight the flags are 0 or small and nothing carries. The opening zeroes all four
+(`btlgfx:2488-2490`); a final-battle stage after the first does not, so each starts at the `$FF`
+`InitBattle`'s fill leaves (`:6061-6067`, `kEquipmentChangeFlagFilled`). The stage's statuses are put
+on again from the records (`LoadCharProp` `:6640-6641`, `UpdateStatus` `:6128`), and a member in Imp
+takes `SetStatus_05` over that `$FF`: its flag goes to 0 and carries into the next slot's, which goes
+to 0 too. At the stage's first step neither member is refreshed, and every other seated member is.
+`UpdateStatus` walks the battlers from the last (`:11036`), so two members in Imp in slots 2 and 3
+leave `$FF $FF $00 $01`: slot 3 is refreshed and slot 2 is not ([`docs/Bugs.md`](../Bugs.md)). A carry
+out of the fourth slot reaches nothing: the stage's graphics init lays the configuration's wallpaper
+over `$2F34` (`_c10fe0` `btlgfx:2193-2195`, run from `_c10076` `btlgfx:155-157`) before either of its
+readers runs (`GetWindowGfxPtr` `btlgfx:8843-8848`, `LoadMenuGfx` `btlgfx:8901-8906`), and the port's
+start lays `menuWindowDesign` from `BattleConfig::wallpaper` after its statuses are put on.
+
+An empty slot at such a stage keeps its `$FF` too, and the refresh does not ask whether anyone is in the
+slot. It reads the slot's record offset, the fill's `$FFFF` (`:5615`), so its three stores of the hands
+and the first status byte land in bank `$7F`; `UpdateEquip` masks the slot's `$FF` and then pulls the
+unmasked byte back (`:2295-2300`), so it sums the twenty-five bytes below the first character record,
+the field program's stack (`$15DB-$15FF`, `field/reset.asm:17`), and writes the two boost bytes at
+`$15E7` and `$15EB`; `UpdateEquipBattle`, `FixImmuneStatus`, `UpdateImmuneStatus` and `UpdateCmdList`
+then write the empty slot's stat, equipment and immunity cells, its command rows and the party's relic
+byte from those sums (`:6733-6834`, `:6359-6433`, `:13560-13617`). The port runs none of the sums, since
+nothing it holds stands for the field program's stack: `applyEquipmentChanges()` zeroes the slot's flag
+and marks its menu to be drawn again, which the cartridge does whatever the stack holds (`tsb $3a58`,
+`:13568-13569`). What the sums write for the slot reaches nothing the battle reads
+(`tests/oracle/test_battle_whole_oracle.cpp`). Where the empty slot is the last the refresh takes, its
+sums also stand in `$11A0-$11DE` — the last attack's level at `$11AF` among them — where the port keeps
+the values the refresh before it left ([`docs/Bugs.md`](../Bugs.md)).
 
 ## A battle's start
 
@@ -703,15 +745,19 @@ allows), the party, the battle switches and the game's text, in the original's o
 12. The opening: `OpenBattleScene`, and the random numbers move on one entry — the loop's own once-a-
     pass advance, which comes before its first wait (`:67-68`). What the opening lays for the battle
     program is the start's too: **no party member's equipment is to be worked out again**, whatever a
-    status put on at the start asked for (`btlgfx:2488-2490` clear `$2F30-$2F33`); the **monsters
-    standing** become the formation's monsters present
-    (`btlgfx:2011-2013`, `:2203-2205`) — until then every monster stands, which is what the run check
-    above reads — and the monsters the scripted setup in force leaves out of its reach byte are **out
-    of the AI's reach** (`aiUntargetable`; `btlgfx:2197-2201`, `:41253-41267`). The setup in force is
-    Gau's return (`setupInForce()`), when Gau may appear, or the formation's own. A final-battle stage after the first
-    instead plays `FormationChanges` from the stage's byte of `kFinalBattleScroll` — bit 7 scrolls the
-    background on, the low bits are the departing monsters' exit (`GfxCmd_12 btlgfx:22118-22167`) — with
-    the stage's monsters still fighting, and the loop waits for it (`:6180-6193`).
+    status put on at the start asked for (`btlgfx:2488-2490` clear `$2F30-$2F33`; a later final-battle
+    stage keeps the fill's `$FF`, above). A final-battle stage
+    after the first instead plays `FormationChanges` from the stage's byte of `kFinalBattleScroll` — bit 7
+    scrolls the background on, the low bits are the departing monsters' exit (`GfxCmd_12
+    btlgfx:22118-22167`) — with the stage's monsters still fighting, and the loop waits for it
+    (`:6180-6193`). Both lay two sets for the battle program, from the same routine (`_c10fe0`, which the
+    opening's `InitBattleGfx` runs at `btlgfx:2252` and the next stage's `_c10076` at `btlgfx:155-157`):
+    the windows' wallpaper (`menuWindowDesign`) is the configuration's (`btlgfx:2193-2195`); the
+    **monsters standing** become the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`)
+    — until then every monster stands, which is what the run check above reads — and the monsters the
+    scripted setup in force leaves out of its reach byte are **out of the AI's reach** (`aiUntargetable`;
+    `btlgfx:2197-2201`, `:41253-41267`). The setup in force is Gau's return (`setupInForce()`), when Gau
+    may appear, or the formation's own.
 
 ### The formation
 
@@ -907,11 +953,12 @@ Fixed Dice.
 | `$2BAE-$2BCD` the player's records | the graphics program and the interrupt (`UpdateMenuState` runs in it) | `GetPlayerAction` (`:12620-12653`) | `BattleState::chosenActions` |
 | `$2F41` a sub-menu is open | the graphics program and the interrupt | the clock (`:2672`) | `BattleState::timeStoppedByMenu` |
 | `$2F45` the run buttons are held | the interrupt (`btlgfx:1603`, `:1614`) | the clock (`:2699`) and `CheckRunAway` | `BattleState::partyRunning` |
-| `$2F30-$2F33` a party member's equipment changed | the graphics program: cleared by the opening, set by the Item menu | `UpdateCharProp` (`:5595-5636`) | `Battler::equipmentChanged` |
+| `$2F30-$2F33` a party member's equipment changed | the start's fill, `$FF` (`:6061-6067`); the graphics program: cleared by the opening (`btlgfx:2488-2490`), set to 1 by the Item menu (`btlgfx:20947`, `:21435`, `:21543`); the battle program: one added by a status handler, sixteen bits wide (`:11423-11432`), and by the Ogre Nix's break, eight bits wide (`:10194-10197`); zeroed by the refresh (`:5600`) | `UpdateCharProp` (`:5597-5631`) | `BattleState::equipmentChangeFlags` |
+| `$2F34` the windows' wallpaper | the graphics program: the configuration's (`$1D4E` & 7) at the opening and at each final-battle stage (`_c10fe0` `btlgfx:2193-2195`); the battle program: a status handler's carry out of `$2F33` | the graphics program, loading the menu and top message windows (`btlgfx:8843-8848`, `:8901-8906`) | `BattleState::menuWindowDesign`, from `BattleConfig::wallpaper` |
 | the inventory (`$2686-$2B85`) | the graphics program, merging the items obtained (command `$0A`) and the Item menu | `UpdateSRAM` and the commands | `BattleState::inventory` |
 | `$1DD1` the field's timer flags, byte 8 of the field's battle switches (bit 5 is switch 69, `game::kTimerExpiredSwitch`) | the interrupt, each unpaused frame (`btlgfx:1622` → the field's timers), and the opening (`btlgfx:2219`) | `CheckBattleEnd` (`:11900`, bit 5: a story countdown ran out) | `BattleState::eventTimerExpired`, which the start takes from the switch: `InitBattle` clears bits 7, 4 and 0 of its own copy only (`:6095-6096`), so a battle entered with it set ends at its first end check |
-| `$2F2F` the monsters standing | the opening: the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`); a formation change (`btlgfx:22142`, `:22157`) | the loop (`:100-103`), the monsters' names (`:15185-15188`) | `BattleState::monstersStanding` |
-| `$2F46` the monsters that can be aimed at | the opening: every one, or the reach byte of the scripted setup in force — the formation's own, or Gau's return, which `InitParty` turns on when Gau may appear (`:7786-7792`) — (`btlgfx:2197-2201`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
+| `$2F2F` the monsters standing | the opening and a final-battle stage's start: the formation's monsters present (`btlgfx:2011-2013`, `:2203-2205`); a formation change (`btlgfx:22142`, `:22157`) | the loop (`:100-103`), the monsters' names (`:15185-15188`) | `BattleState::monstersStanding` |
+| `$2F46` the monsters that can be aimed at | the opening and a final-battle stage's start: every one, or the reach byte of the scripted setup in force — the formation's own, or Gau's return, which `InitParty` turns on when Gau may appear (`:7786-7792`) — (`btlgfx:2197-2201`, `:41253-41267`) | the aim (`:14635`) | `BattleState::aiUntargetable` (its complement) |
 | `$021E` the play clock's frames | the interrupt, each frame its body runs — not while one is in progress (`btlgfx:1642-1643`) nor while the battle is paused (`btlgfx:1717-1718`) — through `IncGameTime` (`btlgfx:1751`, `menu_common.asm:3488-3519`): a cell at 60 goes to 0 and the seconds step, then the cell steps by one, so it reads 1 to 60 in turn | the start's seed (`:6088`), the Fixed Dice's third die (`:10705-10710`) | `BattleState::playClockFrames`, stepped by `tickBattleTime()` on every frame |
 | `$2EAC`, `$2EAD` the monsters on each side of a pincer | the opening and a formation change (`InitMonsterPos` `btlgfx:2854-2857`, from `btlgfx:2310` and `:22149`) | `CheckTargetsBattleType` (`:14748-14753`) and the run check (`:15181-15189`), both only in a pincer (`$201F` = 2) | `BattleState::pincerSides`, from `layOutMonsters()` |
 | `$2F50-$2F51` the battlers facing right | every frame wait, from the graphics program's own sprites' facings, just before the clock is called (`UpdateFacingDir` `btlgfx:39958-39976`, from `BtlGfx_01` `btlgfx:403` and `WaitFrame` `btlgfx:433`); the start's fill leaves `$FF` (`:6063-6067`) | `UpdateFacingDirection` (`:3229-3236`, `:3253-3260`), finding who is hit in the back: a party member's blow in a side attack, a monster's in a pincer (`:3226-3228`, `:3250-3252`) | `BattleState::facingRight`, from `layOutParty()` and `layOutMonsters()`, and turned as each script's attackers face their targets (`turnToFaceTargets()`) |

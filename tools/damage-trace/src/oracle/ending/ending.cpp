@@ -275,8 +275,10 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
         writeWord(kPartyMemberBit + at, member.equipsAs.bits());
         writeByte(kItemInHand + at, member.itemInHand ? static_cast<std::uint8_t>(*member.itemInHand) : kNoOne);
         writeByte(kMorphMeterShown + at, member.morphGauge);
-        // Whether the member's equipment is to be worked out again (Imp on or off, a Rage come off).
-        writeByte(kEquipmentChanged + static_cast<std::uint32_t>(position), member.equipmentChanged ? 1 : 0);
+        // Whether the member's equipment is to be worked out again (the Item menu, Imp on or off, a Rage
+        // come off, an Ogre Nix broken), and above the fourth slot's flag the windows' wallpaper.
+        writeByte(kEquipmentChanged + static_cast<std::uint32_t>(position),
+                  state.equipmentChangeFlags[static_cast<std::size_t>(position)]);
     }
     writeByte(kHoldingItem, state.holdingItem.characters.bits);
     writeByte(kMorphedPartyMember, state.morphedBattler ? static_cast<std::uint8_t>(slotIndex(*state.morphedBattler)) : kNoOne);

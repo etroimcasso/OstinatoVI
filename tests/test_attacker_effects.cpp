@@ -339,7 +339,10 @@ TEST_F(AttackerEffectTest, OgreNixBreaksOneTimeInTheLastDigitOfTheHpPlusOne) {
     EXPECT_EQ(after.inventory.shieldHands[1].item, ItemId::OGRE_NIX);
     EXPECT_EQ(after.at(kHero).weaponHand.battlePower, 0);
     EXPECT_EQ(after.at(kHero).shieldHand.battlePower, 117);
-    EXPECT_TRUE(after.at(kHero).equipmentChanged);
+    // AttackerEffect_0e's increment runs eight bits wide (:10177-10199): the wielder's flag alone.
+    std::array<std::uint8_t, battle::kPartySlots> flags{};
+    flags[static_cast<std::size_t>(kHero.position())] = 1;
+    EXPECT_EQ(after.equipmentChangeFlags, flags);
     EXPECT_EQ(run.after.attack.scratch.message, battle::kMessageOgreNixBroken);
 }
 
@@ -387,7 +390,7 @@ TEST_F(AttackerEffectTest, OgreNixDrawsAgainstTheHpsLastDigit) {
     s.state.rng = battle::BattleRng{positionWhere([](std::uint8_t r) { return r >= 26; })};
     const auto kept = checked(s);
     EXPECT_EQ(kept.after.state.inventory.weaponHands[1].item, ItemId::OGRE_NIX);
-    EXPECT_FALSE(kept.after.state.at(kHero).equipmentChanged);
+    EXPECT_EQ(kept.after.state.equipmentChangeFlags[static_cast<std::size_t>(kHero.position())], 0);
 
     s.state.rng = battle::BattleRng{positionWhere([](std::uint8_t r) { return r < 26; })};
     const auto broken = checked(s);

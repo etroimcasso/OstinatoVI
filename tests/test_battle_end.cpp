@@ -119,11 +119,11 @@ TEST(WrapUp, EquipmentTheItemMenuChangedTakesEffect) {
     terra.record = 0;
     terra.actor = CharacterPropId::TERRA;
     terra.present = true;
-    terra.equipmentChanged = true;
+    state.equipmentChangeFlags[0] = 1;
     state.inventory.weaponHands[0] = itemOf(ItemId::MITHRILBLADE, 1);
     state = wrappedUp(state);
     EXPECT_EQ(state.party.characters[0].weapon, ItemId::MITHRILBLADE);
-    EXPECT_FALSE(state.at(BattlerSlot::character(0)).equipmentChanged);
+    EXPECT_EQ(state.equipmentChangeFlags[0], 0);
 }
 
 

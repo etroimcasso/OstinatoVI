@@ -30,6 +30,7 @@
 #include "ostinato/game_version.h"
 #include "ostinato/item_id.h"
 #include "ostinato/monster_id.h"
+#include "ostinato/wallpaper_id.h"
 
 #include "cells/ai/ai.h"
 #include "cells/battle/state.h"
@@ -50,10 +51,10 @@ using namespace detail;
 namespace {
 
 // What the graphics program's opening lays into the battle's cells for the battle program to read
-// (BtlGfx_00 → InitBattleGfx → _c10fe0, btlgfx_main.asm:2180-2211): the monsters standing, from the
-// formation's monsters present (_c10e86 :2011-2013); the monsters that can be aimed at, every one,
-// or the scripted setup's own when the formation has one (_c2bd43 :41253-41267); and the four
-// equipment-changed flags, cleared.
+// (BtlGfx_00 → InitBattleGfx → _c10fe0, btlgfx_main.asm:2180-2211): the windows' wallpaper, from the
+// configuration (:2193-2195); the monsters standing, from the formation's monsters present (_c10e86
+// :2011-2013); the monsters that can be aimed at, every one, or the scripted setup's own when the
+// formation has one (_c2bd43 :41253-41267); and the four equipment-changed flags, cleared.
 constexpr std::uint32_t kMonstersTargetable = kWorkRam + 0x2F46;
 constexpr std::uint32_t kEquipmentChangedFlagCells = kWorkRam + 0x2F30;
 constexpr std::uint32_t kEquipmentChangedFlagCount = 4;
@@ -103,6 +104,7 @@ void DamageOracle::layTheOpening() {
 }
 
 void DamageOracle::layTheMonsters() {
+    writeByte(kMenuWindowDesign, static_cast<std::uint8_t>(readByte(kGaugeSetting) & kWallpaperBits));
     const auto formation = static_cast<FormationId>(readWord(kFormationCell));
     writeByte(kMonstersStanding, static_cast<std::uint8_t>(getFormation(formation).presentAndBg1 & kPresentMonsters));
     std::uint8_t targetable = kEveryMonster;
@@ -170,18 +172,9 @@ namespace {
 // battle's line of fighters (InitParty :7724-7756, InitMonsters :7697).
 constexpr std::uint32_t kFieldFormation = kWorkRam + 0x11E0;
 constexpr std::uint32_t kFieldBackground = kWorkRam + 0x11E2;
-constexpr std::uint32_t kBattleSettings = kWorkRam + 0x1D4D;
-constexpr std::uint8_t kWaitModeBit = 0x08;
-constexpr std::uint8_t kSpeedBits = 0x07;
-constexpr std::uint32_t kGaugeSetting = kWorkRam + 0x1D4E;
-constexpr std::uint8_t kGaugeHiddenBit = 0x80;
-constexpr std::uint32_t kSpellOrder = kWorkRam + 0x1D54;
-constexpr std::uint8_t kSpellOrderBits = 0x07;
 constexpr std::uint32_t kFieldSwitches = kWorkRam + 0x1DC9;
 constexpr std::uint32_t kFieldItems = kWorkRam + 0x1869;
 constexpr std::uint32_t kFieldQuantities = kWorkRam + 0x1969;
-constexpr std::uint32_t kSaveHours = kWorkRam + 0x1863;
-constexpr std::uint32_t kSaveMinutes = kWorkRam + 0x1864;
 constexpr std::uint32_t kColosseumWager = kWagerCell;
 constexpr std::uint32_t kColosseumOpponent = kWorkRam + 0x0206;
 constexpr std::uint32_t kColosseumPrize = kPrizeCell;
@@ -226,7 +219,8 @@ void DamageOracle::writeStartScenario(const StartScenario& scenario) {
     writeItemsObtainedTail(start.itemsObtainedTail);
     writeByte(kBattleSettings, static_cast<std::uint8_t>((start.config.waitMode ? kWaitModeBit : 0) |
                                                          (start.config.speedSetting & kSpeedBits)));
-    writeByte(kGaugeSetting, start.config.gaugeShown ? 0 : kGaugeHiddenBit);
+    writeByte(kGaugeSetting, static_cast<std::uint8_t>((start.config.gaugeShown ? 0 : kGaugeHiddenBit) |
+                                                       static_cast<std::uint8_t>(start.config.wallpaper)));
     writeByte(kSpellOrder, static_cast<std::uint8_t>(start.config.magicOrder & kSpellOrderBits));
 
     if (start.colosseum) {
@@ -279,7 +273,8 @@ StartScenario DamageOracle::readStartScenario() {
     start.config = battle::BattleConfig{.waitMode = (settings & kWaitModeBit) != 0,
                                         .speedSetting = static_cast<std::uint8_t>(settings & kSpeedBits),
                                         .gaugeShown = (readByte(kGaugeSetting) & kGaugeHiddenBit) == 0,
-                                        .magicOrder = static_cast<std::uint8_t>(readByte(kSpellOrder) & kSpellOrderBits)};
+                                        .magicOrder = static_cast<std::uint8_t>(readByte(kSpellOrder) & kSpellOrderBits),
+                                        .wallpaper = static_cast<WallpaperId>(readByte(kGaugeSetting) & kWallpaperBits)};
     start.version = GameVersion::US_1_1;
     if (colosseumFormation(start.formation)) {
         start.colosseum = battle::ColosseumMatch{.wager = static_cast<ItemId>(readByte(kColosseumWager)),

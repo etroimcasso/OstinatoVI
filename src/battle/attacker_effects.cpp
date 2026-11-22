@@ -10,6 +10,7 @@
 #include "battle/automatic_actions.h"
 #include "battle/battle_script.h"
 #include "battle/damage.h"
+#include "battle/party_setup.h"
 #include "ostinato/attack_effects.h"
 #include "ostinato/attack_flags.h"
 #include "ostinato/attack_id.h"
@@ -204,7 +205,7 @@ void ogreNixBreaks(BattleState& state, AttackInFlight& attack, BattlerSlot attac
     Battler& battler = state.at(attacker);
     if (!state.counterattackRunning && !battler.inBattleMenu &&
         state.rng.below(static_cast<std::uint8_t>(battler.hp % kOgreNixDigit + 1)) == 0) {
-        battler.equipmentChanged = true;
+        brokenWeaponAsksForEquipmentRefresh(state, attacker);
         // The hand swinging: the weapon hand on an odd count of attacks still to come.
         const bool shieldHand = (attack.scratch.attacksLeft & 1) == 0;
         (shieldHand ? battler.shieldHand : battler.weaponHand).battlePower = 0;

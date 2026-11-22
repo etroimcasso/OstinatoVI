@@ -123,8 +123,10 @@ What the statuses do going on and coming off:
 | Rage | — | a party member's equipment is worked out again |
 | Morph | its menu is worked out again | the same |
 
-"Worked out again" is a flag in `Battler::pendingUpdates` (or `equipmentChanged`) that the battle
-acts on once the action is over ([core.md](core.md)).
+"Worked out again" is a flag in `Battler::pendingUpdates` that the battle acts on once the action is
+over ([core.md](core.md)); for a party member's equipment it is the slot's byte of
+`BattleState::equipmentChangeFlags`, added to by `statusChangeAsksForEquipmentRefresh()` and acted on
+at the next loop step ([start.md](start.md#changing-equipment-during-a-battle)).
 
 ```cpp
 battle::Battler& slime = state.at(battle::BattlerSlot::monster(0));

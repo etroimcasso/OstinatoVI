@@ -51,6 +51,7 @@
 #include "ostinato/monster_special_attack.h"
 #include "ostinato/status_set.h"
 #include "ostinato/targeting.h"
+#include "ostinato/wallpaper_id.h"
 
 namespace ostinato::battle {
 
@@ -198,6 +199,10 @@ inline constexpr StatusSet kAllStatuses{{0xFF, 0xFF, 0xFF, 0xFF}};
 // replace it. A party member makes it when a scripted battle's AI gives it the Special attack.
 inline constexpr MonsterSpecialAttack kNoMonsterSpecialAttack =
     MonsterSpecialAttack::removeReflect(13).withCantDodge().withNoDamage();
+
+// A party slot's equipment-change flag as a final-battle stage after the first starts it: the byte the
+// battle's start leaves in every cell it fills (InitBattle :6061-6067), which only the opening clears.
+inline constexpr std::uint8_t kEquipmentChangeFlagFilled = 0xFF;
 
 // The last time a battler was hit with something: who did it, and with what.
 template <typename T>
@@ -361,10 +366,6 @@ struct Battler {
     // The equippable-by bits an item must share for this party member to hold it.
     EquipPermissions equipsAs;
 
-    // What it holds is to be worked out again on the battle's next step: the battle's Item menu
-    // swapped it, or Imp went on or came off, or Rage came off.
-    bool equipmentChanged = false;
-
     std::array<MenuCommand, 4> commands{};
     SpellList spells;
     int spellCount = 0;                   // spells it can use from its list, not counting lores
@@ -429,6 +430,7 @@ struct BattleConfig {
     std::uint8_t speedSetting = 2;  // 0 (fastest) to 5, as the config menu shows it 1-6
     bool gaugeShown = true;
     std::uint8_t magicOrder = 0;    // the spell-order setting, 0 to 5, as the menu shows it 1-6
+    WallpaperId wallpaper = WallpaperId::WALLPAPER_0;  // the windows' wallpaper the player chose
 
     // How much the speed setting slows the monsters: 255 at the fastest, 24 less for each step.
     constexpr std::uint8_t monsterSpeedFactor() const {
@@ -633,6 +635,19 @@ struct BattleState {
     // update. Its high byte is the meter shown.
     std::uint16_t morphCounter = 0;
     std::uint16_t morphCounterSpeed = 0;
+
+    // Each party slot's equipment-change flag, by slot: while it is not zero, the battle's next step
+    // works out what that party member holds again and zeroes it (applyEquipmentChanges()). The
+    // battle's Item menu sets it to 1; Imp going on or coming off, and Rage coming off, add one to it as
+    // a sixteen-bit number with the next slot's flag above it (statusChangeAsksForEquipmentRefresh());
+    // an Ogre Nix breaking adds one to it alone (brokenWeaponAsksForEquipmentRefresh()). The opening
+    // zeroes all four; a final-battle stage after the first starts them at kEquipmentChangeFlagFilled.
+    std::array<std::uint8_t, kPartySlots> equipmentChangeFlags{};
+    // The battle's copy of the windows' wallpaper, the byte above the fourth slot's flag: each stage's
+    // start lays it from `config.wallpaper`, after the start's statuses are put on. A status change in
+    // the fourth slot whose flag stands at $FF carries one into it.
+    std::uint8_t menuWindowDesign = 0;
+
     std::optional<BattlerSlot> rouletteTarget;    // Roulette's choice, struck by Doom on its beat
     std::optional<BattlerSlot> doomGaze;          // Doom Gaze, whose HP outlasts the battle
     // Party members taken from the party by Possess or blown away by Bababreath: they leave it

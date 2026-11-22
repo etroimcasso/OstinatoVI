@@ -737,9 +737,7 @@ TEST(StartBattle, TheOpeningClearsTheEquipmentChangedFlags) {
     party.characters[0].status.set(StatusId::IMP);
     const BattleState state = battle::startBattle(startFor(findFormation(ordinary)), party, {}, names, sprites, executor);
     ASSERT_TRUE(state.at(BattlerSlot::character(0)).status.has(StatusId::IMP));
-    for (int position = 0; position < battle::kPartySlots; ++position) {
-        EXPECT_FALSE(state.at(BattlerSlot::character(position)).equipmentChanged) << "party slot " << position;
-    }
+    EXPECT_EQ(state.equipmentChangeFlags, (std::array<std::uint8_t, battle::kPartySlots>{}));
 }
 
 TEST(StartBattle, TheOpeningStandsTheFormationsMonstersPresent) {
@@ -957,6 +955,126 @@ TEST(StartFinalBattle, TheNextStageKeepsTheStandingAndReplacesTheFallen) {
     EXPECT_EQ(arrives.monsters, next.alive.monstersOnly());
     EXPECT_TRUE(next.waitingForScript.has_value());
     for (const auto& battler : next.battlers) EXPECT_EQ(battler.gauge.meter(), 0xFF);
+}
+
+TEST(StartFinalBattle, TheNextStageStandsTheFormationsMonstersPresent) {
+    // The next stage's graphics init lays the formation's monsters present as the monsters standing, as
+    // the opening's does (_c10076 btlgfx_main.asm:155-174 runs _c10fe0, :2202-2206); a monster the
+    // formation holds back is not one of them.
+    battle::NullExecutor executor;
+    const battle::BattleStart start = finalBattle();
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
+    finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
+                                           .nextFormation = kFinalBattleFormations[1]};
+    const BattleState next =
+        battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), noSprites(),
+                                          executor);
+    const Formation& record = getFormation(kFinalBattleFormations[1]);
+    bool heldBack = false;
+    for (int position = 0; position < 6; ++position) {
+        const bool present = record.isPresent(static_cast<std::size_t>(position));
+        heldBack = heldBack || !present;
+        EXPECT_EQ(next.monstersStanding.has(BattlerSlot::monster(position)), present) << "monster slot " << position;
+    }
+    EXPECT_TRUE(heldBack);
+}
+
+// The next stage after a stage whose party slots in `imps` were left in Imp, its statuses put on by the
+// battle's own pass.
+BattleState nextStageWithImps(std::initializer_list<int> imps, WallpaperId wallpaper = WallpaperId::WALLPAPER_0) {
+    battle::BattleHooks hooks;
+    battle::CommandExecutor executor{hooks, noNames(), noSprites()};
+    battle::BattleStart start = finalBattle();
+    start.config.wallpaper = wallpaper;
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
+    for (const int position : imps) {
+        finished.at(BattlerSlot::character(position)).status.set(StatusId::IMP);
+    }
+    finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
+                                           .nextFormation = kFinalBattleFormations[1]};
+    return battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), noSprites(),
+                                             executor);
+}
+
+// Which party slots the loop's equipment step refreshes: each slot's hand is given a weapon its record
+// does not hold, and a refreshed member's record takes it (UpdateCharProp :5609-5613).
+std::array<bool, battle::kPartySlots> refreshedAtTheFirstStep(BattleState state) {
+    for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
+        state.inventory.weaponHands[position] = battle::battleItem(state, ItemId::DIRK, 1);
+        state.party.characters[*state.at(BattlerSlot::character(static_cast<int>(position))).record].weapon =
+            ItemId::EMPTY;
+    }
+    battle::NullExecutor executor;
+    battle::applyEquipmentChanges(state, executor);
+    std::array<bool, battle::kPartySlots> refreshed{};
+    for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
+        const auto record = *state.at(BattlerSlot::character(static_cast<int>(position))).record;
+        refreshed[position] = state.party.characters[record].weapon == ItemId::DIRK;
+    }
+    return refreshed;
+}
+
+TEST(StartFinalBattle, TheNextStageStartsEveryEquipmentFlagAtTheFill) {
+    // RestartBattle runs InitBattle again (:63-64), whose fill leaves $FF in $2F30-$2F33 (:6061-6067);
+    // only the opening's graphics init clears them (btlgfx_main.asm:2488-2490). The loop's first step
+    // then refreshes every seated member (UpdateCharProp :5597-5631).
+    const BattleState next = nextStageWithImps({});
+    EXPECT_EQ(next.equipmentChangeFlags, (std::array<std::uint8_t, battle::kPartySlots>{0xFF, 0xFF, 0xFF, 0xFF}));
+    EXPECT_EQ(refreshedAtTheFirstStep(next), (std::array<bool, battle::kPartySlots>{true, true, true, true}));
+}
+
+TEST(StartFinalBattle, AnImpAtTheNextStageZeroesItsFlagAndTheNextSlots) {
+    // The member's Imp is put on again from its record (LoadCharProp :6640-6641, UpdateStatus :6128), and
+    // SetStatus_05 falls into RemoveStatus_18's sixteen-bit `inc $2f30,x` (:11413-11432): $FF goes to 0
+    // and carries into the next slot's $FF, which goes to 0 too. Neither is refreshed.
+    const BattleState next = nextStageWithImps({0});
+    ASSERT_TRUE(next.at(BattlerSlot::character(0)).status.has(StatusId::IMP));
+    EXPECT_EQ(next.equipmentChangeFlags, (std::array<std::uint8_t, battle::kPartySlots>{0x00, 0x00, 0xFF, 0xFF}));
+    EXPECT_EQ(refreshedAtTheFirstStep(next), (std::array<bool, battle::kPartySlots>{false, false, true, true}));
+}
+
+TEST(StartFinalBattle, TwoImpsSideBySideAtTheNextStageLeaveTheHigherSlotsFlagAtOne) {
+    // UpdateStatus walks the battlers from the last (:11036): slot 3's increment carries out of $2F33 first,
+    // then slot 2's carries into $2F33's 0, leaving 1. Slot 3 is refreshed; slot 2 is not.
+    const BattleState next = nextStageWithImps({2, 3});
+    EXPECT_EQ(next.equipmentChangeFlags, (std::array<std::uint8_t, battle::kPartySlots>{0xFF, 0xFF, 0x00, 0x01}));
+    EXPECT_EQ(refreshedAtTheFirstStep(next), (std::array<bool, battle::kPartySlots>{true, true, false, true}));
+}
+
+TEST(StartFinalBattle, TheFourthSlotsCarryGoesIntoTheWallpaperTheStageThenLaysAgain) {
+    // The fourth slot's flag at $FF carries into $2F34, the windows' wallpaper ...
+    BattleState state;
+    state.equipmentChangeFlags.fill(battle::kEquipmentChangeFlagFilled);
+    state.menuWindowDesign = 2;
+    battle::statusChangeAsksForEquipmentRefresh(state, BattlerSlot::character(3));
+    EXPECT_EQ(state.equipmentChangeFlags, (std::array<std::uint8_t, battle::kPartySlots>{0xFF, 0xFF, 0xFF, 0x00}));
+    EXPECT_EQ(state.menuWindowDesign, 3);
+    // ... and the stage's graphics init lays the configuration's wallpaper over it before anything reads it
+    // (_c10076 btlgfx_main.asm:155-157 runs _c10fe0, :2193-2195).
+    const BattleState next = nextStageWithImps({3}, WallpaperId::WALLPAPER_5);
+    EXPECT_EQ(next.equipmentChangeFlags[3], 0x00);
+    EXPECT_EQ(next.menuWindowDesign, 5);
+}
+
+TEST(StartFinalBattle, AnEmptySlotAtTheNextStageHasItsMenuDrawnAgainAtTheFirstStep) {
+    // A slot nobody fills at a later stage keeps the fill's $FF flag, and UpdateCharProp refreshes it
+    // whoever is in it (:5597-5631); UpdateCmdList marks its menu to be drawn again (:13568-13569).
+    battle::NullExecutor executor;
+    const battle::BattleStart start = finalBattle();
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
+    finished.at(BattlerSlot::character(3)).status.set(StatusId::DEAD);
+    finished.finalBattleReserve.clear();
+    finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
+                                           .nextFormation = kFinalBattleFormations[1]};
+    BattleState next =
+        battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), noSprites(),
+                                          executor);
+    ASSERT_FALSE(next.at(BattlerSlot::character(3)).actor.has_value());
+    ASSERT_EQ(next.equipmentChangeFlags[3], battle::kEquipmentChangeFlagFilled);
+    next.menusToRefresh = {};
+    battle::applyEquipmentChanges(next, executor);
+    EXPECT_EQ(next.equipmentChangeFlags[3], 0);
+    EXPECT_TRUE(next.menusToRefresh.has(BattlerSlot::character(3)));
 }
 
 TEST(StartFinalBattle, AFighterStillInTheAirComesDownAsTheStageOpens) {

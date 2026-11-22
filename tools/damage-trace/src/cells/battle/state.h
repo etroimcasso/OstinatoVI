@@ -36,6 +36,21 @@ inline constexpr std::uint8_t kCountdownRanOutBit = 0x20;
 // leaving clears (CheckBattleEnd :11958, ShadowLeaves :11991); BattleState::shadowAvailable.
 inline constexpr std::uint32_t kAvailableCharacters = kWorkRam + 0x1EDE;
 inline constexpr std::uint8_t kShadowAvailableBit = 0x08;
+// The configuration a battle's start reads, every start a final-battle stage's included: wait mode
+// (bit 3) and speed (bits 0-2) at $1D4D (InitBattle :6108), the gauge hidden (bit 7) and the windows'
+// wallpaper (bits 0-2) at $1D4E (:6121, and the graphics program's _c10fe0 btlgfx_main.asm:2193-2195),
+// and the spell order (bits 0-2) at $1D54 (:14101); and the play time at the last save, hours and
+// minutes (:14189-14191). Nothing in a battle writes them.
+inline constexpr std::uint32_t kBattleSettings = kWorkRam + 0x1D4D;
+inline constexpr std::uint8_t kWaitModeBit = 0x08;
+inline constexpr std::uint8_t kSpeedBits = 0x07;
+inline constexpr std::uint32_t kGaugeSetting = kWorkRam + 0x1D4E;
+inline constexpr std::uint8_t kGaugeHiddenBit = 0x80;
+inline constexpr std::uint8_t kWallpaperBits = 0x07;
+inline constexpr std::uint32_t kSpellOrder = kWorkRam + 0x1D54;
+inline constexpr std::uint8_t kSpellOrderBits = 0x07;
+inline constexpr std::uint32_t kSaveHours = kWorkRam + 0x1863;
+inline constexpr std::uint32_t kSaveMinutes = kWorkRam + 0x1864;
 // The level of the last attack made (InitBattle sets 20, :6130-6131). A party member's equipment refresh
 // leaves the shield hand's hit rate there until an attack sets a level (UpdateEquip :2301-2304,
 // CalcEquipEffect :2640-2641).

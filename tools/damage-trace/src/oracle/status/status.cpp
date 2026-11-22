@@ -81,10 +81,11 @@ void DamageOracle::writeStatusCells(const DamageScenario& scenario) {
         writeByte(kForCounter12 + at + 1, battler.statusForCounter.bytes[1]);
         writeByte(kForCounter34 + at, battler.statusForCounter.bytes[2]);
         writeByte(kForCounter34 + at + 1, battler.statusForCounter.bytes[3]);
-        if (slot.isCharacter()) {
-            writeByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position()), battler.equipmentChanged ? 1 : 0);
-        }
     }
+    for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
+        writeByte(kEquipmentChanged + static_cast<std::uint32_t>(position), state.equipmentChangeFlags[position]);
+    }
+    writeByte(kMenuWindowDesign, state.menuWindowDesign);
 }
 
 StatusChangesResult DamageOracle::statusChanges(const DamageScenario& scenario) {
@@ -100,7 +101,6 @@ StatusChangesResult DamageOracle::readStatusChangesResult() {
     StatusChangesResult result;
     for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
         const auto at = static_cast<std::uint32_t>(i * 2);
-        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
         const auto readStatuses = [&](std::uint32_t first12, std::uint32_t first34) {
             return StatusSet{{readByte(first12 + at), readByte(first12 + at + 1), readByte(first34 + at),
                               readByte(first34 + at + 1)}};
@@ -113,14 +113,15 @@ StatusChangesResult DamageOracle::readStatusChangesResult() {
         result.menuMayOpen[i] = (readByte(kOnTheField + at) & kMenuMayOpenBit) != 0;
         result.emptyGaugeAfterAction[i] = (readByte(kStance + at) & kEmptyGaugeBit) != 0;
         result.phantasm[i] = (readByte(kMoreTriggers + at) & kPhantasmBit) != 0;
-        if (slot.isCharacter()) {
-            result.equipmentChanged[i] = readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())) != 0;
-        }
         result.sleepTimer[i] = readByte(kSleepTimer + at);
         result.stopTimer[i] = readByte(kStopTimer + at);
         result.reflectTimer[i] = readByte(kReflectTimer + at);
         result.freezeTimer[i] = readByte(kFreezeTimer + at);
     }
+    for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
+        result.equipmentChangeFlags[position] = readByte(kEquipmentChanged + static_cast<std::uint32_t>(position));
+    }
+    result.menuWindowDesign = readByte(kMenuWindowDesign);
     result.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
     result.statusChanged = setOf(readWord(kStatusChangedSet));
     result.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));
@@ -158,7 +159,6 @@ DamageScenario DamageOracle::readStatusScenario() {
     for (std::size_t i = 0; i < state.battlers.size(); ++i) {
         battle::Battler& battler = state.battlers[i];
         const auto at = static_cast<std::uint32_t>(i * 2);
-        const battle::BattlerSlot slot = battle::BattlerSlot::fromIndex(static_cast<int>(i));
         const auto statuses = [&](std::uint32_t first12, std::uint32_t first34) {
             return StatusSet{{readByte(first12 + at), readByte(first12 + at + 1), readByte(first34 + at),
                               readByte(first34 + at + 1)}};
@@ -188,10 +188,11 @@ DamageScenario DamageOracle::readStatusScenario() {
         battler.stopTimer = readByte(kStopTimer + at);
         battler.reflectTimer = readByte(kReflectTimer + at);
         battler.freezeTimer = readByte(kFreezeTimer + at);
-        if (slot.isCharacter()) {
-            battler.equipmentChanged = readByte(kEquipmentChanged + static_cast<std::uint32_t>(slot.position())) != 0;
-        }
     }
+    for (std::size_t position = 0; position < battle::kPartySlots; ++position) {
+        state.equipmentChangeFlags[position] = readByte(kEquipmentChanged + static_cast<std::uint32_t>(position));
+    }
+    state.menuWindowDesign = readByte(kMenuWindowDesign);
     state.diedAwaitingCounter = setOf(readWord(kDiedThisAction));
     state.statusChanged = setOf(readWord(kStatusChangedSet));
     state.monstersStanding.monsters = BattleSlotMask(readByte(kMonstersStanding));

@@ -926,13 +926,13 @@ TEST(EquipmentChanges, TheItemMenusSwapIsWrittenToTheRecordAndTheMemberReDerived
 
     state.inventory.weaponHands[0] = battle::battleItem(state, ItemId::DIRK, 1);
     state.at(kFirst).status.set(StatusId::POISON);
-    state.at(kFirst).equipmentChanged = true;
+    state.equipmentChangeFlags[0] = 1;
     RecordingExecutor executor;
     battle::applyEquipmentChanges(state, executor);
 
     EXPECT_EQ(state.party.characters[0].weapon, ItemId::DIRK);
     EXPECT_TRUE(state.party.characters[0].status.has(StatusId::POISON));
-    EXPECT_FALSE(state.at(kFirst).equipmentChanged);
+    EXPECT_EQ(state.equipmentChangeFlags[0], 0);
     EXPECT_EQ(state.at(kFirst).weaponHand.battlePower,
               getCharacterBaseStats(CharacterPropId::LOCKE).battlePower + item(ItemId::DIRK).power);
     EXPECT_NE(state.at(kFirst).weaponHand.battlePower, bare);
@@ -949,7 +949,7 @@ TEST(EquipmentChanges, TheRefreshLeavesTheMembersStaminaAsTheLastAttacksPhysical
         battle::loadBattleInventory(state);
         const bool odd = (state.at(kFirst).stamina & 1) != 0;
         state.lastAttackPhysical = !odd;
-        state.at(kFirst).equipmentChanged = true;
+        state.equipmentChangeFlags[0] = 1;
         RecordingExecutor executor;
         battle::applyEquipmentChanges(state, executor);
         EXPECT_EQ(state.lastAttackPhysical, odd) << "stamina raised by " << raised;
@@ -980,7 +980,7 @@ std::uint8_t levelAfterTheRefresh(std::initializer_list<ItemId> shieldHands) {
     battle::loadBattleInventory(state);
     state.lastAttackLevel = kLevelBeforeTheRefresh;
     for (std::size_t position = 0; position < shieldHands.size(); ++position) {
-        state.at(BattlerSlot::character(static_cast<int>(position))).equipmentChanged = true;
+        state.equipmentChangeFlags[position] = 1;
     }
     RecordingExecutor executor;
     battle::applyEquipmentChanges(state, executor);
@@ -1032,7 +1032,7 @@ TEST(EquipmentChanges, RunAtTheStartOfEveryLoopStep) {
     battle::loadBattleInventory(state);
     state.at(kFirst).present = true;
     state.inventory.weaponHands[0] = battle::battleItem(state, ItemId::DIRK, 1);
-    state.at(kFirst).equipmentChanged = true;
+    state.equipmentChangeFlags[0] = 1;
     RecordingExecutor executor;
     battle::stepBattle(state, executor);
     EXPECT_EQ(state.party.characters[0].weapon, ItemId::DIRK);

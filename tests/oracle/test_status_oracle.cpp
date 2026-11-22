@@ -208,7 +208,8 @@ TEST_F(StatusOracleTest, AScenarioReadsBackFromItsCells) {
         monster.stopTimer = 2;
         monster.reflectTimer = 3;
         monster.freezeTimer = 4;
-        scenario.state.at(BattlerSlot::character(3)).equipmentChanged = true;
+        scenario.state.equipmentChangeFlags[3] = 1;
+        scenario.state.menuWindowDesign = 5;
         scenario.state.diedAwaitingCounter = BattlerSet::of(BattlerSlot::monster(0));
         scenario.state.statusChanged = BattlerSet::of(BattlerSlot::character(2));
         scenario.state.monstersStanding = BattlerSet::of(BattlerSlot::monster(5));
@@ -228,7 +229,8 @@ TEST_F(StatusOracleTest, AScenarioReadsBackFromItsCells) {
         EXPECT_EQ(guest.stopTimer[at], 2);
         EXPECT_EQ(guest.reflectTimer[at], 3);
         EXPECT_EQ(guest.freezeTimer[at], 4);
-        EXPECT_TRUE(guest.equipmentChanged[static_cast<std::size_t>(BattlerSlot::character(3).index())]);
+        EXPECT_EQ(guest.equipmentChangeFlags[3], 1);
+        EXPECT_EQ(guest.menuWindowDesign, 5);
         EXPECT_EQ(guest.diedAwaitingCounter, scenario.state.diedAwaitingCounter);
         EXPECT_EQ(guest.statusChanged, scenario.state.statusChanged);
         EXPECT_EQ(guest.monstersStanding, scenario.state.monstersStanding);

@@ -115,7 +115,7 @@ AttackerEffectResult attackerEffectResult(const AttackerEffectRun& run) {
             out.put("hands" + of, std::to_string(static_cast<int>(weapon.item)) + "x" + std::to_string(weapon.quantity) +
                                       "/" + std::to_string(static_cast<int>(shield.item)) + "x" +
                                       std::to_string(shield.quantity));
-            out.put("equipment to work out" + of, battler.equipmentChanged);
+            out.put("equipment to work out" + of, state.equipmentChangeFlags[static_cast<std::size_t>(slot.position())]);
         }
     }
     battle::BattleScriptBuilder script = run.script;
@@ -222,7 +222,7 @@ DamageScenario drawAttackerEffectScenario(std::mt19937& rng) {
         if (slot.isCharacter()) {
             battler.weaponHand.battlePower = byte(rng);
             battler.shieldHand.battlePower = byte(rng);
-            battler.equipmentChanged = oneIn(rng, 4);
+            state.equipmentChangeFlags[static_cast<std::size_t>(slot.position())] = oneIn(rng, 4) ? 1 : 0;
             const auto position = static_cast<std::size_t>(slot.position());
             const auto hand = [&] {
                 return battle::BattleItem{.item = oneIn(rng, 2) ? ItemId::OGRE_NIX : static_cast<ItemId>(byte(rng)),

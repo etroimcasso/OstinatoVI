@@ -130,7 +130,7 @@ the effect space ends at `$57`.
 | `$3ec8` the elements Forcefield has nullified | `state.elementsNullifiedByForcefield` |
 | `$3f2c` the battlers away from the field | `state.awayFromTheField` |
 | `$2f4c-$2f4d` the battlers gone once the action is over | `state.leavingAfterAction` |
-| `$2f30` + party slot: the equipment to work out again | `Battler::equipmentChanged` |
+| `$2f30` + party slot: the equipment to work out again | `state.equipmentChangeFlags` |
 | `$2b86` / `$2b9a` + party slot × 5: the battle's copy of each hand | `state.inventory.weaponHands`, `shieldHands` |
 | `$3b68` / `$3b69`: each hand's power | `Battler::weaponHand.battlePower`, `shieldHand.battlePower` |
 | `$3aa0.0` on the field, `$3aa0.2` its menu open | `Battler::present`, `inBattleMenu` |
@@ -189,7 +189,7 @@ Y is the attacker throughout.
 | `$0a` | Valiant Knife | `:10323-10333` | Ignores defense; the damage gains what the attacker has lost of its HP, its maximum less its HP. The damage word wraps past 65,535. |
 | `$0b` | Tempest | `:10339-10346` | On a draw below 128: power 0, Wind Slash cast next, one more attack. |
 | `$0c` | Heal Rod | `:10310-10315` | Ignores defense; restores. |
-| `$0e` | Ogre Nix | `:10177-10220` | Not during a counterattack and not while the wielder's menu is open: `RandA` of the last digit of the wielder's HP plus one (`Div` by 10 gives its remainder, `:10187-10191`) — a draw of 0 breaks it. The wielder's equipment is to be worked out again; the hand swinging, the weapon hand with an odd count of attacks still to make and the shield hand with an even one, has its power cleared; and if that hand's item in the battle's copy is Ogre Nix (`cmp #$17`, `:10213`) its record's item and flags become `$ff` and its quantity 0 (`sta $2b86,x`, `sta $2b87,x`, `stz $2b89,x`, `:10215-10218`), its targeting and hand check left as `LoadItemProp` made them for the Ogre Nix (`BattleItem::brokenFrom`, `recordOf()`), and the message is 68, "Ogre Nix was broken!". Then the `$07` rule, either way. |
+| `$0e` | Ogre Nix | `:10177-10220` | Not during a counterattack and not while the wielder's menu is open: `RandA` of the last digit of the wielder's HP plus one (`Div` by 10 gives its remainder, `:10187-10191`) — a draw of 0 breaks it. The wielder's equipment is to be worked out again — one is added to its flag alone, the accumulator eight bits wide (`inc $2f30,x`, `:10194-10197`; `brokenWeaponAsksForEquipmentRefresh()`); the hand swinging, the weapon hand with an odd count of attacks still to make and the shield hand with an even one, has its power cleared; and if that hand's item in the battle's copy is Ogre Nix (`cmp #$17`, `:10213`) its record's item and flags become `$ff` and its quantity 0 (`sta $2b86,x`, `sta $2b87,x`, `stz $2b89,x`, `:10215-10218`), its targeting and hand check left as `LoadItemProp` made them for the Ogre Nix (`BattleItem::brokenFrom`, `recordOf()`), and the message is 68, "Ogre Nix was broken!". Then the `$07` rule, either way. |
 
 ### The attacks
 

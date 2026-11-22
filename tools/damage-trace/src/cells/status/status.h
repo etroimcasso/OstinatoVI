@@ -14,12 +14,14 @@ namespace ostinato::trace::cells {
 
 // Per battler, at twice the battler's index: the statuses it can be given, its flags, its triggers,
 // its four status timers and the statuses it is to have for a counterattack. A party member's
-// equipment flag is one byte per party slot.
+// equipment flag is one byte per party slot, and the byte after the fourth is the windows' wallpaper,
+// which a sixteen-bit increment of the fourth flag carries into.
 inline constexpr std::uint32_t kInflictable12 = kWorkRam + 0x331C;
 inline constexpr std::uint32_t kInflictable34 = kWorkRam + 0x3330;
 inline constexpr std::uint32_t kTriggers = kWorkRam + 0x3E4C;      // the first byte: bit 0 Retort
 inline constexpr std::uint32_t kMoreTriggers = kWorkRam + 0x3E4D;  // bit 1 Overcast, bit 6 Phantasm
 inline constexpr std::uint32_t kEquipmentChanged = kWorkRam + 0x2F30;
+inline constexpr std::uint32_t kMenuWindowDesign = kWorkRam + 0x2F34;
 // The battle's own: the monsters standing and fallen (a byte of monster bits each), the battlers that
 // died this action, the party members whose statuses changed, and the effect's misses.
 inline constexpr std::uint32_t kMonstersStanding = kWorkRam + 0x2F2F;

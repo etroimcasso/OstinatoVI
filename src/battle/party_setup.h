@@ -9,8 +9,8 @@
 //     loadBattleInventory(state);   // battle/battle_inventory.h
 //     loadKnownSkills(state);
 //
-// and during the battle, after the Item menu changes what a party member holds, the battle loop
-// calls applyEquipmentChanges().
+// and during the battle, after the Item menu, a status or a broken weapon asks for what a party member
+// holds to be worked out again, the battle loop calls applyEquipmentChanges().
 //
 // The rules, and the line in the original each comes from, are in docs/contracts/battle_core.md.
 #pragma once
@@ -147,7 +147,22 @@ void loadPartyMember(BattleState& state, BattlerSlot slot, const DerivedStats& s
 // Build the party member in `slot`'s battle command menu from their record.
 void buildCommandList(BattleState& state, BattlerSlot slot);
 
-// Re-derive every party member whose equipment the battle's Item menu changed.
+// Re-derive every party member whose equipment-change flag is not zero (BattleState::
+// equipmentChangeFlags), from the fourth slot to the first, zeroing each flag read. A slot with no one in
+// it has its flag zeroed and its menu marked to be drawn again (BattleState::menusToRefresh), and nothing
+// else; a party member with no record has its flag zeroed and is passed over.
 void applyEquipmentChanges(BattleState& state, ActionExecutor& executor);
+
+// Ask for the party member in `slot`'s equipment to be worked out again, as Imp going on or coming off
+// and Rage coming off do: one is added to the slot's flag and the byte above it as one sixteen-bit
+// number. A flag at $FF goes to 0 and carries one into the next slot's flag, or, from the fourth slot,
+// into BattleState::menuWindowDesign. In a fight the flags stay small and nothing carries; at a
+// final-battle stage's start every flag stands at $FF, so a party member put in Imp there is not
+// refreshed at the stage's first step, nor the party member in the next slot.
+void statusChangeAsksForEquipmentRefresh(BattleState& state, BattlerSlot slot);
+
+// Ask for the party member in `slot`'s equipment to be worked out again as an Ogre Nix breaking does:
+// one is added to the slot's flag alone, wrapping at $FF with nothing carried.
+void brokenWeaponAsksForEquipmentRefresh(BattleState& state, BattlerSlot slot);
 
 }  // namespace ostinato::battle

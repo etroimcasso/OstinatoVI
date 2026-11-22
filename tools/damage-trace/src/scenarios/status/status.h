@@ -33,7 +33,8 @@ struct StatusChangesResult {
     std::array<bool, battle::kBattlerSlots> menuMayOpen{};
     std::array<bool, battle::kBattlerSlots> emptyGaugeAfterAction{};
     std::array<bool, battle::kBattlerSlots> phantasm{};
-    std::array<bool, battle::kBattlerSlots> equipmentChanged{};
+    std::array<std::uint8_t, battle::kPartySlots> equipmentChangeFlags{};
+    std::uint8_t menuWindowDesign = 0;
     std::array<std::uint8_t, battle::kBattlerSlots> sleepTimer{};
     std::array<std::uint8_t, battle::kBattlerSlots> stopTimer{};
     std::array<std::uint8_t, battle::kBattlerSlots> reflectTimer{};

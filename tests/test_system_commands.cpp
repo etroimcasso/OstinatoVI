@@ -688,12 +688,13 @@ TEST(LastAttackLevel, ACountStartedAfterAnEquipmentRefreshIsWorkedOutFromTheRefr
     // left would have given 20.
     BattleState state = makeAimableBattle();
     state.party.characters[0] = startingRecord(CharacterPropId::TERRA);
+    state.at(kTerra).actor = CharacterPropId::TERRA;
     state.at(kTerra).record = 0;
     state.inventory.shieldHands[0] = battle::battleItem(state, ItemId::BUCKLER, 1);
     state.lastAttackLevel = 99;
     battle::AttackHooks hooks;
     battle::CommandExecutor executor(hooks, blankMonsterNames(), noMonsterSprites());
-    state.at(kTerra).equipmentChanged = true;
+    state.equipmentChangeFlags[static_cast<std::size_t>(kTerra.position())] = 1;
     battle::applyEquipmentChanges(state, executor);
     executor.execute(state, kMonster, battle::MonsterDialogAction{.dialog = 3});
     state.at(kMonster).pendingUpdates.startCondemned = true;

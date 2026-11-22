@@ -51,13 +51,13 @@ StatusChangesResult statusChangesOf(const battle::BattleState& state) {
         result.menuMayOpen[i] = battler.menuMayOpen;
         result.emptyGaugeAfterAction[i] = battler.emptyGaugeAfterAction;
         result.phantasm[i] = battler.triggers.phantasm;
-        result.equipmentChanged[i] = battle::BattlerSlot::fromIndex(static_cast<int>(i)).isCharacter() &&
-                                     battler.equipmentChanged;
         result.sleepTimer[i] = battler.sleepTimer;
         result.stopTimer[i] = battler.stopTimer;
         result.reflectTimer[i] = battler.reflectTimer;
         result.freezeTimer[i] = battler.freezeTimer;
     }
+    result.equipmentChangeFlags = state.equipmentChangeFlags;
+    result.menuWindowDesign = state.menuWindowDesign;
     result.diedAwaitingCounter = state.diedAwaitingCounter;
     result.statusChanged = state.statusChanged;
     result.monstersStanding = state.monstersStanding.monstersOnly();
@@ -90,13 +90,16 @@ std::string differences(const StatusChangesResult& port, const StatusChangesResu
         note("gauge empties after the action" + slot, std::to_string(port.emptyGaugeAfterAction[i]),
              std::to_string(guest.emptyGaugeAfterAction[i]));
         note("Phantasm" + slot, std::to_string(port.phantasm[i]), std::to_string(guest.phantasm[i]));
-        note("equipment to work out" + slot, std::to_string(port.equipmentChanged[i]),
-             std::to_string(guest.equipmentChanged[i]));
         note("sleep timer" + slot, std::to_string(port.sleepTimer[i]), std::to_string(guest.sleepTimer[i]));
         note("stop timer" + slot, std::to_string(port.stopTimer[i]), std::to_string(guest.stopTimer[i]));
         note("reflect timer" + slot, std::to_string(port.reflectTimer[i]), std::to_string(guest.reflectTimer[i]));
         note("freeze timer" + slot, std::to_string(port.freezeTimer[i]), std::to_string(guest.freezeTimer[i]));
     }
+    for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
+        note("equipment to work out of party slot " + std::to_string(i), std::to_string(port.equipmentChangeFlags[i]),
+             std::to_string(guest.equipmentChangeFlags[i]));
+    }
+    note("the windows' wallpaper", std::to_string(port.menuWindowDesign), std::to_string(guest.menuWindowDesign));
     note("died this action", std::to_string(maskOf(port.diedAwaitingCounter)),
          std::to_string(maskOf(guest.diedAwaitingCounter)));
     note("statuses changed", std::to_string(maskOf(port.statusChanged)), std::to_string(maskOf(guest.statusChanged)));
@@ -194,7 +197,14 @@ DamageScenario drawStatusChangesScenario(std::mt19937& rng) {
         };
         battler.menuMayOpen = (rng() & 1) != 0;
         battler.emptyGaugeAfterAction = (rng() & 1) != 0;
-        battler.equipmentChanged = character && (rng() & 1) != 0;
+        // Half the party slots ask for their equipment to be worked out again: half of those with a flag
+        // of 1, as a fight leaves it, and half at the $FF a final-battle stage starts with, where a
+        // status change carries into the next byte.
+        if (character) {
+            const std::uint32_t asks = rng();
+            state.equipmentChangeFlags[i] =
+                (asks & 1) == 0 ? 0 : (asks & 2) == 0 ? 1 : battle::kEquipmentChangeFlagFilled;
+        }
         battler.sleepTimer = byte(rng);
         battler.stopTimer = byte(rng);
         battler.reflectTimer = byte(rng);

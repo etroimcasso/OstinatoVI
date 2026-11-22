@@ -90,6 +90,28 @@ constexpr std::array<std::uint32_t, 33> kLoadedThroughTheRecord{
     kWorkRam + 0x3CBC, kWorkRam + 0x3CA8, kWorkRam + 0x3CD0, kWorkRam + 0x3CE4, kWorkRam + 0x3C58,
     kWorkRam + 0x3EE4, kWorkRam + 0x3218, kWorkRam + 0x3AC8};
 
+// What the equipment refresh writes for an empty party slot at a final-battle stage after the first,
+// where the slot's flag is the start's fill: UpdateEquipBattle's bytes and words (:6746-6832),
+// FixImmuneStatus's (:6359-6380) and UpdateImmuneStatus's (:6386-6433), at twice the slot, the Genji
+// Glove byte at the slot (:6746-6751). UpdateCmdList also rewrites the slot's command rows (:13610-13611,
+// UpdateCmd_06 :13647-13648), which are left out below with the slot's hands.
+constexpr std::array<std::uint32_t, 12> kRefreshedBytes{
+    kWorkRam + 0x3B2C, kWorkRam + 0x3B2D, kWorkRam + 0x3B19, kWorkRam + 0x3B40, kWorkRam + 0x3B41,
+    kWorkRam + 0x3B54, kWorkRam + 0x3B55, kWorkRam + 0x3C6C, kWorkRam + 0x3C6D, kWorkRam + 0x3D71,
+    kWorkRam + 0x3C95, kWorkRam + 0x331D};
+// Of them, the two the refresh also reads first, writing back what it read changed: $3A21,x, shifted and
+// rotated in place (:6830-6832), and $3330-$3331,x, the statuses blocked, which UpdateImmuneStatus narrows
+// (:6388-6432).
+constexpr std::uint32_t kRotatedInPlace = kWorkRam + 0x3A21;
+constexpr std::uint32_t kBlockedStatuses34 = kWorkRam + 0x3330;
+// And one a later step reads: relic effects 4, which the cover check reads for every battler, an empty
+// slot's included, and acts on only for a battler present (:2873-2882, CheckCoverTarget :2917-2919).
+constexpr std::uint32_t kRelicEffects4 = kWorkRam + 0x3C58;
+constexpr std::array<std::uint32_t, 14> kRefreshedWords{
+    kWorkRam + 0x3C44, kWorkRam + 0x3B68, kWorkRam + 0x3B7C, kWorkRam + 0x3D34, kWorkRam + 0x3B90,
+    kWorkRam + 0x3BA4, kWorkRam + 0x3BB8, kWorkRam + 0x331C, kWorkRam + 0x3BCC, kWorkRam + 0x3BE0,
+    kWorkRam + 0x3CBC, kWorkRam + 0x3CA8, kWorkRam + 0x3CD0, kWorkRam + 0x3CE4};
+
 // A boost as a record's maximum HP or MP word holds it in its top two bits (MaxHPMPTbl :6708-6712):
 // 0 none, 1 a quarter more, 2 a half more, 3 an eighth more.
 std::uint16_t boostBits(battle::MaxBoost boost) {
@@ -322,6 +344,23 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
     layByteAsTheCartridgeHoldsIt(kReachCharacters, static_cast<std::uint8_t>(~seizedSet(state).characters.bits));
     layWordAsTheCartridgeHoldsIt(kReachFirst, maskOf(state.targetableOrPresent));
     layWordAsTheCartridgeHoldsIt(kReachSecond, maskOf(state.countedInBattle));
+    // The windows' wallpaper, the byte above the fourth party slot's equipment flag, which a status
+    // change's sixteen-bit increment of that flag carries into (RemoveStatus_18 :11423-11432).
+    layByteAsTheCartridgeHoldsIt(kMenuWindowDesign, state.menuWindowDesign);
+    // The configuration and the play time at the last save, which every start reads, a final-battle
+    // stage's included, and nothing in a battle writes: by the bits the battle holds, the rest left out.
+    const battle::BattleConfig& config = state.config;
+    layByteAsTheCartridgeHoldsIt(kBattleSettings, static_cast<std::uint8_t>((config.waitMode ? kWaitModeBit : 0) |
+                                                                           (config.speedSetting & kSpeedBits)));
+    leaveOutBits(kBattleSettings, static_cast<std::uint8_t>(~(kWaitModeBit | kSpeedBits)));
+    layByteAsTheCartridgeHoldsIt(kGaugeSetting,
+                                 static_cast<std::uint8_t>((config.gaugeShown ? 0 : kGaugeHiddenBit) |
+                                                           (static_cast<std::uint8_t>(config.wallpaper) & kWallpaperBits)));
+    leaveOutBits(kGaugeSetting, static_cast<std::uint8_t>(~(kGaugeHiddenBit | kWallpaperBits)));
+    layByteAsTheCartridgeHoldsIt(kSpellOrder, static_cast<std::uint8_t>(config.magicOrder & kSpellOrderBits));
+    leaveOutBits(kSpellOrder, static_cast<std::uint8_t>(~kSpellOrderBits));
+    layByteAsTheCartridgeHoldsIt(kSaveHours, state.party.playTimeAtLastSave.hours);
+    layByteAsTheCartridgeHoldsIt(kSaveMinutes, state.party.playTimeAtLastSave.minutes);
 
     const FormationAux& aux = getFormationAux(state.formation);
     layByteAsTheCartridgeHoldsIt(kFormationBytes, static_cast<std::uint8_t>(aux.entranceAndTypes ^ kFormationFirstByteToggled));
@@ -388,6 +427,40 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
         leaveOut(kEsperIndex + at, 2);
         leaveOut(kGenjiGlove + offset, 1);
         leaveOut(kSpellCount + at, 1);
+    }
+
+    // An empty party slot at a final-battle stage after the first: the start leaves its flag at the fill's
+    // $FF, so the loop's first step refreshes it through the fill's $FFFF record offset, from the field
+    // program's stack below the first character record (UpdateCharProp :5614-5623, UpdateEquip
+    // :2295-2348). The port does not run that refresh (docs/Bugs.md), and what it writes for the slot
+    // reaches nothing (tests/oracle/test_battle_whole_oracle.cpp,
+    // BattleWholeOracleTest.WhatAnEmptySlotsRefreshWritesReachesNothing): those cells are left out.
+    if (state.finalBattleChain && state.formation != state.startingFormation) {
+        for (int position = 0; position < battle::kPartySlots; ++position) {
+            const battle::BattlerSlot slot = battle::BattlerSlot::character(position);
+            if (state.at(slot).actor) {
+                continue;
+            }
+            const std::uint32_t at = slotIndex(slot);
+            const auto offset = static_cast<std::uint32_t>(position);
+            for (const std::uint32_t table : kRefreshedBytes) {
+                leaveOut(table + at, 1);
+            }
+            for (const std::uint32_t table : kRefreshedWords) {
+                leaveOut(table + at, 2);
+            }
+            leaveOutBits(kStance + at, kInstantDeathProtectedBit);
+            leaveOut(kGenjiGlove + offset, 1);
+            // The refresh reads the slot's hands and command rows (UpdateCharProp :5610-5612, UpdateCmdList
+            // :13583, :13611) and the two cells above: what they held reaches the bank-$7F stores and the
+            // slot's own cells alone.
+            leaveOutAsCarriedToNothing(kRotatedInPlace + at, 1);
+            leaveOutAsCarriedToNothing(kBlockedStatuses34 + at, 2);
+            leaveOutAsCarriedToNothing(kRelicEffects4 + at, 2);
+            leaveOutAsCarriedToNothing(kShieldHands + offset * kHandItemSize, kHandItemSize);
+            leaveOutAsCarriedToNothing(kWeaponHands + offset * kHandItemSize, kHandItemSize);
+            leaveOutAsCarriedToNothing(kCommandMenus + offset * kCommandMenuSize, kCommandMenuSize);
+        }
     }
 }
 

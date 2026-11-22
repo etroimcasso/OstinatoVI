@@ -551,6 +551,9 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.morphCounterSpeed = carry->morphCounterSpeed;
         state.finalBattleReserve = carry->finalBattleReserve;
         state.itemsObtained = carry->itemsObtained;
+        // The start's fill leaves every equipment-change flag at $FF, and nothing at a stage after the
+        // first clears them: a status the stage's start puts on adds to $FF.
+        state.equipmentChangeFlags.fill(kEquipmentChangeFlagFilled);
     } else {
         state.finalBattleChain = start.formation.raw == FormationRef::of(kFinalBattleFormations[0]).raw;
         state.finalBattleReserve.assign(start.finalBattleOrder.begin(), start.finalBattleOrder.end());
@@ -646,6 +649,24 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
         state.animationTargets = carry->animationTargets;
     }
 
+    // The opening and a final-battle stage's start both lay out the formation's monsters present as the
+    // monsters standing, keep out of the AI's reach every monster the scripted setup in force leaves out,
+    // and take the windows' wallpaper from the configuration, over anything a status change carried into
+    // it.
+    state.menuWindowDesign = static_cast<std::uint8_t>(state.config.wallpaper);
+    const Formation& formation = getFormation(state.formation);
+    BattlerSet present;
+    for (int position = 0; position < kMonsterSlots; ++position) {
+        if (formation.isPresent(static_cast<std::size_t>(position))) {
+            present.add(BattlerSlot::monster(position));
+        }
+    }
+    state.monstersStanding = present;
+    if (const std::optional<CharAiId> setup = setupInForce(state, lineup)) {
+        state.aiUntargetable =
+            BattlerSet::allMonsters().without(BattlerSet{BattleSlotMask(), charAiSetup(*setup).validMonsterTargets});
+    }
+
     if (state.finalBattleScroll) {
         state.requests.push_back(RunBattleScript{
             .commands = {FormationChanges::from(*state.finalBattleScroll, state.alive.monstersOnly())}});
@@ -653,24 +674,8 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     } else {
         state.requests.push_back(OpenBattleScene{});
         // The opening asks for no party member's equipment to be worked out again, whatever a status
-        // put on at the start asked for; it lays out the formation's monsters present as the monsters
-        // standing, and keeps out of the AI's reach every monster the scripted setup in force leaves
-        // out.
-        for (int position = 0; position < kPartySlots; ++position) {
-            state.at(BattlerSlot::character(position)).equipmentChanged = false;
-        }
-        const Formation& formation = getFormation(state.formation);
-        BattlerSet present;
-        for (int position = 0; position < kMonsterSlots; ++position) {
-            if (formation.isPresent(static_cast<std::size_t>(position))) {
-                present.add(BattlerSlot::monster(position));
-            }
-        }
-        state.monstersStanding = present;
-        if (const std::optional<CharAiId> setup = setupInForce(state, lineup)) {
-            state.aiUntargetable =
-                BattlerSet::allMonsters().without(BattlerSet{BattleSlotMask(), charAiSetup(*setup).validMonsterTargets});
-        }
+        // put on at the start asked for.
+        state.equipmentChangeFlags.fill(0);
         state.rng.advance();
     }
     return state;

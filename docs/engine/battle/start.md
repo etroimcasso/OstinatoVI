@@ -74,7 +74,8 @@ inventory and known skills; the monsters; the statuses waiting to be set
 the after-command checks once, near-fatal relics included; the battle type; status immunity; the
 starting gauges; the opening message; whether the party can run; everyone placed on the field and
 facing the way the battle type starts them. It leaves `OpenBattleScene` on `state.requests`, and
-with it what the opening lays out: no party member's `equipmentChanged` is left set, the monsters
+with it what the opening lays out: every byte of `equipmentChangeFlags` is zero, `menuWindowDesign`
+holds the configuration's wallpaper (`BattleConfig::wallpaper`), the monsters
 standing (`monstersStanding`) become the formation's monsters present, and the monsters the scripted
 setup in force leaves out of its reach are out of the AI's reach (`aiUntargetable`).
 
@@ -241,16 +242,25 @@ and `ragesKnown` (in order).
 ## Changing equipment during a battle
 
 When the battle's Item menu puts an item in a party member's hand, write it into
-`state.inventory.weaponHands` or `shieldHands` and set `Battler::equipmentChanged`. The next
-`stepBattle()` writes the hands and the member's first eight statuses into their record, works out
-their stats again, calls `ActionExecutor::refreshCommandList()`, and runs
-`refreshStatusImmunity()` (`applyEquipmentChanges()`).
+`state.inventory.weaponHands` or `shieldHands` and set that party slot's byte of
+`state.equipmentChangeFlags` to 1. The next `stepBattle()` writes the hands and the member's first
+eight statuses into their record, works out their stats again, calls
+`ActionExecutor::refreshCommandList()`, and runs `refreshStatusImmunity()`
+(`applyEquipmentChanges()`), for every slot whose byte is not zero, zeroing it.
 
 ```cpp
 state.inventory.weaponHands[0] = battleItem(state, ItemId::DIRK, 1);
-state.at(BattlerSlot::character(0)).equipmentChanged = true;
+state.equipmentChangeFlags[0] = 1;
 stepBattle(state, executor);
 ```
+
+The battle asks for a refresh itself in two other ways, and each adds one to the byte rather than
+setting it. Imp going on or coming off and Rage coming off call
+`statusChangeAsksForEquipmentRefresh(state, slot)`, which adds one to the slot's byte and the next
+slot's as one sixteen-bit number: a byte at `$FF` goes to 0 and carries one into the next slot's
+byte, or from the fourth slot into `state.menuWindowDesign`. An Ogre Nix breaking calls
+`brokenWeaponAsksForEquipmentRefresh(state, slot)`, which adds one to the slot's byte alone. In a
+fight no byte stands at `$FF`; at a final-battle stage after the first all four start there (below).
 
 The members whose equipment changed are refreshed from slot 3 down, and the last one refreshed — the
 lowest slot — leaves two of the battle's own values behind: `state.lastAttackPhysical` is whether
@@ -347,10 +357,11 @@ A back attack, a pincer, a side attack or a preemptive strike opens with its bat
 with none.
 
 The opening asks for no party member's equipment to be worked out again: an Imp put on as the battle
-starts sets its wearer's `equipmentChanged`, and the opening clears it, so the first loop step
-refreshes no one.
+starts adds one to its wearer's byte of `equipmentChangeFlags`, and the opening zeroes all four, so
+the first loop step refreshes no one.
 
-The opening also decides two sets. Until it, every monster stands (the run check above reads them
+The opening also decides two sets, and so does each stage of the final battle after the first
+(below). Until it, every monster stands (the run check above reads them
 so); from it, `monstersStanding` holds the formation's monsters present, and a monster held back for
 later is not among them. A scripted setup's reach byte (`CharAiSetup::validMonsterTargets`) keeps every
 monster it leaves out in `aiUntargetable` from the start: with a byte of `$FE`, monster slot 0 cannot
@@ -375,8 +386,14 @@ each fighter faces while the new monsters are placed, and a fighter still in the
 the stage opens. The items obtained carry on whole, both counts with them. The play clock counts on:
 the stage's random numbers start from `finished.playClockFrames` — the frames the stage's end took
 included — and its frame count from `finished.frameCount`, whatever `start.playTimeFrames` holds. The stage opens with `FormationChanges` — the background scrolls on and its
-monsters come in — and the loop waits for that script. `BattleSim`
-does all of this itself.
+monsters come in — and the loop waits for that script. The stage decides the same two sets the
+opening does: `monstersStanding` holds the new formation's monsters present, and a scripted setup's
+reach byte keeps the monsters it leaves out in `aiUntargetable`. It does not zero the equipment-change
+flags: all four start at `kEquipmentChangeFlagFilled` (`$FF`), so the stage's first step refreshes
+every seated member, except that a member put back in Imp as the stage starts carries its byte to 0
+and the next slot's with it, and neither of those two is refreshed ([`docs/Bugs.md`](../../Bugs.md)).
+`menuWindowDesign` is laid from the configuration again after the stage's statuses go on, over
+anything the fourth slot carried into it. `BattleSim` does all of this itself.
 
 ## What the game keeps
 

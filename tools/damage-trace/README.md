@@ -599,8 +599,9 @@ part on. `battleStartAsItStands()` makes the same call from the cells as they st
 
 While the battle program runs, its calls to the graphics program are answered as the reward routines'
 are, each with no frame and the battle's time stopped. The answer to the opening command, `$00`, also
-lays what the graphics program's own opening lays for the battle program: the monsters standing
-(`$2F2F`), the formation's monsters present; the monsters that can be aimed at (`$2F46`), every one, or
+lays what the graphics program's own opening lays for the battle program: the windows' wallpaper
+(`$2F34`), the configuration's (`$1D4E` & 7); the monsters standing (`$2F2F`), the formation's monsters
+present; the monsters that can be aimed at (`$2F46`), every one, or
 the reach byte of the scripted setup the start turned on; the four equipment-changed flags, cleared;
 the items obtained, its two counts (`$64DA-$64DB`) zeroed and its first 64 bytes (`$602D-$606C`, every
 item of the first thirteen places) emptied to `$FF`, the last three places left as they are; and the
@@ -774,9 +775,11 @@ or the prize adds after the wrap-up's merge shown as nothing, as the port's end 
 no request — and the frame the battle closed on, then what the game keeps, and the last three places of
 the items obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
 battle closes), every byte. A step's carried reads pass the rows of
-`kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). A record a party member seated at some step came from keeps the HP and MP boosts its equipment
-gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the record
-(`UpdateEquip` `:2349-2362`); every other record keeps the boosts it came in with. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
+`kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). At each
+step, a record a party member was seated from at that step or any before it keeps the HP and MP boosts its
+equipment gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the
+record at every stage's start (`UpdateEquip` `:2349-2362`); every other record keeps the boosts it came in
+with. The same holds for what the game keeps. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
 from the step before's, so a ring is laid where the cartridge's stood at that step. It needs
 `useMonsterSprites()` and `useText()`.
 
@@ -809,7 +812,8 @@ cells where the cartridge holds the state its own way — an empty inventory rec
 the targeting of the record loaded before it, an empty party slot's record offset, the formation's first
 byte with its top four bits turned over, the battle's flags at `$B1` (bit 1 the party cannot run, bit 2 a
 monster cannot be run from), the field's flags at `$11E4`, each battler's flags at `$3AA0`, `$3AA1`,
-`$3205` and `$3E4C` whole, the reach cells, each seated member's record with the HP and MP boosts its
+`$3205` and `$3E4C` whole, the reach cells, the windows' wallpaper (`$2F34`, which a status change's
+carry out of the fourth equipment-change flag reaches), each seated member's record with the HP and MP boosts its
 equipment gives in the top bits of its maximums, and the final battle's line with each place a stage
 took from holding `$FF` — and leaves out the cells no field decides: the hands and control menus of a
 slot with none, what a battler was last hit with before it has been hit, the places of a line's ring

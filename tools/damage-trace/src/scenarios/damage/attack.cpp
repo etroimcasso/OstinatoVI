@@ -223,12 +223,15 @@ void putStatusChanges(EffectCells& out, const StatusChangesResult& changes) {
         out.put("menu may open" + of, changes.menuMayOpen[i]);
         out.put("gauge empties after the action" + of, changes.emptyGaugeAfterAction[i]);
         out.put("Phantasm" + of, changes.phantasm[i]);
-        out.put("equipment to work out" + of, changes.equipmentChanged[i]);
         out.put("sleep timer" + of, changes.sleepTimer[i]);
         out.put("stop timer" + of, changes.stopTimer[i]);
         out.put("reflect timer" + of, changes.reflectTimer[i]);
         out.put("freeze timer" + of, changes.freezeTimer[i]);
     }
+    for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
+        out.put("equipment to work out of party slot " + std::to_string(i), changes.equipmentChangeFlags[i]);
+    }
+    out.put("the windows' wallpaper", changes.menuWindowDesign);
     out.put("died this action", std::to_string(maskOf(changes.diedAwaitingCounter)));
     out.put("statuses changed", std::to_string(maskOf(changes.statusChanged)));
     out.put("monsters standing", std::to_string(maskOf(changes.monstersStanding)));

@@ -98,7 +98,7 @@ from `scratch.messageItem` and `scratch.messageAmount`.
 | Dice, Fixed Dice | the damage from two dice, or three — the third read from `BattleState::playClockFrames` — times twice the attacker's level, and the face again for three of a kind |
 | Valiant Knife | the damage gains what the attacker has lost of its HP |
 | Tempest | Wind Slash in place of the blow on half the draws |
-| Ogre Nix | sometimes breaks: the hand's power goes to 0 and the battle's copy of the hand empties, `brokenFrom` naming the Ogre Nix |
+| Ogre Nix | sometimes breaks: the hand's power goes to 0, the battle's copy of the hand empties, `brokenFrom` naming the Ogre Nix, and `brokenWeaponAsksForEquipmentRefresh()` adds one to the wielder's byte of `equipmentChangeFlags` alone |
 | Golem | the Golem's HP is the caster's |
 | Sonic Dive | the turn ends with this action; the petrified, asleep, stopped, frozen and hidden are passed over |
 | Mantra, Pearl Wind, Blow Fish, Revenge, Step Mine, Flare Star | damage from the caster's HP, a fixed 1,000, the HP lost, the party's steps, a target's level |

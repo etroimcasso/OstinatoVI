@@ -68,7 +68,7 @@ struct CellsLeftAsTheMachineHasThem {
     const char* why = "";
     bool startOnly = false;
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 23> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -86,8 +86,6 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 23> kCellsLeftAsTheMac
      .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
     {.at = 0x7E00F3,
      .why = "the byte after the damage-healed flag, loaded with it where only the flag's lowest bit is tested"},
-    {.at = 0x7E2F34,
-     .why = "the byte after the four equipment flags, which a 16-bit increment of the last one reads and puts back"},
     {.at = 0x7E2F44, .count = 2,
      .why = "the monsters drawn see-through, read and put back by Vanish's setting and clearing"},
     {.at = 0x7E32DF, .count = 10, .stride = 2,
@@ -97,8 +95,9 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 23> kCellsLeftAsTheMac
     {.at = 0x7E3A81, .why = "the byte before the Golem's block, loaded with it where only the next byte's sign is tested"},
     {.at = 0x7E00B9,
      .why = "the byte above the start's party-member test, read by a sixteen-bit bit test against a party member's "
-            "bit whose high byte is zero (LoadCharProp battle_main.asm:6622-6623), called once, from InitBattle "
-            "(:6217); a step's reads of it are held by CreateAction's copy alone (carriedReads())",
+            "bit whose high byte is zero (LoadCharProp battle_main.asm:6622-6623), called from InitBattle (:6217) at "
+            "a battle's start and at each final-battle stage's, which a whole battle's check passes as a start's "
+            "(checkBattle()); a step's other reads of it are held by CreateAction's copy alone (carriedReads())",
      .startOnly = true},
     {.at = 0x7E00B7,
      .why = "the fourth byte of the script command being made, which ExecCmd does not reset (:3096-3109): set by the "

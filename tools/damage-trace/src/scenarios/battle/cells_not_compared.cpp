@@ -115,8 +115,16 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
     {.at = kWorkRam + 0x2EAE, .count = 0x81,
      .why = "the party's graphics, names and rows for the graphics program (:6745, :7603, :7887-7895) and the "
             "command window setting (:6108-6110); the battle program never reads them"},
-    {.at = kWorkRam + 0x2F34, .why = "the menus' wallpaper, the graphics program's; named by no instruction of the "
-                                     "battle program"},
+    {.at = kWorkRam + 0x1869, .count = 0x200, .provisional = false,
+     .why = "the field's inventory, items then quantities, which the battle writes back only at its end (UpdateSRAM "
+            ":12127-12148) — what the game keeps, compared once the battle closes — and a final-battle stage's start "
+            "reads back into the battle's own copy (InitInventory :13936-13944), which is compared"},
+    {.at = kWorkRam + 0x1DC9, .count = 8, .provisional = false,
+     .why = "the field's battle switches before its timer flags, which the battle writes back only at its end "
+            "(UpdateSRAM :12160) — compared once the battle closes — and a final-battle stage's start reads back into "
+            "the battle's own (InitBattle :6083-6087), which are compared"},
+    {.at = kWorkRam + 0x1DD2, .count = 11, .provisional = false,
+     .why = "the field's battle switches after its timer flags, as the row above"},
     {.at = kWorkRam + 0x2F35, .count = 12,
      .why = "the battle message's four variables, written for each message before it is shown (:15291 and on)"},
     {.at = kWorkRam + 0x2F44,
