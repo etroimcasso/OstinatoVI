@@ -776,6 +776,9 @@ private:
     // While checkBattle() compares: the cartridge's frames were handed the port's facings, so the state
     // laid compares them ($2F50-$2F51).
     bool facingsHandedOver_ = false;
+    // While checkBattle() lays a step whose last attack's level and physical bit an empty party slot's
+    // equipment refresh left ($11AF, $11A2 bit 0): the state laid leaves the two out.
+    bool lastAttackFromAnEmptySlot_ = false;
     // A whole battle's last accesses by the battle program, a ring, for naming the reader of a carried read.
     struct RecentAccess {
         std::uint32_t cell = 0;

@@ -1207,34 +1207,62 @@ the stage's first step.
 
 **What happens.** At each stage of the final battle after the first, a party slot nobody fills is given an
 equipment refresh as if someone were in it. The refresh builds that nobody's stats and equipment out of
-whatever the field program left on its stack. Almost all of it lands in cells nothing reads: the empty
-slot's own stats, immunities and command rows, and two bytes on the stack. The slot's menu is drawn again.
-When the empty slot is the last slot the refresh takes — the slots below it seated by nobody, or by
-members whose flags an Imp's carry zeroed — the refresh's sums are also left as the last attack's level
-and physical flag, which a condemned count started before the next attack sets a level reads.
+the thirty-seven bytes below the first character record. Those bytes are the top of the field program's
+stack, where the field's call into the battle and the battle's own calls keep their return addresses and
+saved flags. The shield and helmet are item 0. The armor is the item the field's saved processor flags
+number, and the relics are items 21 and 1. Magic power, stamina, speed and vigor are bytes of two return
+addresses and the battle's saved flags, and the first status byte is a return address's low byte. The
+actor is a byte a deeper call left, and the weapon is a byte of bank `$7F`.
+
+Almost all of it lands in cells nothing reads: the empty slot's own stats, immunities and command rows,
+and two bytes of bank `$7F`. The slot's menu is drawn again. When the empty slot is the last slot the
+refresh takes — the slots below it seated by nobody, or by members whose flags an Imp's carry zeroed —
+its sums also stand as the last attack's level and physical flag. The level is item 0's hit rate, 180,
+and the physical flag is the low bit of the stamina sum: `$61` plus the six items' stamina modifiers.
+Both stand until the next refresh or the next action writes them, and nothing reads either before then.
 
 **Where the original does it.** `UpdateCharProp` (`battle/battle_main.asm:5597-5631`) refreshes every slot
-whose equipment-change flag is not zero, and at a later stage an empty slot's flag is the start's `$FF`
-(`:6061-6067`). It reads the slot's record offset, the fill's `$FFFF` (`:5615`), so the hands and status it
-stores land in bank `$7F` (`:5616-5620`). `UpdateEquip` masks the slot's `$FF` and pulls the unmasked byte
-back (`:2295-2300`), so the record it sums is the twenty-five bytes below the first character record,
-`$15DB-$15FF`, the top of the field program's stack (`field/reset.asm:17`); it clears `$11A0-$11DE`, sums
-that record into it (`:2301-2348`) and writes its boost bytes at `$15E7` and `$15EB` (`:2349-2362`).
-`UpdateEquipBattle` (`:6733-6834`), `FixImmuneStatus` and `UpdateImmuneStatus` (`:6359-6433`) and
-`UpdateCmdList` (`:13560-13617`) then write the slot's cells, its command rows and the party's relic byte
-`$3A6D` from the sums, and mark its menu to be drawn again (`:13568-13569`).
+whose equipment-change flag is not zero, the fourth first, and at a later stage an empty slot's flag is the
+start's `$FF` (`:6061-6067`). It reads the slot's record offset, the fill's `$FFFF` (`:5615`), so the hands
+and status it stores land in bank `$7F` (`:5616-5620`). `UpdateEquip` masks the slot's `$FF` and pulls the
+unmasked byte back (`:2295-2300`); one more, times a record's thirty-seven bytes (`:2305-2310`), is the
+record at `$15DB-$15FF`. It clears `$11A0-$11DE` (`:2301-2304`) and sums into it the actor at `$15DB`
+(`:2311`), the stats at `$15F5-$15F8` (`:2334-2339`), the status at `$15EF` (`:2340`), and the equipment at
+`$15FB-$15FF` and, with the index wrapped to `$FFFF`, `$7F:15FA` (`:2342-2348`). Absolute indexed
+addressing carries the index into the bank, so its two boost writes land at `$7F:15EB` and `$7F:15E7`
+(`:2349-2362`). The shield hand's hit rate is the last attack's level at `$11AF` (`CalcEquipEffect`
+`:2640-2641`), and the stamina sum sits at `$11A2`. `StartCondemn` reads the level (`:1513-1516`) and
+`CheckRetal` the flag's bit 0 (`:12567-12569`), each after an action, which writes the level first
+(`:6999`, `:7297`). `UpdateEquipBattle` (`:6733-6834`), `FixImmuneStatus` and `UpdateImmuneStatus`
+(`:6359-6433`) and `UpdateCmdList` (`:13560-13617`) then write the slot's cells, its command rows and the
+party's relic byte `$3A6D` from the sums, and mark its menu to be drawn again (`:13568-13569`).
+
+The stack is the field's. `Reset` sets the stack pointer to `$15FF` (`field/reset.asm:17-18`), and the
+field calls `ExecBattle` from its loop at that depth (`:124-128`), pushing the return `$0115`: relic 2 and
+relic 1. `ExecBattle` saves the flags, data bank 0 and direct page 0 (`field/battle.asm:77-79`): the armor,
+the helmet and the shield. It then calls `Battle_ext` (`:80`), pushing the return `$C0:C161`, which holds
+magic power `$C1` and stamina `$61`. `BattleMain` saves the flags, which hold the speed
+(`battle_main.asm:55-61`). The loop calls `UpdateCharProp` (`:74`), whose return's high byte is the vigor,
+0. `UpdateCharProp` saves its two index bytes and calls `UpdateEquip` (`:5601-5602`, `:5623`), pushing the
+return `$C2:20CE`, whose low byte `$CE` is the first status byte. The weapon place, `$7F:15FA`, holds 0 on
+a machine parked at the reset code.
 
 **Where the port keeps it.** `applyEquipmentChanges()` in `src/battle/party_setup.cpp` zeroes an empty
 slot's flag and marks its menu to be drawn again (`BattleState::menusToRefresh`), and runs none of the
-sums: nothing the port holds stands for the field program's stack. `tests/test_battle_start.cpp`
+sums: the bytes are the processor's call frames, which the port has no counterpart for. Where the empty
+slot is refreshed last, `BattleState::lastAttackLevel` and `lastAttackPhysical` stay as the refresh before
+it left them, where the game holds 180 and the stamina sum's low bit, until the next refresh or action
+writes them. `tests/test_battle_start.cpp`
 (`StartFinalBattle.AnEmptySlotAtTheNextStageHasItsMenuDrawnAgainAtTheFirstStep`) pins the menu, and
 `tests/oracle/test_battle_whole_oracle.cpp`
 (`BattleWholeOracleTest.WhatAnEmptySlotsRefreshWritesReachesNothing`,
 `BattleWholeOracleTest.TheCommandRowsAnEmptySlotsRefreshWritesReachNothing`,
 `BattleWholeOracleTest.TheHandsAndRowsAnEmptySlotsRefreshReadsReachNothing`,
-`BattleWholeOracleTest.TheBoostsAnEmptySlotsRefreshWritesOnTheStackReachNothing`) shows against the
-cartridge that what the sums write for the slot reaches nothing the battle reads. Where the empty slot is
-refreshed last, the port's last attack's level and physical flag are those the refresh before it left.
+`BattleWholeOracleTest.TheBoostsAnEmptySlotsRefreshWritesInBank7FReachNothing`,
+`BattleWholeOracleTest.TheBlockAnEmptySlotsRefreshLeavesReachesNothing`) shows against the cartridge that
+what the sums write reaches nothing the battle reads, the block at `$11A0-$11DE` included. Those tests run
+the battle program on the power-on stack page, where the thirty-seven bytes are zero, so there the sums
+are item 0's in every place.
 
 **If you want to change it.** Passing over a slot with no one in it before its flag is read, in
 `applyEquipmentChanges()`, leaves an empty slot's flag set and draws its menu no more than any other

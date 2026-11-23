@@ -1,8 +1,9 @@
 // Whole battles on the oracle (docs/contracts/battle_core.md § The battle whole): the frame model's
 // opening as the recorded fights measured it, and a script's frames; the battle program driven a loop
 // step at a time adds up to the same battle called once; the first fight runs to its end the same on
-// both sides; and the cells the carried-read gate passes by a rule of its own reach nothing, each proved by
-// an aimed battle run twice with the cell written two ways.
+// both sides; the cells the carried-read gate passes by a rule of its own, and what an empty party slot's
+// equipment refresh writes at a later final-battle stage, reach nothing, each proved by a battle run twice
+// with the cells written two ways; and 100 drawn battles are the port's to their ends.
 //
 // Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
 // (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -16,11 +17,13 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <optional>
 #include <random>
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -60,6 +63,8 @@ constexpr std::uint64_t kRunOutFrames = 600;
 // cartridge's own event 4 ends it.
 constexpr std::uint64_t kShortBattleFrames = 120;
 constexpr std::uint64_t kModelSeed = 1;
+// The battles DrawnBattlesAreThePorts draws.
+constexpr int kDrawnBattles = 100;
 
 class BattleWholeOracleTest : public ::testing::Test {
 protected:
@@ -454,16 +459,25 @@ TEST_F(BattleWholeOracleTest, TheTargetsAMorphsRevertCopiesReachNothing) {
 }
 
 // A battle of the sweep's draws aimed at a final stage scrolled on whose next stage seats nobody in a party
-// slot: the port's first step of that stage, and the slots empty there. Only a battle whose first step's
-// refresh ends on a seated member is taken: the refresh's last member leaves its own sums in $11A0-$11DE
-// (UpdateEquip :2301-2348), which an empty slot refreshed last fills from the field program's stack.
+// slot: the port's first step of that stage, the slots empty there, and whether the first step's refresh
+// ends on one of them. The refresh's last slot leaves its own sums in $11A0-$11DE (UpdateEquip :2301-2348):
+// a seated member's, or an empty slot's, summed from the bytes below the first character record.
 struct EmptySlotAtALaterStage {
     trace::BattleScenario scenario;
     std::size_t firstStep = 0;
     std::vector<int> empty;
+    bool refreshEndsOnAnEmptySlot = false;
+    // The port's last attack's level and physical bit at the stage's second step.
+    std::uint8_t lastAttackLevel = 0;
+    bool lastAttackPhysical = false;
 };
 
-std::vector<EmptySlotAtALaterStage> battlesWithAnEmptySlotAtALaterStage(const assets::IngestedContent& content) {
+// Which of those battles a proof takes: those whose first step's refresh ends on a seated member, or every
+// one whose first step's refresh takes an empty slot, wherever it ends.
+enum class RefreshEnds { OnASeatedMember, AnyWay };
+
+std::vector<EmptySlotAtALaterStage> battlesWithAnEmptySlotAtALaterStage(const assets::IngestedContent& content,
+                                                                        RefreshEnds ends = RefreshEnds::OnASeatedMember) {
     std::vector<EmptySlotAtALaterStage> found;
     std::mt19937 rng{trace::kSweepSeed};
     for (int drawn = 0; drawn < 100; ++drawn) {
@@ -490,9 +504,15 @@ std::vector<EmptySlotAtALaterStage> battlesWithAnEmptySlotAtALaterStage(const as
                     last = position;
                 }
             }
-            const bool endsOnASeatedMember =
-                last && state.at(battle::BattlerSlot::character(*last)).actor.has_value();
-            if (!later.empty.empty() && endsOnASeatedMember && step + 1 < port.steps.size()) {
+            later.refreshEndsOnAnEmptySlot = last && !state.at(battle::BattlerSlot::character(*last)).actor;
+            const bool refreshesAnEmptySlot = std::any_of(later.empty.begin(), later.empty.end(), [&](int position) {
+                return state.equipmentChangeFlags[static_cast<std::size_t>(position)] != 0;
+            });
+            const bool taken = ends == RefreshEnds::AnyWay ? refreshesAnEmptySlot
+                                                           : last && !later.refreshEndsOnAnEmptySlot;
+            if (!later.empty.empty() && taken && step + 1 < port.steps.size()) {
+                later.lastAttackLevel = port.steps[step + 1].lastAttackLevel;
+                later.lastAttackPhysical = port.steps[step + 1].lastAttackPhysical;
                 found.push_back(std::move(later));
             }
             break;
@@ -514,10 +534,17 @@ constexpr std::uint32_t kGenjiGloveBytes = 0x7E2E6E;
 constexpr std::uint32_t kPartyCommandMenus = 0x7E202E;
 constexpr std::uint32_t kCommandMenuBytes = 12;
 constexpr std::uint32_t kCommandRowBytes = 3;
-// UpdateEquip's two boost bytes, written two below the record it summed: the field program's stack below
-// the first character record (:2349-2362).
-constexpr std::uint32_t kStackRecordHpBoost = 0x7E15E7;
-constexpr std::uint32_t kStackRecordMpBoost = 0x7E15EB;
+// UpdateEquip's two boost bytes for the record below the first character record. The record is read with
+// the index at $FFFF by the time the weapon is read, and the two writes follow at $FFFE (:2343-2362):
+// absolute indexed addressing carries the index into the bank, so they land in bank $7F, not on the stack.
+constexpr std::uint32_t kBelowTheRecordsHpBoost = 0x7F15E7;
+constexpr std::uint32_t kBelowTheRecordsMpBoost = 0x7F15EB;
+// The block UpdateEquip clears and sums into, $11A0-$11DE (:2301-2304).
+constexpr std::uint32_t kEquipmentSums = 0x7E11A0;
+constexpr std::uint32_t kEquipmentSumBytes = 0x3F;
+constexpr std::uint32_t kLastAttackLevel = 0x7E11AF;
+constexpr std::uint32_t kAttackFirstFlags = 0x7E11A2;
+constexpr std::uint8_t kPhysicalHitBit = 0x01;
 
 constexpr std::uint32_t kPartyWeaponHands = 0x7E2B86;
 constexpr std::uint32_t kPartyShieldHands = 0x7E2B9A;
@@ -597,12 +624,12 @@ std::vector<trace::StepCellWrite> theSlotsHandsAndRows(std::size_t step, int pos
              .bytes = std::vector<std::uint8_t>(kCommandMenuBytes)}};
 }
 
-// UpdateEquip's boost bytes on the field program's stack. The party's relic byte the refresh ORs into
-// (:6787) is compared as the port's zero: with the stack's bytes zero the OR changes nothing, and its one
-// reader runs before any refresh (:7557, :7632).
-std::vector<trace::StepCellWrite> theBoostsOnTheStack(std::size_t step, int) {
-    return {{.step = step, .at = kStackRecordHpBoost, .bytes = {0}},
-            {.step = step, .at = kStackRecordMpBoost, .bytes = {0}}};
+// UpdateEquip's two boost bytes in bank $7F. The party's relic byte the refresh ORs into (:6787) is
+// compared as the port's zero: with the bytes the refresh sums zero here the OR changes nothing, and its
+// one reader runs before any refresh (:7557, :7632).
+std::vector<trace::StepCellWrite> theBoostsInBank7F(std::size_t step, int) {
+    return {{.step = step, .at = kBelowTheRecordsHpBoost, .bytes = {0}},
+            {.step = step, .at = kBelowTheRecordsMpBoost, .bytes = {0}}};
 }
 
 // At a final-battle stage after the first an empty slot's flag stands at the fill's $FF, and the refresh runs
@@ -639,13 +666,77 @@ TEST_F(BattleWholeOracleTest, TheHandsAndRowsAnEmptySlotsRefreshReadsReachNothin
     });
 }
 
-TEST_F(BattleWholeOracleTest, TheBoostsAnEmptySlotsRefreshWritesOnTheStackReachNothing) {
+TEST_F(BattleWholeOracleTest, TheBoostsAnEmptySlotsRefreshWritesInBank7FReachNothing) {
     OSTINATO_SKIP_WHEN_BRIEF();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
         ready(oracle);
-        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theBoostsOnTheStack);
+        expectAnEmptySlotsRefreshReachesNothing(oracle, content(), theBoostsInBank7F);
     });
+}
+
+// The block the refresh sums into holds, after an empty slot's refresh, that slot's sums of the record
+// below the first character record, unless a seated member is refreshed after it (UpdateCharProp
+// :5597-5631, UpdateEquip :2301-2348). The port holds two of its cells, the last attack's level ($11AF) and
+// its physical bit ($11A2 bit 0), as the refresh before left them, and the comparison leaves them out from
+// the step after such a refresh until the level is written again (docs/Bugs.md). Every battle the sweep
+// draws whose first step at a later stage refreshes an empty slot, run twice on the cartridge with the
+// whole block written 0 and then 255 at the stage's second step — the two held cells as the port holds
+// them where a seated member was refreshed last: both runs agree with the port to the battle's end.
+TEST_F(BattleWholeOracleTest, TheBlockAnEmptySlotsRefreshLeavesReachesNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const std::vector<EmptySlotAtALaterStage> battles =
+            battlesWithAnEmptySlotAtALaterStage(content(), RefreshEnds::AnyWay);
+        ASSERT_TRUE(std::any_of(battles.begin(), battles.end(),
+                                [](const EmptySlotAtALaterStage& battle) { return battle.refreshEndsOnAnEmptySlot; }))
+            << "no battle the sweep draws refreshes an empty slot last at a later final stage";
+        for (const EmptySlotAtALaterStage& battle : battles) {
+            const std::size_t step = battle.firstStep + 1;
+            for (const std::uint8_t value : {std::uint8_t{0x00}, std::uint8_t{0xFF}}) {
+                std::vector<std::uint8_t> block(kEquipmentSumBytes, value);
+                if (!battle.refreshEndsOnAnEmptySlot) {
+                    block[kLastAttackLevel - kEquipmentSums] = battle.lastAttackLevel;
+                    std::uint8_t& flags = block[kAttackFirstFlags - kEquipmentSums];
+                    flags = static_cast<std::uint8_t>((flags & ~kPhysicalHitBit) |
+                                                      (battle.lastAttackPhysical ? kPhysicalHitBit : 0));
+                }
+                trace::BattleScenario written = battle.scenario;
+                written.cartridgeWrites = {trace::StepCellWrite{.step = step, .at = kEquipmentSums, .bytes = block}};
+                const trace::BattleCheck check = oracle.checkBattle(written);
+                EXPECT_EQ(check.differences, "") << trace::describe(written) << ", written " << int{value}
+                                                 << " at step " << step;
+                EXPECT_TRUE(check.cartridge.ended);
+            }
+        }
+    });
+}
+
+// Drawn battles with no player (trace::drawBattleScenario()), each the port's to its end, and between them
+// every row of the reach table taken: each part a member plays, and each way a battle ends.
+TEST_F(BattleWholeOracleTest, DrawnBattlesAreThePorts) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    std::map<std::string_view, int> reached;
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        std::mt19937 rng{trace::kSweepSeed};
+        for (int draw = 0; draw < kDrawnBattles; ++draw) {
+            const trace::BattleScenario scenario = trace::drawBattleScenario(rng, content().text, content().monsterSprites);
+            const trace::BattleCheck check = oracle.checkBattle(scenario);
+            EXPECT_EQ(check.differences, "") << "draw " << draw << ": " << trace::describe(scenario);
+            if (check.differences.empty()) {
+                for (const std::string_view row : trace::battleReached(scenario, check)) {
+                    ++reached[row];
+                }
+            }
+        }
+    });
+    for (const std::string_view row : trace::battleReachRows()) {
+        EXPECT_GT(reached[row], 0) << row;
+    }
 }
 
 }  // namespace

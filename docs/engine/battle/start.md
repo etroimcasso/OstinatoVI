@@ -267,7 +267,10 @@ lowest slot — leaves two of the battle's own values behind: `state.lastAttackP
 their stamina is odd, and `state.lastAttackLevel` is the hit rate of what they hold in the shield hand
 (a second weapon's, the empty hand's 200, or 0 for a shield). A condemned count started before the
 next attack sets a level is worked out from that number ([`docs/Bugs.md`](../../Bugs.md)). The battle's
-start refreshes every member the same way, then sets the level to 20.
+start refreshes every member the same way, then sets the level to 20. A slot with no one in it is not
+refreshed: when it is the last slot whose byte is set, as at a final-battle stage after the first,
+`lastAttackLevel` and `lastAttackPhysical` stay as the refresh before left them
+([`docs/Bugs.md`](../../Bugs.md)).
 
 ## The formation
 

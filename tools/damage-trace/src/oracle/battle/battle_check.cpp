@@ -20,6 +20,7 @@
 #include "battle/battler_set.h"
 #include "battle/party_setup.h"
 
+#include "cells/battle/state.h"
 #include "cells/status/effects.h"
 
 namespace ostinato::trace {
@@ -153,6 +154,39 @@ bool aStageStartsBefore(const PortBattle& port, std::size_t step) {
     });
 }
 
+// Whether the equipment refresh at the head of the loop step after `state` takes an empty party slot last.
+// It refreshes every slot whose flag is not zero, the fourth first, so the last it takes is the lowest of
+// them (UpdateCharProp :5597-5631); at a final-battle stage after the first an empty slot's flag is the
+// start's fill.
+bool theRefreshEndsOnAnEmptySlot(const battle::BattleState& state) {
+    for (int position = 0; position < battle::kPartySlots; ++position) {
+        if (state.equipmentChangeFlags[static_cast<std::size_t>(position)] != 0) {
+            return !state.at(battle::BattlerSlot::character(position)).actor;
+        }
+    }
+    return false;
+}
+
+// The loop steps whose last attack's level and physical bit are an empty slot's refresh's (docs/Bugs.md):
+// from the step whose window holds that refresh to the step before the one in whose window the cartridge
+// writes the level again, by another refresh's clear (UpdateEquip :2301-2304) or an action's (:6999,
+// :7297). The port keeps the refresh before's values there; nothing in those steps reads either
+// (BattleWholeOracleTest.TheBlockAnEmptySlotsRefreshLeavesReachesNothing).
+std::vector<bool> stepsWithTheLastAttackFromAnEmptySlot(const PortBattle& port, const WholeBattleResult& cartridge,
+                                                        std::size_t steps) {
+    std::vector<bool> from(steps, false);
+    bool open = false;
+    for (std::size_t step = 1; step < steps; ++step) {
+        if (theRefreshEndsOnAnEmptySlot(port.steps[step - 1])) {
+            open = true;
+        } else if (open && cartridge.steps[step].writes.contains(cells::kLastAttackLevel)) {
+            open = false;
+        }
+        from[step] = open;
+    }
+    return from;
+}
+
 }  // namespace
 
 std::string DamageOracle::carriedTargetsCompared(const battle::BattleState& state, const PartyCells& boosts,
@@ -190,8 +224,12 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     facingsHandedOver_ = true;
     struct HandBack {
         bool& handed;
-        ~HandBack() { handed = false; }
-    } handBack{facingsHandedOver_};
+        bool& fromAnEmptySlot;
+        ~HandBack() {
+            handed = false;
+            fromAnEmptySlot = false;
+        }
+    } handBack{facingsHandedOver_, lastAttackFromAnEmptySlot_};
     std::string& lines = check.differences;
     const WholeBattleResult& cartridge = check.cartridge;
     const PortBattle& port = check.port;
@@ -211,6 +249,7 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     }
     lines += named("read-set gate", unhanded);
     const std::size_t steps = std::min(cartridge.steps.size(), port.steps.size());
+    const std::vector<bool> lastAttackFromAnEmptySlot = stepsWithTheLastAttackFromAnEmptySlot(port, cartridge, steps);
     for (std::size_t step = 0; step < steps && lines.empty(); ++step) {
         const CartridgeStep& theirs = cartridge.steps[step];
         const battle::BattleState& ours = port.steps[step];
@@ -225,14 +264,18 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         lines += named(at + ", the requests before it",
                        requestDifferences(portShown(port, portFrom, port.stepRequests[step]),
                                           cartridgeShown(cartridge, cartridgeFrom, theirs.firstCall)));
+        lastAttackFromAnEmptySlot_ = lastAttackFromAnEmptySlot[step];
         lines += named(at, compareBattleState(ours, boosts, theirs.cells));
         lines += named(at + ", write-set gate", uncoveredWrites(ours, boosts, theirs.writes, &theirs.cells));
         if (step > 0) {
+            // The carried reads are held by the step before's state, laid as that step is.
+            lastAttackFromAnEmptySlot_ = lastAttackFromAnEmptySlot[step - 1];
             const std::string carried =
                 carriedReads(port.steps[step - 1], boostsAtStep(scenario.start.cells, port, step - 1),
                              theirs.carriedReads, &cartridge.steps[step - 1].cells,
                              aStageStartsBefore(port, step) ? CarriedFrom::TheStart : CarriedFrom::AStep);
             lines += named(at + ", carried-read gate", carried);
+            lastAttackFromAnEmptySlot_ = lastAttackFromAnEmptySlot[step];
             lines += named(at + ", the copy rule", carriedTargetsCompared(ours, boosts, theirs));
             if (!carried.empty() && !theirs.stackAtFirstCarriedRead.empty()) {
                 lines += "the stack's top at the first such read, each page from $E0: " +

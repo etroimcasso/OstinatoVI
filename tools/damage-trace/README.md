@@ -496,7 +496,7 @@ work RAM and run through each routine and through the port's rule for it. Each s
 | `loss` | `LoseBattle`, the wrap-up and the message, against `battle::playBattleEnd()` and the defeat switch `battle::writeBack()` sets | `tests/oracle/test_battle_end_oracle.cpp` |
 | `write-back` | `UpdateSRAM`, what the game keeps, against `battle::writeBack()` | `tests/oracle/test_battle_end_oracle.cpp` |
 | `start` | the battle program whole from its entry to the loop's first frame wait, over a drawn start (`drawStartScenario()`), against `battle::startBattle()`: every cell compared, and the write-set, carried-read and read-set gates (`checkStart()`, below) | `tests/oracle/test_battle_start_oracle.cpp` |
-| `battle` | the battle program whole from its start to its end, a loop step at a time, over a drawn battle with no player, aimed now and then at a row of the reach table (`drawBattle()`), against `battle::BattleSim`: every step compared with both gates, the requests, the end and what the game keeps (`checkBattle()`, below) | — |
+| `battle` | the battle program whole from its start to its end, a loop step at a time, over a drawn battle with no player, aimed now and then at a row of the reach table (`drawBattle()`), against `battle::BattleSim`: every step compared with both gates, the requests, the end and what the game keeps (`checkBattle()`, below) | `tests/oracle/test_battle_whole_oracle.cpp` |
 
 `start` also prints, after its draws, how many reached each row of its reach table (`startReachRows()`):
 each battle type, a preemptive strike, the colosseum, the final battle, a scripted setup, Gau's return, an
@@ -504,8 +504,8 @@ empty party slot, a morphed member, a randomized formation, a conditional battle
 battle type's choice a Back Guard, a Gale Hairpin and a party of fewer than three take. A row no draw
 reached is named. The test's sweep draws 1,300 starts and fails on any row at zero; a short `--check` run
 draws too few to reach every row and only names them. `battle` prints its reach table the same way
-(`battleReachRows()`, below). A battle the oracle cannot run or lay is reported as a difference, with
-the reason.
+(`battleReachRows()`, below), and its test's sweep draws 100 battles and fails on any row at zero. A
+battle the oracle cannot run or lay is reported as a difference, with the reason.
 
 With `--brief` each routine draws no more than its own brief count, 20 for every routine but `battle`,
 whose battles take about a second each and which draws 2:
@@ -800,6 +800,21 @@ turning up, each at the step before the battle event that matters is queued
 four time updates in, at the step before the step that holds no morph, the meter's Revert made and run
 between them.
 
+Five more prove what an empty party slot's refresh at a later final-battle stage writes reaches nothing
+(the empty slot, below). Each takes the sweep's battles aimed at a final stage scrolled on whose next stage
+seats nobody in a slot, and writes cells 0 and then 255 for each such battle. Four take only the battles
+whose first step's refresh ends on a seated member. Three of them write at the stage's second step: the
+slot's stat, equipment and immunity cells with the Genji Glove byte, its command rows' verdicts, and the
+two boost bytes in bank `$7F`. The fourth writes at the stage's first step, before the refresh reads
+them: the slot's hands, command rows, `$3A21,x` and `$3330-$3331,x`. The fifth takes every battle whose first
+step's refresh takes an empty slot, wherever it ends, and writes the whole block `$11A0-$11DE` at the
+stage's second step. Where a seated member was refreshed last, it writes the two cells the comparison
+holds as the port holds them. Each run agrees with the port to the battle's end.
+
+`DrawnBattlesAreThePorts` checks 100 battles of the sweep's draws (`drawBattleScenario()` from
+`kSweepSeed`) with `checkBattle()`, expecting no difference in any, and every row of the reach table
+taken by at least one.
+
 ### The whole state compared
 
 `compareBattleState(state, boosts, cells)` lays a `battle::BattleState` into the battle's cells and
@@ -860,6 +875,19 @@ the line's battlers go in the other places in order, and the end is where the la
 battler one side kept and the other dropped still parts the two. A party member seated with no
 record has its record offset laid as `$FFFF` and everything the start loads through that offset left
 out (`docs/contracts/battle_core.md`, the start's seating).
+
+An empty party slot at a final-battle stage after the first keeps the start's `$FF` as its
+equipment-change flag, so the stage's first loop step refreshes it, summing the bytes below the first
+character record (`docs/Bugs.md`). The port does not run that refresh. At such a stage the state laid
+leaves out what the refresh writes for the slot: its stat, equipment and immunity cells, the Genji Glove
+byte and bit 2 of its `$3AA1,x`, instant death's protection. The cells the refresh reads and writes back, its hands and its command
+rows are held as carried to nothing (`leaveOutAsCarriedToNothing()`), and so is its relic effects 4,
+`$3C58,x`, which the cover check reads for every battler and acts on only for one present. When an empty
+slot is the last the refresh takes, its sums stand as the last attack's level (`$11AF`) and its physical
+bit (`$11A2` bit 0), where the port keeps the refresh before's. `checkBattle()` leaves the two out
+(`stepsWithTheLastAttackFromAnEmptySlot()`) from the step whose window holds that refresh to the step
+before the one in whose window the battle program writes the level again, by a refresh or an action. A
+read of either before that write fails the carried-read gate.
 
 A cell is compared by the bits a field decides (`cellMeanings()`, `meaningBits()`): `$3205,x` by its
 bits 7, 2 and 1, a battler mask by the bits that name a battler, a command row's and a spell entry's

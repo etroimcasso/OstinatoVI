@@ -688,17 +688,27 @@ start lays `menuWindowDesign` from `BattleConfig::wallpaper` after its statuses 
 An empty slot at such a stage keeps its `$FF` too, and the refresh does not ask whether anyone is in the
 slot. It reads the slot's record offset, the fill's `$FFFF` (`:5615`), so its three stores of the hands
 and the first status byte land in bank `$7F`; `UpdateEquip` masks the slot's `$FF` and then pulls the
-unmasked byte back (`:2295-2300`), so it sums the twenty-five bytes below the first character record,
-the field program's stack (`$15DB-$15FF`, `field/reset.asm:17`), and writes the two boost bytes at
-`$15E7` and `$15EB`; `UpdateEquipBattle`, `FixImmuneStatus`, `UpdateImmuneStatus` and `UpdateCmdList`
-then write the empty slot's stat, equipment and immunity cells, its command rows and the party's relic
-byte from those sums (`:6733-6834`, `:6359-6433`, `:13560-13617`). The port runs none of the sums, since
-nothing it holds stands for the field program's stack: `applyEquipmentChanges()` zeroes the slot's flag
-and marks its menu to be drawn again, which the cartridge does whatever the stack holds (`tsb $3a58`,
+unmasked byte back (`:2295-2300`), so it sums the thirty-seven bytes below the first character record,
+`$15DB-$15FF` (`:2305-2348`). They are the top of the field program's stack (`field/reset.asm:17-18`): the
+field's call into the battle and the battle's own calls keep their return addresses and saved flags there
+(`field/reset.asm:124-128`, `field/battle.asm:77-80`; `BattleMain` `:55-61`, `BattleLoop` `:74`,
+`UpdateCharProp` `:5623`). The shield and helmet
+are item 0, the armor the item the field's saved flags number, and the relics items 21 and 1. The stats
+are bytes of two return addresses and the battle's saved flags, the first status byte a return
+address's low byte, and the actor a byte a deeper call left. With the index wrapped to `$FFFF` the weapon
+is read from `$7F:15FA`, and the two boost bytes are written at `$7F:15EB` and `$7F:15E7`, since absolute
+indexed addressing carries the index into the bank (`:2343-2362`). `UpdateEquipBattle`,
+`FixImmuneStatus`, `UpdateImmuneStatus` and `UpdateCmdList` then write the empty slot's stat, equipment
+and immunity cells, its command rows and the party's relic byte from those sums (`:6733-6834`,
+`:6359-6433`, `:13560-13617`). The port runs none of the sums, since the bytes are the processor's call
+frames and nothing the port holds stands for them: `applyEquipmentChanges()` zeroes the slot's flag and
+marks its menu to be drawn again, which the cartridge does whatever the bytes hold (`tsb $3a58`,
 `:13568-13569`). What the sums write for the slot reaches nothing the battle reads
 (`tests/oracle/test_battle_whole_oracle.cpp`). Where the empty slot is the last the refresh takes, its
-sums also stand in `$11A0-$11DE` — the last attack's level at `$11AF` among them — where the port keeps
-the values the refresh before it left ([`docs/Bugs.md`](../Bugs.md)).
+sums also stand in `$11A0-$11DE`: the last attack's level at `$11AF` is item 0's hit rate, 180, and its
+physical bit at `$11A2` the low bit of the stamina sum. The port keeps `lastAttackLevel` and
+`lastAttackPhysical` as the refresh before left them until the next refresh or action writes them, and
+nothing reads either before then ([`docs/Bugs.md`](../Bugs.md)).
 
 ## A battle's start
 

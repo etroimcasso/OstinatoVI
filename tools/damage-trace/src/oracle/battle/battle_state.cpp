@@ -462,6 +462,13 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
             leaveOutAsCarriedToNothing(kCommandMenus + offset * kCommandMenuSize, kCommandMenuSize);
         }
     }
+    // The last attack's level and physical bit as an empty slot's refresh left them, from the bytes below the
+    // first character record (docs/Bugs.md): the port keeps the refresh before's, and the window checkBattle()
+    // names reads neither (BattleWholeOracleTest.TheBlockAnEmptySlotsRefreshLeavesReachesNothing).
+    if (lastAttackFromAnEmptySlot_) {
+        leaveOut(kLastAttackLevel, 1);
+        leaveOutBits(kAttackRecordFlags, kPhysicalHitBit);
+    }
 }
 
 void DamageOracle::writeBattleState(const battle::BattleState& state, const PartyCells& boosts) {
