@@ -13,8 +13,10 @@
 
 #include "assets/cartridge.h"
 #include "battle/action_executor.h"
+#include "battle/battle_end.h"
 #include "battle/battle_sim.h"
 #include "battle/battle_start.h"
+#include "battle/morph.h"
 #include "battle/presentation.h"
 #include "data/battle_gfx_tables.h"
 #include "game/character_record.h"
@@ -29,6 +31,14 @@
 namespace ostinato::battle {
 namespace {
 
+// The battle's end played by its own rules, and a morph's meter run down on every time update.
+struct EndPlayingExecutor : ActionExecutor {
+    void tickMorph(BattleState& state, BattlerSlot slot) override { runDownMorph(state, slot); }
+    bool continueBattleEnd(BattleState& state, const BattleOutcome& outcome) override {
+        return battle::continueBattleEnd(state, *this, outcome);
+    }
+};
+
 class BattlePresentationTest : public ::testing::Test {
 protected:
     static void SetUpTestSuite() { cartridge_ = new test::IngestedCartridge{test::ingestVanilla()}; }
@@ -37,10 +47,15 @@ protected:
         cartridge_ = nullptr;
     }
 
-    // A battle with Lobo, the party Terra, Locke and Edgar, its scene opened.
     void SetUp() override {
         OSTINATO_REQUIRE_CARTRIDGE(*cartridge_);
         content_ = &*cartridge_->content;
+        startLobo();
+    }
+
+    // A battle with Lobo, the party Terra, Locke and Edgar, its scene opened.
+    void startLobo() {
+        shown_ = BattlePresentationState{};
         game::Party party;
         const CharacterPropId actors[]{CharacterPropId::TERRA, CharacterPropId::LOCKE, CharacterPropId::EDGAR};
         for (std::size_t i = 0; i < 3; ++i) {
@@ -87,9 +102,54 @@ protected:
 
     BattleState& state() { return sim_->state(); }
 
+    // One frame of the battle and its presentation together, as a host runs them.
+    void frame() {
+        sim_->tick(battleInput(shown_));
+        tickBattlePresentation(shown_, state(), sim_->takeRequests(), context(), false);
+    }
+
+    // The battle's end begun by hand with `outcome`: Terra (party slot 0) in Morph with `counter` left on
+    // its meter, run down by `speed` on every time update from a supply of kMorphSupply, and the next
+    // time update two frames away.
+    static constexpr std::uint8_t kMorphSupply = 200;
+    void endWithTerraMorphed(const BattleOutcome& outcome, std::uint16_t counter, std::uint16_t speed) {
+        sim_->takeRequests();
+        BattleState& battle = state();
+        battle.outcome = outcome;
+        const BattlerSlot terra = BattlerSlot::character(0);
+        battle.at(terra).status.set(StatusId::MORPH);
+        battle.morphedBattler = terra;
+        battle.morphCounter = counter;
+        battle.morphCounterSpeed = speed;
+        battle.party.morphSupply = kMorphSupply;
+        battle.lastTimeUpdateFrame = battle.frameCount;
+    }
+
+    // What the wrap-up found when it kept the Morph supply: the frame, whether Terra was still in Morph,
+    // the meter and the supply kept.
+    struct WrapUpSave {
+        std::uint8_t frame = 0;
+        bool morphed = false;
+        std::uint16_t meter = 0;
+        std::uint8_t supply = 0;
+    };
+    std::optional<WrapUpSave> playToTheWrapUpsSave(int framesAtMost = 600) {
+        for (int played = 0; played < framesAtMost; ++played) {
+            frame();
+            const BattleState& battle = state();
+            if (battle.ending && battle.ending->next > BattleEndPart::CloseMenus) {
+                return WrapUpSave{.frame = battle.frameCount,
+                                  .morphed = battle.morphedBattler.has_value(),
+                                  .meter = battle.morphCounter,
+                                  .supply = battle.party.morphSupply};
+            }
+        }
+        return std::nullopt;
+    }
+
     static test::IngestedCartridge* cartridge_;
     const assets::IngestedContent* content_ = nullptr;
-    ActionExecutor executor_;
+    EndPlayingExecutor executor_;
     std::optional<BattleSim> sim_;
     BattlePresentationState shown_;
 };
@@ -480,6 +540,56 @@ TEST_F(BattlePresentationTest, ThePoseCountersStartStaggeredAndStepEveryEightFra
     EXPECT_EQ(poseStep(8), 1);
     EXPECT_EQ(poseStep(31), 3);
     EXPECT_EQ(poseStep(32), 0);
+}
+
+// --- a win's celebration (BtlGfx_08 btlgfx_main.asm:243-274) -----------------------------------
+
+TEST_F(BattlePresentationTest, AWinsCelebrationTakesThreeFramesWithTimeRunningBeforeItsEvent) {
+    // The menus close a frame at a time (_c10105 G:229-237), then two frames pass (G:257-258), battle time
+    // running on each (WaitFrame G:425-439), before battle event 1 plays (G:273).
+    state().outcome = BattleWon{};
+    state().ending = BattleEnding{.next = BattleEndPart::CloseMenus, .win = {}};
+    play({BattleEventPlays{.event = kVictoryEvent}});
+    EXPECT_FALSE(shown_.idle);
+    EXPECT_TRUE(battleInput(shown_).timeRunning);
+    tick();
+    EXPECT_FALSE(shown_.idle);
+    EXPECT_TRUE(battleInput(shown_).timeRunning);
+    tick();
+    EXPECT_TRUE(shown_.idle);
+    EXPECT_TRUE(battleInput(shown_).timeRunning);
+}
+
+TEST_F(BattlePresentationTest, BattleEventOneOutsideAWinsEndTakesNoFrames) {
+    play({BattleEventPlays{.event = kVictoryEvent}});
+    EXPECT_TRUE(shown_.idle);
+}
+
+TEST_F(BattlePresentationTest, AMorphRunningOutInTheCelebrationsFramesLeavesTheSupplyAtNothing) {
+    // The meter runs out on the second time update of the end (DecMorphCounter :2815-2829), which falls in
+    // the celebration's frames, before the wrap-up keeps the supply (:12064).
+    endWithTerraMorphed(BattleWon{}, 0x8000, 0x6000);
+    const std::optional<WrapUpSave> saved = playToTheWrapUpsSave();
+    ASSERT_TRUE(saved.has_value());
+    EXPECT_FALSE(saved->morphed) << "the meter ran out in the celebration's frames";
+    EXPECT_EQ(saved->supply, 0);
+}
+
+TEST_F(BattlePresentationTest, AWinKeepsTheMorphSupplyFourFramesLaterThanALoss) {
+    // A loss keeps the supply on the frame the battle ends; a win once the step back's script has played
+    // and the celebration's three frames have passed, two time updates later (:2675-2715).
+    endWithTerraMorphed(BattleLost{}, 0xC000, 0x1000);
+    const std::optional<WrapUpSave> lost = playToTheWrapUpsSave();
+    startLobo();
+    endWithTerraMorphed(BattleWon{}, 0xC000, 0x1000);
+    const std::optional<WrapUpSave> won = playToTheWrapUpsSave();
+    ASSERT_TRUE(lost && won);
+    ASSERT_TRUE(lost->morphed && won->morphed);
+    EXPECT_EQ(static_cast<std::uint8_t>(won->frame - lost->frame), 4);
+    EXPECT_EQ(lost->meter, 0xC000);
+    EXPECT_EQ(won->meter, 0xA000);
+    EXPECT_EQ(lost->supply, kMorphSupply * 0xC0 / 256);
+    EXPECT_EQ(won->supply, kMorphSupply * 0xA0 / 256);
 }
 
 // --- what the battle is told -------------------------------------------------------------------

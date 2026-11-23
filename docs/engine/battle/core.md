@@ -56,9 +56,9 @@ party = battle.result()->party;
 `tick()` runs battle time every frame and one loop step on a frame the presentation is idle. Once the
 battle has an outcome the loop takes no more steps: on that frame and on every idle frame after it,
 `tick()` plays the end on through the executor (`ActionExecutor::continueBattleEnd()`) to the next
-script it asks for, so the end's scripts — the step back, the celebration, the wrap-up's 32-frame wait,
-every message of a win — take their frames with battle time running ([rewards.md](rewards.md), The
-battle's end). When the end has nothing left to play, `tick()` hands the party back (`result()`, a
+script it asks for, so the end's scripts — the step back, the celebration's frames before battle event
+1, the wrap-up's 32-frame wait, every message of a win — take their frames with battle time running
+([rewards.md](rewards.md), The battle's end; the celebration's frames, [presentation.md](presentation.md)). When the end has nothing left to play, `tick()` hands the party back (`result()`, a
 `BattleResult`) and requests `CloseBattleScene`; `result()` is empty until then, so the loop above runs
 through the end's frames. A won stage of the final battle requests `ScrollFinalBattleBackground` and
 carries straight on into the next stage instead, its play clock and frame count going on from where the

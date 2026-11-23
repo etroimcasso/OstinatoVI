@@ -238,6 +238,15 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
                     port.wrapUpWaitFrom = port.frames + playing.size();
                     playing.insert(playing.end(), static_cast<std::size_t>(*wait), Frame{.clockCalled = true});
                 } else {
+                    // A won battle's celebration: the menus' closing frames and the fanfare's two, the
+                    // clock called on each, before event 1's script.
+                    const battle::BattleState& state = sim.state();
+                    if (state.ending && state.outcome && std::holds_alternative<battle::BattleWon>(*state.outcome) &&
+                        isVictoryEvent(request)) {
+                        for (const Frame frame : scenario.model.celebrationFramesBeforeEvent()) {
+                            playing.push_back(frame);
+                        }
+                    }
                     const bool stopsTime = scriptStopsTime(*script) || scrolling;
                     for (const Frame frame : scenario.model.scriptFrames(scripts++, stopsTime)) {
                         playing.push_back(frame);

@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 #include "data/battle_gfx_tables.h"
 #include "data/text_codec.h"
@@ -460,6 +461,13 @@ void beginSingleNumeral(BattlePresentationState& shown) {
 
 // --- one script command -----------------------------------------------------------------------
 
+// Whether `event` is a won battle's celebration: battle event 1, asked for by the battle's end once its
+// menus have closed and the fanfare has started (BtlGfx_08 btlgfx_main.asm:243-274).
+bool celebrates(const BattleEventPlays& event, const BattleState& battle) {
+    return event.event == kVictoryEvent && battle.ending && battle.outcome &&
+           std::holds_alternative<BattleWon>(*battle.outcome);
+}
+
 // Start `command`. Returns true when it takes frames and is now playing.
 bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& command, const BattleState& battle,
                   const BattlePresentationContext& context) {
@@ -522,6 +530,14 @@ bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& com
             } else if constexpr (std::is_same_v<T, MonsterDialogShown>) {
                 shown.message = startMessage(MessageWindow::Wide, monsterDialogSteps(c, battle, context.text), true, hold);
                 return true;
+            } else if constexpr (std::is_same_v<T, BattleEventPlays>) {
+                // A celebration's frames come before its event: the menus closing (_c10105 G:229-237),
+                // then two more (G:257-258), battle time running on each. The event shows nothing here.
+                if (!celebrates(c, battle)) {
+                    return false;
+                }
+                shown.pauseLeft = kCelebrationFramesBeforeEvent;
+                return true;
             } else if constexpr (std::is_same_v<T, DamageNumbersShown>) {
                 if (c.wait == DamageNumberWait::UntilGone) {
                     shown.numeralsTogether = {};
@@ -540,8 +556,8 @@ bool startCommand(BattlePresentationState& shown, const BattleScriptCommand& com
                 beginSingleNumeral(shown);
                 return true;
             } else {
-                // AttackAnimation, BattleEventPlays, MonsterAnimationPlays, ReflectedAttackShown,
-                // ScatteredHitsShown: their pictures are not shown here.
+                // AttackAnimation, MonsterAnimationPlays, ReflectedAttackShown, ScatteredHitsShown: their
+                // pictures are not shown here.
                 return false;
             }
         },
@@ -733,6 +749,8 @@ void tickBattlePresentation(BattlePresentationState& shown, const BattleState& b
     }
 
     shown.idle = !commandPlaying(shown) && shown.scripts.empty() && !shown.deathFade;
+    // What stops battle time — the opening, a battle event, the final battle's scroll — takes no frames
+    // here, so time runs on every frame played.
     shown.timeRunning = true;
     // The battle's end plays every message it asked for before the scene fades out.
     if (shown.sceneClosing && !commandPlaying(shown) && shown.scripts.empty()) {

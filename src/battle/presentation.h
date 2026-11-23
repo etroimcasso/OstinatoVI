@@ -32,7 +32,13 @@
 //     after two frames, and every target's numeral at once holds the script until all are gone;
 //   - a ready stance, a step back or a pose reset changes a party member's waiting pose at once;
 //   - a wait holds the script for its frames, the frame it starts counting as the first;
+//   - a won battle's celebration (battle event 1, asked for by the battle's end) holds the script for
+//     kCelebrationFramesBeforeEvent frames before its event: the menus closing, then two frames as the
+//     fanfare starts;
 //   - attack animations, battle events and monster animations show nothing here.
+//
+// Battle time runs on every frame the presentation plays: what stops it — the opening, a battle event,
+// the final battle's scroll — takes no frames here.
 //
 // Between scripts, monsters that have fallen fade out together: one frame as they were, then 32
 // frames in the death palette, darker each frame, added over what is behind them.
@@ -71,6 +77,12 @@ inline constexpr std::uint8_t kSlowestMessageSpeed = 5;
 
 // How long a monster's special attack name stays up, whatever the message speed.
 inline constexpr int kSpecialAttackNameFrames = 32;
+
+// The frames a won battle's celebration takes before battle event 1 plays, battle time running on each:
+// the menus closing, one frame with no menu open, then two as the fanfare starts.
+inline constexpr int kCelebrationMenuCloseFrames = 1;
+inline constexpr int kCelebrationFanfareFrames = 2;
+inline constexpr int kCelebrationFramesBeforeEvent = kCelebrationMenuCloseFrames + kCelebrationFanfareFrames;
 
 // --- what the presentation reads --------------------------------------------------------------
 

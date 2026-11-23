@@ -327,6 +327,16 @@ command follows in the same frame. Battle time runs through every command (`Wait
 updates it unless a battle event stops it), so the battle is told time runs every frame; the battle
 loop takes no step while a command is playing, a script is waiting, or a monster is fading out.
 
+A won battle's celebration (`BtlGfx_08 :243-274`) closes every battle menu — a frame wait, repeated
+while one is still open (`_c10105 :229-237`) — and, with the fanfare on, waits two frames more
+(`:257-258`) before battle event 1 plays (`:273`). Battle time runs on each of those frames and stops
+with the event's script (`GfxCmd_0f :38208`). The battle's end asks for the event in a script of its
+own once the menus have closed (`BattleEventPlays` of `kVictoryEvent`, `battle_rewards.md` § E), and
+the presentation holds that command for `kCelebrationFramesBeforeEvent` frames before the event: one
+for the menus closing, as no menu is open here, and the two. The event itself shows nothing here.
+With the fanfare off the battle asks for no event and the celebration takes no frames; on the
+cartridge the menus' closing frame still passes (`:246`).
+
 Port rulings on the frames a command takes:
 
 - **The transfers around a window are not counted.** Opening a window at the top waits three

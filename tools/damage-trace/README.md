@@ -656,9 +656,13 @@ with time stopped on all of them when it plays a battle event other than Gau's (
 (`$1F`). A frame wait (`$01`) is one frame with the clock whoever asks for it (`BtlGfx_01`,
 `btlgfx_main.asm:392-409`): the loop's (`:72-73`), and each of the wrap-up's 32 (`:12076-12080`), whose
 port side is one script holding a `Wait` of 32 frames, each with the clock, taking no place among the
-scripts and shown as nothing. The celebration (`$08`) takes a script's frames, time stopped, in its place
-among the scripts when the fanfare plays (`$2F49` bit 1 clear, `btlgfx_main.asm:248-250`) — the port's
-battle event 1 script — and none when it does not. A script holding the final battle's scroll (`$12`,
+scripts and shown as nothing. The celebration (`$08`), when the fanfare plays (`$2F49` bit 1 clear,
+`btlgfx_main.asm:248-250`), takes the frames its menus take to close (`_c10105`, `:229-237`; the model's
+`celebrationMenuCloseFrames`, 1 as measured and 1 to 8 drawn) and the fanfare's two (`:257-258`), the
+clock called on each, then a script's frames with time stopped, in its place among the scripts, for battle
+event 1 (`:273`, `:38208`). On the port's side the script holding battle event 1 that a won battle's end
+asks for takes the same frames. With the fanfare off the celebration takes no frames on either side. A
+script holding the final battle's scroll (`$12`,
 `:6185-6193`; on the port's side the script asked for after `ScrollFinalBattleBackground`) stops time as a
 battle event does: the scroll's command stops it (`btlgfx_main.asm:135`) and the scroll's end starts it
 again (`:22104`), so the next stage's first frame wait is the first frame with the clock. When it has

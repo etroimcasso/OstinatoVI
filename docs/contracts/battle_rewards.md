@@ -81,6 +81,12 @@ clock runs through every wrap-up. On each such frame `UpdateBattleTime` (`:2668-
 player's records (`:2671`), and every second frame the turn count, `DecCounters`, the Morph counter and
 the gauges step (`:2675-2715`).
 
+The celebration's frames before its event are the presentation's: it holds battle event 1's script for
+three frames with time running — one for the menus closing and the fanfare's two — and the event's own
+frames stop time (`kCelebrationFramesBeforeEvent`, `battle_presentation.md` § Playing a script). With the
+fanfare off the port's celebration takes no frames; the cartridge's menus' closing frame still passes
+(`G:246`).
+
 So the end plays in parts (`BattleEndPart`), each running to the battle script it asks for; the next part
 runs on the tick that script has played, its frames — battle time running — between the two:
 
@@ -246,7 +252,8 @@ rest is the menus' own.
    `BattleState::noVictoryFanfare`), the fanfare (song `$2f`) starts — a `VictoryFanfare` request, not
    asked for when the field's music plays on (`$11e4 & $08`, `BattleState::keepFieldMusic`) — and battle
    event 1 plays (script `$0f $01`, `G:279-280`) — a `RunBattleScript` holding `BattleEventPlays` of
-   `kVictoryEvent`.
+   `kVictoryEvent`, which the presentation holds for the menus' closing frame and the fanfare's two
+   (`G:246`, `G:257-258`) before the event (§ A).
 5. The wrap-up (§ C, `:15296`).
 6. **In the colosseum** (`$3a97` not 0, `:15297-15310`): the prize (`$0207`, `colosseumPrize`) joins the
    items obtained, one of it, and is merged (`_c26279 :16085-16091`); message 32 tells of it; and the win

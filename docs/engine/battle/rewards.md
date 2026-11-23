@@ -187,7 +187,9 @@ The win, in order:
 1. a `StepBack`;
 2. the celebration: a `CloseBattleMenu` for each party slot, then — unless the formation turns the fanfare
    off or Shadow has just left — a `VictoryFanfare` (not when the field's music plays on) and battle
-   event 1 (`BattleEventPlays` of `kVictoryEvent`);
+   event 1 (`BattleEventPlays` of `kVictoryEvent`), whose script the presentation holds for three frames
+   with battle time running before the event — the menus closing, then two as the fanfare starts
+   ([presentation.md](presentation.md));
 3. the wrap-up (below);
 4. in the colosseum, the prize — obtained, merged and told of — and nothing more;
 5. the experience each ally gets, told of; then for each living party member, last slot first, the first

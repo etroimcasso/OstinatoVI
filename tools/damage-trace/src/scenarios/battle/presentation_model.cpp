@@ -51,22 +51,30 @@ std::vector<Frame> PresentationModel::scriptFrames(std::size_t index, bool stops
     return std::vector<Frame>(static_cast<std::size_t>(length), Frame{.clockCalled = !stopsTime});
 }
 
+std::vector<Frame> PresentationModel::celebrationFramesBeforeEvent() const {
+    return std::vector<Frame>(static_cast<std::size_t>(celebrationMenuCloseFrames + kCelebrationFanfareFrames),
+                              Frame{.clockCalled = true});
+}
+
 PresentationModel measuredPresentationModel(std::uint64_t seed) {
     return PresentationModel{.seed = seed,
                              .openingFramesBeforeClock = kMeasuredFramesBeforeClock,
                              .openingClockCalls = kMeasuredClockCalls,
                              .openingWaitsMissed = kMeasuredWaitsMissed,
+                             .celebrationMenuCloseFrames = 1,
                              .timerRunsOutAt = std::nullopt,
                              .runButtonsHeldFrom = std::nullopt};
 }
 
 PresentationModel drawPresentationModel(std::uint64_t seed, std::uint64_t framesAtMost) {
-    // The opening's counts are drawn from a place no script takes.
+    // The opening's counts are drawn from a place no script takes, and the celebration's from another.
     std::mt19937_64 random = generator(seed, ~std::uint64_t{0});
+    std::mt19937_64 celebration = generator(seed, ~std::uint64_t{1});
     PresentationModel model{.seed = seed,
                             .openingFramesBeforeClock = drawnUpTo(random, 2 * kMeasuredFramesBeforeClock),
                             .openingClockCalls = drawnUpTo(random, 2 * kMeasuredClockCalls),
                             .openingWaitsMissed = drawnUpTo(random, 2 * kMeasuredWaitsMissed),
+                            .celebrationMenuCloseFrames = 1 + drawnUpTo(celebration, kLongestMenuClose - 1),
                             .timerRunsOutAt = std::nullopt,
                             .runButtonsHeldFrom = std::nullopt};
     if (random() % kBattlesPerCountdown == 0 && framesAtMost > 0) {

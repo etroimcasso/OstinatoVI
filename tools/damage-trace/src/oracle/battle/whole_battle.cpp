@@ -207,10 +207,14 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
         return;
     }
     // The celebration (BtlGfx_08 :243-274): the party's running stops for the rest of the battle (:245),
-    // and, unless the fanfare is off (:248-250), battle event 1 plays — a script's frames, time stopped.
+    // and, unless the fanfare is off (:248-250), the menus close and two frames pass with the clock called
+    // (:246, :257-258), then battle event 1 plays — a script's frames, time stopped (:273, G:38208).
     if (call.command == kVictory) {
         run.runningStopped = true;
         if ((readByte(kFormationFlags) & kFanfareOffBit) == 0) {
+            for (const Frame frame : run.model.celebrationFramesBeforeEvent()) {
+                runFrame(frame);
+            }
             for (const Frame frame : run.model.scriptFrames(run.scripts++, true)) {
                 runFrame(frame);
             }

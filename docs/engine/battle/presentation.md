@@ -56,7 +56,8 @@ while (!shown.sceneClosed) {
 - Otherwise the monsters that have fallen fade out, and a monster back on the field is shown again.
 
 `battleInput(shown).presentationIdle` is false while anything is playing — a command, a queued
-script, a fade — so the battle loop waits for it; battle time runs throughout.
+script, a fade — so the battle loop waits for it. Battle time runs on every frame: what stops it — the
+opening, a battle event, the final battle's scroll — takes no frames here.
 
 `confirmPressed` is the player confirming a message that waits for a key; `awaitingKey(shown)` says
 whether one is waiting.
@@ -77,7 +78,8 @@ whether one is waiting.
 | `FormationChanges` | the new formation's monsters shown | none |
 | `MonstersEnterOrLeave` | the revived shown, or the hidden no longer shown | none |
 | `Wait` | nothing new | its `frames`, the frame it starts counting as the first |
-| `AttackAnimation`, `BattleEventPlays`, `MonsterAnimationPlays`, `ReflectedAttackShown`, `ScatteredHitsShown` | nothing | none |
+| `BattleEventPlays` of `kVictoryEvent` in a won battle's end — the celebration | nothing | `kCelebrationFramesBeforeEvent` (3) before the event: the menus closing, then two as the fanfare starts |
+| `AttackAnimation`, any other `BattleEventPlays`, `MonsterAnimationPlays`, `ReflectedAttackShown`, `ScatteredHitsShown` | nothing | none |
 
 The message time is `messageHoldFrames(context.messageSpeed)`: 32 frames at speed 0 up to 112 at
 speed 5, 64 at a new game's speed 2. A message that waited for a key closes the frame after the
@@ -149,6 +151,7 @@ const int step = battle::poseStep(shown.poseCounters[slot.position()]);
 |---|---|
 | Change how long a message stays up | `messageHoldFrames` ([../data-layer/battle-gfx-tables.md](../data-layer/battle-gfx-tables.md)); the special attack name's `kSpecialAttackNameFrames` in `presentation.h` |
 | Change what a script command shows | `startCommand()` in `src/battle/presentation.cpp` |
+| Change the celebration's frames | `kCelebrationMenuCloseFrames`, `kCelebrationFanfareFrames` in `presentation.h`; which script is the celebration's, `celebrates()` in `src/battle/presentation.cpp` |
 | Change how a message's text is read | `textSteps()` in `src/battle/presentation.cpp` |
 | Change a numeral's life or wait | `kDamageNumberLife`, `kSameTargetWaitFrames` in `presentation.h` |
 | Change the fade | `kDeathFadeFrames` in `presentation.h`; how it looks is `MonsterDeathFade` ([../rendering/battle.md](../rendering/battle.md)) |
