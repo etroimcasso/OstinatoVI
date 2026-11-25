@@ -723,7 +723,8 @@ allows), the party, the battle switches and the game's text, in the original's o
    for is its first stage (`:6078-6082`).
 2. The random numbers start at **four times the play clock's frames** (`:6088-6090`), the cell the
    graphics program's interrupt steps from 1 to 60 (below, "What the graphics program hands the
-   battle program"); `BattleState::playClockFrames` starts at it.
+   battle program"); `BattleState::playClockFrames` starts at it. The Chain Saw's entries are the
+   start's (`BattleStart::chainSawRollEntries`, below, "Random numbers").
 3. The formation (below).
 4. The party is placed (above, "Placing the party"): a final-battle stage, a colosseum match when
    the formation is one of the last two, or the current party; the formation's scripted setup, if
@@ -933,6 +934,9 @@ without `InitRAM`):
   characters in line in the empty ones. `InitBattle` seeds its random numbers from the play clock's
   frames as the stage's end left them (`:6088-6090`), and the frame counter counts on: the next stage
   starts from the stage's own `playClockFrames` and `frameCount`, the frames its end took included.
+  That seed is the position's own byte, written one byte wide (`shortai :6080`, `sta $be :6090`);
+  nothing in `InitBattle` writes the byte above it that the Chain Saw's roll also reads
+  (`:6053-6195`), so the stage keeps the stage before's `chainSawRollEntries`.
 
 ## A battle from a frame tick
 
@@ -996,6 +1000,14 @@ reads it (`Rand`); `below(n)` is the entry × *n* / 256, rounded down, and draws
 (`RandA`); `coin()` is the low bit (`RandCarry`); `pickFrom(set)` counts the set's members, draws
 `below(count)`, and takes that member counting the party's slots first (`RandBit`) — an empty set
 draws nothing. The position also moves on once per loop pass without drawing.
+
+`nextFrom(entries)` moves the position on one entry and reads `entries` there. It is `Rand` called with
+the index registers sixteen bits wide, which reads `RNGTbl + $bf × 256 + $be` (`:12378-12384`): the
+Chain Saw's draw alone (`ToolsEffect_03 :7127`, inside `CalcItemEffect`'s `longi` `:7015-7091`,
+`battle_commands.md`). `BattleStart::chainSawRollEntries` holds the 256 bytes the byte above the
+position picks — `kRngTableEntries`, the table's own, by default and while that byte is 0 — and the
+battle keeps them in `BattleState::chainSawRollEntries`, a later final-battle stage included, since no
+battle writes `$bf` (`docs/Bugs.md`).
 
 ## Version differences
 

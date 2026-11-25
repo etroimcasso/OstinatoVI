@@ -166,6 +166,7 @@ TEST(ItemAttack, EachToolAddsItsOwnEffect) {
 }
 
 TEST(ItemAttack, TheChainSawKillsOneTimeInFour) {
+    // With the RNG table's own entries, the battle's by default.
     BattleState state = toolBattle();
     rngWhere(state, {[](std::uint8_t r) { return (r & 0x03) == 0; }});
     const AttackInFlight kill = itemAttackOf(state, ItemId::CHAIN_SAW, ItemUse::ThrownOrWorked);
@@ -182,6 +183,24 @@ TEST(ItemAttack, TheChainSawKillsOneTimeInFour) {
     EXPECT_NE(cut.record.power, 0);
     EXPECT_FALSE(cut.record.traits.has(AttackTrait::INSTANT_DEATH));
     EXPECT_TRUE(cut.record.traits.has(AttackTrait::IGNORE_DEFENSE));
+}
+
+TEST(ItemAttack, TheChainSawRollsFromTheBattlesChainSawEntries) {
+    // ToolsEffect_03 :7127 calls Rand with the index registers sixteen bits wide (CalcItemEffect :7015,
+    // :7089-7091), so its roll is read past the RNG table whenever the byte above the position is not 0:
+    // the entry at the next position of BattleState::chainSawRollEntries.
+    BattleState state = toolBattle();
+    rngWhere(state, {[](std::uint8_t r) { return (r & 0x03) == 2; }});
+    state.chainSawRollEntries.fill(0x04);
+    const AttackInFlight kill = itemAttackOf(state, ItemId::CHAIN_SAW, ItemUse::ThrownOrWorked);
+    EXPECT_TRUE(kill.chainSawKill) << "the table's entry cuts, the given entry kills";
+
+    rngWhere(state, {[](std::uint8_t r) { return (r & 0x03) == 0; }});
+    const std::uint8_t before = state.rng.position();
+    state.chainSawRollEntries.fill(0x02);
+    const AttackInFlight cut = itemAttackOf(state, ItemId::CHAIN_SAW, ItemUse::ThrownOrWorked);
+    EXPECT_FALSE(cut.chainSawKill) << "the table's entry kills, the given entry cuts";
+    EXPECT_EQ(state.rng.position(), static_cast<std::uint8_t>(before + 1));
 }
 
 TEST(ItemAttack, EveryToolIsOneOfTheEight) {

@@ -14,6 +14,10 @@ namespace ostinato::trace::detail {
 
 std::uint8_t byte(std::mt19937& rng);
 
+// A generator for a draw that leaves `rng`'s own draws as they were: seeded from where `rng` stands
+// and `place`, with `rng` not moved on. Two places drawn from one standing give unrelated draws.
+std::mt19937 generatorOfItsOwn(const std::mt19937& rng, std::uint32_t place);
+
 // A party member's HP and MP never pass these.
 inline constexpr int kPartyMaxHp = 9999;
 inline constexpr int kPartyMaxMp = 999;

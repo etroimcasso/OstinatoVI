@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include "assets/rom_reader.h"
 #include "battle/battle_state.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
@@ -35,8 +36,11 @@ void giveTheCastRecords(StartScenario& scenario);
 // are drawn from 1 to 60, now and then any byte; for the attacks above, and half the time otherwise,
 // they are the first frames whose start the port makes that battle type (or a drawn one, or a
 // preemptive strike) when the formation allows it. The cast of any setup is given records
-// (giveTheCastRecords()).
-[[nodiscard]] StartScenario drawStartScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites);
+// (giveTheCastRecords()). The byte above the random numbers' position is 0 three starts in four and 1
+// to 255 otherwise, with the Chain Saw's entries it picks on `cartridge` (setByteAboveRngPosition()),
+// drawn from a generator of its own so the rest of the draw is what it would be without it.
+[[nodiscard]] StartScenario drawStartScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                                              const assets::HiRomImage& cartridge);
 
 // One line naming a start scenario's formation, the party played and its members, the play clock's
 // frames and what the field allows, for a report.

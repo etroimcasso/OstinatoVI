@@ -80,6 +80,13 @@ struct BattleStart {
     // numbers begin, and BattleState::playClockFrames counts on from it.
     std::uint8_t playTimeFrames = 0;
 
+    // The 256 entries the Chain Saw's kill rolls from. Its roll reads the RNG table at the battle's
+    // position plus 256 × a byte that sits above the position, which no battle writes and the field's
+    // dialog leaves its text's x position in: with that byte at 0 these are the table's own entries,
+    // and with any other N they are the cartridge's 256 bytes starting 256 × N past the table's start
+    // (assets::HiRomImage::readWithIndexHighByte()). The table's own by default.
+    RngEntries chainSawRollEntries = kRngTableEntries;
+
     // The presentation's frame count, a byte stepped every frame, when the battle starts:
     // BattleState::frameCount counts on from it, and battle time's first update waits on it.
     std::uint8_t frameCount = 0;

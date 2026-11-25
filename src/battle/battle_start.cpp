@@ -563,6 +563,7 @@ BattleState assembleBattle(const BattleStart& start, game::Party party, game::Ba
     }
 
     state.rng = BattleRng(static_cast<std::uint8_t>(start.playTimeFrames * 4));
+    state.chainSawRollEntries = start.chainSawRollEntries;
     state.playClockFrames = start.playTimeFrames;
     state.frameCount = start.frameCount;
     state.formation = chooseFormation(state, start.formation);
@@ -828,11 +829,14 @@ BattleState startNextFinalBattleStage(const BattleState& finished, const BattleR
     }
 
     // RestartBattle runs InitBattle again (:63-64): the next stage's random numbers start from the play
-    // clock's frames as the stage's end left them (:6088-6090), and the frame counter counts on.
+    // clock's frames as the stage's end left them (:6088-6090), and the frame counter counts on. The
+    // byte the Chain Saw's roll reads above the position is nothing the battle writes, so its entries
+    // go on.
     BattleStart nextStage = start;
     nextStage.formation = FormationRef::of(next);
     nextStage.playTimeFrames = finished.playClockFrames;
     nextStage.frameCount = finished.frameCount;
+    nextStage.chainSawRollEntries = finished.chainSawRollEntries;
     return assembleBattle(nextStage, handedBack.party, handedBack.switches, text, sprites, executor, &carry);
 }
 

@@ -99,6 +99,29 @@ TEST(BattleRng, ReadsTheNextTableEntry) {
     EXPECT_EQ(rng.position(), 43);
 }
 
+TEST(BattleRng, NextFromReadsTheEntriesItIsGivenAtTheNextPosition) {
+    // Rand, :12378-12384, called with the index registers sixteen bits wide (ToolsEffect_03 :7127 from
+    // CalcItemEffect :7015-7091): `inc $be` steps the position as a byte, and `ldx $be` reads both bytes.
+    battle::RngEntries entries{};
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        entries[i] = static_cast<std::uint8_t>(255 - i);
+    }
+    BattleRng rng(41);
+    EXPECT_EQ(rng.nextFrom(entries), 255 - 42);
+    EXPECT_EQ(rng.position(), 42);
+    BattleRng last(255);
+    EXPECT_EQ(last.nextFrom(entries), 255);
+    EXPECT_EQ(last.position(), 0);
+}
+
+TEST(BattleRng, TheTablesOwnEntriesAreWhatNextReads) {
+    for (int position = 0; position < 256; ++position) {
+        BattleRng fromEntries(static_cast<std::uint8_t>(position));
+        BattleRng fromTable(static_cast<std::uint8_t>(position));
+        EXPECT_EQ(fromEntries.nextFrom(battle::kRngTableEntries), fromTable.next()) << "position " << position;
+    }
+}
+
 TEST(BattleRng, BelowScalesTheEntry) {
     // RandA, :12390-12404: the entry times n, high byte.
     BattleRng rng(7);

@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <optional>
 #include <random>
@@ -29,8 +30,11 @@
 #include <vector>
 
 #include "assets/cartridge.h"
+#include "assets/rom_reader.h"
 #include "battle/action_queue.h"
 #include "battle/battle_end.h"
+#include "battle/battle_requests.h"
+#include "battle/battle_script.h"
 #include "battle/battle_state.h"
 #include "battle/commands.h"
 #include "battle/items_obtained.h"
@@ -43,6 +47,7 @@
 #include "retropp/vm.h"
 #include "scenarios/battle/battle_draw.h"
 #include "scenarios/battle/presentation_model.h"
+#include "scenarios/battle/start.h"
 #include "scenarios/battle/whole_battle.h"
 #include "scenarios/damage/damage.h"
 #include "items_obtained_test_support.h"
@@ -83,6 +88,7 @@ protected:
 
     static std::span<const std::uint8_t> image() { return assets::stripCopierHeader(*image_); }
     static const assets::IngestedContent& content() { return *content_; }
+    static assets::HiRomImage cartridge() { return assets::HiRomImage{image()}; }
 
     // The machine on the tick before the first fight in Narshe's battle program is entered, played from
     // power-on by first-fight.inputs.
@@ -266,7 +272,8 @@ TEST_F(BattleWholeOracleTest, ATailNoRecordCouldFillIsHandedBackAsItCame) {
         DamageOracle oracle{image()};
         ready(oracle);
         std::mt19937 rng{trace::kSweepSeed};
-        trace::BattleScenario scenario = trace::drawBattleScenario(rng, content().text, content().monsterSprites);
+        trace::BattleScenario scenario =
+            trace::drawBattleScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
         scenario.start.start.itemsObtainedTail = handed;
         const trace::BattleCheck check = oracle.checkBattle(scenario);
         EXPECT_EQ(check.differences, "") << trace::describe(scenario);
@@ -304,7 +311,8 @@ void expectTheCellReachesNothing(DamageOracle& oracle, const assets::IngestedCon
                                  std::uint8_t event, std::uint32_t at, const std::vector<std::uint8_t>& first,
                                  const std::vector<std::uint8_t>& second) {
     std::mt19937 rng{trace::kSweepSeed};
-    const trace::AimedBattle drawn = trace::drawAimedBattleScenario(rng, content.text, content.monsterSprites, aim);
+    const trace::AimedBattle drawn =
+        trace::drawAimedBattleScenario(rng, content.text, content.monsterSprites, oracle.cartridge(), aim);
     ASSERT_TRUE(drawn.reached) << "no battle of " << trace::kAimTries << " drawn reached " << trace::aimName(aim);
     const trace::PortBattle port = trace::portBattle(drawn.scenario, content.text, content.monsterSprites);
     const std::optional<std::size_t> step = stepBeforeTheEventIsQueued(port, event);
@@ -361,23 +369,32 @@ TEST_F(BattleWholeOracleTest, TheTargetsGausEventCopiesReachNothing) {
     });
 }
 
-// The morph laid on the sweep's first drawn battle that the port wins away from the colosseum, on its first
-// seated member: the meter `counter`, run down by kMorphSpeed on every time update, from a supply of
-// kMorphSupply (MorphLaid, scenarios/battle/whole_battle.h).
+// A morph is laid on a won battle's first seated member: the meter `counter`, run down by kMorphSpeed on
+// every time update, from a supply of kMorphSupply (MorphLaid, scenarios/battle/whole_battle.h).
 constexpr std::uint16_t kMorphSpeed = 0x0100;
 constexpr std::uint8_t kMorphSupply = 200;
 
-trace::BattleScenario aWonBattle(const assets::IngestedContent& content) {
+// A drawn battle and its number among the sweep's draws, counted from 0.
+struct DrawnBattle {
+    int number = 0;
+    trace::BattleScenario scenario;
+};
+
+// The first of the sweep's 100 drawn battles that the port wins away from the colosseum and that `suits`
+// takes, or nothing when none of them is. With no `suits`, the first won battle.
+std::optional<DrawnBattle> aWonBattle(
+    const assets::IngestedContent& content, const assets::HiRomImage& cartridge,
+    const std::function<bool(const trace::BattleScenario&)>& suits = [](const trace::BattleScenario&) { return true; }) {
     std::mt19937 rng{trace::kSweepSeed};
     for (int drawn = 0; drawn < 100; ++drawn) {
-        const trace::BattleScenario scenario = trace::drawBattleScenario(rng, content.text, content.monsterSprites);
+        const trace::BattleScenario scenario = trace::drawBattleScenario(rng, content.text, content.monsterSprites, cartridge);
         const trace::PortBattle port = trace::portBattle(scenario, content.text, content.monsterSprites);
         if (port.result && std::holds_alternative<battle::BattleWon>(port.result->outcome) && !port.steps.empty() &&
-            !port.steps.front().colosseum) {
-            return scenario;
+            !port.steps.front().colosseum && suits(scenario)) {
+            return DrawnBattle{.number = drawn, .scenario = scenario};
         }
     }
-    throw std::runtime_error("none of 100 drawn battles was won");
+    return std::nullopt;
 }
 
 trace::BattleScenario morphed(trace::BattleScenario scenario, std::uint16_t counter,
@@ -394,23 +411,39 @@ trace::BattleScenario morphed(trace::BattleScenario scenario, std::uint16_t coun
     throw std::runtime_error("the battle seats no party member");
 }
 
-// The wrap-up keeps the Morph supply as the meter stands (_c24903 :12064, SaveMorphCounter :1762-1771) and
-// then waits 32 frames with battle time running (:12076-12080, BtlGfx_01 btlgfx_main.asm:392-409); a meter
-// that runs out in them saves the supply again by a meter of nothing (DecMorphCounter :2815-2829). A won
-// battle laid with a morph whose meter runs out at the first time update of the wait.
-TEST_F(BattleWholeOracleTest, AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing) {
-    OSTINATO_SKIP_WHEN_BRIEF();
-    const trace::BattleScenario won = aWonBattle(content());
-    // The least meter still running as the wait begins: it runs out at the wait's first time update.
-    std::optional<trace::BattleScenario> scenario;
-    for (std::uint16_t updates = 1; updates < 0x100 && !scenario; ++updates) {
-        const trace::BattleScenario tried = morphed(won, static_cast<std::uint16_t>(updates * kMorphSpeed), content());
-        const trace::PortBattle port = trace::portBattle(tried, content().text, content().monsterSprites);
+// `won` laid with the least meter still running as the wrap-up's wait begins, so that it runs out at the
+// wait's first time update, or nothing when no meter of 1 to 255 time updates lasts that long. The search
+// runs the port's battle for each meter. A time update comes no sooner than two frames after the last
+// (UpdateBattleTime :2675-2681), so no meter it tries lasts to a wait that begins much past 510 frames of
+// battle time.
+std::optional<trace::BattleScenario> morphedToRunOutInTheWait(const trace::BattleScenario& won,
+                                                              const assets::IngestedContent& content) {
+    for (std::uint16_t updates = 1; updates < 0x100; ++updates) {
+        trace::BattleScenario tried = morphed(won, static_cast<std::uint16_t>(updates * kMorphSpeed), content);
+        const trace::PortBattle port = trace::portBattle(tried, content.text, content.monsterSprites);
         if (port.wrapUpWaitFrom && *port.wrapUpWaitFrom < port.morphed.size() && port.morphed[*port.wrapUpWaitFrom]) {
-            scenario = tried;
+            return tried;
         }
     }
-    ASSERT_TRUE(scenario.has_value()) << "no meter lasted to the wrap-up's wait";
+    return std::nullopt;
+}
+
+// The wrap-up keeps the Morph supply as the meter stands (_c24903 :12064, SaveMorphCounter :1762-1771) and
+// then waits 32 frames with battle time running (:12076-12080, BtlGfx_01 btlgfx_main.asm:392-409); a meter
+// that runs out in them saves the supply again by a meter of nothing (DecMorphCounter :2815-2829). The
+// battle is the first of the sweep's draws that the port wins away from the colosseum and that a meter of
+// the search lasts to the wait in, laid with the least such meter.
+TEST_F(BattleWholeOracleTest, AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    std::optional<trace::BattleScenario> scenario;
+    const std::optional<DrawnBattle> won =
+        aWonBattle(content(), cartridge(), [&](const trace::BattleScenario& drawn) {
+            scenario = morphedToRunOutInTheWait(drawn, content());
+            return scenario.has_value();
+        });
+    ASSERT_TRUE(won.has_value()) << "none of the 100 drawn battles is won away from the colosseum with a wrap-up "
+                                    "wait that a meter of 1 to 255 time updates lasts to";
+    RecordProperty("draw", won->number);
     RecordProperty("meter", scenario->firstStep.morph->counter);
     const trace::PortBattle port = trace::portBattle(*scenario, content().text, content().monsterSprites);
     ASSERT_TRUE(port.wrapUpWaitFrom.has_value());
@@ -434,7 +467,9 @@ TEST_F(BattleWholeOracleTest, AMorphRunningOutInTheWrapUpsWaitLeavesTheSupplyAtN
 // pair written 0 and 65,535 at the step before the Revert is made changes nothing.
 TEST_F(BattleWholeOracleTest, TheTargetsAMorphsRevertCopiesReachNothing) {
     OSTINATO_SKIP_WHEN_BRIEF();
-    const trace::BattleScenario scenario = morphed(aWonBattle(content()), 4 * kMorphSpeed, content());
+    const std::optional<DrawnBattle> won = aWonBattle(content(), cartridge());
+    ASSERT_TRUE(won.has_value()) << "none of the 100 drawn battles is won away from the colosseum";
+    const trace::BattleScenario scenario = morphed(won->scenario, 4 * kMorphSpeed, content());
     const trace::PortBattle port = trace::portBattle(scenario, content().text, content().monsterSprites);
     // The Revert is made and runs inside one loop step: the step before the first one that holds no morph.
     std::optional<std::size_t> step;
@@ -477,11 +512,12 @@ struct EmptySlotAtALaterStage {
 enum class RefreshEnds { OnASeatedMember, AnyWay };
 
 std::vector<EmptySlotAtALaterStage> battlesWithAnEmptySlotAtALaterStage(const assets::IngestedContent& content,
+                                                                        const assets::HiRomImage& cartridge,
                                                                         RefreshEnds ends = RefreshEnds::OnASeatedMember) {
     std::vector<EmptySlotAtALaterStage> found;
     std::mt19937 rng{trace::kSweepSeed};
     for (int drawn = 0; drawn < 100; ++drawn) {
-        const trace::AimedBattle battle = trace::drawBattle(rng, content.text, content.monsterSprites);
+        const trace::AimedBattle battle = trace::drawBattle(rng, content.text, content.monsterSprites, cartridge);
         if (battle.aim != trace::BattleAim::FinalStageScrolledOn || !battle.reached) {
             continue;
         }
@@ -561,7 +597,7 @@ enum class WrittenAt { TheStagesFirstStep, TheStagesSecondStep };
 // battle's end, so nothing the battle reads depends on what those cells held.
 void expectAnEmptySlotsRefreshReachesNothing(DamageOracle& oracle, const assets::IngestedContent& content,
                                              SlotWrites writes, WrittenAt at = WrittenAt::TheStagesSecondStep) {
-    const std::vector<EmptySlotAtALaterStage> battles = battlesWithAnEmptySlotAtALaterStage(content);
+    const std::vector<EmptySlotAtALaterStage> battles = battlesWithAnEmptySlotAtALaterStage(content, oracle.cartridge());
     ASSERT_FALSE(battles.empty()) << "no battle the sweep draws seats nobody in a slot at a later final stage";
     for (const EmptySlotAtALaterStage& battle : battles) {
         const std::size_t step = battle.firstStep + (at == WrittenAt::TheStagesSecondStep ? 1 : 0);
@@ -689,7 +725,7 @@ TEST_F(BattleWholeOracleTest, TheBlockAnEmptySlotsRefreshLeavesReachesNothing) {
         DamageOracle oracle{image()};
         ready(oracle);
         const std::vector<EmptySlotAtALaterStage> battles =
-            battlesWithAnEmptySlotAtALaterStage(content(), RefreshEnds::AnyWay);
+            battlesWithAnEmptySlotAtALaterStage(content(), oracle.cartridge(), RefreshEnds::AnyWay);
         ASSERT_TRUE(std::any_of(battles.begin(), battles.end(),
                                 [](const EmptySlotAtALaterStage& battle) { return battle.refreshEndsOnAnEmptySlot; }))
             << "no battle the sweep draws refreshes an empty slot last at a later final stage";
@@ -714,6 +750,56 @@ TEST_F(BattleWholeOracleTest, TheBlockAnEmptySlotsRefreshLeavesReachesNothing) {
     });
 }
 
+// Whether each Chain Saw the port's battle worked killed, in the order they were worked.
+std::vector<bool> chainSawKills(const trace::PortBattle& port) {
+    std::vector<bool> kills;
+    for (const battle::BattleRequest& request : port.requests) {
+        const auto* script = std::get_if<battle::RunBattleScript>(&request);
+        if (script == nullptr) {
+            continue;
+        }
+        for (const battle::BattleScriptCommand& command : script->commands) {
+            const auto* animation = std::get_if<battle::AttackAnimation>(&command);
+            const auto* what = animation != nullptr ? std::get_if<BattleCommandId>(&animation->what) : nullptr;
+            if (what != nullptr && *what == BattleCommandId::TOOLS && animation->item == ItemId::CHAIN_SAW) {
+                kills.push_back(animation->chainSawKill);
+            }
+        }
+    }
+    return kills;
+}
+
+// A draw of the sweep's whose Chain Saw kills otherwise with the byte above the random numbers' position at
+// 1 than at 0.
+constexpr int kChainSawDraw = 12;
+
+// The Chain Saw's roll reads the RNG table at the position plus 256 × the byte above it (Rand :12378-12384,
+// called with the index registers sixteen bits wide from ToolsEffect_03 :7127, CalcItemEffect :7015-7091).
+// Draw kChainSawDraw of the sweep's, whose Chain Saw rolls where the table and the 256 bytes past it differ
+// in their low two bits, started with the byte at 1: the cartridge and the port agree to the battle's end.
+TEST_F(BattleWholeOracleTest, AChainSawsRollWithTheByteAboveThePositionAtOneReadsPastTheTable) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        std::mt19937 rng{trace::kSweepSeed};
+        trace::BattleScenario pastTheTable;
+        for (int draw = 0; draw <= kChainSawDraw; ++draw) {
+            pastTheTable = trace::drawBattleScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
+        }
+        trace::BattleScenario inTheTable = pastTheTable;
+        trace::setByteAboveRngPosition(pastTheTable.start, oracle.cartridge(), 1);
+        trace::setByteAboveRngPosition(inTheTable.start, oracle.cartridge(), 0);
+        const std::vector<bool> kills = chainSawKills(trace::portBattle(pastTheTable, content().text, content().monsterSprites));
+        ASSERT_FALSE(kills.empty()) << "draw " << kChainSawDraw << " works no Chain Saw";
+        EXPECT_NE(kills, chainSawKills(trace::portBattle(inTheTable, content().text, content().monsterSprites)))
+            << "draw " << kChainSawDraw << "'s Chain Saw kills alike with the byte at 1 and at 0";
+        const trace::BattleCheck check = oracle.checkBattle(pastTheTable);
+        EXPECT_EQ(check.differences, "") << trace::describe(pastTheTable);
+        EXPECT_TRUE(check.cartridge.ended);
+    });
+}
+
 // Drawn battles with no player (trace::drawBattleScenario()), each the port's to its end, and between them
 // every row of the reach table taken: each part a member plays, and each way a battle ends.
 TEST_F(BattleWholeOracleTest, DrawnBattlesAreThePorts) {
@@ -724,7 +810,8 @@ TEST_F(BattleWholeOracleTest, DrawnBattlesAreThePorts) {
         ready(oracle);
         std::mt19937 rng{trace::kSweepSeed};
         for (int draw = 0; draw < kDrawnBattles; ++draw) {
-            const trace::BattleScenario scenario = trace::drawBattleScenario(rng, content().text, content().monsterSprites);
+            const trace::BattleScenario scenario =
+                trace::drawBattleScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
             const trace::BattleCheck check = oracle.checkBattle(scenario);
             EXPECT_EQ(check.differences, "") << "draw " << draw << ": " << trace::describe(scenario);
             if (check.differences.empty()) {

@@ -789,7 +789,8 @@ TEST_F(BattleStartOracleTest, DrawnStartsAreThePortsAndReachEveryRow) {
         ready(oracle);
         std::mt19937 rng{trace::kSweepSeed};
         for (int draw = 0; draw < kDrawnStarts; ++draw) {
-            const trace::StartScenario scenario = trace::drawStartScenario(rng, content().text, content().monsterSprites);
+            const trace::StartScenario scenario =
+                trace::drawStartScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
             const trace::StartCheck check = oracle.checkStart(scenario);
             EXPECT_EQ(check.differences, "") << "draw " << draw << ": " << trace::describe(scenario);
             if (check.cartridge.reachedTheLoop) {

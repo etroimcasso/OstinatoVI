@@ -16,7 +16,9 @@ namespace ostinato::battle {
 
 namespace {
 
-// Chain Saw kills outright one time in four: a draw whose low two bits are clear.
+// Chain Saw kills outright when its roll's low two bits are clear. The roll reads
+// BattleState::chainSawRollEntries, not the RNG table: one time in four only while those are the
+// table's own.
 constexpr std::uint8_t kChainSawKillBits = 0x03;
 
 // What a tool adds to the attack it makes. Bio Blaster and Flash cast their spells and never come
@@ -28,7 +30,7 @@ void addToolEffect(BattleState& state, AttackInFlight& attack, ItemId tool) {
         record.statuses.set(StatusId::CONFUSE);
         break;
     case ItemId::CHAIN_SAW:
-        if ((state.rng.next() & kChainSawKillBits) == 0) {
+        if ((state.rng.nextFrom(state.chainSawRollEntries) & kChainSawKillBits) == 0) {
             attack.chainSawKill = true;
             record.power = 0;
             record.statuses.set(StatusId::DEAD);

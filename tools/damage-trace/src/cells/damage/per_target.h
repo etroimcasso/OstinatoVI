@@ -26,6 +26,9 @@ inline constexpr std::uint32_t kCommand = kWorkRam + 0x00B5;
 inline constexpr std::uint32_t kAttackIndex = kWorkRam + 0x00B6;
 inline constexpr std::uint32_t kSecondary = kWorkRam + 0x00B7;
 inline constexpr std::uint32_t kRngPosition = kWorkRam + 0x00BE;
+// The byte above the position: Rand reads RNGTbl at both bytes when the index registers are sixteen
+// bits wide (:12378-12384), as the Chain Saw's roll calls it (ToolsEffect_03 :7127, CalcItemEffect :7015).
+inline constexpr std::uint32_t kAboveRngPosition = kWorkRam + 0x00BF;
 inline constexpr std::uint32_t kDamageModification = kWorkRam + 0x3414;
 inline constexpr std::uint32_t kGolemBlock = kWorkRam + 0x3A82;
 inline constexpr std::uint32_t kInterceptorBlock = kWorkRam + 0x3A83;

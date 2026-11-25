@@ -4,10 +4,18 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
+#include "retropp/memory_region.h"
+
+#include "assets/rom_reader.h"
 #include "battle/battle_hooks.h"
+#include "battle/battle_rng.h"
 #include "battle/battle_inventory.h"
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
@@ -15,9 +23,12 @@
 #include "battle/items_obtained.h"
 #include "battle/items_obtained.h"
 #include "data/monster_sprites.h"
+#include "data/rom_regions.h"
 #include "data/text_corpus.h"
 #include "game/battle_switches.h"
 #include "game/character_record.h"
+#include "ostinato/game_version.h"
+#include "ostinato/rom_asset.h"
 
 #include "scenarios/ending/rewards_shared.h"
 
@@ -43,6 +54,15 @@ std::string differences(const StartScenario& a, const StartScenario& b) {
     field("Shadow available", x.shadowAvailable, y.shadowAvailable);
     field("play clock's frames", x.playTimeFrames, y.playTimeFrames);
     field("frame count", x.frameCount, y.frameCount);
+    field("byte above the random numbers' position", a.byteAboveRngPosition, b.byteAboveRngPosition);
+    // The Chain Saw's entries, by the first that differs.
+    for (std::size_t entry = 0; entry < x.chainSawRollEntries.size(); ++entry) {
+        if (x.chainSawRollEntries[entry] != y.chainSawRollEntries[entry]) {
+            const std::string name = "Chain Saw's roll entry " + std::to_string(entry);
+            field(name.c_str(), x.chainSawRollEntries[entry], y.chainSawRollEntries[entry]);
+            break;
+        }
+    }
     for (std::size_t place = 0; place < x.itemsObtainedTail.size(); ++place) {
         const battle::ItemRecord& ours = x.itemsObtainedTail[place];
         const battle::ItemRecord& theirs = y.itemsObtainedTail[place];
@@ -88,6 +108,22 @@ std::string differences(const StartScenario& a, const StartScenario& b) {
     field("hours at the last save", p.playTimeAtLastSave.hours, q.playTimeAtLastSave.hours);
     field("minutes at the last save", p.playTimeAtLastSave.minutes, q.playTimeAtLastSave.minutes);
     return lines;
+}
+
+battle::RngEntries chainSawRollEntries(const assets::HiRomImage& cartridge, std::uint8_t byteAboveRngPosition) {
+    const std::optional<retropp::MemoryRegion> table = romRegion(RomAsset::RNG_TBL, Language::EN);
+    if (!table) {
+        throw std::logic_error("the US cartridges' RNG table has no place in the region table");
+    }
+    const std::span<const std::uint8_t> bytes = cartridge.readWithIndexHighByte(*table, byteAboveRngPosition);
+    battle::RngEntries entries{};
+    std::copy_n(bytes.begin(), entries.size(), entries.begin());
+    return entries;
+}
+
+void setByteAboveRngPosition(StartScenario& scenario, const assets::HiRomImage& cartridge, std::uint8_t byte) {
+    scenario.byteAboveRngPosition = byte;
+    scenario.start.chainSawRollEntries = chainSawRollEntries(cartridge, byte);
 }
 
 battle::BattleState portStart(const StartScenario& scenario, const TextCorpus& text, const MonsterSprites& sprites) {

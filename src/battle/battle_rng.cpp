@@ -9,6 +9,11 @@ std::uint8_t BattleRng::next() {
     return rngByte(position_);
 }
 
+std::uint8_t BattleRng::nextFrom(const RngEntries& entries) {
+    ++position_;
+    return entries[position_];
+}
+
 std::uint8_t BattleRng::below(std::uint8_t n) {
     return static_cast<std::uint8_t>((next() * n) >> 8);
 }

@@ -61,6 +61,7 @@ if (result.veldtFormation) { /* Gau can find this formation on the Veldt now */ 
 | `version` | the cartridge's `GameVersion` |
 | `playTimeFrames` | the play clock's frames, 1 to 60; the battle's random numbers start at four times it, and `BattleState::playClockFrames` counts on from it |
 | `frameCount` | the presentation's frame count, a byte stepped every frame; `BattleState::frameCount` counts on from it, and battle time's first update waits until it is two past 0 ([core.md](core.md)) |
+| `chainSawRollEntries` | the 256 entries the Chain Saw's kill rolls from ([core.md](core.md#random-numbers)): the RNG table's own (`kRngTableEntries`) by default, as a battle the world program starts has them (a world map encounter, a battle on a vehicle or on the Magitek train ride); for a battle the field starts, the cartridge's 256 bytes at the table's place plus 256 × the dialog's last x position (`assets::HiRomImage::readWithIndexHighByte()`) |
 | `itemsObtainedTail` | the last three places of the items obtained, which a battle's start does not empty: the last battle's `BattleResult::itemsObtainedTail` ([rewards.md](rewards.md#items-obtained)); empty when left as it is |
 
 The text is the game's (`TextCorpus`, from the cartridge): the monsters' names decide which share a
@@ -388,7 +389,8 @@ Reflect and Freeze timers, who is in the air and who has summoned carry on, the 
 each fighter faces while the new monsters are placed, and a fighter still in the air comes down as
 the stage opens. The items obtained carry on whole, both counts with them. The play clock counts on:
 the stage's random numbers start from `finished.playClockFrames` — the frames the stage's end took
-included — and its frame count from `finished.frameCount`, whatever `start.playTimeFrames` holds. The stage opens with `FormationChanges` — the background scrolls on and its
+included — and its frame count from `finished.frameCount`, whatever `start.playTimeFrames` holds. The
+Chain Saw rolls from `finished.chainSawRollEntries`, whatever `start.chainSawRollEntries` holds. The stage opens with `FormationChanges` — the background scrolls on and its
 monsters come in — and the loop waits for that script. The stage decides the same two sets the
 opening does: `monstersStanding` holds the new formation's monsters present, and a scripted setup's
 reach byte keeps the monsters it leaves out in `aiUntargetable`. It does not zero the equipment-change

@@ -15,6 +15,7 @@
 #include <variant>
 #include <vector>
 
+#include "battle/battle_inventory.h"
 #include "battle/battle_requests.h"
 #include "battle/battle_script.h"
 #include "battle/battle_start.h"
@@ -77,8 +78,12 @@ constexpr AttackId kTerrasSpell = AttackId::FIRE;
 enum class MemberPart : std::uint8_t { Berserk, Muddled, Waiting };
 constexpr unsigned kMemberParts = 3;
 constexpr unsigned kRageOrDanceOneIn = 3;
+// One battle in this many with a Muddled member gives that member Tools and the party a Chain Saw, drawn
+// from a generator of its own place.
+constexpr unsigned kChainSawOneIn = 2;
+constexpr std::uint32_t kChainSawPlace = 2;
 
-constexpr std::array<std::string_view, 15> kReachRows{{
+constexpr std::array<std::string_view, 16> kReachRows{{
     "a Berserk member",
     "a Muddled member",
     "a dancing member",
@@ -94,6 +99,7 @@ constexpr std::array<std::string_view, 15> kReachRows{{
     "Shadow walked off",
     "a story countdown ran out",
     "an ending a battle event or the story chose",
+    "a Chain Saw's roll past the table",
 }};
 
 enum ReachRow : std::size_t {
@@ -112,6 +118,7 @@ enum ReachRow : std::size_t {
     kShadowRow,
     kCountdownRow,
     kOtherEndingRow,
+    kChainSawPastTheTableRow,
 };
 
 constexpr std::string_view kTerrasEventName = "Terra's Magic and her event";
@@ -176,9 +183,53 @@ void giveTerraHerSpell(game::Party& party, game::CharacterRecord& terra, std::mt
     terra.maxMp = std::max(terra.maxMp, terra.mp);
 }
 
+// The first record of `parts` taking the Muddled part, other than `aimed`, given Tools in a slot holding
+// neither Rage nor Dance (a slot drawn from `rng`), and the party a Chain Saw as the only tool it owns: the
+// other tools taken out of the inventory, and the Chain Saw put in its first empty slot, or in place of a
+// drawn slot's item when none is empty. Nothing when no such record holds such a slot.
+void giveAMuddledMemberTheChainSaw(game::Party& party, const std::array<MemberPart, game::kCharacterRecords>& parts,
+                                   std::optional<std::size_t> aimed, std::mt19937& rng) {
+    for (std::size_t r = 0; r < parts.size(); ++r) {
+        if (parts[r] != MemberPart::Muddled || r == aimed) {
+            continue;
+        }
+        game::CharacterRecord& record = party.characters[r];
+        std::vector<std::size_t> free;
+        for (std::size_t slot = 0; slot < record.commands.size(); ++slot) {
+            if (record.commands[slot] != BattleCommandId::RAGE && record.commands[slot] != BattleCommandId::DANCE) {
+                free.push_back(slot);
+            }
+        }
+        if (free.empty()) {
+            continue;
+        }
+        if (std::find(record.commands.begin(), record.commands.end(), BattleCommandId::TOOLS) == record.commands.end()) {
+            record.commands[free[rng() % free.size()]] = BattleCommandId::TOOLS;
+        }
+        // The Chain Saw the only tool the party owns, so Tools works it.
+        for (game::InventorySlot& slot : party.inventory) {
+            if (battle::ToolSet::isTool(slot.item) && slot.item != ItemId::CHAIN_SAW) {
+                slot = game::InventorySlot{.item = ItemId::EMPTY, .quantity = 0};
+            }
+        }
+        const auto owned = std::find_if(party.inventory.begin(), party.inventory.end(), [](const game::InventorySlot& slot) {
+            return slot.item == ItemId::CHAIN_SAW;
+        });
+        if (owned == party.inventory.end()) {
+            const auto empty = std::find_if(party.inventory.begin(), party.inventory.end(), [](const game::InventorySlot& slot) {
+                return slot.item == ItemId::EMPTY;
+            });
+            game::InventorySlot& slot = empty != party.inventory.end() ? *empty : party.inventory[rng() % party.inventory.size()];
+            slot = game::InventorySlot{.item = ItemId::CHAIN_SAW, .quantity = 1};
+        }
+        return;
+    }
+}
+
 // One battle drawn whole from `rng`, given what `aim` needs.
-BattleScenario drawOnce(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites, BattleAim aim) {
-    BattleScenario scenario{.start = drawStartScenario(rng, text, sprites),
+BattleScenario drawOnce(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                        const assets::HiRomImage& cartridge, BattleAim aim) {
+    BattleScenario scenario{.start = drawStartScenario(rng, text, sprites, cartridge),
                             .model = {},
                             .firstStep = {},
                             .frameCap = kBattleFrameCap};
@@ -254,16 +305,14 @@ BattleScenario drawOnce(std::mt19937& rng, const TextCorpus& text, const Monster
         }
     }
 
-    // No Chain Saw in a battle with a Muddled member or a colosseum match, whose fighter picks commands the
-    // same way (RandCharAction :656-745, Tools among ConfusedCmdTbl's): its roll is read past the random
-    // numbers' table on the cartridge whenever the byte above their position is not zero (Rand :12378-12384
-    // with the index registers wide, from ToolsEffect_03 :7127), which the port does not reproduce.
-    if (colosseum || std::find(parts.begin(), parts.end(), MemberPart::Muddled) != parts.end()) {
-        for (game::InventorySlot& slot : party.inventory) {
-            if (slot.item == ItemId::CHAIN_SAW) {
-                slot = game::InventorySlot{.item = ItemId::EMPTY, .quantity = 0};
-            }
-        }
+    // A Muddled member picks a command among ConfusedCmdTbl's, Tools one of them, and Tools a tool the party
+    // owns (RandCharAction :656-745, RandTools :906-914). One battle in kChainSawOneIn with a Muddled member
+    // not aimed at something else gives them Tools, in a slot holding neither the Rage nor the Dance drawn
+    // for them, and the party a Chain Saw, so its roll comes up with the byte above the random numbers'
+    // position as the start drew it.
+    std::mt19937 chainSaw = generatorOfItsOwn(rng, kChainSawPlace);
+    if (oneIn(chainSaw, kChainSawOneIn)) {
+        giveAMuddledMemberTheChainSaw(party, parts, aimedRecord, chainSaw);
     }
 
     // The battle as it starts, for who is seated and which monsters are there.
@@ -321,14 +370,14 @@ bool portReaches(const BattleScenario& scenario, BattleAim aim, const TextCorpus
 }  // namespace
 
 AimedBattle drawAimedBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
-                                    BattleAim aim) {
+                                    const assets::HiRomImage& cartridge, BattleAim aim) {
     AimedBattle drawn{.aim = aim};
     if (aim == BattleAim::None) {
-        drawn.scenario = drawOnce(rng, text, sprites, aim);
+        drawn.scenario = drawOnce(rng, text, sprites, cartridge, aim);
         return drawn;
     }
     for (int tried = 0; tried < kAimTries; ++tried) {
-        drawn.scenario = drawOnce(rng, text, sprites, aim);
+        drawn.scenario = drawOnce(rng, text, sprites, cartridge, aim);
         if (portReaches(drawn.scenario, aim, text, sprites)) {
             drawn.reached = true;
             return drawn;
@@ -337,14 +386,16 @@ AimedBattle drawAimedBattleScenario(std::mt19937& rng, const TextCorpus& text, c
     return drawn;
 }
 
-AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
+AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                       const assets::HiRomImage& cartridge) {
     const unsigned pick = rng() % kAimOneIn;
     const BattleAim aim = pick < kSweepAims.size() ? kSweepAims[pick] : BattleAim::None;
-    return drawAimedBattleScenario(rng, text, sprites, aim);
+    return drawAimedBattleScenario(rng, text, sprites, cartridge, aim);
 }
 
-BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
-    return drawBattle(rng, text, sprites).scenario;
+BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                                  const assets::HiRomImage& cartridge) {
+    return drawBattle(rng, text, sprites, cartridge).scenario;
 }
 
 std::string_view aimName(BattleAim aim) {
@@ -423,6 +474,20 @@ std::vector<std::string_view> battleReached(const BattleScenario& scenario, cons
     }
     if (std::any_of(port.steps.begin(), port.steps.end(), [](const battle::BattleState& state) { return state.gauJoining; })) {
         reach(kGauRow);
+    }
+    // A Chain Saw worked with the byte above the random numbers' position not zero: its roll read past the
+    // table.
+    const auto chainSawWorked = [](const battle::BattleRequest& request) {
+        const auto* script = std::get_if<battle::RunBattleScript>(&request);
+        return script != nullptr &&
+               std::any_of(script->commands.begin(), script->commands.end(), [](const battle::BattleScriptCommand& command) {
+                   const auto* animation = std::get_if<battle::AttackAnimation>(&command);
+                   const auto* what = animation != nullptr ? std::get_if<BattleCommandId>(&animation->what) : nullptr;
+                   return what != nullptr && *what == BattleCommandId::TOOLS && animation->item == ItemId::CHAIN_SAW;
+               });
+    };
+    if (scenario.start.byteAboveRngPosition != 0 && std::any_of(port.requests.begin(), port.requests.end(), chainSawWorked)) {
+        reach(kChainSawPastTheTableRow);
     }
     if (!port.result) {
         return reached;

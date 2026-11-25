@@ -564,6 +564,10 @@ struct BattleState {
     GameVersion version = GameVersion::US_1_1;
     BattleConfig config;
     BattleRng rng;
+    // The entries the Chain Saw's kill rolls from (BattleRng::nextFrom()), from
+    // BattleStart::chainSawRollEntries: the RNG table's own while the byte the field leaves above
+    // the position is 0, the cartridge's bytes past the table otherwise.
+    RngEntries chainSawRollEntries = kRngTableEntries;
 
     // --- the lines --------------------------------------------------------------------------
     BattlerQueue advanceWaitQueue;  // waiting out the pause before acting

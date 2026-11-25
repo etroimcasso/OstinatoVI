@@ -32,7 +32,7 @@ namespace ostinato::trace {
 using namespace cells;
 using namespace routines;
 
-DamageOracle::DamageOracle(std::span<const std::uint8_t> image) {
+DamageOracle::DamageOracle(std::span<const std::uint8_t> image) : cartridge_(image) {
     machine_.hostRom(image);
     for (const RoutineOpening& routine : kOpenings) {
         const std::vector<std::uint8_t> bytes =

@@ -18,6 +18,12 @@ std::uint8_t byte(std::mt19937& rng) {
     return static_cast<std::uint8_t>(rng() & 0xFF);
 }
 
+std::mt19937 generatorOfItsOwn(const std::mt19937& rng, std::uint32_t place) {
+    std::mt19937 standing = rng;
+    std::seed_seq mixed{static_cast<std::uint32_t>(standing()), static_cast<std::uint32_t>(standing()), place};
+    return std::mt19937{mixed};
+}
+
 bool oneIn(std::mt19937& rng, unsigned n) {
     return rng() % n == 0;
 }

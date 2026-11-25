@@ -590,12 +590,18 @@ nothing where there is no cartridge to ask; a new test that asks only the cartri
 battle's start reads that the field sets first — the `battle::BattleStart` the port's own start takes,
 the party with the HP and MP boost bits the port keeps no field for, and the battle switches — and
 `writeStartScenario()` lays it into those cells: the formation, the background and the field's flags, the
-play clock's frames, the frame count, the story countdown's flag cleared, the battle settings and the spell order, the switches, the story's flags for
+play clock's frames, the frame count, the byte above the random numbers' position (`$00BF`,
+`StartScenario::byteAboveRngPosition`), the story countdown's flag cleared, the battle settings and the spell order, the switches, the story's flags for
 Shadow and Gau, the party played, the inventory, the play time at the last save, the last three places of
 the items obtained (`BattleStart::itemsObtainedTail`, as five-byte item records), and a colosseum match
 or the final battle's line of fighters. `readStartScenario()` reads them back, from a written machine or
 from one restored to the tick before a battle; `trace::differences()` names every field two scenarios
-part on. `battleStartAsItStands()` makes the same call from the cells as they stand.
+part on. `battleStartAsItStands()` makes the same call from the cells as they stand. The byte above the
+random numbers' position picks the 256 bytes the Chain Saw's roll reads, and `setByteAboveRngPosition()`
+sets it with the port's `BattleStart::chainSawRollEntries`, read from the hosted image at the RNG table's
+place plus 256 × the byte (`chainSawRollEntries()`, `DamageOracle::cartridge()`); `readStartScenario()`
+does the same. A drawn start holds 0 three times in four and 1 to 255 otherwise, from a generator of its
+own.
 
 While the battle program runs, its calls to the graphics program are answered as the reward routines'
 are, each with no frame and the battle's time stopped. The answer to the opening command, `$00`, also
@@ -702,11 +708,14 @@ a dance for them. The party's HP is cut now and then and every monster's HP is c
 `drawPresentationModel()`'s, and one with no story countdown of its own is given one running out between
 frames 8,000 and 12,000, so every drawn battle ends inside the frame cap; the drawn battle switches have the
 field's countdown already run out (`$1DD1` bit 5, which ends a battle at its first end check) one battle in
-eight. One battle in eight holds the run buttons from a drawn frame. A battle with a Muddled member, or a
-colosseum match, whose fighter picks commands the same way (`RandCharAction` `:656-745`), holds no Chain
-Saw: its roll reads the random numbers' table at a sixteen-bit position (`Rand` `:12378-12384` with
-the index registers wide, from `ToolsEffect_03` `:7127`), which the port does not reproduce.
-`drawBattleScenario()` is the same draw's battle alone.
+eight. One battle in eight holds the run buttons from a drawn frame. A Muddled member picks among
+`ConfusedCmdTbl`'s commands, Tools one of them, and Tools a tool the party owns (`RandCharAction`
+`:656-745`, `RandTools` `:906-914`): one battle in two with a Muddled member gives the first Muddled
+record not aimed at something else Tools, in a slot holding neither the Rage nor the Dance drawn for it,
+and makes the Chain Saw the only tool the party owns, from a generator of its own so the rest of the draw
+is what it would be without it. The Chain Saw's roll then reads the RNG table at the position plus 256 ×
+the byte the start drew above it (`Rand` `:12378-12384` with the index registers wide, from
+`ToolsEffect_03` `:7127`; `docs/Bugs.md`). `drawBattleScenario()` is the same draw's battle alone.
 
 Four rows of the reach table hang on the cartridge's own roll or on a chain no odds make likely, so one
 battle in ten is aimed at each of them (`BattleAim`). `drawAimedBattleScenario(rng, text, sprites, aim)`
@@ -729,7 +738,8 @@ so each character stays in one record and a scripted setup still finds its cast.
 the rows of its reach table (`battleReachRows()`) a checked battle took: the part each member took —
 Berserk, Muddled, dancing, raging, Umaro, a member whose menu is never answered, the colosseum — and how it
 ended — won, lost, fled, a final stage scrolled on, Gau turning up, Shadow walking off, a story countdown
-running out, or an ending a battle event or the story chose. After the table the sweep prints, for each
+running out, or an ending a battle event or the story chose — and a Chain Saw worked with the byte above
+the random numbers' position not 0, whose roll read past the table. After the table the sweep prints, for each
 aim, how many draws were aimed at it and how many missed; a row at zero with no misses beside it is one no
 draw was aimed at.
 
@@ -792,16 +802,17 @@ counts, that a script's frames come from its place and number 1 to 12, that the 
 at a time adds up to the same fight called once, and the first fight in Narshe, from its written scenario
 with the measured opening, run to its close with `checkBattle()` showing no difference: 7,012 loop steps,
 then the end's frames. It also runs the sweep's first drawn battle handed a tail of the items obtained no
-item's record could fill, and checks that both sides hand back every byte of it. The sweep's first drawn
-battle the port wins, laid with a morph under way whose meter runs out at the wrap-up wait's first time
-update (the least meter that lasts to the wait, found on the port's side), agrees to its close and leaves
-the kept Morph supply at 0 on both sides. Four tests prove a rule the carried-read gate passes a cell by:
+item's record could fill, and checks that both sides hand back every byte of it. The first of the sweep's
+drawn battles that the port wins away from the colosseum and that a meter of 1 to 255 time updates lasts
+to the wrap-up's wait in, laid with a morph under way whose meter runs out at the wait's first time update
+(the least meter that lasts to the wait, found on the port's side), agrees to its close and leaves the
+kept Morph supply at 0 on both sides; the test records the draw's number and the meter. Four tests prove a rule the carried-read gate passes a cell by:
 each runs a battle twice with the cell written two ways at a step's frame wait
 (`BattleScenario::cartridgeWrites`), expecting `checkBattle()` to show no difference both times —
 `$11A4` and `$00B7` on a battle aimed at Terra's Magic and her event, and `$B8-$B9` on one aimed at Gau
 turning up, each at the step before the battle event that matters is queued
-(`drawAimedBattleScenario()`); `$B8-$B9` again on the won battle laid with a morph whose meter runs out
-four time updates in, at the step before the step that holds no morph, the meter's Revert made and run
+(`drawAimedBattleScenario()`); `$B8-$B9` again on the sweep's first drawn battle the port wins away from
+the colosseum, laid with a morph whose meter runs out four time updates in, at the step before the step that holds no morph, the meter's Revert made and run
 between them.
 
 Five more prove what an empty party slot's refresh at a later final-battle stage writes reaches nothing
@@ -814,6 +825,10 @@ them: the slot's hands, command rows, `$3A21,x` and `$3330-$3331,x`. The fifth t
 step's refresh takes an empty slot, wherever it ends, and writes the whole block `$11A0-$11DE` at the
 stage's second step. Where a seated member was refreshed last, it writes the two cells the comparison
 holds as the port holds them. Each run agrees with the port to the battle's end.
+
+`AChainSawsRollWithTheByteAboveThePositionAtOneReadsPastTheTable` takes draw 12 of the sweep's, whose Chain
+Saw kills otherwise with the byte above the random numbers' position at 1 than at 0, starts it with the
+byte at 1, and checks it agrees with the port to its end.
 
 `DrawnBattlesAreThePorts` checks 100 battles of the sweep's draws (`drawBattleScenario()` from
 `kSweepSeed`) with `checkBattle()`, expecting no difference in any, and every row of the reach table
@@ -832,7 +847,8 @@ the targeting of the record loaded before it, an empty party slot's record offse
 byte with its top four bits turned over, the battle's flags at `$B1` (bit 1 the party cannot run, bit 2 a
 monster cannot be run from), the field's flags at `$11E4`, each battler's flags at `$3AA0`, `$3AA1`,
 `$3205` and `$3E4C` whole, the reach cells, the windows' wallpaper (`$2F34`, which a status change's
-carry out of the fourth equipment-change flag reaches), each seated member's record with the HP and MP boosts its
+carry out of the fourth equipment-change flag reaches), the byte above the random numbers' position (`$00BF`,
+the scenario's, which no step writes, while `checkStart()` or `checkBattle()` compares), each seated member's record with the HP and MP boosts its
 equipment gives in the top bits of its maximums, and the final battle's line with each place a stage
 took from holding `$FF` — and leaves out the cells no field decides: the hands and control menus of a
 slot with none, what a battler was last hit with before it has been hit, the places of a line's ring

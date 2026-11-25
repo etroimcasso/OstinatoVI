@@ -361,6 +361,12 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
     leaveOutBits(kSpellOrder, static_cast<std::uint8_t>(~kSpellOrderBits));
     layByteAsTheCartridgeHoldsIt(kSaveHours, state.party.playTimeAtLastSave.hours);
     layByteAsTheCartridgeHoldsIt(kSaveMinutes, state.party.playTimeAtLastSave.minutes);
+    // The byte above the random numbers' position, which the Chain Saw's roll reads (Rand :12378-12384,
+    // from ToolsEffect_03 :7127) and nothing in a battle writes: the scenario's, at every step. The port
+    // holds the entries it picks (BattleState::chainSawRollEntries).
+    if (byteAboveRngPosition_) {
+        layByteAsTheCartridgeHoldsIt(kAboveRngPosition, *byteAboveRngPosition_);
+    }
 
     const FormationAux& aux = getFormationAux(state.formation);
     layByteAsTheCartridgeHoldsIt(kFormationBytes, static_cast<std::uint8_t>(aux.entranceAndTypes ^ kFormationFirstByteToggled));

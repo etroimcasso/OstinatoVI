@@ -304,7 +304,7 @@ constexpr std::array<Sweep, 36> kSweeps{{
      }},
     {.name = "start",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
-         const trace::StartScenario s = trace::drawStartScenario(rng, oracle.text(), oracle.monsterSprites());
+         const trace::StartScenario s = trace::drawStartScenario(rng, oracle.text(), oracle.monsterSprites(), oracle.cartridge());
          trace::StartCheck check = oracle.checkStart(s);
          std::vector<std::string_view> reached;
          if (check.cartridge.reachedTheLoop) {
@@ -318,7 +318,7 @@ constexpr std::array<Sweep, 36> kSweeps{{
      .reach = trace::startReachRows},
     {.name = "battle",
      .draw = [](trace::DamageOracle& oracle, std::mt19937& rng) {
-         const trace::AimedBattle drawn = trace::drawBattle(rng, oracle.text(), oracle.monsterSprites());
+         const trace::AimedBattle drawn = trace::drawBattle(rng, oracle.text(), oracle.monsterSprites(), oracle.cartridge());
          const trace::BattleScenario& s = drawn.scenario;
          trace::BattleCheck check;
          try {

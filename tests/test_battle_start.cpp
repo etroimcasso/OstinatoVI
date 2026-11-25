@@ -616,6 +616,20 @@ TEST(StartBattle, TheRandomNumbersBeginAtFourTimesThePlayClocksFrames) {
     }
 }
 
+TEST(StartBattle, TheChainSawRollsFromTheEntriesTheBattleStartsWith) {
+    // The byte above the random numbers' position is the field's, and the Chain Saw's roll reads the table
+    // 256 × that byte past the position (Rand :12378-12384 from ToolsEffect_03 :7127): a start hands the
+    // battle the entries, the RNG table's own unless it says otherwise.
+    battle::NullExecutor executor;
+    battle::BattleStart start = startFor(findFormation(ordinary));
+    EXPECT_EQ(start.chainSawRollEntries, battle::kRngTableEntries);
+    EXPECT_EQ(battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor).chainSawRollEntries,
+              battle::kRngTableEntries);
+    start.chainSawRollEntries.fill(0x5A);
+    const BattleState state = battle::startBattle(start, threeMembers(), {}, noNames(), noSprites(), executor);
+    EXPECT_EQ(state.chainSawRollEntries, start.chainSawRollEntries);
+}
+
 TEST(StartBattle, ThePlayClockCountsOnFromTheFramesTheBattleStartsAt) {
     // :6088 reads the play clock's frames for the seed; the cell goes on being stepped by the
     // graphics program's interrupt (IncGameTime, menu_common.asm:3488-3519).
@@ -955,6 +969,23 @@ TEST(StartFinalBattle, TheNextStageKeepsTheStandingAndReplacesTheFallen) {
     EXPECT_EQ(arrives.monsters, next.alive.monstersOnly());
     EXPECT_TRUE(next.waitingForScript.has_value());
     for (const auto& battler : next.battlers) EXPECT_EQ(battler.gauge.meter(), 0xFF);
+}
+
+TEST(StartFinalBattle, TheNextStageKeepsTheChainSawsEntries) {
+    // RestartBattle runs InitBattle again (:63-64), which seeds the position's own byte, one byte wide
+    // (:6080, :6088-6090), and writes nothing to the byte above it that the Chain Saw's roll also reads
+    // (:6053-6195): the next stage rolls from the entries the stage before rolled from.
+    battle::NullExecutor executor;
+    battle::BattleStart start = finalBattle();
+    start.chainSawRollEntries.fill(0x11);
+    BattleState finished = battle::startBattle(start, sixInLine(), {}, noNames(), noSprites(), executor);
+    finished.chainSawRollEntries.fill(0x22);
+    finished.outcome = battle::BattleEnded{.reason = battle::BattleEndReason::FinalBattleNextStage,
+                                           .nextFormation = kFinalBattleFormations[1]};
+    const BattleState next =
+        battle::startNextFinalBattleStage(finished, battle::writeBack(finished), start, noNames(), noSprites(),
+                                          executor);
+    EXPECT_EQ(next.chainSawRollEntries, finished.chainSawRollEntries);
 }
 
 TEST(StartFinalBattle, TheNextStageStandsTheFormationsMonstersPresent) {

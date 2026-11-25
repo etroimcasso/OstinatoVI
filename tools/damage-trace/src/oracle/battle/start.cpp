@@ -165,7 +165,8 @@ namespace {
 // The field's cells a battle's start reads (battle/battle_main.asm InitBattle :6053-6195 and the
 // routines it calls): the formation asked for, the background and the field's flags (:6078,
 // LoadBattleProp :7940-7992); the play clock's frames (:6088); the frame count the clock's first
-// update waits on (UpdateBattleTime :2675-2681); the battle settings — wait mode and
+// update waits on (UpdateBattleTime :2675-2681); the byte above the random numbers' position, which
+// the Chain Saw's roll reads (Rand :12378-12384 from ToolsEffect_03 :7127); the battle settings — wait mode and
 // speed, the gauge, the spell order (:6108-6123, :14101); the battle switches (:6083-6087); the story's
 // flags for Shadow and Gau (:7775, :11958); the party played (:7761); the inventory (InitInventory
 // :13911-13956); the play time at the last save (:14189-14191); and a colosseum match or the final
@@ -216,6 +217,7 @@ void DamageOracle::writeStartScenario(const StartScenario& scenario) {
                                                                                     : available & ~kShadowAvailableBit));
     writeByte(kPlayClockFrames, start.playTimeFrames);
     writeByte(kFrameCounter, start.frameCount);
+    writeByte(kAboveRngPosition, scenario.byteAboveRngPosition);
     writeItemsObtainedTail(start.itemsObtainedTail);
     writeByte(kBattleSettings, static_cast<std::uint8_t>((start.config.waitMode ? kWaitModeBit : 0) |
                                                          (start.config.speedSetting & kSpeedBits)));
@@ -268,6 +270,7 @@ StartScenario DamageOracle::readStartScenario() {
     start.shadowAvailable = (readByte(kAvailableCharacters) & kShadowAvailableBit) != 0;
     start.playTimeFrames = readByte(kPlayClockFrames);
     start.frameCount = readByte(kFrameCounter);
+    setByteAboveRngPosition(s, cartridge_, readByte(kAboveRngPosition));
     start.itemsObtainedTail = readItemsObtainedTail();
     const std::uint8_t settings = readByte(kBattleSettings);
     start.config = battle::BattleConfig{.waitMode = (settings & kWaitModeBit) != 0,

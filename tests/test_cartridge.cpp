@@ -2,6 +2,7 @@
 //
 // Recognition and refusal are exercised with synthetic images. The install round-trip and the read
 // need a real cartridge, and a machine that cannot supply one fails rather than skipping.
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -13,6 +14,7 @@
 
 #include "assets/cartridge.h"
 #include "assets/rom_reader.h"
+#include "data/rng_table.h"
 #include "data/rom_regions.h"
 #include "ostinato/rom_identity.h"
 
@@ -233,6 +235,33 @@ TEST(HiRomImage, AnAddressBelowTheCartridgeIsRejected) {
     const assets::HiRomImage cartridge{image};
     EXPECT_THROW((void)cartridge.read({.at = 0x7E0000, .size = 1}), std::invalid_argument);
     EXPECT_FALSE(cartridge.contains({.at = 0x7E0000, .size = 1}));
+}
+
+TEST(HiRomImage, AnIndexHighByteMovesATablesRead256BytesAStep) {
+    // A table read by a byte position with the index sixteen bits wide reaches 256 × the high byte past its
+    // start (Rand battle_main.asm:12378-12384, `lda f:RNGTbl,x`), on into the next bank.
+    const auto image = countingImage();
+    const assets::HiRomImage cartridge{image};
+    const retropp::MemoryRegion table{.at = 0xC0FD00, .size = 256};
+    EXPECT_EQ(cartridge.readWithIndexHighByte(table, 0).data(), cartridge.read(table).data());
+    const auto four = cartridge.readWithIndexHighByte(table, 4);
+    EXPECT_EQ(four.data(), image.data() + 0xFD00 + 4 * 256);
+    EXPECT_EQ(four.size(), 256u);
+    const auto last = cartridge.readWithIndexHighByte(table, 255);
+    EXPECT_EQ(last.data(), image.data() + 0xFD00 + 255 * 256);
+    EXPECT_EQ(last.size(), 256u);
+}
+
+TEST(HiRomImage, TheRngTableReadWithAHighByteOfZeroIsTheTable) {
+    const std::vector<std::uint8_t> rom = test::vanillaRom();
+    const assets::HiRomImage cartridge{assets::stripCopierHeader(rom)};
+    const auto table = romRegion(RomAsset::RNG_TBL, Language::EN);
+    ASSERT_TRUE(table.has_value());
+    const auto entries = cartridge.readWithIndexHighByte(*table, 0);
+    ASSERT_EQ(entries.size(), kRngTable.size());
+    for (std::size_t i = 0; i < kRngTable.size(); ++i) {
+        EXPECT_EQ(entries[i], kRngTable[i].value) << "entry " << i;
+    }
 }
 
 TEST(HiRomImage, EveryShippedRegionIsInsideACartridge) {

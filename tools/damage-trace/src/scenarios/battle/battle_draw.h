@@ -2,11 +2,12 @@
 // the table of what each one took and how it ended.
 //
 //     std::mt19937 rng{seed};
-//     const AimedBattle drawn = drawBattle(rng, text, sprites);
+//     const AimedBattle drawn = drawBattle(rng, text, sprites, oracle.cartridge());
 //     const BattleCheck check = oracle.checkBattle(drawn.scenario);
 //     for (const std::string_view row : battleReached(drawn.scenario, check)) ++counts[row];
 //
-//     const AimedBattle terra = drawAimedBattleScenario(rng, text, sprites, BattleAim::TerrasMagicEvent);
+//     const AimedBattle terra =
+//         drawAimedBattleScenario(rng, text, sprites, oracle.cartridge(), BattleAim::TerrasMagicEvent);
 //     if (!terra.reached) { /* no try of kAimTries reached it: terra.scenario is the last drawn */ }
 #pragma once
 
@@ -18,6 +19,7 @@
 #include <string_view>
 #include <vector>
 
+#include "assets/rom_reader.h"
 #include "data/monster_sprites.h"
 #include "data/text_corpus.h"
 
@@ -50,16 +52,20 @@ struct AimedBattle {
 // member seated is one of — Berserk or Muddled (laid at the first loop step, FirstStepLaid), Umaro, or a
 // member whose menu opens and is never answered — or the start is a colosseum match, where the member
 // fights on their own. A Berserk member holds Rage among their commands now and then, and a Muddled one
-// Rage or Dance, so the battle begins a rage or a dance for them itself. The party's HP is cut now and
-// then, and every monster's HP is cut, so a battle is a few hundred frames. The frame model is
-// drawPresentationModel()'s, with a story countdown now and then, and the run buttons held from a drawn
-// frame one battle in eight. One battle in ten is aimed at each of a dancing member, Gau turning up, Shadow
-// walking off and a final stage scrolled on (drawAimedBattleScenario()).
-[[nodiscard]] AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites);
+// Rage or Dance, so the battle begins a rage or a dance for them itself. One battle in two with a Muddled
+// member gives the first Muddled record Tools and the party a Chain Saw as the only tool it owns, from a
+// generator of its own, so the Chain Saw's roll is reached with the byte above the random numbers' position
+// as the start drew it. The party's HP is cut now and then, and every monster's HP is cut, so a battle is a
+// few hundred frames. The frame model is drawPresentationModel()'s, with a story countdown now and then, and
+// the run buttons held from a drawn frame one battle in eight. One battle in ten is aimed at each of a
+// dancing member, Gau turning up, Shadow walking off and a final stage scrolled on
+// (drawAimedBattleScenario()).
+[[nodiscard]] AimedBattle drawBattle(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                                     const assets::HiRomImage& cartridge);
 
 // drawBattle()'s battle alone.
 [[nodiscard]] BattleScenario drawBattleScenario(std::mt19937& rng, const TextCorpus& text,
-                                                const MonsterSprites& sprites);
+                                                const MonsterSprites& sprites, const assets::HiRomImage& cartridge);
 
 // One battle drawn as drawBattle() draws one and given what `aim` needs, then drawn again whole — every
 // draw from `rng`, in order — until the port's own battle over it reaches the aim, at most kAimTries times.
@@ -78,7 +84,8 @@ struct AimedBattle {
 //     spell she can pay for, with battle switch 65 set.
 // BattleAim::None draws once.
 [[nodiscard]] AimedBattle drawAimedBattleScenario(std::mt19937& rng, const TextCorpus& text,
-                                                  const MonsterSprites& sprites, BattleAim aim);
+                                                  const MonsterSprites& sprites, const assets::HiRomImage& cartridge,
+                                                  BattleAim aim);
 
 // The reach table's row an aim is for; Terra's event, which is no row of it, is named as its own.
 [[nodiscard]] std::string_view aimName(BattleAim aim);
@@ -89,7 +96,8 @@ struct AimedBattle {
 
 // The rows of the battle sweep's reach table, in the order it prints them: each part a member took, then
 // each way a battle ended — won, lost, fled, a final stage scrolled on, Gau turning up, Shadow walking
-// off, a story countdown running out, and an ending a battle event or the story chose.
+// off, a story countdown running out, and an ending a battle event or the story chose — and a Chain Saw's
+// roll read past the RNG table.
 [[nodiscard]] std::span<const std::string_view> battleReachRows();
 
 // The rows `check`'s battle reached, from the scenario and the port's battle (the two sides having been

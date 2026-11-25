@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <optional>
 #include <stdexcept>
 #include <string>
 
@@ -45,6 +46,11 @@ StartCheck DamageOracle::checkStart(const StartScenario& scenario) {
     StartCheck check{.differences = {}, .cartridge = battleStart(scenario),
                      .port = portStart(scenario, corpus, monsterSprites())};
     std::string& lines = check.differences;
+    byteAboveRngPosition_ = scenario.byteAboveRngPosition;
+    struct HandBack {
+        std::optional<std::uint8_t>& aboveRngPosition;
+        ~HandBack() { aboveRngPosition.reset(); }
+    } handBack{byteAboveRngPosition_};
     if (!check.cartridge.reachedTheLoop) {
         lines += "the cartridge's start did not reach the loop's first frame wait\n";
         return check;

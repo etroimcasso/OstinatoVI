@@ -14,6 +14,7 @@
 #include <string_view>
 #include <vector>
 
+#include "assets/rom_reader.h"
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "data/battle_tables.h"
@@ -67,6 +68,10 @@ constexpr int kMaxItemQuantity = 99;
 constexpr int kSaveHoursMost = 99;
 constexpr int kSaveMinutesMost = 59;
 constexpr std::uint32_t kStepsMost = 9999999;
+// The byte above the random numbers' position: not zero one start in this many, drawn from its own place.
+constexpr unsigned kAboveRngPositionSetOneIn = 4;
+constexpr std::uint32_t kAboveRngPositionPlace = 1;
+constexpr int kByteMost = 255;
 
 // The formation's possible battle types, as ChooseBattleType tests them (battle_main.asm:7556-7578).
 constexpr std::uint8_t kFrontBit = 0x10;
@@ -338,8 +343,14 @@ void giveTheCastRecords(StartScenario& scenario) {
     }
 }
 
-StartScenario drawStartScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites) {
+StartScenario drawStartScenario(std::mt19937& rng, const TextCorpus& text, const MonsterSprites& sprites,
+                                const assets::HiRomImage& cartridge) {
     StartScenario s;
+    // The byte above the random numbers' position, from a generator of its own so every other draw is
+    // what it would be without it: 0 three times in four, 1 to 255 otherwise.
+    std::mt19937 above = generatorOfItsOwn(rng, kAboveRngPositionPlace);
+    setByteAboveRngPosition(
+        s, cartridge, oneIn(above, kAboveRngPositionSetOneIn) ? static_cast<std::uint8_t>(1 + upTo(above, kByteMost - 1)) : 0);
     for (std::uint8_t& variable : s.switches.variables) {
         variable = byte(rng);
     }

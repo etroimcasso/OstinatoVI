@@ -31,6 +31,11 @@ consumption pattern belong to the battle/field consumers that use the table.
 Because the parameter is `uint8_t`, every argument value is in range by
 construction; there is no bounds check to fail.
 
+The battle's Chain Saw reads its number from 256 bytes that start 256 × N bytes
+past the table, N a byte the field leaves above the cursor; those come from the
+player's cartridge, not from this table
+([../battle/core.md](../battle/core.md#random-numbers)).
+
 ## Backing data / where to change
 
 Rows live in `src/data/generated/rng_tbl_data.inc` as

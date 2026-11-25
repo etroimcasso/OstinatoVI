@@ -40,6 +40,18 @@ public:
     // on past it. Throws as read() does for an address outside the cartridge.
     [[nodiscard]] std::span<const std::uint8_t> readToEnd(std::uint32_t at) const;
 
+    // What a table read by a byte position reaches when the position is read sixteen bits wide and
+    // its high byte is `highByte`: as many bytes as `table` holds, starting 256 × `highByte` past
+    // its start. With a `highByte` of 0 it is read(table). The Chain Saw's roll reads the RNG table
+    // this way (battle::BattleStart::chainSawRollEntries):
+    //
+    //     const auto table = romRegion(RomAsset::RNG_TBL, Language::EN);
+    //     std::span<const std::uint8_t> entries = cartridge.readWithIndexHighByte(*table, 4);
+    //
+    // Throws as read() does.
+    [[nodiscard]] std::span<const std::uint8_t> readWithIndexHighByte(const retropp::MemoryRegion& table,
+                                                                      std::uint8_t highByte) const;
+
 private:
     std::span<const std::uint8_t> image_;
 };

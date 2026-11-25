@@ -556,11 +556,22 @@ undead and resurrection targeting.
 
 Every item: Inviz Edge (`$ae`) adds Vanish, Shadow Edge (`$af`) Image (`:7064-7073`). A tool (type
 0): not ignore defense, dodgeable, hit rate `+21`, and by `(item − $a3) & 7` (`ToolsEffectTbl`):
-Noiseblaster's status-2 byte becomes Confuse; Chain Saw on a draw with its low two bits clear — one
-in four — becomes the kill: tools animation 8, power 0, Dead, the stamina save alone (`$11a4 = $10`),
-instant death; Chain Saw and Drill ignore defense; Debilitator `$56`; Air Anchor `$57`; Auto
-Crossbow unsplit. Every type-0 item is one of the eight tools from `$a3` to `$aa`, so the `& 7` never
-aliases.
+Noiseblaster's status-2 byte becomes Confuse; Chain Saw on a draw with its low two bits clear becomes
+the kill: tools animation 8, power 0, Dead, the stamina save alone (`$11a4 = $10`), instant death;
+Chain Saw and Drill ignore defense; Debilitator `$56`; Air Anchor `$57`; Auto Crossbow unsplit. Every
+type-0 item is one of the eight tools from `$a3` to `$aa`, so the `& 7` never aliases.
+
+The Chain Saw's draw (`ToolsEffect_03 :7127`) is the one `Rand` call made with the index registers
+sixteen bits wide: `CalcItemEffect` widens them (`longi` `:7015`) and calls the tool's effect before its
+`plp` (`:7089-7091`). `Rand` (`:12378-12384`) steps `$be` as a byte and loads `ldx $be`, so the draw
+reads `RNGTbl + $bf × 256 + $be` — the table while `$bf` is 0, and otherwise 256 bytes of the cartridge
+from `$bf × 256` past the table's start (up to `$C1:FCFF`). Nothing in the battle program writes `$bf`;
+the field's dialog keeps its text's x position there (`field/text.asm:54-55`, `:135-158`, `:955-958`,
+`:973-974`, `:1005-1006`), and a battle the world program starts has it at 0 (`InitHWRegs`,
+`world/init.asm:1403-1407`; the calls at `world/move.asm:882-908`, `world/world_start.asm:156-164` and
+`:569-577`). The kill is one in four only with the table's entries. The port rolls with
+`BattleRng::nextFrom(BattleState::chainSawRollEntries)`, the entries `BattleStart::chainSawRollEntries`
+hands the battle (`docs/Bugs.md`).
 
 ### Magic and the commands that cast
 

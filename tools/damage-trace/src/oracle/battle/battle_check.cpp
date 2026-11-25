@@ -222,14 +222,17 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     WholeBattleResult cartridgeRun = wholeBattle(scenario, portRun.facings);
     BattleCheck check{.differences = {}, .cartridge = std::move(cartridgeRun), .port = std::move(portRun)};
     facingsHandedOver_ = true;
+    byteAboveRngPosition_ = scenario.start.byteAboveRngPosition;
     struct HandBack {
         bool& handed;
         bool& fromAnEmptySlot;
+        std::optional<std::uint8_t>& aboveRngPosition;
         ~HandBack() {
             handed = false;
             fromAnEmptySlot = false;
+            aboveRngPosition.reset();
         }
-    } handBack{facingsHandedOver_, lastAttackFromAnEmptySlot_};
+    } handBack{facingsHandedOver_, lastAttackFromAnEmptySlot_, byteAboveRngPosition_};
     std::string& lines = check.differences;
     const WholeBattleResult& cartridge = check.cartridge;
     const PortBattle& port = check.port;

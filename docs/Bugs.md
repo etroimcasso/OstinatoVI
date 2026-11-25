@@ -1267,3 +1267,51 @@ are item 0's in every place.
 **If you want to change it.** Passing over a slot with no one in it before its flag is read, in
 `applyEquipmentChanges()`, leaves an empty slot's flag set and draws its menu no more than any other
 step does.
+
+---
+
+## The Chain Saw takes its kill roll from past the random number table
+
+**What happens.** The Chain Saw is meant to kill outright one time in four: on a random number whose low
+two bits are clear. It takes that number from 256 × N bytes past the start of the random number table,
+where N is the byte the field's dialog keeps its text's x position in. That byte is 0 when the console is
+switched on. Each dialog, each new line and each new page set it to 4, and each letter adds its width. A
+map's title sets it to the title's centering. So a battle the field starts after any dialog has been shown rolls
+the Chain Saw from 256 other bytes of the cartridge: at 4, the battle graphics program's code from
+`$C1:0100`. The chance of a kill is whatever share of those bytes has its low two bits clear. A battle
+the world program starts — an encounter on the world map, a battle on a vehicle, one on the Magitek
+train ride — runs on the world program's own direct page, which that program clears each time it starts,
+so there the roll comes from the table. In the shipped game the byte holds 4 as the first fight in
+Narshe starts, and 4 again as the battle after it starts.
+
+**Where the original does it.** `Rand` (`battle/battle_main.asm:12378-12384`) steps the position at `$BE`
+with `inc $be` and loads it with `ldx $be`, and sets no register width. `CalcItemEffect` widens the index
+registers (`:7015`) and calls the tool's effect before it narrows them (`jsr (ToolsEffectTbl,x)` `:7089`,
+the `plp` at `:7091`). The Chain Saw's effect is `jsr Rand` (`ToolsEffect_03` `:7127`), so there
+`ldx $be` loads `$BE` and `$BF` together and `lda f:RNGTbl,x` reads `RNGTbl + $BF × 256 + $BE`. The
+position still steps as a byte. Nothing in the battle program writes `$BF`. The field writes it as its
+dialog's x position (`InitDlgText`, `field/text.asm:54-55`; `ShowMapTitle` `:135-158`; `DrawDlgText`
+`:955-958`; `NewLine` `:973-974`; `NewPage` `:1005-1006`), and `ExecBattle` calls the battle on the field's
+direct page (`field/battle.asm:69-80`). The world program clears its direct page from `$19` up
+(`InitHWRegs`, `world/init.asm:1403-1407`) and calls the battle on it from three places: an encounter
+(`world/move.asm:882-908`), a vehicle's battle (`world/world_start.asm:156-164`) and the Magitek train
+ride's (`:569-577`).
+
+**Where the port keeps it.** `addToolEffect()` in `src/battle/item_attack.cpp` rolls the Chain Saw with
+`BattleRng::nextFrom(state.chainSawRollEntries)` (`src/battle/battle_rng.h`), which steps the position as
+`next()` does and reads the entries it is given. `BattleStart::chainSawRollEntries` hands the battle its
+entries, and a later stage of the final battle keeps them. They are the cartridge's 256 bytes at the
+table's place plus 256 × the byte, read with `assets::HiRomImage::readWithIndexHighByte()`
+(`src/assets/rom_reader.h`); left as they are, they are the table's own (`kRngTableEntries`), as a battle
+the world program starts has them. `tests/test_item_attack.cpp`
+(`ItemAttack.TheChainSawRollsFromTheBattlesChainSawEntries`), `tests/test_battle_state.cpp`
+(`BattleRng.NextFromReadsTheEntriesItIsGivenAtTheNextPosition`), `tests/test_battle_start.cpp`
+(`StartBattle.TheChainSawRollsFromTheEntriesTheBattleStartsWith`,
+`StartFinalBattle.TheNextStageKeepsTheChainSawsEntries`) and `tests/test_cartridge.cpp`
+(`HiRomImage.TheRngTableReadWithAHighByteOfZeroIsTheTable`) pin it, and
+`tests/oracle/test_battle_whole_oracle.cpp`
+(`BattleWholeOracleTest.AChainSawsRollWithTheByteAboveThePositionAtOneReadsPastTheTable`) pins it against
+the cartridge.
+
+**If you want to change it.** Rolling with `state.rng.next()` in `addToolEffect()` takes the Chain Saw's
+number from the table in every battle, one kill in four.

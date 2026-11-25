@@ -12,6 +12,13 @@
 //     auto target = rng.pickFrom(aliveMonsters);
 //
 // The position is a byte: its width is the table's length, and wrapping is how the table repeats.
+//
+// One roll reads other entries: the Chain Saw's kill (battle/item_attack.cpp) reads the 256 bytes
+// that lie 256 × N bytes past the table's start, where N is a byte the field leaves above the
+// position — the table itself while N is 0. nextFrom() steps the same position and reads such a
+// set of entries instead:
+//
+//     std::uint8_t roll = rng.nextFrom(state.chainSawRollEntries);
 #pragma once
 
 #include <array>
@@ -20,9 +27,22 @@
 #include <optional>
 
 #include "battle/battler_set.h"
+#include "data/rng_table.h"
 #include "ostinato/random_threshold.h"
 
 namespace ostinato::battle {
+
+// 256 bytes a roll reads by the position: entry i is what a roll at position i returns.
+using RngEntries = std::array<std::uint8_t, 256>;
+
+// The RNG table's own entries, in position order: what next() reads.
+inline constexpr RngEntries kRngTableEntries = [] {
+    RngEntries entries{};
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        entries[i] = kRngTable[i].value;
+    }
+    return entries;
+}();
 
 class BattleRng {
 public:
@@ -36,6 +56,10 @@ public:
 
     // The next entry: 0-255.
     std::uint8_t next();
+
+    // Move on one entry, as next() does, and return the entry of `entries` at the new position.
+    // With kRngTableEntries it is next().
+    std::uint8_t nextFrom(const RngEntries& entries);
 
     // A number from 0 to n - 1: the next entry scaled by n / 256. Always draws, even for n of 1,
     // and returns 0 for n of 0.

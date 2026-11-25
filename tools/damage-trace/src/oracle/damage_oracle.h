@@ -51,6 +51,7 @@
 #include "retropp/run_loop.h"
 #include "retropp/vm.h"
 
+#include "assets/rom_reader.h"
 #include "battle/ai.h"
 #include "battle/ai_conditions.h"
 #include "battle/ai_targets.h"
@@ -330,6 +331,10 @@ public:
     // was handed none.
     [[nodiscard]] const MonsterSprites& monsterSprites() const;
     [[nodiscard]] const TextCorpus& text() const;
+
+    // The image the oracle hosts, read as the cartridge addresses it: where a drawn scenario takes the
+    // Chain Saw's entries from (setByteAboveRngPosition()). The image must outlive the oracle.
+    [[nodiscard]] const assets::HiRomImage& cartridge() const { return cartridge_; }
 
     // The cartridge's start over `scenario` (battleStart()) against the port's (portStart()): the
     // cells compared (compareBattleState()), then the three gates — every cell the start wrote is
@@ -779,6 +784,9 @@ private:
     // While checkBattle() lays a step whose last attack's level and physical bit an empty party slot's
     // equipment refresh left ($11AF, $11A2 bit 0): the state laid leaves the two out.
     bool lastAttackFromAnEmptySlot_ = false;
+    // While checkStart() or checkBattle() compares: the scenario's byte above the random numbers'
+    // position ($00BF), which no step writes, laid at every step.
+    std::optional<std::uint8_t> byteAboveRngPosition_;
     // A whole battle's last accesses by the battle program, a ring, for naming the reader of a carried read.
     struct RecentAccess {
         std::uint32_t cell = 0;
@@ -813,6 +821,7 @@ private:
     bool beyondArmed_ = false;
     const MonsterSprites* monsterSprites_ = nullptr;
     const TextCorpus* text_ = nullptr;
+    assets::HiRomImage cartridge_;
     // While layState() lays a state out: the cells laid, instead of writing the machine.
     LaidState* capture_ = nullptr;
     const BattleCells* positionsFrom_ = nullptr;  // while layState() captures against a cartridge

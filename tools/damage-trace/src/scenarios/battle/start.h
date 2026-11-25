@@ -8,7 +8,9 @@
 #include <string>
 #include <vector>
 
+#include "assets/rom_reader.h"
 #include "battle/battle_inventory.h"
+#include "battle/battle_rng.h"
 #include "battle/battle_start.h"
 #include "battle/battle_state.h"
 #include "battle/items_obtained.h"
@@ -27,7 +29,20 @@ struct StartScenario {
     battle::BattleStart start;
     PartyCells cells;
     game::BattleSwitches switches;
+    // The byte above the random numbers' position, $00BF: the field's dialog leaves its text's x
+    // position there, and no battle writes it. start.chainSawRollEntries are the cartridge's bytes it
+    // picks (chainSawRollEntries()); setByteAboveRngPosition() sets the two together.
+    std::uint8_t byteAboveRngPosition = 0;
 };
+
+// The 256 entries the Chain Saw's roll reads with `byteAboveRngPosition` above the random numbers'
+// position: the RNG table's place on `cartridge` plus 256 × the byte.
+[[nodiscard]] battle::RngEntries chainSawRollEntries(const assets::HiRomImage& cartridge,
+                                                     std::uint8_t byteAboveRngPosition);
+
+// `byte` above the random numbers' position in `scenario`, and the Chain Saw's entries it picks on
+// `cartridge`.
+void setByteAboveRngPosition(StartScenario& scenario, const assets::HiRomImage& cartridge, std::uint8_t byte);
 
 // The battle's cells, $7E:0000-3FFF, one byte per cell.
 using BattleCells = std::array<std::uint8_t, 0x4000>;

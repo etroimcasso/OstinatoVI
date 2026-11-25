@@ -22,7 +22,7 @@ changing the code.
 | `src/battle/action_executor.h` | `ActionExecutor`, `NullExecutor` |
 | `src/battle/battle_requests.h` | `BattleRequest` |
 | `src/battle/battle_script.h` | `BattleScriptCommand`, `BattleScriptBuilder` ([commands.md](commands.md)) |
-| `src/battle/battle_rng.h` | `BattleRng`, `pickWeighted()` |
+| `src/battle/battle_rng.h` | `BattleRng`, `RngEntries`, `kRngTableEntries`, `pickWeighted()` |
 | `src/battle/player_intake.h` | `PlayerAction`, `takePlayerActions()` |
 | `src/battle/battle_clock.cpp` | battle time |
 | `src/battle/battle_loop.cpp` | the battle loop |
@@ -380,6 +380,18 @@ until the party is handed back.
 `pickFrom(set)` (one member, the party's counted first; an empty set draws nothing). The loop moves
 the position on by one entry per step without drawing, so tests set `state.rng = BattleRng(position)`
 to fix what a battle will draw.
+
+`nextFrom(entries)` steps the same position and reads a `RngEntries` (256 bytes, by position) instead
+of the table. The Chain Saw's kill rolls this way, from `state.chainSawRollEntries`: the original reads
+its number 256 × N bytes past the table's start, where N is a byte the field's dialog leaves above the
+position, so the entries are the table's own (`kRngTableEntries`) only while N is 0. The battle takes
+them from `BattleStart::chainSawRollEntries` ([start.md](start.md)), and nothing in a battle changes
+them. The original's behavior is in [`docs/Bugs.md`](../../Bugs.md).
+
+```cpp
+state.chainSawRollEntries.fill(0x04);   // every roll's low two bits clear: every Chain Saw kills
+std::uint8_t roll = state.rng.nextFrom(state.chainSawRollEntries);
+```
 
 `pickWeighted(rng, weights, offered)` picks one of four choices by a row of `kRandomBitRates`: each
 offered choice reaches its weight + 1 further along a running byte total, and one draw below that

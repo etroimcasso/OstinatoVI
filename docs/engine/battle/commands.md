@@ -146,7 +146,7 @@ itemAttack(state, attack, user, ItemId::DIRK, ItemUse::ThrownOrWorked);
 |---|---|
 | a consumable | not physical; its record's healing (restore HP, restore MP, remove status, fractional damage, harm the undead), statuses and use effect. One that works on the dead raises them |
 | a thrown weapon | a physical blow at the item's battle power, with the thrower's vigor and level |
-| a tool | as a thrown weapon, but dodgeable, at the tool's hit rate, taking defense into account, plus its own effect: Noiseblaster confuses, Chain Saw kills one time in four, Drill ignores defense, Debilitator and Air Anchor carry their effect, Auto Crossbow is unsplit |
+| a tool | as a thrown weapon, but dodgeable, at the tool's hit rate, taking defense into account, plus its own effect: Noiseblaster confuses, Chain Saw kills when its roll's low two bits are clear (one time in four with the RNG table's own entries; the roll reads `BattleState::chainSawRollEntries`, [core.md](core.md#random-numbers)), Drill ignores defense, Debilitator and Air Anchor carry their effect, Auto Crossbow is unsplit |
 
 Every item attack ignores Reflect; all but a tool also ignore defense and cannot be dodged. Unless
 it raises the dead or turns its target to stone or a zombie, it reaches only the living, and is not

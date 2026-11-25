@@ -120,7 +120,16 @@ its banks straight onto the image, so an address becomes an offset by arithmetic
 is the only place in the port that does arithmetic on a cartridge address. `read` takes a
 region; `readToEnd` takes an address and gives everything from it to the end of the image,
 for the one read that begins inside a family and runs on past it (a battle background's map
-graphics block).
+graphics block). `readWithIndexHighByte(table, n)` gives as many bytes as `table` holds from
+256 × `n` past its start: what a table read by a byte position reaches when the position is read
+sixteen bits wide with `n` as its high byte. The battle's Chain Saw reads the RNG table that way
+([../battle/core.md](../battle/core.md#random-numbers)):
+
+```cpp
+const auto table = romRegion(RomAsset::RNG_TBL, Language::EN);
+const std::uint8_t dialogX = 4;   // where the field's dialog left its text
+std::span<const std::uint8_t> entries = cartridge.readWithIndexHighByte(*table, dialogX);
+```
 
 The one thing a plain read cannot reach is a compressed family: the battle backgrounds'
 tilemaps and graphics are unpacked by the cartridge's own routine, placed on a machine the

@@ -17,6 +17,9 @@ constexpr std::uint32_t kBankIndexMask = 0x3F;
 constexpr unsigned kBankShift = 16;
 constexpr std::uint32_t kOffsetInBankMask = 0xFFFF;
 
+// An index's high byte counts in steps of 256 bytes.
+constexpr std::uint32_t kIndexHighByteStep = 0x100;
+
 std::string describe(std::uint32_t address) {
     static constexpr char kDigits[] = "0123456789ABCDEF";
     std::string text = "$";
@@ -65,6 +68,13 @@ std::span<const std::uint8_t> HiRomImage::readToEnd(std::uint32_t at) const {
                                 std::to_string(image_.size()) + "-byte image");
     }
     return image_.subspan(offset);
+}
+
+std::span<const std::uint8_t> HiRomImage::readWithIndexHighByte(const retropp::MemoryRegion& table,
+                                                                 std::uint8_t highByte) const {
+    retropp::MemoryRegion reached = table;
+    reached.at = table.at + highByte * kIndexHighByteStep;
+    return read(reached);
 }
 
 }  // namespace ostinato::assets
