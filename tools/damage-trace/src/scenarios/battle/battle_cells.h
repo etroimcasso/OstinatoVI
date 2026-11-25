@@ -68,7 +68,7 @@ struct CellsLeftAsTheMachineHasThem {
     const char* why = "";
     bool startOnly = false;
 };
-inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMachineHasThem{{
+inline constexpr std::array<CellsLeftAsTheMachineHasThem, 21> kCellsLeftAsTheMachineHasThem{{
     {.at = 0x7E01FE, .count = 2, .why = "the return landing the engine plants for the call, read by its last rts"},
     {.at = 0x7E01EE, .count = 8,
      .why = "the return landing the engine plants for a graphics command the oracle runs inside a call, read by "
@@ -79,9 +79,6 @@ inline constexpr std::array<CellsLeftAsTheMachineHasThem, 22> kCellsLeftAsTheMac
     {.at = 0x7E2F41,
      .why = "the byte after the win's gold total, which the total's 16-bit increment of its third byte reads and puts "
             "back; six monsters' gold never carries out of the third byte"},
-    {.at = 0x7E2E74,
-     .why = "an empty item's targeting, which the item record leaves as it was and the list copies; a place whose "
-            "item is empty is never read past its item"},
     {.at = 0x7E00EB,
      .why = "the top byte of the multiply's scratch, which every shift of it (3 to 6 steps) moves out unread"},
     {.at = 0x7E00F3,

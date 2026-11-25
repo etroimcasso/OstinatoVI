@@ -61,8 +61,6 @@ namespace {
 constexpr std::uint32_t kMorphMeterShown = kWorkRam + 0x3B04;
 constexpr std::uint32_t kPartyMemberBit = kWorkRam + 0x3A20;
 constexpr std::uint32_t kEndingFlags = kWorkRam + 0x00B1;
-// The record the battle program hands an item to the graphics program in.
-constexpr std::uint32_t kItemHandedOver = kWorkRam + 0x2E72;
 // The party slots' bits of the byte marking who holds an item.
 constexpr std::uint8_t kHoldingItemBits = 0x0F;
 // Per party slot at twice the slot: the party member's actor and record (a byte each, none
@@ -286,6 +284,8 @@ void DamageOracle::writeEndingScenario(const EndingScenario& scenario) {
     writeByte(kEndingFlags, state.menusDisabled ? kMenusClosedBit : 0);
     writeInventory(state.inventory.items);
     writeItemsObtained(state.itemsObtained);
+    writeByte(kLastRecordTargeting,
+              state.inventory.lastRecordTargeting ? state.inventory.lastRecordTargeting->bits : kNoRecordMadeYet);
 
     // The rest of the battle as the win, the loss and the write-back read it.
     std::array<std::uint8_t, kActorsWithABattler> actorsBattler{};

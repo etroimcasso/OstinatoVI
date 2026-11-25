@@ -71,12 +71,21 @@ struct BattleInventory {
     std::array<BattleItem, 4> weaponHands{};  // by party slot
     std::array<BattleItem, 4> shieldHands{};
     ToolSet tools;
+    // The targeting of the last item the battle made a record for, none until it has made one. The
+    // record made for no item (itemRecordFor() in battle/items_obtained.h with ItemId::EMPTY) carries
+    // it. loadBattleInventory() makes the records in this order — each shield hand from the last party
+    // slot down, then each weapon hand, then the inventory from its last slot down — so as the battle
+    // starts it is the targeting of the item in the first slot that holds one; obtainItem() makes one
+    // for each item obtained.
+    std::optional<Targeting> lastRecordTargeting;
 };
 
 // The battle's view of one item, for the party as it stands in `state`.
 BattleItem battleItem(const BattleState& state, ItemId item, std::uint8_t quantity);
 
-// Build the battle inventory from the party's inventory and what each party member holds.
+// Build the battle inventory from the party's inventory and what each party member holds, and set
+// BattleInventory::lastRecordTargeting from the records it makes. A party slot with no one in it holds
+// nothing in either hand.
 void loadBattleInventory(BattleState& state);
 
 // Note what the party knows of its other abilities for the battle's menus: how many swdtechs and

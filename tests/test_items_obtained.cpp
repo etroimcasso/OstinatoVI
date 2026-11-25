@@ -447,6 +447,33 @@ TEST(ItemRecord, EveryItemTheBattleWorksOutRoundTripsThroughItsRecord) {
     }
 }
 
+TEST(ItemRecord, TheRecordForNoItemCarriesTheLastRecordsTargeting) {
+    // LoadItemProp :13987-13994: the flags $80 and the fifth byte $FF are written first, then the item;
+    // for $FF it returns before the targeting is written, so the record keeps the last one's.
+    BattleState state;
+    state.inventory.lastRecordTargeting = Targeting{0x29};
+    EXPECT_EQ(battle::itemRecordFor(state, ItemId::EMPTY, 1), (ItemRecord{0xFF, 0x80, 0x29, 1, 0xFF}));
+}
+
+TEST(ItemRecord, BeforeAnyRecordTheRecordForNoItemCarriesTheStartsFill) {
+    // InitBattle's fill writes $FF over $7E:2000-$341F (:6063-6067), the targeting's cell among them.
+    const BattleState state;
+    EXPECT_EQ(battle::itemRecordFor(state, ItemId::EMPTY, 1), (ItemRecord{0xFF, 0x80, 0xFF, 1, 0xFF}));
+}
+
+TEST(ItemRecord, AnItemObtainedIsTheLastRecordMadeAndNoItemLeavesIt) {
+    // Each item obtained has its record made by LoadItemProp (the prize :15305, a drop :15519, a hand
+    // :16178), which writes its targeting; the colosseum's prize when there is none writes no targeting.
+    BattleState state = battleWith({});
+    const std::uint8_t ether = itemOf(ItemId::ETHER, 1).targeting.bits;
+    battle::obtainItem(state, ItemId::ETHER, 2);
+    ASSERT_TRUE(state.inventory.lastRecordTargeting.has_value());
+    EXPECT_EQ(state.inventory.lastRecordTargeting->bits, ether);
+    battle::obtainItem(state, ItemId::EMPTY, 1);
+    EXPECT_EQ(state.itemsObtained.entries[1], (ItemRecord{0xFF, 0x80, ether, 1, 0xFF}));
+    EXPECT_EQ(state.inventory.lastRecordTargeting->bits, ether);
+}
+
 TEST(ItemRecord, ThePowerOnTailIsReadFromTheTitleProgram) {
     // The list's fourteenth place, $7E:602D + 65, less where the title program is laid, $7E:5000.
     std::vector<std::uint8_t> program(0x106E + 15, 0);

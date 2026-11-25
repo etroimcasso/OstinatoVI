@@ -67,6 +67,24 @@ void loadBattleInventory(BattleState& state) {
         inventory.items[slot] = battleItem(state, held.item, held.quantity);
         inventory.tools.add(held.item);
     }
+
+    // The records in the order InitInventory makes them (battle_main.asm:13914-13941); a record for no
+    // item leaves the targeting as it was (LoadItemProp :13992-13994).
+    inventory.lastRecordTargeting.reset();
+    const auto made = [&](const BattleItem& item) {
+        if (item.item != ItemId::EMPTY) {
+            inventory.lastRecordTargeting = item.targeting;
+        }
+    };
+    for (int position = kPartySlots - 1; position >= 0; --position) {
+        made(inventory.shieldHands[static_cast<std::size_t>(position)]);
+    }
+    for (int position = kPartySlots - 1; position >= 0; --position) {
+        made(inventory.weaponHands[static_cast<std::size_t>(position)]);
+    }
+    for (std::size_t slot = inventory.items.size(); slot-- > 0;) {
+        made(inventory.items[slot]);
+    }
 }
 
 void loadKnownSkills(BattleState& state) {

@@ -891,6 +891,47 @@ TEST(BattleInventory, ThePartysItemsAndEachMembersHandsAndTheToolsOwned) {
     EXPECT_EQ(state.inventory.weaponHands[1].item, ItemId::EMPTY);
 }
 
+Targeting targetingOf(ItemId item) { return getItemProperties(item).targeting; }
+
+TEST(BattleInventory, TheLastRecordMadeAsTheBattleStartsIsTheFirstInventorySlotHoldingAnItem) {
+    // InitInventory :13914-13941 makes the shield hands' records, the weapon hands', then the
+    // inventory's from slot 255 down; each record for an item writes its targeting (LoadItemProp
+    // :13999-14000) and a record for no item leaves it (:13992-13994).
+    ASSERT_NE(targetingOf(ItemId::POTION).bits, targetingOf(ItemId::MEGALIXIR).bits);
+    BattleState state = battleWithParty({CharacterPropId::EDGAR});
+    state.party.characters[0].weapon = ItemId::DIRK;
+    state.party.characters[0].shield = ItemId::BUCKLER;
+    state.party.inventory[0] = {.item = ItemId::EMPTY, .quantity = 0};
+    state.party.inventory[2] = {.item = ItemId::POTION, .quantity = 5};
+    state.party.inventory[7] = {.item = ItemId::MEGALIXIR, .quantity = 1};
+    battle::placeParty(state, {});
+    battle::loadBattleInventory(state);
+    ASSERT_TRUE(state.inventory.lastRecordTargeting.has_value());
+    EXPECT_EQ(state.inventory.lastRecordTargeting->bits, targetingOf(ItemId::POTION).bits);
+}
+
+TEST(BattleInventory, WithNothingInTheInventoryTheLastRecordMadeIsTheFirstSlotsWeaponHand) {
+    // The weapon hands are made after the shield hands, slot 3 down to slot 0 (:13926-13934); a member
+    // with no weapon makes a record for no item and leaves the targeting as the slot above left it.
+    ASSERT_NE(targetingOf(ItemId::DIRK).bits, targetingOf(ItemId::BUCKLER).bits);
+    BattleState state = battleWithParty({CharacterPropId::EDGAR, CharacterPropId::LOCKE});
+    state.party.inventory.fill({.item = ItemId::EMPTY, .quantity = 0});
+    state.party.characters[0].weapon = ItemId::EMPTY;
+    state.party.characters[0].shield = ItemId::BUCKLER;
+    state.party.characters[1].weapon = ItemId::DIRK;
+    state.party.characters[1].shield = ItemId::EMPTY;
+    battle::placeParty(state, {});
+    battle::loadBattleInventory(state);
+    ASSERT_TRUE(state.inventory.lastRecordTargeting.has_value());
+    EXPECT_EQ(state.inventory.lastRecordTargeting->bits, targetingOf(ItemId::DIRK).bits);
+
+    // Holding nothing at all, the battle has made no record for an item.
+    state.party.characters[0].shield = ItemId::EMPTY;
+    state.party.characters[1].weapon = ItemId::EMPTY;
+    battle::loadBattleInventory(state);
+    EXPECT_FALSE(state.inventory.lastRecordTargeting.has_value());
+}
+
 TEST(KnownSkills, CountsDancesAndRagesUpTo254) {
     // InitSkills :14473-14513.
     BattleState state;

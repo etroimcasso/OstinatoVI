@@ -33,6 +33,14 @@ inline constexpr std::uint8_t kGauMayAppearBit = 0x01;
 inline constexpr std::uint8_t kOnTheVeldtBit = 0x02;
 inline constexpr std::uint32_t kFormationBytes = kWorkRam + 0x2F48;
 inline constexpr std::uint32_t kRecordBytes = battle::kItemRecordBytes;
+// The record LoadItemProp makes, from which each record it makes is copied (battle_main.asm:13964-14037);
+// its targeting byte is the last record made for an item's (BattleInventory::lastRecordTargeting), which
+// a record made for no item leaves in place (:13992-13994).
+inline constexpr std::uint32_t kItemHandedOver = kWorkRam + 0x2E72;
+inline constexpr std::uint32_t kLastRecordTargeting = kItemHandedOver + 2;
+// What the targeting holds before any record for an item is made: the start's fill (InitBattle
+// :6063-6067).
+inline constexpr std::uint8_t kNoRecordMadeYet = 0xFF;
 // The items obtained, five-byte records from $7E:602D. The opening empties the first 64 bytes, every item
 // byte of the first thirteen places (btlgfx_main.asm:2472-2480, which stops short of the list's 80 bytes).
 inline constexpr std::uint32_t kItemsObtainedRecords = kWorkRam + 0x602D;

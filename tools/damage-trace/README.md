@@ -521,7 +521,10 @@ bytes, the item record at `$7E:2E72` and the four message variables — and the 
 screen or the sound return at once. Command `$05` (an item added to the items obtained) and command `$0A`
 (those items merged into the inventory) run as the cartridge holds them, each found through the
 cartridge's own table of graphics commands at `$C1:0008`. A message is compared on the numbers its text
-shows.
+shows. Each place of the items obtained is compared every byte, an empty place too, since a battle hands
+its last three on as they stand; an inventory slot is compared as a `battle::BattleItem` holds it. The
+ending's scenario lays the last record's targeting at `$7E:2E74`
+(`BattleInventory::lastRecordTargeting`), which a colosseum win with no prize records.
 
 `--replay-traced` also traces the traced routines' calls and endings in each draw and replays them
 against the port, as `tests/oracle/test_trace_replay.cpp`, `tests/oracle/test_status_oracle.cpp`,
@@ -843,7 +846,9 @@ AI's, the scripts' and the ending's — with what those writers also lay of an a
 script or a message left out: a writer lays those through `writeInFlightByte()` and its kin, and only
 `writeByte()` and its kin lay the state. A last pass, `writeStateAsTheCartridgeHoldsIt()`, lays the
 cells where the cartridge holds the state its own way — an empty inventory record or hand, which keeps
-the targeting of the record loaded before it, an empty party slot's record offset, the formation's first
+the targeting of the record loaded before it, the last record's targeting at `$2E74`
+(`BattleInventory::lastRecordTargeting`, left out when the start read an empty party slot's hands and no
+inventory item came after them), an empty party slot's record offset, the formation's first
 byte with its top four bits turned over, the battle's flags at `$B1` (bit 1 the party cannot run, bit 2 a
 monster cannot be run from), the field's flags at `$11E4`, each battler's flags at `$3AA0`, `$3AA1`,
 `$3205` and `$3E4C` whole, the reach cells, the windows' wallpaper (`$2F34`, which a status change's

@@ -270,7 +270,16 @@ result.itemsObtainedTail[0] == leftThere;   // every bit
 
 `obtainItem()` writes an item's record as the battle works it out, `itemRecordFor(state, item, quantity)`:
 `battleItem()`'s, with the fifth byte `0xFF` for an item of a type no hand check is made for (armor, a hat, a
-relic, a tool). `battleItemFromRecord()` and `recordOf()` turn a record into the `BattleItem` an inventory
+relic, a tool). Each record for an item also sets `state.inventory.lastRecordTargeting`, and the record
+for `ItemId::EMPTY` — a colosseum win with no prize — carries it: the empty item, flags `0x80`, that
+targeting (`0xFF` before the battle has made a record for an item), the quantity, and `0xFF`:
+
+```cpp
+state.inventory.lastRecordTargeting = Targeting{0x29};
+battle::obtainItem(state, ItemId::EMPTY, 1);   // {0xFF, 0x80, 0x29, 1, 0xFF}; the merge stops on it
+```
+
+`battleItemFromRecord()` and `recordOf()` turn a record into the `BattleItem` an inventory
 slot holds, and back. A merge reads a place into a slot that way, so a slot filled from a place no record made keeps only
 what a `BattleItem` holds: the flags' low three bits and the fifth byte's high four do not reach it.
 

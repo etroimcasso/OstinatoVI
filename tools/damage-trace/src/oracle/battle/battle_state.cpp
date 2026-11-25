@@ -220,6 +220,13 @@ void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& st
             leaveOut(at + kRecordTargeting, 1);
         }
     }
+    // The targeting the last record made for an item left, which a record made for no item carries: the
+    // port's, unless the start read an empty party slot's hands and no item in the inventory came after.
+    const std::optional<Targeting>& last = state.inventory.lastRecordTargeting;
+    layByteAsTheCartridgeHoldsIt(kLastRecordTargeting, last ? last->bits : kNoRecordMadeYet);
+    if (!targeting) {
+        leaveOut(kLastRecordTargeting, 1);
+    }
 
     for (int position = 0; position < battle::kPartySlots; ++position) {
         const battle::BattlerSlot slot = battle::BattlerSlot::character(position);

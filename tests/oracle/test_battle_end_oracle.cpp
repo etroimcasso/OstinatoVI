@@ -294,6 +294,28 @@ TEST_F(BattleEndOracleTest, TheWinByHand) {
     });
 }
 
+TEST_F(BattleEndOracleTest, AColosseumWinWithNoPrizeRecordsTheLastRecordsTargetingAsTheFourteenthItem) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    // WinBattle :15300-15306 obtains the prize whatever it is; LoadItemProp returns for $FF before it
+    // writes the targeting (:13992-13994), so the record carries the last one's, and its fifth byte is
+    // the $FF written first (:13989-13990). As the fourteenth item it lands in a place the battle hands
+    // back, and the merge stops on it.
+    EndingScenario s = byHand();
+    s.state.colosseum = true;
+    s.state.colosseumPrize = std::nullopt;
+    s.state.itemsObtained = battle::itemsObtainedAtBattleStart(battle::kEmptyItemsObtainedTail);
+    s.state.itemsObtained.added = 13;
+    s.state.itemsObtained.merged = 13;
+    const std::uint8_t potion = itemOf(ItemId::POTION, 1).targeting.bits;
+    s.state.inventory.lastRecordTargeting = Targeting{potion};
+    const trace::EndingResult port = trace::portWin(s);
+    EXPECT_EQ(port.itemsObtained.entries[13], (battle::ItemRecord{0xFF, 0x80, potion, 1, 0xFF}));
+    withStartedOracle(image(), [&](DamageOracle& oracle) {
+        EXPECT_EQ(trace::differences(port, oracle.win(s)), "");
+        expectEveryReadWritten(oracle, "the win with no prize");
+    });
+}
+
 TEST_F(BattleEndOracleTest, TheLossByHand) {
     OSTINATO_SKIP_WHEN_BRIEF();
     const EndingScenario s = byHand();

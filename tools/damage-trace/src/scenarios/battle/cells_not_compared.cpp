@@ -106,9 +106,13 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
      .why = "the damage numerals each script shows, written for it (:16313)"},
     {.at = kWorkRam + 0x2C6E, .count = 0x200,
      .why = "the scripts' parameter blocks and command queue, written for each script before it is shown"},
-    {.at = kWorkRam + 0x2E72, .count = 6,
-     .why = "the record LoadItemProp builds, copied into the list it is building before anything else reads it "
-            "(:13987-13994)"},
+    {.at = kWorkRam + 0x2E72, .count = 2,
+     .why = "the item and flags of the record LoadItemProp makes, written for every record (:13987-13992) and "
+            "copied out before anything else reads them (CopyItemProp :13968-13971, the prize :15305-15306, a drop "
+            ":15519-15523, a hand :16178-16181); its targeting, $2E74, is compared"},
+    {.at = kWorkRam + 0x2E75, .count = 3,
+     .why = "the quantity and the fifth byte of the record LoadItemProp makes, each written for every record before "
+            "it is copied (:13916, :13937, :15302, :15521, :16180; :13990, :14033), and the byte after it"},
     {.at = kWorkRam + 0x2E78, .count = 0x30,
      .why = "the party's HP, MP and statuses for the graphics program, written from the battlers (:15262)"},
     {.at = kWorkRam + 0x2EA8, .count = 4, .why = "the start's fill; named by no instruction of the battle program"},

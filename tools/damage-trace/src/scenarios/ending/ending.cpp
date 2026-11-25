@@ -47,11 +47,8 @@ using namespace detail;
 
 namespace {
 
-// A record as the comparison reads it: an empty one by its item alone.
-std::string recordText(const battle::ItemRecord& record) {
-    if (battle::itemIn(record) == ItemId::EMPTY) {
-        return "empty";
-    }
+// A record, every byte.
+std::string bytesText(const battle::ItemRecord& record) {
     std::string text;
     for (const std::uint8_t b : record) {
         char hex[4];
@@ -62,12 +59,26 @@ std::string recordText(const battle::ItemRecord& record) {
     return text;
 }
 
+// A record as an inventory slot is read: an empty one by its item alone.
+std::string recordText(const battle::ItemRecord& record) {
+    return battle::itemIn(record) == ItemId::EMPTY ? "empty" : bytesText(record);
+}
+
 void addRecordLine(std::string& out, const std::string& field, const battle::ItemRecord& port,
                    const battle::ItemRecord& guest) {
     const std::string ours = recordText(port);
     const std::string theirs = recordText(guest);
     if (ours != theirs) {
         out += field + ": port " + ours + ", cartridge " + theirs + "\n";
+    }
+}
+
+// A place of the items obtained, every byte: an empty place keeps the bytes it was emptied or made with,
+// and the last three are handed on to the next battle as they are.
+void addPlaceLine(std::string& out, const std::string& field, const battle::ItemRecord& port,
+                  const battle::ItemRecord& guest) {
+    if (port != guest) {
+        out += field + ": port " + bytesText(port) + ", cartridge " + bytesText(guest) + "\n";
     }
 }
 
@@ -81,7 +92,7 @@ void addRecordLine(std::string& out, const std::string& field, const battle::Bat
 
 void addListLines(std::string& out, const battle::ItemsObtained& port, const battle::ItemsObtained& guest) {
     for (std::size_t place = 0; place < port.entries.size(); ++place) {
-        addRecordLine(out, "items obtained, place " + std::to_string(place), port.entries[place], guest.entries[place]);
+        addPlaceLine(out, "items obtained, place " + std::to_string(place), port.entries[place], guest.entries[place]);
     }
     addLine(out, "items added", port.added, guest.added);
     addLine(out, "items merged", port.merged, guest.merged);
@@ -548,6 +559,10 @@ EndingScenario drawWinScenario(std::mt19937& rng) {
         state.colosseum = true;
         state.colosseumPrize = oneIn(rng, 10) ? ItemId::EMPTY : drawItem(rng);
         state.colosseumWager = drawItem(rng);
+        // The targeting a prize of no item is recorded with; none made yet one time in four.
+        if (!oneIn(rng, 4)) {
+            state.inventory.lastRecordTargeting = Targeting{byte(rng)};
+        }
     }
     if (oneIn(rng, 3)) {
         for (std::size_t lore = 0; lore < kLores; ++lore) {

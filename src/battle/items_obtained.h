@@ -79,9 +79,15 @@ inline constexpr std::size_t kRecordQuantityByte = 3;
 // weapon broke (BattleItem::brokenFrom) is the empty item with every flag bit set and quantity 0, and
 // keeps the broken weapon's targeting and fifth byte.
 [[nodiscard]] ItemRecord recordOf(const BattleItem& item);
-// The record the battle works out for `quantity` of `item`, for the party in `state`, every byte as the
-// cartridge makes it: battleItem()'s, with the fifth byte 0xFF for an item of a type no hand check is
-// made for (LoadItemProp battle_main.asm:13989-13990, :14016-14020).
+// The record the battle works out for `quantity` of `item`, for the party in `state`: battleItem()'s,
+// with the fifth byte 0xFF for an item of a type no hand check is made for (LoadItemProp
+// battle_main.asm:13989-13990, :14016-14020). The record for ItemId::EMPTY — the colosseum's prize when
+// there is none — is the empty item, not usable in battle (0x80), the targeting of the last record made
+// for an item (BattleInventory::lastRecordTargeting, 0xFF before there is one), the quantity, and a
+// fifth byte of 0xFF (:13987-13994).
+//
+//     state.inventory.lastRecordTargeting = Targeting{0x29};
+//     battle::itemRecordFor(state, ItemId::EMPTY, 1);   // {0xFF, 0x80, 0x29, 1, 0xFF}
 [[nodiscard]] ItemRecord itemRecordFor(const BattleState& state, ItemId item, std::uint8_t quantity);
 
 // `count` empty places.
@@ -113,8 +119,8 @@ inline constexpr ItemsObtainedTail kEmptyItemsObtainedTail = emptyItemRecords<kI
 // The last three places of `list`, whatever they hold.
 [[nodiscard]] ItemsObtainedTail itemsObtainedTail(const ItemsObtained& list);
 
-// `quantity` of `item` joins the list, as the battle sees it for the party in `state` (battleItem()),
-// in place `added % 16`, over whatever was there.
+// `quantity` of `item` joins the list as itemRecordFor() makes its record, in place `added % 16`, over
+// whatever was there. For an item, its targeting becomes BattleInventory::lastRecordTargeting.
 void obtainItem(BattleState& state, ItemId item, std::uint8_t quantity);
 
 // Merge the list into state.inventory, from place `merged % 16` on, until an empty place or a full

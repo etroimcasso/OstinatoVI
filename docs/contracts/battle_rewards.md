@@ -183,6 +183,20 @@ per party slot, set where that party member cannot hold it (`:14021-14033`: `sec
 `$ff` for a type that is never held. The port's `BattleItem` holds each of these
 (`battleItemFromRecord()`, `recordOf()`); the flags' low three bits, which `LoadItemProp` never sets, and
 the fifth byte's high four are not held. An inventory slot (`$2686`, 256 records) has the same form.
+
+`LoadItemProp` writes the flags `$80` and the fifth byte `$ff` first, then the item, and returns for item
+`$ff` before it writes the targeting or makes the hand check (`:13987-13994`). So the record made for no
+item is `$ff`, `$80`, the targeting the last record made for an item left at `$2e74`, the quantity, and
+`$ff`. The battle makes its records in this order: as it starts, `InitInventory :13914-13941` makes each
+shield hand's, party slot 3 first, then each weapon hand's the same way, then the inventory's from slot 255
+down; after that, one for each item obtained (the colosseum's prize `:15305`, a drop `:15519`, a hand
+`:16178`). Before the first record for an item, `$2e74` holds the start's fill, `$ff` (`InitBattle
+:6063-6067`). `BattleInventory::lastRecordTargeting` carries that targeting, `loadBattleInventory()` and
+`obtainItem()` set it in the same order, and `itemRecordFor()` writes it into the record for
+`ItemId::EMPTY`, or `$ff` while there is none. As the battle starts it is the targeting of the item in the
+first inventory slot that holds one. A party slot with no one in it has the fill's `$ffff` as its record
+offset, so the start reads that slot's two hands out of bank `$7f` (`$7F:161E-$7F:1620`); the port's
+empty slot holds nothing in either hand. That reaches `$2e74` only when the inventory holds no item at all.
 The list's places are the records themselves (`ItemRecord`, every byte), an item obtained written as
 `LoadItemProp` makes its record (`itemRecordFor()`: the fifth byte `$ff` for a type no hand check is made
 for, `:13989-13990`, `:14016-14020`, which `recordOf()` of a `BattleItem` cannot say): places 13-15 are other programs'
@@ -257,7 +271,8 @@ rest is the menus' own.
 5. The wrap-up (§ C, `:15296`).
 6. **In the colosseum** (`$3a97` not 0, `:15297-15310`): the prize (`$0207`, `colosseumPrize`) joins the
    items obtained, one of it, and is merged (`_c26279 :16085-16091`); message 32 tells of it; and the win
-   is over — no experience, gold, learning or drops.
+   is over — no experience, gold, learning or drops. Nothing tests for a prize of `$ff`: with no prize the
+   record made for no item (§ D) joins the list, and the merge stops on it.
 
 ## F. Magic points, experience and gold
 

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <optional>
 #include <stdexcept>
 
 #include "battle/battle_state.h"
@@ -31,6 +32,10 @@ constexpr std::uint8_t kBrokenHandFlags = 0xFF;
 constexpr std::size_t kRecordHandsByte = 4;
 constexpr std::uint8_t kPartySlotBits = 0x0F;
 constexpr std::uint8_t kNoHandCheck = 0xFF;
+constexpr std::size_t kRecordTargetingByte = 2;
+// What the battle's start fills its cells with (InitBattle :6063-6067), the targeting a record made for
+// no item carries before any record for an item is made.
+constexpr std::uint8_t kStartsFilled = 0xFF;
 
 // LEGACY VERBATIM (docs/Bugs.md): where the last three places sit in the decoded title program —
 // the list's fourteenth place ($7E:602D + 13 x 5) less where the program is laid ($7E:5000). They
@@ -59,8 +64,12 @@ ItemsObtainedTail itemsObtainedTail(const ItemsObtained& list) {
 
 void obtainItem(BattleState& state, ItemId item, std::uint8_t quantity) {
     ItemsObtained& list = state.itemsObtained;
-    placeAt(list, list.added) = itemRecordFor(state, item, quantity);
+    const ItemRecord record = itemRecordFor(state, item, quantity);
+    placeAt(list, list.added) = record;
     ++list.added;
+    if (item != ItemId::EMPTY) {
+        state.inventory.lastRecordTargeting = Targeting{record[kRecordTargetingByte]};
+    }
 }
 
 void mergeItemsObtained(BattleState& state) {
@@ -122,8 +131,15 @@ ItemRecord recordOf(const BattleItem& item) {
 }
 
 ItemRecord itemRecordFor(const BattleState& state, ItemId item, std::uint8_t quantity) {
+    if (item == ItemId::EMPTY) {
+        // LoadItemProp returns before it writes the targeting or makes the hand check (:13992-13994),
+        // so the record keeps the last one's targeting, or the start's fill before there is one.
+        const std::optional<Targeting>& last = state.inventory.lastRecordTargeting;
+        return ItemRecord{static_cast<std::uint8_t>(ItemId::EMPTY), kNotUsableInBattle,
+                          last ? last->bits : kStartsFilled, quantity, kNoHandCheck};
+    }
     ItemRecord record = recordOf(battleItem(state, item, quantity));
-    if (item != ItemId::EMPTY && itemTypeBattleFlags(getItemProperties(item).typeAndUsage.type()).skipsEquippableCheck()) {
+    if (itemTypeBattleFlags(getItemProperties(item).typeAndUsage.type()).skipsEquippableCheck()) {
         record[kRecordHandsByte] = kNoHandCheck;
     }
     return record;
