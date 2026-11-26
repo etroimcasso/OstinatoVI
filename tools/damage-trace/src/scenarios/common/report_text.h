@@ -29,8 +29,15 @@ std::string shownText(const battle::ReflectedAttackShown& shown);
 
 std::string shownText(const battle::ScatteredHitsShown& shown);
 
-// A bounce off Reflect or a Launcher's hits as the queue's command and its params block hold them,
-// as shownText() gives it.
+// A bounce off Reflect ($09) and a Launcher's or Super Ball's hits ($15) as the queue's four-byte
+// command and the params block it plays with hold them: the attack in the command's third byte; the
+// block's first ten bytes the battler each slot's bounce went on to, or the targets one per hit from
+// the highest, $FF for none; bytes 10-13 a bounce's blocks per party slot; bytes 14-15 the bounces that
+// hit, or the attacker of the hits (GfxCmd_09 btlgfx_main.asm:25033-25243, GfxCmd_15 :25249-25367).
+battle::ReflectedAttackShown reflectedShown(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block);
+battle::ScatteredHitsShown scatteredShown(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block);
+
+// A bounce or a Launcher's hits, from the queue's command and its block, as shownText() gives it.
 std::string bounceText(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block);
 
 std::string busAddress(std::uint32_t at);

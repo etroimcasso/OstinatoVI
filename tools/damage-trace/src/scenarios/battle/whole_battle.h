@@ -11,6 +11,7 @@
 #include <bitset>
 #include <cstddef>
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <set>
 #include <span>
@@ -26,6 +27,7 @@
 #include "ostinato/status_set.h"
 
 #include "scenarios/battle/presentation_model.h"
+#include "scenarios/battle/script_shown.h"
 #include "scenarios/battle/start.h"
 #include "scenarios/ending/ending.h"
 
@@ -106,6 +108,9 @@ struct CartridgeStep {
 // The cartridge's whole battle: every graphics call in order, every loop step, and the cells at the end.
 struct WholeBattleResult {
     std::vector<GraphicsCall> calls;
+    // Each script the battle asked to play (graphics command $04), read as the graphics program reads it
+    // as it starts to play, by its call's place among `calls`.
+    std::map<std::size_t, std::vector<ScriptCommandRead>> scripts;
     std::vector<CartridgeStep> steps;
     // The battle reached TerminateBattle (battle/battle_main.asm:150-154) after its graphics command $09.
     bool ended = false;
@@ -166,16 +171,20 @@ inline constexpr std::uint8_t kFinalBattleScrollCommand = 0x12;
 [[nodiscard]] bool scriptStopsTime(const battle::RunBattleScript& script);
 
 // What a request shows, and what a graphics call shows, in the same words: the menu opened, closed or
-// refreshed and whose, a script, the monsters' names, an item obtained, the scene opened, scrolled or
-// closed, the fanfare or the celebration. Nothing for a frame wait ($01), the port's wrap-up wait (a
-// script holding one Wait) and the items obtained merged ($0A), which have no request.
-[[nodiscard]] std::optional<std::string> requestShown(const battle::BattleRequest& request);
-[[nodiscard]] std::optional<std::string> callShown(const GraphicsCall& call);
+// refreshed and whose, a script command by command (scriptShown(), its lines joined with "; "), the
+// monsters' names, an item obtained, the scene opened, scrolled or closed, the fanfare or the
+// celebration. Nothing for a frame wait ($01), the port's wrap-up wait (a script holding one Wait) and
+// the items obtained merged ($0A), which have no request. A call that plays a script shows `script`, the
+// script it played as readScript() read it.
+[[nodiscard]] std::optional<std::string> requestShown(const battle::BattleRequest& request, const TextCorpus& text);
+[[nodiscard]] std::optional<std::string> callShown(const GraphicsCall& call, std::span<const ScriptCommandRead> script,
+                                                   const TextCorpus& text);
 
 // What a run of requests shows, in order. In a `won` battle's end the celebration — every menu closing,
 // first slot first, then the fanfare and battle event 1 where they were asked for — shows as the
 // cartridge's one call ($08) shows: "celebration".
-[[nodiscard]] std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won);
+[[nodiscard]] std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won,
+                                                     const TextCorpus& text);
 
 // A whole battle checked: every line where the cartridge's and the port's part, empty when they agree.
 struct BattleCheck {

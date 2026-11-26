@@ -25,6 +25,7 @@
 #include "cells/damage/frame.h"
 #include "cells/damage/per_target.h"
 #include "cells/status/effects.h"
+#include "oracle/battle/script_read.h"
 #include "oracle/routines.h"
 #include "scenarios/common/bytes.h"
 
@@ -38,8 +39,12 @@ namespace {
 // The play clock's frames run 1 to 60: a frame that finds 60 sets 0, then steps (IncGameTime
 // menu/menu_common.asm:3488-3519).
 constexpr std::uint8_t kPlayClockFramesPerSecond = 60;
-// The most of a script queue a battle script reaches: 64 commands of four bytes.
+// The most of a script queue a battle script reaches: 64 commands of four bytes. Its params blocks fill
+// $7E:2C6E-$7E:2D6D, sixteen of sixteen bytes, and its numeral buffers $7E:2BCE-$7E:2C6D, eight of
+// twenty.
 constexpr std::uint32_t kScriptQueueSpan = 0x100;
+constexpr std::uint32_t kParamsBlocksSpan = 0x100;
+constexpr std::uint32_t kNumeralBuffersSpan = 0xA0;
 
 }  // namespace
 
@@ -196,6 +201,13 @@ void DamageOracle::answerInWholeBattle(const GraphicsCall& call) {
     }
     if (call.command == kPlayBattleScript) {
         const std::vector<std::uint8_t> queue = machine_.read(retropp::MemoryRegion{.at = kQueue, .size = kScriptQueueSpan});
+        const std::vector<std::uint8_t> blocks =
+            machine_.read(retropp::MemoryRegion{.at = kParamsBlocks, .size = kParamsBlocksSpan});
+        const std::vector<std::uint8_t> numerals =
+            machine_.read(retropp::MemoryRegion{.at = kNumeralBuffer, .size = kNumeralBuffersSpan});
+        ScriptBytes bytes{.queue = queue, .paramsBlocks = blocks, .numeralBuffers = numerals};
+        std::copy_n(call.messageVariables.begin(), bytes.messageVariables.size(), bytes.messageVariables.begin());
+        run.result.scripts[graphicsCalls_.size() - 1] = readScript(bytes);
         for (const Frame frame : run.model.scriptFrames(run.scripts++, scriptStopsTime(queue))) {
             runFrame(frame);
         }

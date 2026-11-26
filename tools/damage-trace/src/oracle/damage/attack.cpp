@@ -130,23 +130,6 @@ std::array<std::uint8_t, kLoreBytes> loreBytes(const std::bitset<N>& lores) {
     return bytes;
 }
 
-constexpr std::uint8_t kCriticalFlashBit = 0x20;
-constexpr std::uint8_t kMonsterAttackBit = 0x01;
-constexpr std::size_t kCoveredAllyByte = 8;
-constexpr std::size_t kBlocksByte = 10;
-
-battle::AttackAnimationParams frameParamsFromBytes(std::span<const std::uint8_t> block) {
-    battle::AttackAnimationParams params = paramsFromBytes(block);
-    params.criticalFlash = (block[0] & kCriticalFlashBit) != 0;
-    params.monsterAttack = (block[0] & kMonsterAttackBit) != 0;
-    if (block[kCoveredAllyByte] != 0) {
-        params.coveredAlly = battle::BattlerSlot::fromIndex(block[kCoveredAllyByte] % battle::kBattlerSlots);
-    }
-    for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
-        params.blocks[i] = static_cast<battle::BlockShown>(block[kBlocksByte + i]);
-    }
-    return params;
-}
 }  // namespace
 
 void DamageOracle::writeAttackCells(const DamageScenario& scenario) {

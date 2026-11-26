@@ -38,9 +38,14 @@ using namespace cells;
 std::string frameParamsText(battle::AttackAnimationParams params);
 
 // Whether an animation's own handler reads the attack and second value after its command: Mimic's,
-// Defend's and the two AI commands' are a bare return (btlgfx CmdAnim_12), Runic's reads its params
-// block alone (CmdAnim_25), and a command with its top bit set plays nothing (GfxCmd_06).
+// Defend's and the two AI commands' are a bare return (btlgfx CmdAnim_12), the roulette cursor's reads
+// nothing of the command (CmdAnim_21), Runic's and the party running away read their params block alone
+// (CmdAnim_25, CmdAnim_22), and a command with its top bit set plays nothing (GfxCmd_06).
 bool animationReadsItsAttack(std::uint8_t what);
+
+// Whether an animation's handler reads its params block: every one but the bare returns, the roulette
+// cursor's and a command with its top bit set. Each of those still takes a block (GfxCmd_06 :27078).
+bool animationReadsItsBlock(std::uint8_t what);
 
 std::string numeralText(const battle::DamageNumber& number);
 

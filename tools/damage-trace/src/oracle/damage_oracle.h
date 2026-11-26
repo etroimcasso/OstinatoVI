@@ -404,7 +404,7 @@ public:
     // Whether the targeting a record made for no item carries is unknown for `state`: the start read an
     // empty party slot's hands, from bank $7F (InitInventory :13918-13934, docs/Bugs.md), and made no
     // record for an item after them. The comparison leaves that targeting out wherever a record carries
-    // it, at each loop step and as a whole battle closes.
+    // it at a loop step.
     [[nodiscard]] static bool lastRecordsTargetingUnknown(const battle::BattleState& state);
 
     // The write-set gate: every cell in `written` that compareBattleState() does not cover in full —

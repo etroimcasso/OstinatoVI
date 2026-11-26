@@ -265,6 +265,7 @@ add_library(ostinato-battle-scenarios STATIC
     tools/damage-trace/src/scenarios/battle/battle_draw.cpp
     tools/damage-trace/src/scenarios/battle/cells_not_compared.cpp
     tools/damage-trace/src/scenarios/battle/presentation_model.cpp
+    tools/damage-trace/src/scenarios/battle/script_shown.cpp
     tools/damage-trace/src/scenarios/battle/start.cpp
     tools/damage-trace/src/scenarios/battle/start_draw.cpp
     tools/damage-trace/src/scenarios/battle/whole_battle.cpp
@@ -301,6 +302,11 @@ add_library(ostinato-damage-oracle STATIC
     tools/damage-trace/src/oracle/ai/own_actions.cpp
     tools/damage-trace/src/oracle/battle/battle_check.cpp
     tools/damage-trace/src/oracle/battle/battle_state.cpp
+    tools/damage-trace/src/oracle/battle/script_read.cpp
+    tools/damage-trace/src/oracle/battle/script_read_attack.cpp
+    tools/damage-trace/src/oracle/battle/script_read_monsters.cpp
+    tools/damage-trace/src/oracle/battle/script_read_party.cpp
+    tools/damage-trace/src/oracle/battle/script_read_text.cpp
     tools/damage-trace/src/oracle/battle/start.cpp
     tools/damage-trace/src/oracle/battle/start_check.cpp
     tools/damage-trace/src/oracle/battle/state_actions.cpp
@@ -875,6 +881,7 @@ gtest_discover_tests(ostinato-vi-battle-rewards-tests)
 # the port's at the loop's first frame wait (tools/damage-trace/src/oracle/damage_oracle.h). Own binary
 # so the other baselines stay frozen.
 add_executable(ostinato-vi-battle-whole-tests
+    tests/oracle/test_battle_scripts_oracle.cpp
     tests/oracle/test_battle_start_oracle.cpp
     tests/oracle/test_battle_whole_oracle.cpp)
 target_compile_features(ostinato-vi-battle-whole-tests PRIVATE cxx_std_20)

@@ -783,7 +783,8 @@ at the guard.
 
 `checkBattle(scenario)` runs both sides and compares them step by step until the first step that parts:
 the frame each step is reached on, the requests made since the step before, named alike on both sides
-(`requestShown()`, `callShown()`; frame waits and the items' merge have no request), the state
+(`requestShown()`, `callShown()`; frame waits and the items' merge have no request) and a script command
+by command (below), the state
 (`compareBattleState()`) with the write-set gate over the step's writes, the carried-read gate over its
 carried reads against the step before's state and the copy rule above, then whether either side ran past
 the frame cap, the steps' count, the end, the requests from the last step's frame wait to the close —
@@ -791,9 +792,8 @@ in order, the port's celebration shown as the cartridge's one call (`requestsSho
 or the prize adds after the wrap-up's merge shown as nothing, as the port's end obtains and merges it with
 no request — and the frame the battle closed on, then what the game keeps, and the last three places of
 the items obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
-battle closes), every byte but one: a place made for no item carries the last record's targeting, and
-while `lastRecordsTargetingUnknown()` holds for the port's state as the battle closed
-(`PortBattle::closed`), that byte is left out. A step's carried reads pass the rows of
+battle closes), every byte: a record made for no item reaches the items obtained only as the colosseum's
+prize, at the place its count names from zero, so it never stands in a place the battle hands on. A step's carried reads pass the rows of
 `kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). At each
 step, a record a party member was seated from at that step or any before it keeps the HP and MP boosts its
 equipment gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the
@@ -801,6 +801,36 @@ record at every stage's start (`UpdateEquip` `:2349-2362`); every other record k
 with. The same holds for what the game keeps. Each gate lays the lines and the player's records from the step's own cells, the carried-read gate
 from the step before's, so a ring is laid where the cartridge's stood at that step. It needs
 `useMonsterSprites()` and `useText()`.
+
+A script is compared command by command. As the battle asks for a script to play, the cartridge's side
+reads the queue from `$7E:2D6E` (four bytes a command, up to `$FF`), the params blocks from `$7E:2C6E` and
+the numeral buffers from `$7E:2BCE` into the port's commands (`readScript()`,
+`oracle/battle/script_read.h`), kept by the call's place in `WholeBattleResult::scripts`. Both sides' scripts
+are then shown one line per queue command (`scriptShown()`, `scenarios/battle/script_shown.h`), each line the
+command and every operand its handler in the graphics program reads:
+
+```text
+script: name 1 166; animation 9 3 | attacker 0 targets 2 hit 2 ...; numeral 1:1415
+```
+
+A command the port has no kind for shows by its bytes (`command $07 $00 $00 $00`), so it parts from
+whatever the port's script holds there. What each line leaves out is what no handler reads:
+
+- an animation's fourth byte, except where the attack wrote it (`fourthByteIsTheAttacks()`): a weapon's
+  swing, a monster's special attack, a Dance, a Sketch that hit. Every other animation carries the byte
+  the last of those left;
+- the attack byte of the animations that read only their block (Runic's, the party running away), and the
+  attack and the block of those that read nothing (Mimic's, Defend's, the two AI commands', the roulette
+  cursor's, a command with its top bit set);
+- a monster animation's monsters for the sound effect, which reads a pan and a sound, and the monsters
+  hidden by an entrance that revives some;
+- a message's numbers, except those its text shows (`numbersShown` in `script_shown.cpp`, as the port's
+  text reads its codes): a number code shows the whole number, a name code a name from its low byte.
+
+Tools and Blitz show an index where the port keeps what it names: a tool's index among the tools'
+animations, from the animation's item, or 8 for the Chain Saw's kill; a blitz's among the blitzes', the
+attack less Pummel's. A damage numeral shown one at a time is a queue command each, so a port command
+showing several in turn is a line for each.
 
 `tests/oracle/test_battle_whole_oracle.cpp` checks the measured opening against the seven recorded fights'
 counts, that a script's frames come from its place and number 1 to 12, that the first fight called a step
@@ -839,10 +869,21 @@ Two more take an empty party slot's hands, which the start reads from bank `$7F`
 `AColosseumWinForNoPrizeWithNothingHeldLeavesTheEmptySlotsTargetingOut` takes the first colosseum match of
 the sweep's draws that the port wins once the fighter's hands and the inventory are emptied and the prize
 taken away, checks it agrees whole with `$2E74` left out, and records the draw, the two bytes the parked
-machine holds at `$7F:161E-$7F:161F` and the targeting the cartridge's first step holds at `$2E74`.
+machine holds at `$7F:161E-$7F:161F` and the targeting the cartridge's first step holds at `$2E74`. Laid
+with `$2E74` compared at every step, it parts at the first: the port's `$FF` against the targeting of the
+item the two bytes name.
 `AnEmptySlotsHandRecordsReachNothing` takes the first drawn battle away from the final battle that seats
 nobody in a slot and writes the slot's two hand records 0 and then 255 at the first step: both runs agree
 with the port to the battle's end.
+
+`tests/oracle/test_battle_scripts_oracle.cpp` checks the script reader on queues laid by hand: each
+command the battle program writes reads as the port's command its handler shows, the params blocks go to
+the commands that play them (an animation and a bounce take one each, the pointer step passes one by, the
+ready stance reads the next and leaves it), and each numerals-at-once command takes the next buffer. It
+checks that an animation's fourth byte shows only where the attack wrote it and a message's numbers only
+where its text shows them. Those five run in every run of the tests. The sixth runs the sweep's first
+ten drawn battles whole and checks every script they play reads as the port's commands, none by its
+bytes, one for each call that plays a script; it records how many scripts and lines of each kind it read.
 
 Eight cases each take the first of the sweep's draws whose port battle reaches what they are about
 (`theDraw()` names it by its number) and read, at the step it happens, what the listing holds there on the
@@ -1041,7 +1082,7 @@ routines' addresses in namespace `routines`.
 | `damage/cover.cpp` | the cover and the attack's animation set up |
 | `damage/attack.cpp` | the whole attack frame, `attack()` and `selfAttack()` |
 | `status/status.cpp` | the statuses taking effect and an attack's statuses on one target, with their replay |
-| `status/attacker_effects.cpp`, `attacker_effects_shared.h` | an attack's special effect on its attacker |
+| `status/attacker_effects.cpp`, `attacker_effects_shared.h` | an attack's special effect on its attacker; `paramsFromBytes()` and `frameParamsFromBytes()`, a params block read back |
 | `status/target_effects.cpp` | an attack's special effect on one target |
 | `status/effects_replay.cpp` | a recorded special effect rebuilt and replayed |
 | `ending/records.cpp`, `records_shared.h` | over a `RecordScenario`: the esper's spells learned and the level-up, with their replay |
@@ -1061,6 +1102,11 @@ routines' addresses in namespace `routines`.
 | `battle/state_battle.cpp` | the battle's flags, settings, lines, records and Mimic's memory, laid as the cartridge holds them |
 | `battle/whole_battle.cpp` | a battle run to its end a loop step at a time, `wholeBattle()`, or as one call, `wholeBattleInOneCall()`; the frames each graphics command takes, and the first step's laid cells |
 | `battle/battle_check.cpp` | a whole battle checked step by step, `checkBattle()` |
+| `battle/script_read.{h,cpp}`, `script_read_shared.h` | `ScriptBytes` and `readScript()`: a battle script's queue, params blocks and numeral buffers read into the port's commands, walked command by command |
+| `battle/script_read_text.cpp` | the names in the window at the top and the battle messages |
+| `battle/script_read_attack.cpp` | an animation, a bounce off Reflect, a Launcher's hits, and the damage numerals |
+| `battle/script_read_party.cpp` | the ready stance, the step back and a pose reset |
+| `battle/script_read_monsters.cpp` | a battle event, a monster's dialog, a formation change, monsters entering or leaving, and a monster animation |
 
 **`src/scenarios/`, the port's side**
 
@@ -1088,6 +1134,7 @@ routines' addresses in namespace `routines`.
 | `battle/battle_draw.{h,cpp}` | `drawBattle()`, `drawBattleScenario()`, the aimed draws (`BattleAim`, `drawAimedBattleScenario()`), and the reach table: `battleReachRows()` and `battleReached()` |
 | `battle/presentation_model.{h,cpp}` | `PresentationModel` and `Frame`: the opening's and each script's frames, and the party's running; `measuredPresentationModel()` and `drawPresentationModel()` |
 | `battle/whole_battle.{h,cpp}` | `BattleScenario`, `FirstStepLaid`, `CartridgeStep`, `WholeBattleResult`, `PortBattle` and `BattleCheck`; `portBattle()`, `layFirstStep()`, `scriptStopsTime()`, `requestShown()` and `callShown()` |
+| `battle/script_shown.{h,cpp}` | `ScriptCommandRead`; `scriptShown()`, a script one line per queue command as both sides show it, and the fourth byte's rule, `fourthByteIsTheAttacks()` and `fourthByte()` |
 | `battle/battle_cells.{h,cpp}` | the whole-state comparison's tables: `cellMeanings()`, and the cells left as the machine has them |
 | `battle/cells_not_compared.cpp` | `cellsNotCompared()`, every cell or bit the battle program writes that the comparison does not cover, with its reason; `onTheStack()` |
 

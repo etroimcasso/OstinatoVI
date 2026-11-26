@@ -93,11 +93,19 @@ std::string menu(const char* what, int position, bool controlling = false) {
     return std::string{what} + " menu " + std::to_string(position) + (controlling ? " controlling" : "");
 }
 
+std::string scriptText(const std::vector<std::string>& lines) {
+    std::string text = "script:";
+    for (std::size_t i = 0; i < lines.size(); ++i) {
+        text += (i == 0 ? " " : "; ") + lines[i];
+    }
+    return text;
+}
+
 }  // namespace
 
-std::optional<std::string> requestShown(const battle::BattleRequest& request) {
+std::optional<std::string> requestShown(const battle::BattleRequest& request, const TextCorpus& text) {
     return std::visit(
-        [](const auto& shown) -> std::optional<std::string> {
+        [&text](const auto& shown) -> std::optional<std::string> {
             using Shown = std::decay_t<decltype(shown)>;
             if constexpr (std::is_same_v<Shown, battle::OpenBattleMenu>) {
                 return menu("open", shown.character.position(), shown.controllingMonster);
@@ -109,7 +117,7 @@ std::optional<std::string> requestShown(const battle::BattleRequest& request) {
                 if (waitOnly(shown)) {
                     return std::nullopt;
                 }
-                return "script";
+                return scriptText(scriptShown(shown.commands, text));
             } else if constexpr (std::is_same_v<Shown, battle::RefreshMonsterNames>) {
                 return "monster names";
             } else if constexpr (std::is_same_v<Shown, battle::OpenBattleScene>) {
@@ -127,7 +135,8 @@ std::optional<std::string> requestShown(const battle::BattleRequest& request) {
         request);
 }
 
-std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won) {
+std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> requests, bool won,
+                                       const TextCorpus& text) {
     std::vector<std::string> shown;
     for (std::size_t i = 0; i < requests.size(); ++i) {
         // A win's celebration: every menu closing, first slot first — the wrap-up closes them last slot
@@ -148,21 +157,22 @@ std::vector<std::string> requestsShown(std::span<const battle::BattleRequest> re
             shown.emplace_back("celebration");
             continue;
         }
-        if (const std::optional<std::string> request = requestShown(requests[i])) {
+        if (const std::optional<std::string> request = requestShown(requests[i], text)) {
             shown.push_back(*request);
         }
     }
     return shown;
 }
 
-std::optional<std::string> callShown(const GraphicsCall& call) {
+std::optional<std::string> callShown(const GraphicsCall& call, std::span<const ScriptCommandRead> script,
+                                     const TextCorpus& text) {
     using namespace graphics;
     switch (call.command) {
         case kOpenBattleScene: return "open the scene";
         case kOpenMenu:
             return menu("open", call.slot & ~kControllingMonsterBit, (call.slot & kControllingMonsterBit) != 0);
         case kCloseMenu: return menu("close", call.slot);
-        case kPlayBattleScript: return "script";
+        case kPlayBattleScript: return scriptText(scriptShown(script, text));
         case kAddItemObtained: return "item obtained " + std::to_string(call.item[0]);
         case kRefreshMonsterNames: return "monster names";
         case kVictory: return "celebration";

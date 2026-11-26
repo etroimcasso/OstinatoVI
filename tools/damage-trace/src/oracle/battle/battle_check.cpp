@@ -20,7 +20,6 @@
 #include "battle/battler_set.h"
 #include "battle/items_obtained.h"
 #include "battle/party_setup.h"
-#include "ostinato/item_id.h"
 
 #include "cells/battle/state.h"
 #include "cells/status/effects.h"
@@ -28,9 +27,6 @@
 namespace ostinato::trace {
 
 namespace {
-
-// The byte of an item's record that holds its targeting (LoadItemProp :13999-14000).
-constexpr std::size_t kRecordTargetingByte = 2;
 
 std::string named(const std::string& what, const std::string& lines) {
     return lines.empty() ? std::string{} : what + ":\n" + lines;
@@ -62,12 +58,13 @@ std::string stackTops(const std::vector<std::uint8_t>& pages) {
 
 // The requests from `first` to `last` (none past the end) as each side shows them; on the port's side, a
 // win's celebration as the cartridge shows it when `won`.
-std::vector<std::string> portShown(const PortBattle& port, std::size_t first, std::size_t last, bool won = false) {
+std::vector<std::string> portShown(const PortBattle& port, std::size_t first, std::size_t last, const TextCorpus& text,
+                                   bool won = false) {
     const std::size_t end = std::min(last, port.requests.size());
     if (first >= end) {
         return {};
     }
-    return requestsShown(std::span<const battle::BattleRequest>(port.requests).subspan(first, end - first), won);
+    return requestsShown(std::span<const battle::BattleRequest>(port.requests).subspan(first, end - first), won, text);
 }
 
 // The graphics calls from `first` to `last` as the port's requests show them. In a battle's `end`, an item
@@ -75,7 +72,7 @@ std::vector<std::string> portShown(const PortBattle& port, std::size_t first, st
 // once and shows only its message, as the ending's own check has it (guestCalls() in
 // oracle/ending/ending.cpp): the port's end obtains and merges it with no request.
 std::vector<std::string> cartridgeShown(const WholeBattleResult& cartridge, std::size_t first, std::size_t last,
-                                        bool end = false) {
+                                        const TextCorpus& text, bool end = false) {
     std::vector<std::string> shown;
     bool merged = false;
     for (std::size_t i = first; i < std::min(last, cartridge.calls.size()); ++i) {
@@ -86,7 +83,10 @@ std::vector<std::string> cartridgeShown(const WholeBattleResult& cartridge, std:
         if (end && merged && call.command == graphics::kAddItemObtained) {
             continue;
         }
-        if (const std::optional<std::string> shownCall = callShown(call)) {
+        const auto script = cartridge.scripts.find(i);
+        const std::span<const ScriptCommandRead> played =
+            script == cartridge.scripts.end() ? std::span<const ScriptCommandRead>{} : std::span{script->second};
+        if (const std::optional<std::string> shownCall = callShown(call, played, text)) {
             shown.push_back(*shownCall);
         }
     }
@@ -270,8 +270,8 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
         const std::size_t portFrom = step == 0 ? 0 : port.stepRequests[step - 1];
         const std::size_t cartridgeFrom = step == 0 ? 0 : cartridge.steps[step - 1].firstCall;
         lines += named(at + ", the requests before it",
-                       requestDifferences(portShown(port, portFrom, port.stepRequests[step]),
-                                          cartridgeShown(cartridge, cartridgeFrom, theirs.firstCall)));
+                       requestDifferences(portShown(port, portFrom, port.stepRequests[step], corpus),
+                                          cartridgeShown(cartridge, cartridgeFrom, theirs.firstCall, corpus)));
         lastAttackFromAnEmptySlot_ = lastAttackFromAnEmptySlot[step];
         lines += named(at, compareBattleState(ours, boosts, theirs.cells));
         lines += named(at + ", write-set gate", uncoveredWrites(ours, boosts, theirs.writes, &theirs.cells));
@@ -322,9 +322,9 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     // on, every frame of its end with them.
     const bool won = std::holds_alternative<battle::BattleWon>(port.result->outcome);
     lines += named("the requests from the last step to the close",
-                   requestDifferences(portShown(port, port.stepRequests.back(), port.requests.size(), won),
+                   requestDifferences(portShown(port, port.stepRequests.back(), port.requests.size(), corpus, won),
                                       cartridgeShown(cartridge, cartridge.steps.back().firstCall, cartridge.calls.size(),
-                                                     true)));
+                                                     corpus, true)));
     if (port.frames != cartridge.frames) {
         lines += "the cartridge's battle closed on frame " + std::to_string(cartridge.frames) + ", the port's on " +
                  std::to_string(port.frames) + "\n";
@@ -352,20 +352,15 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     lines += named("what the game keeps", differences(kept, cartridge.kept));
     // The last three places of the items obtained, handed to the next battle: every byte, since other
     // programs write them between battles and a battle hands back what it does not touch as it came. A
-    // place made for no item carries the targeting the last record made for an item left (LoadItemProp
-    // :13987-13994); while the battle's own start read an empty party slot's hands and made no record for an
-    // item after them, that targeting is the item two bytes of bank $7F name (docs/Bugs.md), and the
-    // place's targeting is left out.
-    const bool targetingUnknown = port.closed && lastRecordsTargetingUnknown(*port.closed);
+    // record made for no item reaches the items obtained only as the colosseum's prize, at the place its
+    // count names from zero (BtlGfx_05 btlgfx_main.asm:357-373), and the graphics program's start zeroes
+    // that count (:43456-43460), so it never stands in a place the battle hands on: the targeting an empty
+    // party slot's hands leave (docs/Bugs.md) reaches none of these bytes.
     std::string tail;
     for (std::size_t place = 0; place < battle::kItemsObtainedTailPlaces; ++place) {
         const battle::ItemRecord& ours = port.result->itemsObtainedTail[place];
         const battle::ItemRecord& theirs = cartridge.itemsObtainedTail[place];
-        const bool forNoItem = ours[battle::kRecordItemByte] == static_cast<std::uint8_t>(ItemId::EMPTY);
         for (std::size_t at = 0; at < battle::kItemRecordBytes; ++at) {
-            if (at == kRecordTargetingByte && forNoItem && targetingUnknown) {
-                continue;
-            }
             if (ours[at] != theirs[at]) {
                 char text[64];
                 std::snprintf(text, sizeof text, "place %zu byte %zu: port %02X cartridge %02X\n", place, at, ours[at],

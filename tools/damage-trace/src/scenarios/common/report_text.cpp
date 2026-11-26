@@ -64,35 +64,42 @@ std::string shownText(const battle::ScatteredHitsShown& shown) {
     return text;
 }
 
+battle::ReflectedAttackShown reflectedShown(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block) {
+    battle::ReflectedAttackShown shown{.attack = static_cast<AttackId>(command[2])};
+    for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
+        if (block[i] != kNoOne) {
+            shown.bouncedTo[i] = battle::BattlerSlot::fromIndex(block[i]);
+        }
+    }
+    shown.bouncesThatHit = setOf(static_cast<std::uint16_t>(block[kBlockSet] | block[kBlockSet + 1] << 8));
+    for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
+        shown.blocks[i] = static_cast<battle::BlockShown>(block[kBlockBlocks + i]);
+    }
+    return shown;
+}
+
+battle::ScatteredHitsShown scatteredShown(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block) {
+    battle::ScatteredHitsShown shown{.attack = static_cast<AttackId>(command[2])};
+    for (int i = battle::kBattlerSlots - 1; i >= 0; --i) {
+        if (block[static_cast<std::size_t>(i)] != kNoOne) {
+            shown.targets.push_back(battle::BattlerSlot::fromIndex(block[static_cast<std::size_t>(i)]));
+        }
+    }
+    const battle::BattlerSet set = setOf(static_cast<std::uint16_t>(block[kBlockSet] | block[kBlockSet + 1] << 8));
+    for (int index = 0; index < battle::kBattlerSlots; ++index) {
+        if (set.has(battle::BattlerSlot::fromIndex(index))) {
+            shown.attacker = battle::BattlerSlot::fromIndex(index);
+        }
+    }
+    return shown;
+}
+
 std::string bounceText(std::span<const std::uint8_t> command, std::span<const std::uint8_t> block) {
-    const auto attack = static_cast<AttackId>(command[2]);
-    const std::uint16_t set = static_cast<std::uint16_t>(block[kBlockSet] | block[kBlockSet + 1] << 8);
     if (command[0] == kReflectedCommand) {
-        battle::ReflectedAttackShown shown{.attack = attack};
-        for (std::size_t i = 0; i < battle::kBattlerSlots; ++i) {
-            if (block[i] != kNoOne) {
-                shown.bouncedTo[i] = battle::BattlerSlot::fromIndex(block[i]);
-            }
-        }
-        shown.bouncesThatHit = setOf(set);
-        for (std::size_t i = 0; i < battle::kPartySlots; ++i) {
-            shown.blocks[i] = static_cast<battle::BlockShown>(block[kBlockBlocks + i]);
-        }
-        return shownText(shown);
+        return shownText(reflectedShown(command, block));
     }
     if (command[0] == kScatteredCommand) {
-        battle::ScatteredHitsShown shown{.attack = attack};
-        for (int i = battle::kBattlerSlots - 1; i >= 0; --i) {
-            if (block[static_cast<std::size_t>(i)] != kNoOne) {
-                shown.targets.push_back(battle::BattlerSlot::fromIndex(block[static_cast<std::size_t>(i)]));
-            }
-        }
-        for (int index = 0; index < battle::kBattlerSlots; ++index) {
-            if (setOf(set).has(battle::BattlerSlot::fromIndex(index))) {
-                shown.attacker = battle::BattlerSlot::fromIndex(index);
-            }
-        }
-        return shownText(shown);
+        return shownText(scatteredShown(command, block));
     }
     return "command " + std::to_string(command[0]);
 }

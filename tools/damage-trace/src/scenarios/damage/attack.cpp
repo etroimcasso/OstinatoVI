@@ -89,10 +89,31 @@ std::string frameParamsText(battle::AttackAnimationParams params) {
     return text;
 }
 
+namespace {
+
+// The animations whose handler is a bare return (CmdAnim_12 btlgfx_main.asm:27985-27991), and the
+// roulette cursor's, which starts the cursor and reads nothing of the command (CmdAnim_21 :27158-27160,
+// _c1b3b0 :26627-26639).
+constexpr std::array<std::uint8_t, 5> kAnimationsReadingNothing{
+    0x12, 0x15, 0x1E, 0x1F, static_cast<std::uint8_t>(battle::SpecialAnimation::RouletteCursor)};
+
+bool readsNothing(std::uint8_t what) {
+    return (what & kTopBit) != 0 ||
+           std::find(kAnimationsReadingNothing.begin(), kAnimationsReadingNothing.end(), what) !=
+               kAnimationsReadingNothing.end();
+}
+
+}  // namespace
+
+// Runic's reads its block alone (CmdAnim_25 :27658-27661), and so does the party running away
+// (CmdAnim_22 :27149-27152, _c1b8a4 :27298-27330).
 bool animationReadsItsAttack(std::uint8_t what) {
-    constexpr std::array<std::uint8_t, 5> kReadNothing{0x12, 0x15, 0x1E, 0x1F,
-                                                       static_cast<std::uint8_t>(battle::SpecialAnimation::RunicAbsorbsSpell)};
-    return (what & kTopBit) == 0 && std::find(kReadNothing.begin(), kReadNothing.end(), what) == kReadNothing.end();
+    return !readsNothing(what) && what != static_cast<std::uint8_t>(battle::SpecialAnimation::RunicAbsorbsSpell) &&
+           what != static_cast<std::uint8_t>(battle::SpecialAnimation::PartyRunsAway);
+}
+
+bool animationReadsItsBlock(std::uint8_t what) {
+    return !readsNothing(what);
 }
 
 std::string numeralText(const battle::DamageNumber& number) {
