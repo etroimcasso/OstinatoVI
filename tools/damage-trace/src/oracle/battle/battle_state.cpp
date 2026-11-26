@@ -127,7 +127,57 @@ std::uint16_t boostBits(battle::MaxBoost boost) {
     }
     return 0;
 }
+
+// The records InitInventory makes as a battle starts, in its order (:13914-13941): each shield hand and then
+// each weapon hand, the last party slot first, then the inventory from its last slot down. `visit` is handed
+// each record's first cell, the record as the cartridge holds it, and whether the targeting it carries is
+// known: a record made for no item carries the one the record before it left (LoadItemProp :13987-13994),
+// and an empty party slot's hands, read through the fill's $FFFF record offset from bank $7F
+// (:13918-13934, kCellsNotCompared), leave it unknown until a record for an item is made. An empty slot's
+// hands are handed as no record, and an inventory slot holding an item is not handed at all. Returns the
+// targeting the last record leaves, nothing when it is unknown.
+template <typename Visit>
+std::optional<std::uint8_t> walkInventoryRecords(const battle::BattleState& state, Visit&& visit) {
+    std::optional<std::uint8_t> targeting = kFilled;
+    for (const auto* hands : {&state.inventory.shieldHands, &state.inventory.weaponHands}) {
+        const std::uint32_t first = hands == &state.inventory.shieldHands ? kShieldHands : kWeaponHands;
+        for (int position = battle::kPartySlots - 1; position >= 0; --position) {
+            const std::uint32_t at = first + static_cast<std::uint32_t>(position) * kHandItemSize;
+            if (!state.at(battle::BattlerSlot::character(position)).actor) {
+                targeting.reset();
+                visit(at, std::span<const std::uint8_t>{}, false);
+                continue;
+            }
+            // A hand whose weapon broke keeps the weapon's own targeting (AttackerEffect_0e :10210-10218),
+            // which the load left there and the next record takes.
+            const battle::BattleItem& hand = (*hands)[static_cast<std::size_t>(position)];
+            battle::ItemRecord record = battle::recordOf(hand);
+            if (hand.item != ItemId::EMPTY || hand.brokenFrom) {
+                targeting = record[kRecordTargeting];
+            } else {
+                record[kRecordTargeting] = targeting.value_or(0);
+            }
+            visit(at, std::span<const std::uint8_t>{record}, targeting.has_value());
+        }
+    }
+    for (std::size_t slot = game::kInventorySlots; slot-- > 0;) {
+        const battle::BattleItem& item = state.inventory.items[slot];
+        if (item.item != ItemId::EMPTY) {
+            targeting = battle::recordOf(item)[kRecordTargeting];
+            continue;
+        }
+        const std::array<std::uint8_t, kRecordBytes> empty{static_cast<std::uint8_t>(ItemId::EMPTY), kUnusableItem,
+                                                          targeting.value_or(0), item.quantity, kNoHandHoldsIt};
+        visit(kInventoryRecords + static_cast<std::uint32_t>(slot) * kRecordBytes, std::span<const std::uint8_t>{empty},
+              targeting.has_value());
+    }
+    return targeting;
+}
 }  // namespace
+
+bool DamageOracle::lastRecordsTargetingUnknown(const battle::BattleState& state) {
+    return !walkInventoryRecords(state, [](std::uint32_t, std::span<const std::uint8_t>, bool) {}).has_value();
+}
 
 void DamageOracle::layAsTheCartridgeHoldsIt(std::uint32_t at, std::span<const std::uint8_t> bytes) {
     writeCells(retropp::MemoryRegion{.at = at, .size = static_cast<std::uint32_t>(bytes.size())}, bytes,
@@ -177,54 +227,24 @@ void DamageOracle::leaveOutAsCarriedToNothing(std::uint32_t at, std::uint32_t co
 }
 
 void DamageOracle::writeStateAsTheCartridgeHoldsIt(const battle::BattleState& state) {
-    // The hands, then the inventory, in the order InitInventory loads them (:13914-13941): each shield
-    // and each weapon last party slot first, then the items from the last slot down. An empty record,
-    // a hand's or the inventory's, keeps the targeting the record loaded before it left; a hand read
-    // through an empty party slot's offset (bank $7F, kCellsNotCompared) leaves it unknown. A hand whose
-    // weapon broke keeps the weapon's own targeting (AttackerEffect_0e :10210-10218), which the load
-    // left there and the next record takes.
-    std::optional<std::uint8_t> targeting = kFilled;
-    for (const auto* hands : {&state.inventory.shieldHands, &state.inventory.weaponHands}) {
-        const std::uint32_t first = hands == &state.inventory.shieldHands ? kShieldHands : kWeaponHands;
-        for (int position = battle::kPartySlots - 1; position >= 0; --position) {
-            const std::uint32_t at = first + static_cast<std::uint32_t>(position) * kHandItemSize;
-            if (!state.at(battle::BattlerSlot::character(position)).actor) {
-                leaveOut(at, kHandItemSize);
-                targeting.reset();
-                continue;
-            }
-            const battle::BattleItem& hand = (*hands)[static_cast<std::size_t>(position)];
-            battle::ItemRecord record = battle::recordOf(hand);
-            if (hand.item != ItemId::EMPTY || hand.brokenFrom) {
-                targeting = record[kRecordTargeting];
-            } else {
-                record[kRecordTargeting] = targeting.value_or(0);
-            }
-            layAsTheCartridgeHoldsIt(at, record);
-            if (!targeting) {
-                leaveOut(at + kRecordTargeting, 1);
-            }
+    // The hands, then the inventory, in the order InitInventory loads them (walkInventoryRecords()): an
+    // empty party slot's hands left out, and the targeting of a record made for no item left out while it
+    // is unknown.
+    walkInventoryRecords(state, [&](std::uint32_t at, std::span<const std::uint8_t> record, bool targetingKnown) {
+        if (record.empty()) {
+            leaveOut(at, kHandItemSize);
+            return;
         }
-    }
-    for (std::size_t slot = game::kInventorySlots; slot-- > 0;) {
-        const battle::BattleItem& item = state.inventory.items[slot];
-        const std::uint32_t at = kInventoryRecords + static_cast<std::uint32_t>(slot) * kRecordBytes;
-        if (item.item != ItemId::EMPTY) {
-            targeting = battle::recordOf(item)[kRecordTargeting];
-            continue;
-        }
-        const std::array<std::uint8_t, kRecordBytes> empty{static_cast<std::uint8_t>(ItemId::EMPTY), kUnusableItem,
-                                                          targeting.value_or(0), item.quantity, kNoHandHoldsIt};
-        layAsTheCartridgeHoldsIt(at, empty);
-        if (!targeting) {
+        layAsTheCartridgeHoldsIt(at, record);
+        if (!targetingKnown) {
             leaveOut(at + kRecordTargeting, 1);
         }
-    }
+    });
     // The targeting the last record made for an item left, which a record made for no item carries: the
-    // port's, unless the start read an empty party slot's hands and no item in the inventory came after.
+    // port's, unless the start read an empty party slot's hands and made no record for an item after them.
     const std::optional<Targeting>& last = state.inventory.lastRecordTargeting;
     layByteAsTheCartridgeHoldsIt(kLastRecordTargeting, last ? last->bits : kNoRecordMadeYet);
-    if (!targeting) {
+    if (lastRecordsTargetingUnknown(state)) {
         leaveOut(kLastRecordTargeting, 1);
     }
 

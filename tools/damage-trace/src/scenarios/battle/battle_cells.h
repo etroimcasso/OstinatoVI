@@ -33,15 +33,13 @@ struct CellMeaning {
 };
 
 // Cells, or bits of cells, the battle program writes that the whole-state comparison does not cover:
-// `count` cells from `at`, `stride` apart, the bits in `bits`. A provisional entry is one only a battle's
-// start and its end have shown; a whole battle is still to prove it. Each carries its reason and the
-// lines it comes from.
+// `count` cells from `at`, `stride` apart, the bits in `bits`. Each carries its reason and the lines it
+// comes from.
 struct CellsNotCompared {
     std::uint32_t at = 0;
     std::uint32_t count = 1;
     std::uint32_t stride = 1;
     std::uint8_t bits = 0xFF;
-    bool provisional = true;
     const char* why = "";
 };
 

@@ -2,8 +2,10 @@
 // cover, each with its reason and the lines it comes from; and the stack, whose cells a return reads
 // back from its own call.
 //
-// Line numbers are battle/battle_main.asm's, and btlgfx_main.asm's where marked. A provisional row is
-// one only a battle's start and its end have shown; a whole battle is still to prove it.
+// Line numbers are battle/battle_main.asm's, and btlgfx_main.asm's where marked. The whole-battle check's
+// gates prove each row: a cell written that no row names fails the write-set gate, and a row's cell read
+// at a step before that step wrote it fails the carried-read gate, unless kCellsLeftAsTheMachineHasThem
+// names it with its reason.
 
 #include <cstdint>
 #include <span>
@@ -45,14 +47,15 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
             "command is aimed (:3963-3964)"},
     {.at = kWorkRam + 0x00A0, .count = 16,
      .why = "the params block of the animation being worked out, one attack's: InitGfxParams lays it out for every "
-            "attack (:14430-14466) and CopyGfxParamsToBuf hands it on (provisional)"},
+            "attack (:14430-14466) and CopyGfxParamsToBuf hands it on"},
     {.at = kWorkRam + 0x00B2, .count = 2,
      .why = "one command's flags: every command sets both to $FF before its body reads them (ExecCmd :3103-3105); "
             "the one read before, of $B2 as the high byte of an AI command's load of $B1, reaches nothing "
             "(kCellsLeftAsTheMachineHasThem)"},
     {.at = kWorkRam + 0x00B4, .count = 4,
      .why = "the script command an action is shown with and the command, attack and second value being made, the "
-            "action's: ExecCmd sets the first (:3096-3097), InitPlayerAction the rest (:394-396) (provisional)"},
+            "action's: ExecCmd sets the first (:3096-3097), InitPlayerAction the rest (:394-396); the fourth, $00B7, "
+            "which ExecCmd does not set, is read carried and is on kCellsLeftAsTheMachineHasThem"},
     {.at = kWorkRam + 0x00B8, .count = 2,
      .why = "the targets of the action being made: an action that runs loads its own (InitPlayerAction :392-393), a "
             "battler joining the line clears them (:489-490), a player's record sets them (:12662-12663), and "
@@ -61,13 +64,14 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
             "(carriedTargetsCompared())"},
     {.at = kWorkRam + 0x00BA, .count = 4,
      .why = "the aiming rules and the damage multipliers of the attack being made, the attack's: each attack sets its "
-            "rules and multiplier, and every command clears the extra multiplier (ExecCmd :3098) (provisional)"},
+            "rules and multiplier, and every command clears the extra multiplier (ExecCmd :3098)"},
     {.at = kWorkRam + 0x00E8, .count = 4,
      .why = "the arithmetic routines' operands and products (MultAB, the divide), set by each caller before the call "
             "(:7227 and on); $00EB is the top byte of the multiply's scratch, and LsrA's shift of $EA runs with the "
-            "accumulator wide from CalcRatio (:2145-2154), so it writes $EB too (provisional)"},
+            "accumulator wide from CalcRatio (:2145-2154), so it writes $EB too; $EB is on "
+            "kCellsLeftAsTheMachineHasThem"},
     {.at = kWorkRam + 0x00EC, .count = 2,
-     .why = "the arithmetic routines' products, above the multiply's scratch byte $00EB (provisional)"},
+     .why = "the arithmetic routines' products, above the multiply's scratch byte $00EB"},
     {.at = kWorkRam + 0x00EE, .count = 18,
      .why = "the battle program's scratch: each routine sets the cells it reads (:793, :1028, :1819, :1860, :4219)"},
     // --- the attack's record and the field's shared cells ----------------------------------------
@@ -112,22 +116,22 @@ constexpr CellsNotCompared kCellsNotCompared[] = {
             ":15519-15523, a hand :16178-16181); its targeting, $2E74, is compared"},
     {.at = kWorkRam + 0x2E75, .count = 3,
      .why = "the quantity and the fifth byte of the record LoadItemProp makes, each written for every record before "
-            "it is copied (:13916, :13937, :15302, :15521, :16180; :13990, :14033), and the byte after it"},
+            "it is copied (:13916, :13937, :15302, :15522, :16180; :13990, :14033), and the byte after it"},
     {.at = kWorkRam + 0x2E78, .count = 0x30,
      .why = "the party's HP, MP and statuses for the graphics program, written from the battlers (:15262)"},
     {.at = kWorkRam + 0x2EA8, .count = 4, .why = "the start's fill; named by no instruction of the battle program"},
     {.at = kWorkRam + 0x2EAE, .count = 0x81,
      .why = "the party's graphics, names and rows for the graphics program (:6745, :7603, :7887-7895) and the "
             "command window setting (:6108-6110); the battle program never reads them"},
-    {.at = kWorkRam + 0x1869, .count = 0x200, .provisional = false,
+    {.at = kWorkRam + 0x1869, .count = 0x200,
      .why = "the field's inventory, items then quantities, which the battle writes back only at its end (UpdateSRAM "
             ":12127-12148) — what the game keeps, compared once the battle closes — and a final-battle stage's start "
             "reads back into the battle's own copy (InitInventory :13936-13944), which is compared"},
-    {.at = kWorkRam + 0x1DC9, .count = 8, .provisional = false,
+    {.at = kWorkRam + 0x1DC9, .count = 8,
      .why = "the field's battle switches before its timer flags, which the battle writes back only at its end "
             "(UpdateSRAM :12160) — compared once the battle closes — and a final-battle stage's start reads back into "
             "the battle's own (InitBattle :6083-6087), which are compared"},
-    {.at = kWorkRam + 0x1DD2, .count = 11, .provisional = false,
+    {.at = kWorkRam + 0x1DD2, .count = 11,
      .why = "the field's battle switches after its timer flags, as the row above"},
     {.at = kWorkRam + 0x2F35, .count = 12,
      .why = "the battle message's four variables, written for each message before it is shown (:15291 and on)"},

@@ -791,7 +791,9 @@ in order, the port's celebration shown as the cartridge's one call (`requestsSho
 or the prize adds after the wrap-up's merge shown as nothing, as the port's end obtains and merges it with
 no request — and the frame the battle closed on, then what the game keeps, and the last three places of
 the items obtained as the battle hands them back (`WholeBattleResult::itemsObtainedTail`, read from `$7E:606E` once the
-battle closes), every byte. A step's carried reads pass the rows of
+battle closes), every byte but one: a place made for no item carries the last record's targeting, and
+while `lastRecordsTargetingUnknown()` holds for the port's state as the battle closed
+(`PortBattle::closed`), that byte is left out. A step's carried reads pass the rows of
 `kCellsLeftAsTheMachineHasThem` not marked for the start alone (`leftAsTheMachineHasItInAStep()`). At each
 step, a record a party member was seated from at that step or any before it keeps the HP and MP boosts its
 equipment gives (`battle::deriveEquipment()`), as the battle's equipment refresh writes them into the
@@ -833,6 +835,29 @@ holds as the port holds them. Each run agrees with the port to the battle's end.
 Saw kills otherwise with the byte above the random numbers' position at 1 than at 0, starts it with the
 byte at 1, and checks it agrees with the port to its end.
 
+Two more take an empty party slot's hands, which the start reads from bank `$7F` (`docs/Bugs.md`).
+`AColosseumWinForNoPrizeWithNothingHeldLeavesTheEmptySlotsTargetingOut` takes the first colosseum match of
+the sweep's draws that the port wins once the fighter's hands and the inventory are emptied and the prize
+taken away, checks it agrees whole with `$2E74` left out, and records the draw, the two bytes the parked
+machine holds at `$7F:161E-$7F:161F` and the targeting the cartridge's first step holds at `$2E74`.
+`AnEmptySlotsHandRecordsReachNothing` takes the first drawn battle away from the final battle that seats
+nobody in a slot and writes the slot's two hand records 0 and then 255 at the first step: both runs agree
+with the port to the battle's end.
+
+Eight cases each take the first of the sweep's draws whose port battle reaches what they are about
+(`theDraw()` names it by its number) and read, at the step it happens, what the listing holds there on the
+cartridge's cells and in the port's state, the battle agreeing whole: a monster's turn queued as its AI's
+turn (`$3AA0,x` bit 5, command `$1F`), a counterattack's flag at `$B1` bit 0, a Berserk member's actions
+among Fight, Capture, Rage, Jump and Magitek, a condemned count leaving 2 and Doom shown after it, the
+member who escaped at `$3A38` in a fled battle, the countdown's flag in battle switch byte `$3EBC` as a
+timed-out battle closes, Gau's join mask, enemy mask, `$3A46` bit 2 and event `$1B` as he turns up, and
+the next final-battle stage's formation and scroll.
+
+`AStateWithItsListOutOfOrderWrittenIntoAMachineReadsBackTheSame` takes the first step of the sweep's
+drawn battles whose cartridge list of actions is not the block from slot 127 down, writes the port's state
+there into a fresh machine (`writeBattleState()`), and checks that the machine's list is that block and
+that its cells read back as the state written.
+
 `DrawnBattlesAreThePorts` checks 100 battles of the sweep's draws (`drawBattleScenario()` from
 `kSweepSeed`) with `checkBattle()`, expecting no difference in any, and every row of the reach table
 taken by at least one.
@@ -847,8 +872,8 @@ script or a message left out: a writer lays those through `writeInFlightByte()` 
 `writeByte()` and its kin lay the state. A last pass, `writeStateAsTheCartridgeHoldsIt()`, lays the
 cells where the cartridge holds the state its own way — an empty inventory record or hand, which keeps
 the targeting of the record loaded before it, the last record's targeting at `$2E74`
-(`BattleInventory::lastRecordTargeting`, left out when the start read an empty party slot's hands and no
-inventory item came after them), an empty party slot's record offset, the formation's first
+(`BattleInventory::lastRecordTargeting`, left out while `lastRecordsTargetingUnknown()` holds: the start
+read an empty party slot's hands and made no record for an item after them), an empty party slot's record offset, the formation's first
 byte with its top four bits turned over, the battle's flags at `$B1` (bit 1 the party cannot run, bit 2 a
 monster cannot be run from), the field's flags at `$11E4`, each battler's flags at `$3AA0`, `$3AA1`,
 `$3205` and `$3E4C` whole, the reach cells, the windows' wallpaper (`$2F34`, which a status change's
@@ -923,7 +948,7 @@ bit 7 and `$2F4A` not at all — the scripted setup in force, which the start la
 state can leave bits of a cell out for itself (`LaidState::bitsLeftOut`, `comparedBits()`): with no battler
 acting, the acting battler's byte (`$3406`) is compared by bit 7 alone, the other bits being the rotate's
 leavings (`:195-196`), and the counterattacking battler's (`$3407`) the same. Every other bit of a cell the battle program writes must be on
-`cellsNotCompared()` with its reason; a row the start alone has shown is marked provisional.
+`cellsNotCompared()` with its reason, which the whole battle's two gates hold to.
 
 Two gates keep the comparison whole. `uncoveredWrites(state, boosts, StartResult::battleWrites)` names
 every cell the battle program wrote up to the loop's first frame wait that the comparison does not cover

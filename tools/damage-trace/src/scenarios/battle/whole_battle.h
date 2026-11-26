@@ -137,6 +137,8 @@ struct PortBattle {
     std::vector<std::size_t> stepRequests;
     std::vector<battle::BattleRequest> requests;
     std::optional<battle::BattleResult> result;
+    // The battle's state as it closed, once it has.
+    std::optional<battle::BattleState> closed;
     std::uint64_t frames = 0;
     bool timedOut = false;
     // The battlers facing right as each frame began, one mask a frame ($2F50-$2F51's form): the facings

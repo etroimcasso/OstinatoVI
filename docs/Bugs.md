@@ -1315,3 +1315,49 @@ the cartridge.
 
 **If you want to change it.** Rolling with `state.rng.next()` in `addToolEffect()` takes the Chain Saw's
 number from the table in every battle, one kill in four.
+
+---
+
+## An empty party slot's hands are read from the field's map
+
+**What happens.** As a battle starts it makes a record for each party slot's two hands, a slot nobody
+fills included. For that slot it reads the shield and the weapon out of two bytes of the field's map: two
+tiles of the first layer of the map the party is on. Each byte names an item, and the slot's two hand
+records are made for those items, though nobody holds them. Nothing reads those records. A record made for
+an item also leaves that item's targeting as the last record's, and every record made for no item after it
+carries that targeting. The records made after the slot's weapon are the weapons of the slots below it and
+the inventory's, so the map's items reach another record only when none of those holds an item. Then every
+empty inventory record carries a map item's targeting, and so does the record the battle makes later for
+no item: a colosseum match won for a prize of nothing puts that record among the items obtained, where the
+next battle's start empties it. Each later
+stage of the final battle reads the same two bytes again, which the slot's refresh stores back as it
+found them.
+
+**Where the original does it.** `InitBattle` fills `$2000-$341F` with `$FF`
+(`battle/battle_main.asm:6063-6067`), and `InitParty` writes a slot's record offset at `$3010,x` only for a
+member it seats (`:7910`), so an empty slot keeps `$FFFF`. `InitInventory` runs with both registers
+sixteen bits wide (`:13913`). It reads each slot's shield with `lda $1620,y` (`:13919-13920`) and weapon
+with `lda $161f,y` (`:13928-13929`); with Y at `$FFFF`, absolute indexed addressing carries the index into
+the bank, so the bytes come from `$7F:161F` and `$7F:161E`. `LoadItemProp` keeps the low byte as the item
+(`:13985-13992`), returns for `$FF` (`:13993-13994`), and for any other item writes its targeting into
+`$2E74` (`:13999-14000`). The records go shields from slot 3 down, then weapons from slot 3 down, then the
+inventory from slot 255 down (`:13917-13941`). The field keeps its first map layer's tiles from `$7F:0000`
+(`field/map.asm:429-430`, `:479`; read at `$7f0000,x` in `field/player.asm:873` and `field/obj.asm:699`)
+and calls the battle program directly (`field/battle.asm:80`). The colosseum's prize is made a record
+whatever it is (`:15300-15306`). A later final-battle stage's start reloads the inventory (`:6125`), and
+the empty slot's refresh stores the weapon hand's item at `$7F:161E` and the shield hand's at `$7F:161F`
+(`UpdateCharProp` `:5610-5618`).
+
+**Where the port keeps it.** It does not. `loadBattleInventory()` in `src/battle/battle_inventory.cpp`
+gives an empty slot nothing in either hand and makes no record for it, so
+`BattleInventory::lastRecordTargeting` is what the records made for items leave. When nothing is held at
+all, it is none, and a record for no item carries `$FF`. The map's bytes are the field's, which a battle
+does not see. `tests/oracle/test_battle_whole_oracle.cpp`
+(`BattleWholeOracleTest.AColosseumWinForNoPrizeWithNothingHeldLeavesTheEmptySlotsTargetingOut`,
+`BattleWholeOracleTest.AnEmptySlotsHandRecordsReachNothing`) runs it against the cartridge. Those tests run
+on a machine parked at the reset code, where both bytes are 0, so there the slot's hands are item 0, the
+Dirk, and the targeting it leaves is `$41`.
+
+**If you want to change it.** Handing `loadBattleInventory()` the two bytes the field's map holds there, and
+making the empty slot's two hand records from them in the cartridge's order, carries their targeting as
+the shipped game does.

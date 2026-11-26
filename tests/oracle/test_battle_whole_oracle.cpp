@@ -3,7 +3,9 @@
 // step at a time adds up to the same battle called once; the first fight runs to its end the same on
 // both sides; the cells the carried-read gate passes by a rule of its own, and what an empty party slot's
 // equipment refresh writes at a later final-battle stage, reach nothing, each proved by a battle run twice
-// with the cells written two ways; and 100 drawn battles are the port's to their ends.
+// with the cells written two ways; an empty party slot's hands, which the start reads from bank $7F; eight
+// battles read against the listing at the step each is about; a state with its list of actions out of order
+// written into a machine; and 100 drawn battles are the port's to their ends.
 //
 // Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
 // (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -38,11 +40,19 @@
 #include "battle/battle_state.h"
 #include "battle/commands.h"
 #include "battle/items_obtained.h"
+#include "cells/battle/state.h"
+#include "cells/damage/per_target.h"
+#include "cells/ending/ending.h"
+#include "cells/status/effects.h"
+#include "game/character_record.h"
+#include "ostinato/attack_id.h"
 #include "ostinato/battle_command_id.h"
 #include "machine/machine_state.h"
 #include "oracle/damage_oracle.h"
 #include "ostinato/item_id.h"
+#include "ostinato/status_id.h"
 #include "retropp/guest_escape.h"
+#include "retropp/memory_region.h"
 #include "retropp/snes.h"
 #include "retropp/vm.h"
 #include "scenarios/battle/battle_draw.h"
@@ -747,6 +757,514 @@ TEST_F(BattleWholeOracleTest, TheBlockAnEmptySlotsRefreshLeavesReachesNothing) {
                 EXPECT_TRUE(check.cartridge.ended);
             }
         }
+    });
+}
+
+// Where InitInventory reads an empty party slot's hands, through the fill's $FFFF record offset, sixteen
+// bits wide (:13918-13934): the shield's item is the byte at $7F:161F, the weapon's the byte at $7F:161E.
+constexpr std::uint32_t kEmptySlotsWeaponItem = 0x7F161E;
+constexpr std::uint32_t kEmptySlotsShieldItem = 0x7F161F;
+// The last record's targeting, which a record made for no item carries (LoadItemProp :13987-14000).
+constexpr std::uint32_t kLastRecordTargeting = 0x7E2E74;
+// How many of the sweep's draws a case looks through for the battle it takes.
+constexpr int kDrawsLookedThrough = 400;
+
+// A colosseum match won by a fighter holding nothing in either hand, the three other slots empty and nothing
+// in the inventory, for no prize: the first such battle the sweep's draws make, when the port wins it with the
+// fighter's hands and the inventory emptied and the prize taken away.
+std::optional<DrawnBattle> anEmptyHandedColosseumWin(const assets::IngestedContent& content,
+                                                     const assets::HiRomImage& cartridge) {
+    std::mt19937 rng{trace::kSweepSeed};
+    for (int drawn = 0; drawn < kDrawsLookedThrough; ++drawn) {
+        trace::BattleScenario scenario = trace::drawBattleScenario(rng, content.text, content.monsterSprites, cartridge);
+        if (!scenario.start.start.colosseum) {
+            continue;
+        }
+        scenario.start.start.colosseum->prize = ItemId::EMPTY;
+        game::Party& party = scenario.start.cells.party;
+        for (game::CharacterRecord& record : party.characters) {
+            if (record.actor == scenario.start.start.colosseum->fighter) {
+                record.weapon = ItemId::EMPTY;
+                record.shield = ItemId::EMPTY;
+            }
+        }
+        party.inventory.fill(game::InventorySlot{});
+        const trace::PortBattle port = trace::portBattle(scenario, content.text, content.monsterSprites);
+        if (port.result && std::holds_alternative<battle::BattleWon>(port.result->outcome)) {
+            return DrawnBattle{.number = drawn, .scenario = scenario};
+        }
+    }
+    return std::nullopt;
+}
+
+// InitInventory reads an empty party slot's hands from bank $7F (:13918-13934) and makes a record for the item
+// each byte there names; with nothing in the inventory, the targeting the last of them leaves is what every
+// record made for no item after them carries, the record for a prize of nothing among them (WinBattle
+// :15300-15306, docs/Bugs.md). The port's empty slot holds nothing in either hand, and the comparison leaves
+// that targeting out while the start's records for no item carry it. The match, won, agrees whole; the two
+// bytes the harness's parked machine holds there are recorded.
+TEST_F(BattleWholeOracleTest, AColosseumWinForNoPrizeWithNothingHeldLeavesTheEmptySlotsTargetingOut) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    const std::optional<DrawnBattle> won = anEmptyHandedColosseumWin(content(), cartridge());
+    ASSERT_TRUE(won.has_value()) << "none of " << kDrawsLookedThrough
+                                 << " drawn battles is a colosseum match the port wins with nothing held";
+    RecordProperty("draw", won->number);
+    const trace::PortBattle port = trace::portBattle(won->scenario, content().text, content().monsterSprites);
+    ASSERT_TRUE(port.closed.has_value());
+    EXPECT_TRUE(DamageOracle::lastRecordsTargetingUnknown(*port.closed));
+    EXPECT_FALSE(port.closed->inventory.lastRecordTargeting.has_value());
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const std::vector<std::uint8_t> hands =
+            oracle.machine().read(retropp::MemoryRegion{.at = kEmptySlotsWeaponItem, .size = 2});
+        RecordProperty("weapon item at $7F:161E", int{hands[0]});
+        RecordProperty("shield item at $7F:161F", int{hands[kEmptySlotsShieldItem - kEmptySlotsWeaponItem]});
+        const trace::BattleCheck check = oracle.checkBattle(won->scenario);
+        EXPECT_EQ(check.differences, "") << trace::describe(won->scenario);
+        EXPECT_TRUE(check.cartridge.ended);
+        ASSERT_FALSE(check.cartridge.steps.empty());
+        RecordProperty("targeting at $2E74", int{check.cartridge.steps.front().cells[kLastRecordTargeting - 0x7E0000]});
+    });
+}
+
+// An empty party slot's two hand records, made from the bytes of bank $7F (above), are read by nothing away
+// from the final battle: the first of the sweep's draws away from it that seats nobody in a slot, run twice on
+// the cartridge with both records written 0 and then 255 at the first step's frame wait, agrees with the port
+// both times to the battle's end.
+TEST_F(BattleWholeOracleTest, AnEmptySlotsHandRecordsReachNothing) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        std::mt19937 rng{trace::kSweepSeed};
+        std::optional<trace::BattleScenario> taken;
+        std::optional<int> empty;
+        for (int drawn = 0; drawn < kDrawsLookedThrough && !taken; ++drawn) {
+            const trace::BattleScenario scenario =
+                trace::drawBattleScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
+            const trace::PortBattle port = trace::portBattle(scenario, content().text, content().monsterSprites);
+            if (port.steps.empty() || port.steps.front().finalBattleChain) {
+                continue;
+            }
+            for (int position = 0; position < battle::kPartySlots && !empty; ++position) {
+                if (!port.steps.front().at(battle::BattlerSlot::character(position)).actor) {
+                    empty = position;
+                    taken = scenario;
+                    RecordProperty("draw", drawn);
+                }
+            }
+        }
+        ASSERT_TRUE(taken.has_value()) << "no drawn battle away from the final battle seats nobody in a slot";
+        const auto place = static_cast<std::uint32_t>(*empty) * kHandRecordBytes;
+        for (const std::uint8_t value : {std::uint8_t{0x00}, std::uint8_t{0xFF}}) {
+            trace::BattleScenario written = *taken;
+            const std::vector<std::uint8_t> record(kHandRecordBytes, value);
+            written.cartridgeWrites = {trace::StepCellWrite{.step = 0, .at = kPartyWeaponHands + place, .bytes = record},
+                                       trace::StepCellWrite{.step = 0, .at = kPartyShieldHands + place, .bytes = record}};
+            const trace::BattleCheck check = oracle.checkBattle(written);
+            EXPECT_EQ(check.differences, "") << trace::describe(written) << ", written " << int{value};
+            EXPECT_TRUE(check.cartridge.ended);
+        }
+    });
+}
+
+// --- whole battles by hand --------------------------------------------------------------------------
+//
+// Each case below takes the first of the sweep's draws whose port battle reaches what it is about, runs it
+// on both sides to its end, and reads what the listing says it holds at the step it happens: on the
+// cartridge's cells and in the port's state.
+
+namespace cells = trace::cells;
+
+// The sweep's draw `draw`, counted from 0.
+trace::BattleScenario theDraw(int draw, const assets::IngestedContent& content, const assets::HiRomImage& cartridge) {
+    std::mt19937 rng{trace::kSweepSeed};
+    trace::BattleScenario scenario;
+    for (int drawn = 0; drawn <= draw; ++drawn) {
+        scenario = trace::drawBattleScenario(rng, content.text, content.monsterSprites, cartridge);
+    }
+    return scenario;
+}
+
+std::uint8_t cellAt(const trace::CartridgeStep& step, std::uint32_t cell) { return step.cells[cell - cells::kWorkRam]; }
+
+std::uint16_t wordAt(const trace::CartridgeStep& step, std::uint32_t cell) {
+    return static_cast<std::uint16_t>(cellAt(step, cell) | cellAt(step, cell + 1) << 8);
+}
+
+// A battler's cells are a word apart (battler index × 2).
+std::uint32_t battlerCell(std::uint32_t table, battle::BattlerSlot slot) {
+    return table + 2u * static_cast<std::uint32_t>(slot.index());
+}
+
+// A battler's bit in a battler mask's word: a party slot's in the low byte, a monster slot's in the high.
+std::uint16_t battlerBit(battle::BattlerSlot slot) {
+    return static_cast<std::uint16_t>(slot.isCharacter() ? 1u << slot.index() : 0x100u << (slot.index() - battle::kPartySlots));
+}
+
+// An action slot of the battle's one list: $FF, none.
+constexpr std::uint8_t kNoActionSlot = 0xFF;
+// The command and attack an action slot holds, a word a slot (CreateAction :12944-12964).
+std::uint8_t commandIn(const trace::CartridgeStep& step, std::uint8_t slot) {
+    return cellAt(step, cells::kActionCommand + 2u * slot);
+}
+std::uint8_t attackIn(const trace::CartridgeStep& step, std::uint8_t slot) {
+    return cellAt(step, cells::kActionCommand + 2u * slot + 1);
+}
+// $3AA0,x bit 5: the battler's action is queued (SetFlag0 :2744-2748).
+constexpr std::uint8_t kActionQueuedBit = 0x20;
+// The command an AI's turn is queued with (:504), and a battle event's (:12005).
+constexpr std::uint8_t kAiTurnCommand = 0x1F;
+constexpr std::uint8_t kBattleEventCommand = 0x23;
+// CheckBattleEnd's flag for a battle the field's countdown ended (:11900-11903): bit 5 of battle switch
+// byte $3EBC, from $1DD1's bit 5.
+constexpr std::uint32_t kBattleEndSwitches = 0x7E3EBC;
+constexpr std::uint8_t kTimerExpiredBit = 0x20;
+// The sweep's draws each case below takes, found by running the port over the draws in order.
+constexpr int kMonsterTurnDraw = 4;
+constexpr int kCounterattackDraw = 0;
+constexpr int kBerserkDraw = 0;
+constexpr int kCondemnedDraw = 266;
+constexpr int kFledDraw = 17;
+constexpr int kCountdownDraw = 2;
+constexpr int kGauDraw = 3;
+constexpr int kFinalStageDraw = 24;
+
+// A battle the port and the cartridge run alike to its end.
+trace::BattleCheck checkedWhole(DamageOracle& oracle, const trace::BattleScenario& scenario) {
+    trace::BattleCheck check = oracle.checkBattle(scenario);
+    EXPECT_EQ(check.differences, "") << trace::describe(scenario);
+    EXPECT_TRUE(check.cartridge.ended);
+    EXPECT_EQ(check.cartridge.steps.size(), check.port.steps.size());
+    return check;
+}
+
+// The first step whose port state `holds`, or nothing.
+std::optional<std::size_t> firstStepWhere(const trace::PortBattle& port,
+                                          const std::function<bool(const battle::BattleState&)>& holds) {
+    for (std::size_t step = 0; step < port.steps.size(); ++step) {
+        if (holds(port.steps[step])) {
+            return step;
+        }
+    }
+    return std::nullopt;
+}
+
+// A monster's turn: its gauge full, the AI's turn is made its first action and queued (:504, :2741-2748):
+// at the first step a monster's action waits, $3AA0,x bit 5 is set and its first action ($32CC,x) is an
+// AI's turn, command $1F.
+TEST_F(BattleWholeOracleTest, AMonstersTurnIsQueuedAsItsAisTurn) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = checkedWhole(oracle, theDraw(kMonsterTurnDraw, content(), oracle.cartridge()));
+        std::optional<battle::BattlerSlot> monster;
+        const std::optional<std::size_t> step = firstStepWhere(check.port, [&](const battle::BattleState& state) {
+            for (int position = 0; position < battle::kMonsterSlots && !monster; ++position) {
+                if (state.at(battle::BattlerSlot::monster(position)).actionQueued) {
+                    monster = battle::BattlerSlot::monster(position);
+                }
+            }
+            return monster.has_value();
+        });
+        ASSERT_TRUE(step.has_value()) << "no monster's action is queued in draw " << kMonsterTurnDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        const trace::CartridgeStep& theirs = check.cartridge.steps[*step];
+        const battle::Battler& ours = check.port.steps[*step].at(*monster);
+        EXPECT_NE(cellAt(theirs, battlerCell(cells::kOnTheField, *monster)) & kActionQueuedBit, 0);
+        const std::uint8_t first = cellAt(theirs, battlerCell(cells::kFirstAction, *monster));
+        ASSERT_NE(first, kNoActionSlot);
+        EXPECT_EQ(commandIn(theirs, first), kAiTurnCommand);
+        ASSERT_FALSE(ours.actions.empty());
+        EXPECT_TRUE(std::holds_alternative<battle::AiTurn>(ours.actions.front()));
+    });
+}
+
+// A counterattack runs with $B1 bit 0 set (ExecRetal :12411-12414): at the first step the port holds one
+// running, the cartridge's $B1 has the bit.
+TEST_F(BattleWholeOracleTest, ACounterattackRunsWithItsFlagSet) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check =
+            checkedWhole(oracle, theDraw(kCounterattackDraw, content(), oracle.cartridge()));
+        const std::optional<std::size_t> step =
+            firstStepWhere(check.port, [](const battle::BattleState& state) { return state.counterattackRunning; });
+        ASSERT_TRUE(step.has_value()) << "no counterattack runs in draw " << kCounterattackDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        EXPECT_NE(cellAt(check.cartridge.steps[*step], cells::kRunningCell) & cells::kCounterattackBit, 0);
+        ASSERT_GT(*step, 0u);
+        EXPECT_EQ(cellAt(check.cartridge.steps[*step - 1], cells::kRunningCell) & cells::kCounterattackBit, 0);
+        EXPECT_FALSE(check.port.steps[*step - 1].counterattackRunning);
+    });
+}
+
+// The commands a Berserk member may take (BerserkCmdTbl :757-760): Fight, Capture, Rage, Jump and Magitek;
+// ChooseCmd clears every other (:697-706).
+bool aBerserkCommand(std::uint8_t command) {
+    using enum BattleCommandId;
+    for (const BattleCommandId allowed : {FIGHT, CAPTURE, RAGE, JUMP, MAGITEK}) {
+        if (command == static_cast<std::uint8_t>(allowed)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+// A Berserk member chooses only among BerserkCmdTbl's commands: at every step where its first action waits,
+// that action's command is one of them, on both sides.
+TEST_F(BattleWholeOracleTest, ABerserkMembersActionsAreBerserkCommands) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleScenario scenario = theDraw(kBerserkDraw, content(), oracle.cartridge());
+        const trace::BattleCheck check = checkedWhole(oracle, scenario);
+        std::optional<battle::BattlerSlot> berserk;
+        for (int position = 0; position < battle::kPartySlots && !berserk; ++position) {
+            if (scenario.firstStep.statusesAdded[static_cast<std::size_t>(position)].has(StatusId::BERSERK)) {
+                berserk = battle::BattlerSlot::character(position);
+            }
+        }
+        ASSERT_TRUE(berserk.has_value()) << "draw " << kBerserkDraw << " lays Berserk on no member";
+        int chosen = 0;
+        for (std::size_t step = 0; step < std::min(check.port.steps.size(), check.cartridge.steps.size()); ++step) {
+            const battle::Battler& ours = check.port.steps[step].at(*berserk);
+            const std::uint8_t first = cellAt(check.cartridge.steps[step], battlerCell(cells::kFirstAction, *berserk));
+            if (ours.actions.empty() || first == kNoActionSlot) {
+                continue;
+            }
+            const auto* command = std::get_if<battle::CommandAction>(&ours.actions.front());
+            ASSERT_NE(command, nullptr) << "step " << step;
+            EXPECT_TRUE(aBerserkCommand(static_cast<std::uint8_t>(command->command))) << "step " << step;
+            EXPECT_TRUE(aBerserkCommand(commandIn(check.cartridge.steps[step], first))) << "step " << step;
+            ++chosen;
+        }
+        EXPECT_GT(chosen, 0) << "the Berserk member's action never waits at a step";
+    });
+}
+
+// Whether a request is a script that shows `spell`.
+bool showsSpell(const battle::BattleRequest& request, AttackId spell) {
+    const auto* script = std::get_if<battle::RunBattleScript>(&request);
+    return script != nullptr &&
+           std::any_of(script->commands.begin(), script->commands.end(), [spell](const battle::BattleScriptCommand& command) {
+               const auto* animation = std::get_if<battle::AttackAnimation>(&command);
+               return animation != nullptr && animation->attack == spell;
+           });
+}
+
+// A condemned count runs down by one on each of the battler's status timer turns while it is 2 or more, and
+// on reaching 1 Doom is made an interrupting action with no caster (:14867-14874, CondemnDeath
+// :15059-15062), which runs before the next step. At the last step the port's count stands at 2 the
+// cartridge's $3B05,x is 2; at the next both are below 2; and the port's battle shows Doom after it.
+TEST_F(BattleWholeOracleTest, ACondemnedCountRunningOutCastsDoom) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = checkedWhole(oracle, theDraw(kCondemnedDraw, content(), oracle.cartridge()));
+        std::optional<battle::BattlerSlot> condemned;
+        std::optional<std::size_t> step;
+        for (std::size_t at = 1; at < check.port.steps.size() && !step; ++at) {
+            for (std::size_t index = 0; index < check.port.steps[at].battlers.size(); ++index) {
+                if (check.port.steps[at - 1].battlers[index].condemnedNumber == 2 &&
+                    check.port.steps[at].battlers[index].condemnedNumber < 2) {
+                    condemned = battle::BattlerSlot::fromIndex(static_cast<int>(index));
+                    step = at;
+                }
+            }
+        }
+        ASSERT_TRUE(step.has_value()) << "no condemned count runs out in draw " << kCondemnedDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        RecordProperty("step", static_cast<int>(*step));
+        RecordProperty("battler", condemned->index());
+        const std::uint32_t count = battlerCell(cells::kCondemnedNumber, *condemned);
+        EXPECT_EQ(cellAt(check.cartridge.steps[*step - 1], count), 2);
+        EXPECT_LT(cellAt(check.cartridge.steps[*step], count), 2);
+        EXPECT_EQ(cellAt(check.cartridge.steps[*step], count), check.port.steps[*step].at(*condemned).condemnedNumber);
+        const auto from = check.port.requests.begin() + static_cast<std::ptrdiff_t>(check.port.stepRequests[*step - 1]);
+        EXPECT_TRUE(std::any_of(from, check.port.requests.end(),
+                                [](const battle::BattleRequest& request) { return showsSpell(request, AttackId::DOOM); }))
+            << "the port shows no Doom after the count runs out";
+    });
+}
+
+// The run buttons held until a member's escape succeeds: the escape marks the member in $3A38
+// (:15137-15142), and the battle ends as the party has run. At the first step a member has escaped, the
+// cartridge's $3A38 holds that member's bit; the port's battle ends with the party fled.
+TEST_F(BattleWholeOracleTest, AFledBattleMarksTheMemberWhoEscaped) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleScenario scenario = theDraw(kFledDraw, content(), oracle.cartridge());
+        ASSERT_TRUE(scenario.model.runButtonsHeldFrom.has_value());
+        const trace::BattleCheck check = checkedWhole(oracle, scenario);
+        const std::optional<std::size_t> step = firstStepWhere(
+            check.port, [](const battle::BattleState& state) { return !state.partyJustEscaped.empty(); });
+        ASSERT_TRUE(step.has_value()) << "no member escapes in draw " << kFledDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        std::uint8_t escaped = 0;
+        for (int position = 0; position < battle::kPartySlots; ++position) {
+            if (check.port.steps[*step].partyJustEscaped.has(battle::BattlerSlot::character(position))) {
+                escaped = static_cast<std::uint8_t>(escaped | battlerBit(battle::BattlerSlot::character(position)));
+            }
+        }
+        EXPECT_EQ(cellAt(check.cartridge.steps[*step], cells::kPartyJustEscaped), escaped);
+        ASSERT_TRUE(check.port.result.has_value());
+        const auto* ended = std::get_if<battle::BattleEnded>(&check.port.result->outcome);
+        ASSERT_NE(ended, nullptr);
+        EXPECT_EQ(ended->reason, battle::BattleEndReason::RanOutOfTime);
+    });
+}
+
+// A battle the field's countdown has run out on ends at its first end check (CheckBattleEnd :11900-11904):
+// the cartridge keeps the flag in battle switch byte $3EBC, bit 5, as the battle closes, and the port's
+// battle ends with the timer expired.
+TEST_F(BattleWholeOracleTest, ATimedOutEventBattleEndsOnTheCountdown) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = checkedWhole(oracle, theDraw(kCountdownDraw, content(), oracle.cartridge()));
+        EXPECT_NE(check.cartridge.endCells[kBattleEndSwitches - cells::kWorkRam] & kTimerExpiredBit, 0);
+        ASSERT_TRUE(check.port.result.has_value());
+        const auto* ended = std::get_if<battle::BattleEnded>(&check.port.result->outcome);
+        ASSERT_NE(ended, nullptr);
+        EXPECT_EQ(ended->reason, battle::BattleEndReason::TimerExpired);
+    });
+}
+
+// Gau turning up on the Veldt (GauAppears :12010-12017): his bit in the battlers to join ($2F4E) and among
+// the characters acting as enemies ($3A40), $3A46 bit 2, and battle event $1B made an interrupting action,
+// command $23 with the event as its attack (:12003-12006).
+TEST_F(BattleWholeOracleTest, GauTurningUpQueuesHisEvent) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = checkedWhole(oracle, theDraw(kGauDraw, content(), oracle.cartridge()));
+        const std::optional<std::size_t> step =
+            firstStepWhere(check.port, [](const battle::BattleState& state) { return state.gauJoining; });
+        ASSERT_TRUE(step.has_value()) << "Gau does not turn up in draw " << kGauDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        const trace::CartridgeStep& theirs = check.cartridge.steps[*step];
+        const battle::BattleState& ours = check.port.steps[*step];
+        std::uint16_t gau = 0;
+        for (int position = 0; position < battle::kPartySlots; ++position) {
+            if (ours.joiningAfterAction.has(battle::BattlerSlot::character(position))) {
+                gau = battlerBit(battle::BattlerSlot::character(position));
+            }
+        }
+        ASSERT_NE(gau, 0) << "the port joins no party slot";
+        EXPECT_EQ(wordAt(theirs, cells::kJoining) & gau, gau);
+        EXPECT_EQ(wordAt(theirs, cells::kEnemyCharacters) & gau, gau);
+        EXPECT_NE(cellAt(theirs, cells::kAimFlags) & cells::kGauJoiningBit, 0);
+        const std::uint8_t first = cellAt(theirs, cells::kFirstImmediateAction);
+        ASSERT_NE(first, kNoActionSlot);
+        EXPECT_EQ(commandIn(theirs, first), kBattleEventCommand);
+        EXPECT_EQ(attackIn(theirs, first), battle::kGauJoinsEvent);
+        ASSERT_FALSE(ours.immediateActions.empty());
+        const auto* event = std::get_if<battle::BattleEventAction>(&ours.immediateActions.front());
+        ASSERT_NE(event, nullptr);
+        EXPECT_EQ(event->event, battle::kGauJoinsEvent);
+    });
+}
+
+// A stage of the final battle won and the next begun: the start runs again, seeding the random numbers
+// with four times the play clock's low byte (InitBattle :6088-6090), and the background scrolls by
+// $3EE1 (:6180-6193). At the next stage's first step, both sides hold its formation and the scroll, and
+// every step after agrees.
+TEST_F(BattleWholeOracleTest, AFinalStageScrollsOnToTheNext) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        const trace::BattleCheck check = checkedWhole(oracle, theDraw(kFinalStageDraw, content(), oracle.cartridge()));
+        const std::optional<std::size_t> step = firstStepWhere(
+            check.port, [](const battle::BattleState& state) { return state.formation != state.startingFormation; });
+        ASSERT_TRUE(step.has_value()) << "no next stage begins in draw " << kFinalStageDraw;
+        ASSERT_LT(*step, check.cartridge.steps.size());
+        const trace::CartridgeStep& theirs = check.cartridge.steps[*step];
+        const battle::BattleState& ours = check.port.steps[*step];
+        EXPECT_EQ(wordAt(theirs, cells::kFormationCell), static_cast<std::uint16_t>(ours.formation));
+        ASSERT_TRUE(ours.finalBattleScroll.has_value());
+        EXPECT_EQ(cellAt(theirs, cells::kFinalBattleScroll), *ours.finalBattleScroll);
+        const bool scrolled = std::any_of(check.port.requests.begin(), check.port.requests.end(), [](const battle::BattleRequest& r) {
+            return std::holds_alternative<battle::ScrollFinalBattleBackground>(r);
+        });
+        EXPECT_TRUE(scrolled);
+    });
+}
+
+// The slots of the battle's one list in use, highest first: a slot whose next slot is not free
+// (AddToQueue :12815-12826).
+std::vector<std::uint8_t> slotsInUse(const trace::BattleCells& cells) {
+    std::vector<std::uint8_t> used;
+    for (std::uint32_t slot = cells::kActionSlots; slot-- > 0;) {
+        if (cells[cells::kActionNext - cells::kWorkRam + slot] != cells::kFreeSlot) {
+            used.push_back(static_cast<std::uint8_t>(slot));
+        }
+    }
+    return used;
+}
+
+// Whether `used`, highest first, is the block a machine written from an empty list takes: 127 and down.
+bool fromTheTopDown(const std::vector<std::uint8_t>& used) {
+    for (std::size_t k = 0; k < used.size(); ++k) {
+        if (used[k] != cells::kActionSlots - 1 - k) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// The battle's list as a battle leaves it mid-way, with slots freed between slots in use, written into a
+// machine: the writer lays the lists from slot 127 down, and the machine's cells read back as the state
+// written. The state is the first of the sweep's drawn battles' steps whose cartridge list is not the block
+// from 127 down and holds two actions or more.
+TEST_F(BattleWholeOracleTest, AStateWithItsListOutOfOrderWrittenIntoAMachineReadsBackTheSame) {
+    OSTINATO_SKIP_WHEN_BRIEF();
+    trace::runOnLoop([&] {
+        DamageOracle oracle{image()};
+        ready(oracle);
+        std::mt19937 rng{trace::kSweepSeed};
+        std::optional<battle::BattleState> taken;
+        trace::PartyCells boosts;
+        for (int drawn = 0; drawn < 10 && !taken; ++drawn) {
+            const trace::BattleScenario scenario =
+                trace::drawBattleScenario(rng, content().text, content().monsterSprites, oracle.cartridge());
+            const trace::BattleCheck check = oracle.checkBattle(scenario);
+            ASSERT_EQ(check.differences, "") << "draw " << drawn;
+            const std::size_t steps = std::min(check.port.steps.size(), check.cartridge.steps.size());
+            for (std::size_t step = 0; step < steps && !taken; ++step) {
+                const std::vector<std::uint8_t> used = slotsInUse(check.cartridge.steps[step].cells);
+                if (used.size() >= 2 && !fromTheTopDown(used)) {
+                    taken = check.port.steps[step];
+                    boosts = scenario.start.cells;
+                    RecordProperty("draw", drawn);
+                    RecordProperty("step", static_cast<int>(step));
+                    RecordProperty("slots in use", static_cast<int>(used.size()));
+                }
+            }
+        }
+        ASSERT_TRUE(taken.has_value()) << "no step of ten drawn battles leaves its list out of order";
+
+        DamageOracle written{image()};
+        ready(written);
+        written.writeBattleState(*taken, boosts);
+        const std::vector<std::uint8_t> read =
+            written.machine().read(retropp::MemoryRegion{.at = cells::kWorkRam, .size = sizeof(trace::BattleCells)});
+        trace::BattleCells cells{};
+        std::copy(read.begin(), read.end(), cells.begin());
+        const std::vector<std::uint8_t> used = slotsInUse(cells);
+        EXPECT_GE(used.size(), 2u);
+        EXPECT_TRUE(fromTheTopDown(used));
+        EXPECT_EQ(written.compareBattleState(*taken, boosts, cells), "");
     });
 }
 

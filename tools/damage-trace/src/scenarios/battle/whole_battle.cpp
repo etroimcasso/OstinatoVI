@@ -314,6 +314,9 @@ PortBattle portBattle(const BattleScenario& scenario, const TextCorpus& text, co
         take();
     }
     port.result = sim.result();
+    if (port.result) {
+        port.closed = sim.state();
+    }
     return port;
 }
 

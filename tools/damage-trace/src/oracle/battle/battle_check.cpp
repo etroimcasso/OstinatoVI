@@ -18,7 +18,9 @@
 
 #include "battle/battle_requests.h"
 #include "battle/battler_set.h"
+#include "battle/items_obtained.h"
 #include "battle/party_setup.h"
+#include "ostinato/item_id.h"
 
 #include "cells/battle/state.h"
 #include "cells/status/effects.h"
@@ -26,6 +28,9 @@
 namespace ostinato::trace {
 
 namespace {
+
+// The byte of an item's record that holds its targeting (LoadItemProp :13999-14000).
+constexpr std::size_t kRecordTargetingByte = 2;
 
 std::string named(const std::string& what, const std::string& lines) {
     return lines.empty() ? std::string{} : what + ":\n" + lines;
@@ -346,12 +351,21 @@ BattleCheck DamageOracle::checkBattle(const BattleScenario& scenario) {
     }
     lines += named("what the game keeps", differences(kept, cartridge.kept));
     // The last three places of the items obtained, handed to the next battle: every byte, since other
-    // programs write them between battles and a battle hands back what it does not touch as it came.
+    // programs write them between battles and a battle hands back what it does not touch as it came. A
+    // place made for no item carries the targeting the last record made for an item left (LoadItemProp
+    // :13987-13994); while the battle's own start read an empty party slot's hands and made no record for an
+    // item after them, that targeting is the item two bytes of bank $7F name (docs/Bugs.md), and the
+    // place's targeting is left out.
+    const bool targetingUnknown = port.closed && lastRecordsTargetingUnknown(*port.closed);
     std::string tail;
     for (std::size_t place = 0; place < battle::kItemsObtainedTailPlaces; ++place) {
         const battle::ItemRecord& ours = port.result->itemsObtainedTail[place];
         const battle::ItemRecord& theirs = cartridge.itemsObtainedTail[place];
+        const bool forNoItem = ours[battle::kRecordItemByte] == static_cast<std::uint8_t>(ItemId::EMPTY);
         for (std::size_t at = 0; at < battle::kItemRecordBytes; ++at) {
+            if (at == kRecordTargetingByte && forNoItem && targetingUnknown) {
+                continue;
+            }
             if (ours[at] != theirs[at]) {
                 char text[64];
                 std::snprintf(text, sizeof text, "place %zu byte %zu: port %02X cartridge %02X\n", place, at, ours[at],

@@ -196,7 +196,8 @@ down; after that, one for each item obtained (the colosseum's prize `:15305`, a 
 `ItemId::EMPTY`, or `$ff` while there is none. As the battle starts it is the targeting of the item in the
 first inventory slot that holds one. A party slot with no one in it has the fill's `$ffff` as its record
 offset, so the start reads that slot's two hands out of bank `$7f` (`$7F:161E-$7F:1620`); the port's
-empty slot holds nothing in either hand. That reaches `$2e74` only when the inventory holds no item at all.
+empty slot holds nothing in either hand. That reaches `$2e74` only when the inventory holds no item at all
+([Bugs.md](../Bugs.md), "An empty party slot's hands are read from the field's map").
 The list's places are the records themselves (`ItemRecord`, every byte), an item obtained written as
 `LoadItemProp` makes its record (`itemRecordFor()`: the fifth byte `$ff` for a type no hand check is made
 for, `:13989-13990`, `:14016-14020`, which `recordOf()` of a `BattleItem` cannot say): places 13-15 are other programs'

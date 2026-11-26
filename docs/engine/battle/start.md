@@ -237,7 +237,8 @@ shrinks during a battle.
 and `brokenFrom`, which is set only on a hand whose Ogre Nix broke ([effects.md](effects.md)).
 `battleItem(state, item, quantity)` builds one for the party as it stands. `lastRecordTargeting` is
 the targeting of the last item the battle made a record for — as the battle starts, the item in the
-first inventory slot that holds one, or with an empty inventory the hands' — and none when nothing is
+first inventory slot that holds one, or with an empty inventory the hands', an empty party slot's hands
+counting for nothing — and none when nothing is
 held at all; the record for no item carries it ([rewards.md](rewards.md)).
 
 `loadKnownSkills(state)` sets `swdtechsKnown`, `blitzesKnown`, `dancesKnown` (indexed by `DanceId`)
