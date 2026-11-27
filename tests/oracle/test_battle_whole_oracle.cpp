@@ -5,8 +5,8 @@
 // equipment refresh writes at a later final-battle stage, reach nothing, each proved by a battle run twice
 // with the cells written two ways; an empty party slot's hands, which the start reads from bank $7F; eight
 // battles read against the listing at the step each is about; a state with its list of actions out of order
-// written into a machine; a Jump's ready stance, aimed at the action pool's top slot's targets; and 100 drawn
-// battles are the port's to their ends.
+// written into a machine; a Jump's ready stance, read on a drawn battle as aimed at the action pool's top
+// slot's targets and not the Jump's own; and 100 drawn battles are the port's to their ends.
 //
 // Every test that asks the cartridge on the engine's machine skips in a brief run of the tests
 // (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -1319,11 +1319,12 @@ TEST_F(BattleWholeOracleTest, AChainSawsRollWithTheByteAboveThePositionAtOneRead
     });
 }
 
-// The action pool's top slot, the first AddToQueue hands out (:12815-12826), and bit 7 of a slot's link, set
-// while the slot is free.
+// The action pool's top slot, the first AddToQueue hands out (:12815-12826).
 constexpr std::uint8_t kTopActionSlot = cells::kActionSlots - 1;
-constexpr std::uint8_t kFreeActionSlotBit = 0x80;
-constexpr std::uint32_t kTopSlotsTargets = cells::kActionTargets + 2u * kTopActionSlot;
+
+// Where an action slot keeps its targets: the party's byte, then the monsters'.
+constexpr std::uint32_t actionTargets(std::uint8_t slot) { return cells::kActionTargets + 2u * slot; }
+
 // The sweep's draw whose Jump ready stance aims at another action's targets: a colosseum match.
 constexpr int kJumpStanceDraw = 92;
 
@@ -1358,75 +1359,13 @@ std::vector<JumpStance> jumpStances(const trace::WholeBattleResult& battle) {
     return stances;
 }
 
-// Whether the port's battle plays a Jump's ready stance.
-bool playsAJumpStance(const trace::PortBattle& port) {
-    for (const battle::BattleRequest& request : port.requests) {
-        const auto* script = std::get_if<battle::RunBattleScript>(&request);
-        if (script == nullptr) {
-            continue;
-        }
-        for (const battle::BattleScriptCommand& command : script->commands) {
-            const auto* stance = std::get_if<battle::ReadyStance>(&command);
-            if (stance != nullptr && stance->command == BattleCommandId::JUMP) {
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-bool topSlotIsFree(const trace::CartridgeStep& step) {
-    return (cellAt(step, cells::kActionNext + kTopActionSlot) & kFreeActionSlotBit) != 0;
-}
-
-// Whether, at `step`'s frame wait, the jumper's first action is its Jump in a slot below the top one: made
-// already, so the stance cannot be aimed at the Jump's own slot.
-bool jumpIsQueuedBelowTheTop(const trace::CartridgeStep& step, battle::BattlerSlot jumper) {
-    const std::uint8_t first = cellAt(step, battlerCell(cells::kFirstAction, jumper));
-    return first < kTopActionSlot && commandIn(step, first) == static_cast<std::uint8_t>(BattleCommandId::JUMP);
-}
-
-// A battle whose cartridge plays a Jump ready stance with the top slot free at the frame wait of the step before
-// it and the Jump already queued below it, the stance carrying the targets the slot was left holding there; its
-// number among the sweep's draws.
-struct JumpStanceOnAFreeSlot {
-    int number = 0;
-    trace::BattleScenario scenario;
-    JumpStance stance;
-};
-
-// The first of the sweep's draws that is one, looking through the draws the port's battle plays a Jump stance
-// in; `jumping` counts those.
-std::optional<JumpStanceOnAFreeSlot> aJumpStanceOnAFreeTopSlot(DamageOracle& oracle,
-                                                               const assets::IngestedContent& content, int& jumping) {
-    std::mt19937 rng{trace::kSweepSeed};
-    for (int drawn = 0; drawn < kDrawsLookedThrough; ++drawn) {
-        const trace::BattleScenario scenario =
-            trace::drawBattleScenario(rng, content.text, content.monsterSprites, oracle.cartridge());
-        if (!playsAJumpStance(trace::portBattle(scenario, content.text, content.monsterSprites))) {
-            continue;
-        }
-        ++jumping;
-        const trace::BattleCheck check = oracle.checkBattle(scenario);
-        for (const JumpStance& stance : jumpStances(check.cartridge)) {
-            const trace::CartridgeStep& before = check.cartridge.steps[stance.stepBefore];
-            if (topSlotIsFree(before) && jumpIsQueuedBelowTheTop(before, stance.actor) &&
-                wordAt(before, kTopSlotsTargets) == stance.targets) {
-                return JumpStanceOnAFreeSlot{.number = drawn, .scenario = scenario, .stance = stance};
-            }
-        }
-    }
-    return std::nullopt;
-}
-
 // A Jump's ready stance aims at the targets of the action pool's top slot, whatever action holds or last held
-// it, never the Jump's own (_gaugefull :5743-5789: UpdateCharGfxBuf :15256-15276 leaves Y at $FE for :5779's
-// read of $3520,y), and the command comparison leaves those targets out (docs/Bugs.md). On the sweep's draw 92
-// the top slot is read at the frame wait of the step before the stance's, its link, command, attack and
-// targets recorded, and the stance carries those targets. Then the first of the draws whose Jump stance finds
-// the slot free there with the Jump queued below it: its targets written 0 and then 65,535 at that frame wait,
-// the stance carries what was written, and both runs agree with the port to the battle's end.
-TEST_F(BattleWholeOracleTest, AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReachNothingElse) {
+// it, and not at the Jump's own (_gaugefull :5743-5789: UpdateCharGfxBuf :15256-15276 leaves Y at $FE for
+// :5779's read of $3520,y), and the command comparison leaves those targets out (docs/Bugs.md). On the sweep's
+// draw 92 the top slot is read at the frame wait of the step before the stance's, its link, command, attack and
+// targets recorded, and the Jump's own targets at the step after, from the jumper's first action. The stance
+// carries the top slot's targets, they are not the Jump's own, and the battle agrees with the port to its end.
+TEST_F(BattleWholeOracleTest, AJumpsReadyStanceAimsAtTheTopSlotsTargets) {
     OSTINATO_SKIP_WHEN_BRIEF();
     trace::runOnLoop([&] {
         DamageOracle oracle{image()};
@@ -1436,38 +1375,24 @@ TEST_F(BattleWholeOracleTest, AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReac
         EXPECT_EQ(check.differences, "") << trace::describe(drawn);
         const std::vector<JumpStance> stances = jumpStances(check.cartridge);
         ASSERT_FALSE(stances.empty()) << "draw " << kJumpStanceDraw << " plays no Jump ready stance";
-        const trace::CartridgeStep& before = check.cartridge.steps[stances.front().stepBefore];
-        RecordProperty("draw 92's step before the stance", static_cast<int>(stances.front().stepBefore));
+        const JumpStance& stance = stances.front();
+        ASSERT_LT(stance.stepBefore + 1, check.cartridge.steps.size()) << "no loop step follows the stance";
+        const trace::CartridgeStep& before = check.cartridge.steps[stance.stepBefore];
+        const trace::CartridgeStep& after = check.cartridge.steps[stance.stepBefore + 1];
+        RecordProperty("draw 92's step before the stance", static_cast<int>(stance.stepBefore));
         RecordProperty("draw 92's top slot's link", int{cellAt(before, cells::kActionNext + kTopActionSlot)});
         RecordProperty("draw 92's top slot's command", int{commandIn(before, kTopActionSlot)});
         RecordProperty("draw 92's top slot's attack", int{attackIn(before, kTopActionSlot)});
-        RecordProperty("draw 92's top slot's targets", int{wordAt(before, kTopSlotsTargets)});
-        EXPECT_EQ(stances.front().targets, wordAt(before, kTopSlotsTargets));
+        RecordProperty("draw 92's top slot's targets", int{wordAt(before, actionTargets(kTopActionSlot))});
 
-        int jumping = 0;
-        const std::optional<JumpStanceOnAFreeSlot> found = aJumpStanceOnAFreeTopSlot(oracle, content(), jumping);
-        RecordProperty("draws the port plays a Jump stance in", jumping);
-        ASSERT_TRUE(found.has_value()) << "none of " << kDrawsLookedThrough
-                                       << " drawn battles plays a Jump stance with the top slot free before it";
-        RecordProperty("draw", found->number);
-        RecordProperty("step", static_cast<int>(found->stance.stepBefore));
-        for (const std::uint16_t targets : {std::uint16_t{0x0000}, std::uint16_t{0xFFFF}}) {
-            trace::BattleScenario written = found->scenario;
-            written.cartridgeWrites = {trace::StepCellWrite{
-                .step = found->stance.stepBefore,
-                .at = kTopSlotsTargets,
-                .bytes = {static_cast<std::uint8_t>(targets), static_cast<std::uint8_t>(targets >> 8)}}};
-            const trace::BattleCheck run = oracle.checkBattle(written);
-            EXPECT_EQ(run.differences, "") << trace::describe(written) << ", written " << targets << " at step "
-                                           << found->stance.stepBefore;
-            EXPECT_TRUE(run.cartridge.ended);
-            const std::vector<JumpStance> after = jumpStances(run.cartridge);
-            const auto stance = std::find_if(after.begin(), after.end(), [&](const JumpStance& each) {
-                return each.stepBefore == found->stance.stepBefore;
-            });
-            ASSERT_NE(stance, after.end());
-            EXPECT_EQ(stance->targets, targets);
-        }
+        const std::uint8_t jump = cellAt(after, battlerCell(cells::kFirstAction, stance.actor));
+        ASSERT_EQ(commandIn(after, jump), static_cast<std::uint8_t>(BattleCommandId::JUMP))
+            << "the jumper's first action, slot " << int{jump} << ", is not its Jump";
+        RecordProperty("draw 92's Jump's slot", int{jump});
+        RecordProperty("draw 92's Jump's targets", int{wordAt(after, actionTargets(jump))});
+
+        EXPECT_EQ(stance.targets, wordAt(before, actionTargets(kTopActionSlot)));
+        EXPECT_NE(stance.targets, wordAt(after, actionTargets(jump)));
     });
 }
 

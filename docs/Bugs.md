@@ -1371,7 +1371,11 @@ The battle hands out its highest free action slot first, so when that slot is fr
 the Jump takes it and the stance is aimed where the Jump is. When an action made earlier still holds it,
 the stance is aimed where that action is. It shows as the jumper's facing in a side or pincer attack, and
 as the landing's facing when no animation plays between the leap and the landing. The Jump itself lands
-on its own targets.
+on its own targets, but the facing the stance gave the jumper decides its damage there: in a side attack a
+party member's physical blow hits a monster in the back when the two face the same way, and in a pincer
+attack a monster's blow does the same to a party member, and a hit in the back adds one to the damage
+multiplier. So when the Jump's own first target and the top slot's stand on different sides of the
+jumper, the landing is a hit in the back in one case and not in the other.
 
 **Where the original does it.** `_gaugefull` (`battle/battle_main.asm:5731-5790`) takes Y as the actor's
 first action slot doubled (`:5743-5746`). For a party member's Jump it stores the landing's command and
@@ -1383,16 +1387,22 @@ and `InitGfxParams` (`:14438-14443`) copies them into the stance's block as its 
 Every other command reaches `:5779` with Y the slot (`:5753-5754`). `AddToQueue` (`:12815-12826`) hands out
 the first free slot from 127 down. In the graphics program, `GfxCmd_0c` (`btlgfx/btlgfx_main.asm:21841-21873`)
 runs `init_all_anim` (`:25493-25499`): `SetAnimTargets` (`:25505-25512`) takes the block's targets as the
-animation's, and `_c19aa2` (`:23256-23318`) turns the jumper toward them.
+animation's, and `_c19aa2` (`:23256-23353`) turns the jumper toward them, a party member at
+`:23264-23318` and a monster at `:23321-23353`. The battle program reads that facing back:
+`UpdateFacingDir` (`btlgfx/btlgfx_main.asm:39958-39976`) writes the sprites' facings into `$2F50-$2F51`,
+and `UpdateFacingDirection` (`battle/battle_main.asm:3218-3271`), called before an attack's effect
+(`:8274`), marks the targets hit in the back from them for a physical attack, the monsters in a side
+attack (`$3A55`, `:3226-3246`) and the party in a pincer attack (`$3A54`, `:3250-3270`).
 
 **Where the port keeps it.** It does not. `startAdvanceWait()` in `src/battle/battle_loop.cpp` hands the
 presentation a `ReadyStance` with the Jump's own targets, and `turnToFaceTargets()` in
 `src/battle/battle_layout.cpp` turns the jumper toward them and keeps them as the last animation's targets.
 The port keeps its actions in lists with no slot numbers, so it has no top slot to read. The script
 comparison in `tools/damage-trace` leaves a Jump stance's targets out on both sides.
-`tests/oracle/test_battle_whole_oracle.cpp`
-(`BattleWholeOracleTest.AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReachNothingElse`) reads the top slot
-on a drawn colosseum match where an earlier Fight holds it, and the stance carries that Fight's targets.
+`tests/oracle/test_battle_whole_oracle.cpp` (`BattleWholeOracleTest.AJumpsReadyStanceAimsAtTheTopSlotsTargets`)
+reads a drawn colosseum match where an earlier Fight holds the top slot: the stance carries the Fight's
+targets and not the Jump's own, and the battle agrees with the port to its end. The port's hit in the back
+is `hitInTheBack()` in `src/battle/attack.cpp`, read from `BattleState::facingRight`.
 
 **If you want to change it.** Carrying the action slots in `BattleState`, a slot for each action handed
 out highest free first as `AddToQueue` does and its targets kept after the action is gone, and handing a

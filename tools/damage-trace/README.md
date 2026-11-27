@@ -880,13 +880,11 @@ item the two bytes name.
 nobody in a slot and writes the slot's two hand records 0 and then 255 at the first step: both runs agree
 with the port to the battle's end.
 
-`AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReachNothingElse` takes a Jump's ready stance
-(`docs/Bugs.md`). On draw 92 of the sweep's, a colosseum match, it reads the action pool's top slot at the
-frame wait of the step before the stance's, records its link, command, attack and targets, and checks the
-stance carries those targets. It then looks through the sweep's draws that the port plays a Jump stance in
-for the first whose stance finds the top slot free with the Jump queued below it, and writes the slot's
-targets 0 and then 65,535 at that frame wait: the stance carries what was written, and both runs agree with
-the port to the battle's end.
+`AJumpsReadyStanceAimsAtTheTopSlotsTargets` takes a Jump's ready stance (`docs/Bugs.md`). On the sweep's
+draw 92, a colosseum match, it reads the action pool's top slot at the frame wait of the step before the
+stance's and records its link, command, attack and targets, and reads the Jump's own slot and targets at the
+step after, from the jumper's first action. The stance carries the top slot's targets, they are not the
+Jump's own, and the battle agrees with the port to its end with the stance's targets left out.
 
 `tests/oracle/test_battle_scripts_oracle.cpp` checks the script reader on queues laid by hand: each
 command the battle program writes reads as the port's command its handler shows, the params blocks go to
