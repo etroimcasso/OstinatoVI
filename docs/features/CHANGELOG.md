@@ -2,6 +2,7 @@
 
 Chronological feature state transitions, newest first.
 
+- **2026-11-27** — `battle-core`: stays ✅ complete. The Jump stance's check reads the drawn battle that shows it (`AJumpsReadyStanceAimsAtTheTopSlotsTargets`): the stance carries the targets of the Fight that holds the action pool's top slot, not the Jump's own, and the battle agrees with the port to its end. `docs/Bugs.md` adds what that reaches: in a side or pincer attack the stance's facing decides whether the landing is a hit in the back.
 - **2026-11-26** — `battle-core`: stays ✅ complete. A Jump's ready stance on the cartridge is aimed at the targets of the action pool's top slot, whatever action holds or last held it, not at the Jump's own; `docs/Bugs.md` records it, and the whole-battle check leaves a Jump stance's targets out of the script comparison on both sides, every other stance's compared.
 - **2026-11-26** — `battle-core`: stays ✅ complete. The whole-battle check compares every battle script command by command. As the battle asks for a script to play, the cartridge's script is read into the port's commands, and each command on both sides is shown as the operands its handler in the graphics program reads: an animation's fourth byte only where the attack wrote it, a message's numbers only where its text shows them, and a tool's and a blitz's animation by their index among the tools' and the blitzes'. The last three places of the items obtained are compared every byte as a battle closes, since a record made for no item never stands in one of them.
 
