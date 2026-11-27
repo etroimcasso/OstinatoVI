@@ -1361,3 +1361,39 @@ Dirk, and the targeting it leaves is `$41`.
 **If you want to change it.** Handing `loadBattleInventory()` the two bytes the field's map holds there, and
 making the empty slot's two hand records from them in the cartridge's order, carries their targeting as
 the shipped game does.
+
+## A Jump's ready stance aims at the action pool's top slot's targets
+
+**What happens.** As a battler's Jump comes up it takes a ready stance and leaps, and the stance is aimed
+at the targets of whatever action holds the battle's highest action slot, or last held it, not at the
+Jump's own. The jumper turns toward the first of those targets, and the leap's animation is aimed at them.
+The battle hands out its highest free action slot first, so when that slot is free as the Jump is chosen,
+the Jump takes it and the stance is aimed where the Jump is. When an action made earlier still holds it,
+the stance is aimed where that action is. It shows as the jumper's facing in a side or pincer attack, and
+as the landing's facing when no animation plays between the leap and the landing. The Jump itself lands
+on its own targets.
+
+**Where the original does it.** `_gaugefull` (`battle/battle_main.asm:5731-5790`) takes Y as the actor's
+first action slot doubled (`:5743-5746`). For a party member's Jump it stores the landing's command and
+targets with Y still the slot (`$3F28`, `$3F2A`, `:5763-5766`), and for every Jump it calls
+`UpdateCharGfxBuf` (`:5773`). That routine narrows the index registers to eight bits (`:15259`) and counts
+Y down by two from 6 until it is `$FE` (`:15260-15274`); its `plp` (`:15275`) restores the width, not Y.
+Back at `:5779` the sixteen-bit `lda $3520,y` reads `$7E:361E-$7E:361F`, the targets of action slot 127,
+and `InitGfxParams` (`:14438-14443`) copies them into the stance's block as its targets and targets hit.
+Every other command reaches `:5779` with Y the slot (`:5753-5754`). `AddToQueue` (`:12815-12826`) hands out
+the first free slot from 127 down. In the graphics program, `GfxCmd_0c` (`btlgfx/btlgfx_main.asm:21841-21873`)
+runs `init_all_anim` (`:25493-25499`): `SetAnimTargets` (`:25505-25512`) takes the block's targets as the
+animation's, and `_c19aa2` (`:23256-23318`) turns the jumper toward them.
+
+**Where the port keeps it.** It does not. `startAdvanceWait()` in `src/battle/battle_loop.cpp` hands the
+presentation a `ReadyStance` with the Jump's own targets, and `turnToFaceTargets()` in
+`src/battle/battle_layout.cpp` turns the jumper toward them and keeps them as the last animation's targets.
+The port keeps its actions in lists with no slot numbers, so it has no top slot to read. The script
+comparison in `tools/damage-trace` leaves a Jump stance's targets out on both sides.
+`tests/oracle/test_battle_whole_oracle.cpp`
+(`BattleWholeOracleTest.AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReachNothingElse`) reads the top slot
+on a drawn colosseum match where an earlier Fight holds it, and the stance carries that Fight's targets.
+
+**If you want to change it.** Carrying the action slots in `BattleState`, a slot for each action handed
+out highest free first as `AddToQueue` does and its targets kept after the action is gone, and handing a
+Jump's stance the top slot's targets, gives the shipped game's aim.

@@ -135,8 +135,15 @@ void addLines(std::vector<std::string>& lines, const battle::BattleScriptCommand
         [&](const auto& c) {
             using T = std::decay_t<decltype(c)>;
             if constexpr (std::is_same_v<T, battle::ReadyStance>) {
-                lines.push_back("ready stance " + slotText(c.actor) + " command " +
-                                std::to_string(commandByte(c.command)) + " targets " + setText(c.targets));
+                // A Jump's ready stance shows no targets. The cartridge's aims at the action pool's top
+                // slot's: UpdateCharGfxBuf (battle_main.asm:5773, :15259-15275) leaves Y at $FE, and :5779
+                // reads $3520,y. The port keeps no counterpart for that slot (docs/Bugs.md, "A Jump's ready
+                // stance aims at the action pool's top slot's targets"). Every other stance shows its targets.
+                std::string line = "ready stance " + slotText(c.actor) + " command " + std::to_string(commandByte(c.command));
+                if (c.command != BattleCommandId::JUMP) {
+                    line += " targets " + setText(c.targets);
+                }
+                lines.push_back(std::move(line));
             } else if constexpr (std::is_same_v<T, battle::StepBack>) {
                 lines.emplace_back("step back");
             } else if constexpr (std::is_same_v<T, battle::FormationChanges>) {

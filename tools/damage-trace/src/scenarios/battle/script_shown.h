@@ -7,7 +7,9 @@
 //     // ours == theirs when the two scripts show the same thing.
 //
 // A damage numeral shown one at a time is one queue command each ($0B), so a port command that shows
-// several in turn is a line for each. An animation's line carries the params block it plays with.
+// several in turn is a line for each. An animation's line carries the params block it plays with. A
+// Jump's ready stance shows no targets: the cartridge's is aimed at the action pool's top slot's, which
+// the port has no counterpart for (docs/Bugs.md). Every other stance shows its targets.
 #pragma once
 
 #include <array>

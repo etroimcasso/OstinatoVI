@@ -814,7 +814,8 @@ script: name 1 166; animation 9 3 | attacker 0 targets 2 hit 2 ...; numeral 1:14
 ```
 
 A command the port has no kind for shows by its bytes (`command $07 $00 $00 $00`), so it parts from
-whatever the port's script holds there. What each line leaves out is what no handler reads:
+whatever the port's script holds there. What each line leaves out is what no handler reads, and one
+operand the port has no counterpart for:
 
 - an animation's fourth byte, except where the attack wrote it (`fourthByteIsTheAttacks()`): a weapon's
   swing, a monster's special attack, a Dance, a Sketch that hit. Every other animation carries the byte
@@ -825,7 +826,10 @@ whatever the port's script holds there. What each line leaves out is what no han
 - a monster animation's monsters for the sound effect, which reads a pan and a sound, and the monsters
   hidden by an entrance that revives some;
 - a message's numbers, except those its text shows (`numbersShown` in `script_shown.cpp`, as the port's
-  text reads its codes): a number code shows the whole number, a name code a name from its low byte.
+  text reads its codes): a number code shows the whole number, a name code a name from its low byte;
+- a Jump's ready stance's targets. The cartridge's stance is aimed at the action pool's top slot's
+  targets, whatever action holds or last held it, and the port keeps no slot numbers (`docs/Bugs.md`).
+  Every other stance's targets are compared.
 
 Tools and Blitz show an index where the port keeps what it names: a tool's index among the tools'
 animations, from the animation's item, or 8 for the Chain Saw's kill; a blitz's among the blitzes', the
@@ -876,12 +880,21 @@ item the two bytes name.
 nobody in a slot and writes the slot's two hand records 0 and then 255 at the first step: both runs agree
 with the port to the battle's end.
 
+`AJumpsReadyStanceAimsAtTheTopSlotsTargetsWhichReachNothingElse` takes a Jump's ready stance
+(`docs/Bugs.md`). On draw 92 of the sweep's, a colosseum match, it reads the action pool's top slot at the
+frame wait of the step before the stance's, records its link, command, attack and targets, and checks the
+stance carries those targets. It then looks through the sweep's draws that the port plays a Jump stance in
+for the first whose stance finds the top slot free with the Jump queued below it, and writes the slot's
+targets 0 and then 65,535 at that frame wait: the stance carries what was written, and both runs agree with
+the port to the battle's end.
+
 `tests/oracle/test_battle_scripts_oracle.cpp` checks the script reader on queues laid by hand: each
 command the battle program writes reads as the port's command its handler shows, the params blocks go to
 the commands that play them (an animation and a bounce take one each, the pointer step passes one by, the
 ready stance reads the next and leaves it), and each numerals-at-once command takes the next buffer. It
 checks that an animation's fourth byte shows only where the attack wrote it and a message's numbers only
-where its text shows them. Those five run in every run of the tests. The sixth runs the sweep's first
+where its text shows them, and that a Jump's ready stance shows no targets while a Fight's shows its own.
+Those six run in every run of the tests. The seventh runs the sweep's first
 ten drawn battles whole and checks every script they play reads as the port's commands, none by its
 bytes, one for each call that plays a script; it records how many scripts and lines of each kind it read.
 

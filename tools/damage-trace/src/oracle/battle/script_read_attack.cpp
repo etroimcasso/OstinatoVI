@@ -50,7 +50,7 @@ battle::BattleScriptCommand animationRead(const QueueCommand& command, std::span
         animation.newBackground = static_cast<BattleBackgroundId>(command[3]);
     }
     // Tools shows a tool's index among the tools' animations: the item less Noiseblaster's, or 8 for the
-    // Chain Saw's kill (Cmd_01 battle_main.asm:3933-3937, ToolsEffect_03 :7130-7131).
+    // Chain Saw's kill (Cmd_09 battle_main.asm:3933-3937, ToolsEffect_03 :7130-7131).
     if (command[1] == static_cast<std::uint8_t>(BattleCommandId::TOOLS)) {
         constexpr std::uint8_t kChainSawKillAnimation = 8;
         animation.chainSawKill = command[2] == kChainSawKillAnimation;

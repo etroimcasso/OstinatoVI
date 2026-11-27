@@ -86,6 +86,8 @@ turnToFaceTargets(state, script);   // every ReadyStance and AttackAnimation in 
 - **After the party runs, no party member turns** for the rest of that script. Monsters still do.
 - **A Jump lands facing the last animation's targets**, not its own: whatever `animationTargets`
   holds when its landing plays.
+- **A Jump's ready stance faces the Jump's own targets.** The original's faces the targets of the
+  battle's highest action slot, whatever action holds or last held it ([`docs/Bugs.md`](../../Bugs.md)).
 - **Facings matter only in side and pincer attacks.** In a front or back attack they are what the
   player sees and nothing more; `hitInTheBack()` reads them only in the other two.
 - **A pincer opens unrunnable.** The run check at a battle's start sees every monster on both

@@ -14,8 +14,9 @@ namespace ostinato::trace::detail {
 
 battle::BattleScriptCommand partyRead(const QueueCommand& command, std::span<const std::uint8_t> block) {
     if (command[0] == kReadyStanceScriptCommand) {
-        // The command in the queue (:21847) and the block InitGfxParams wrote for it (battle_main.asm
-        // :5776-5787, :14428-14443): the actor in byte 1 (:21845) and its targets in bytes 2-3.
+        // The command in the queue (GfxCmd_0c btlgfx_main.asm:21847) and the block InitGfxParams wrote for
+        // it (battle_main.asm:5776-5787, :14428-14443): the actor in byte 1 (btlgfx_main.asm:21845) and its
+        // targets in bytes 2-3.
         return battle::ReadyStance{.actor = battle::BattlerSlot::fromIndex(block[1] % battle::kBattlerSlots),
                                    .command = static_cast<BattleCommandId>(command[1]),
                                    .targets = setOf(static_cast<std::uint16_t>(block[2] | block[3] << 8))};

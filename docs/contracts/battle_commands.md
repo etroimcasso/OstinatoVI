@@ -956,6 +956,8 @@ init_all_anim`), except:
   (`w7e62a4`, cleared by `BtlGfx_04 btlgfx:22393`).
 - A Jump's landing (`CmdAnim_16`) turns toward the targets of the last animation shown before it,
   not its own: it never sets the animation's targets.
+- A Jump's ready stance aims at the action pool's top slot's targets (`_gaugefull :5773-5779`,
+  [`docs/Bugs.md`](../Bugs.md)); the port's aims at the Jump's own.
 
 The port turns attackers as each action's script is handed to the presentation, in script order;
 the battle reads no facing while a script plays.

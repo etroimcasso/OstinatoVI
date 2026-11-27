@@ -1,9 +1,9 @@
-// A whole battle's scripts compared command by command (docs/contracts/battle_core.md § The battle
+// A whole battle's scripts compared command by command (tools/damage-trace/README.md § The battle
 // whole): the cartridge's queue, params blocks and numeral buffers read into the port's commands
 // (tools/damage-trace/src/oracle/battle/script_read.h), each command shown as the operands its handler in
 // the graphics program reads (tools/damage-trace/src/scenarios/battle/script_shown.h), the fourth byte
 // of an animation shown only where the attack wrote it, a message's numbers only where its text shows
-// them, and drawn battles' scripts read whole.
+// them, a Jump's ready stance shown without its targets, and drawn battles' scripts read whole.
 //
 // The tests that read bytes laid by hand run in every run of the tests; the one that asks the cartridge
 // on the engine's machine skips in a brief run (OSTINATO_CARTRIDGE_CHECKS=brief, tests/with_cartridge.h).
@@ -259,6 +259,21 @@ TEST_F(BattleScriptsOracleTest, TheFourthByteIsShownOnlyWhereTheAttackWroteIt) {
     EXPECT_TRUE(trace::fourthByteIsTheAttacks(battle::AttackAnimation{.what = BattleCommandId::CAPTURE}));
     EXPECT_TRUE(trace::fourthByteIsTheAttacks(battle::AttackAnimation{.what = BattleCommandId::JUMP}));
     EXPECT_FALSE(trace::fourthByteIsTheAttacks(battle::AttackAnimation{.what = battle::SpecialAnimation::UmaroTackle}));
+}
+
+// A Jump's ready stance shows no targets, since the cartridge's aims at the action pool's top slot's
+// (docs/Bugs.md); every other stance shows its own. Two Jump stances that differ in their targets alone
+// show the same line, and two Fight stances that differ the same way show different lines.
+TEST_F(BattleScriptsOracleTest, AJumpsReadyStanceShowsNoTargets) {
+    const auto shown = [](BattleCommandId command, battle::BattlerSlot target) {
+        const std::vector<battle::BattleScriptCommand> commands{battle::ReadyStance{
+            .actor = battle::BattlerSlot::character(0), .command = command, .targets = battle::BattlerSet::of(target)}};
+        return trace::scriptShown(commands, text()).front();
+    };
+    EXPECT_EQ(shown(BattleCommandId::JUMP, battle::BattlerSlot::character(0)),
+              shown(BattleCommandId::JUMP, battle::BattlerSlot::character(1)));
+    EXPECT_NE(shown(BattleCommandId::FIGHT, battle::BattlerSlot::character(0)),
+              shown(BattleCommandId::FIGHT, battle::BattlerSlot::character(1)));
 }
 
 // A message shows the numbers its text shows and no others: Scan's level the whole first number, an
